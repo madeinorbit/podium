@@ -41,7 +41,7 @@ describe('describeQueuedChange', () => {
     }
     expect(describeQueuedChange('effectCreate', input)).toEqual({ label, summary: null })
     expect(couldNotSaveNotice('effectCreate', input)).toBe(
-      `Couldn’t ${label[0]!.toLowerCase()}${label.slice(1)}`,
+      `Couldn’t ${label.charAt(0).toLowerCase()}${label.slice(1)}`,
     )
   })
 
@@ -130,6 +130,25 @@ describe('describeQueuedChange', () => {
 })
 
 describe('recovery copy', () => {
+  it('includes the server explanation in a refused Start toast', () => {
+    expect(
+      couldNotSaveNotice(
+        'effectCreate',
+        { kind: 'issue.begin' },
+        {
+          code: 'invalid',
+          message: 'Choose a machine before starting the task.',
+        },
+      ),
+    ).toBe('Couldn’t start the task — Choose a machine before starting the task.')
+  })
+
+  it('explains a refusal without a server message in user words', () => {
+    expect(
+      couldNotSaveNotice('effectCreate', { kind: 'issue.begin' }, { code: 'unauthorized' }),
+    ).toBe('Couldn’t start the task — it was refused')
+  })
+
   it('keeps unauthorized wording silent about the target', () => {
     const copy = recoveryCopyFor('unauthorized')
     expect(copy.title).toBe('Needs access first')

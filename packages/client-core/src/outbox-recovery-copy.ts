@@ -43,7 +43,7 @@
 
 import type { ConfirmationRule } from '@podium/commands'
 import type { IssueStage } from '@podium/model'
-import type { OutboxRejectionCode } from '@podium/sync/outbox'
+import type { OutboxRejectionCode, OutboxRejectionReason } from '@podium/sync/outbox'
 import { ISSUE_STAGE_LABELS } from './values/issue-reference'
 
 /** One clause naming what happened, for a toast. */
@@ -365,14 +365,21 @@ export function deadLetterNotice(kind: string, input: unknown, code: OutboxRejec
   return `${describeQueuedChange(kind, input).label} didn’t sync — ${reasonSummary(code)}`
 }
 
-/** Short toast, Linear-shaped: what failed, not why in protocol terms. */
-export function couldNotSaveNotice(kind: string, input: unknown): string {
+/** What failed, with the normalized server explanation when available. */
+export function couldNotSaveNotice(
+  kind: string,
+  input: unknown,
+  reason?: OutboxRejectionReason,
+): string {
   const label = describeQueuedChange(kind, input).label
-  const named = label.length === 0 ? 'this change' : label[0]!.toLowerCase() + label.slice(1)
-  if (kind === 'effectDismiss' || (kind === 'effectCreate' && label !== kindLabel(kind))) {
-    return `Couldn’t ${named}`
-  }
-  return `Couldn’t save ${named}`
+  const named = label.length === 0 ? 'this change' : label.charAt(0).toLowerCase() + label.slice(1)
+  const action =
+    kind === 'effectDismiss' || (kind === 'effectCreate' && label !== kindLabel(kind))
+      ? named
+      : `save ${named}`
+  const message = reason?.message?.trim()
+  const explanation = message || (reason === undefined ? undefined : reasonSummary(reason.code))
+  return `Couldn’t ${action}${explanation ? ` — ${explanation}` : ''}`
 }
 
 /** Toast line for a queued message whose session was deleted before it

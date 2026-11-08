@@ -13,6 +13,7 @@
  */
 
 import { asIssueId, asMutationId, asSessionId, asUserId, issueUserStateRowId } from '@podium/model'
+import { SyncSubmitRefusedError } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -113,6 +114,77 @@ async function open(
 afterEach(() => {
   online = true
   vi.useRealTimers()
+})
+
+describe('server refusal explanations', () => {
+  it.each([
+    'kernel',
+    'executor',
+  ] as const)('keeps the message and paths in the toast and durable recovery entry through the %s', async (path) => {
+    const refusal = {
+      kind: 'invalid' as const,
+      message: 'Choose a machine before starting the task.',
+      details: ['input.machineId'],
+    }
+    const api = {
+      sync: {
+        submit: {
+          mutate: vi.fn(async () => {
+            if (path === 'executor') throw new SyncSubmitRefusedError('effects.create', refusal)
+            return { outcome: 'rejected', refusal }
+          }),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const { outbox, errors } = await open(api)
+    try {
+      await outbox.enqueue('effectCreate', {
+        id: 'eff_00000000-0000-4000-8000-000000000001',
+        kind: 'issue.begin',
+        target: { kind: 'issue', id: 'iss_task' },
+        input: { text: 'Keep my task instructions.' },
+      })
+      await vi.waitFor(() => expect(outbox.deadLetters()).toHaveLength(1))
+      expect(outbox.deadLetters()[0]?.reason).toEqual({
+        code: 'invalid',
+        message: refusal.message,
+        details: refusal.details,
+      })
+      expect(errors).toEqual([
+        'Couldn’t start the task — Choose a machine before starting the task.',
+      ])
+    } finally {
+      outbox.dispose()
+    }
+  })
+
+  it('explains a refused Start even when no prose is parked', async () => {
+    const api = {
+      sync: {
+        submit: {
+          mutate: async () => ({
+            outcome: 'rejected',
+            refusal: { kind: 'conflict', message: 'This task is already starting.' },
+          }),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const { outbox, errors } = await open(api)
+    try {
+      await outbox.enqueue('effectCreate', {
+        id: 'eff_00000000-0000-4000-8000-000000000001',
+        kind: 'issue.begin',
+        target: { kind: 'issue', id: 'iss_task' },
+        input: { sessionId: 's-1' },
+      })
+      await vi.waitFor(() =>
+        expect(errors).toEqual(['Couldn’t start the task — This task is already starting.']),
+      )
+      expect(outbox.deadLetters()).toEqual([])
+    } finally {
+      outbox.dispose()
+    }
+  })
 })
 
 describe("POD-5415's sequence through the app's queue", () => {

@@ -580,14 +580,18 @@ class KernelEngineOutbox implements EngineOutbox {
       this.callbacks.onDropped?.(entry, event.record.reason)
       if (shouldDiscardDeadLetter(event.record)) {
         if (deadLetterHandlingFor(entry.kind, entry.input) !== 'discard-automatic') {
-          this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
+          this.callbacks.notices.error(
+            couldNotSaveNotice(entry.kind, entry.input, event.record.reason),
+          )
         }
       } else {
         const parked = this.deadLetters().find(
           (candidate) => candidate.entry.mutationId === event.record.mutationId,
         )
         if (parked !== undefined) {
-          this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
+          this.callbacks.notices.error(
+            couldNotSaveNotice(entry.kind, entry.input, event.record.reason),
+          )
           this.callbacks.onDeadLetter?.(parked)
         }
       }

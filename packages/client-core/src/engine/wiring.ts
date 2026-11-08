@@ -16,8 +16,7 @@ import {
 } from '@podium/model'
 import {
   isMissingSyncSubmit,
-  SYNC_REFUSAL_CODES,
-  type SyncSubmitRefusal,
+  SyncSubmitRefusedError,
   SyncSubmitReply,
   submitNow,
 } from '@podium/protocol'
@@ -710,9 +709,6 @@ export function outboxCommandOf<K extends keyof OutboxKinds & string>(
  */
 export { isMissingSyncSubmit }
 
-/** The tRPC error code `classifyRefusal` reads back as each refusal. */
-const REFUSAL_CODES = SYNC_REFUSAL_CODES
-
 type WithMutationId = { readonly mutationId: MutationId }
 
 /**
@@ -733,13 +729,9 @@ async function submitEffect(
     })
   }
   const raw = await submit.mutate({ mutationId, command: name, version: 1, input: wire })
-  const reply = raw as { outcome?: string; result?: unknown; refusal?: { kind: string } }
+  const reply = SyncSubmitReply.parse(raw)
   if (reply.outcome === 'rejected') {
-    throw Object.assign(new Error(`${name} was refused (${reply.refusal?.kind ?? 'unknown'})`), {
-      data: {
-        code: REFUSAL_CODES[(reply.refusal?.kind ?? 'invalid') as SyncSubmitRefusal['kind']],
-      },
-    })
+    throw new SyncSubmitRefusedError(name, reply.refusal)
   }
   return reply.result
 }
@@ -799,9 +791,7 @@ async function submitRecord(
     chain.applied(kind, entry, reply.result)
     return reply.result
   }
-  throw Object.assign(new Error(`${command.name} refused: ${reply.refusal.kind}`), {
-    data: { code: REFUSAL_CODES[reply.refusal.kind] },
-  })
+  throw new SyncSubmitRefusedError(command.name, reply.refusal)
 }
 
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
@@ -1026,11 +1016,17 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
         !shouldParkDeadLetter(entry.kind, entry.input) &&
         deadLetterHandlingFor(entry.kind, entry.input) !== 'discard-automatic'
       ) {
-        args.notices.error(couldNotSaveNotice(entry.kind, entry.input))
+        args.notices.error(
+          couldNotSaveNotice(
+            entry.kind,
+            entry.input,
+            refusal === undefined ? undefined : normalizeRefusal(refusal),
+          ),
+        )
       }
     },
     onDeadLetter: (parked) => {
-      args.notices.error(couldNotSaveNotice(parked.entry.kind, parked.entry.input))
+      args.notices.error(couldNotSaveNotice(parked.entry.kind, parked.entry.input, parked.reason))
       args.onDeadLetter?.(parked)
     },
   })

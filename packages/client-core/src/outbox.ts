@@ -21,6 +21,7 @@
  */
 
 import { asMutationId, type MutationId } from '@podium/model'
+import { SyncSubmitRefusedError } from '@podium/protocol'
 import {
   type AuthorityRefusal,
   MAX_AGE_REASON,
@@ -230,6 +231,9 @@ function isPoisonError(err: unknown): boolean {
  * work queued and retryable rather than park it on a guess.
  */
 export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
+  // Preserve the entry point's structured explanation and validation paths.
+  // The kernel still blurs denied and missing targets in normalizeRefusal.
+  if (err instanceof SyncSubmitRefusedError) return err.refusal
   const data = (err as { data?: { httpStatus?: number; code?: string } } | null)?.data
   const code = data?.code
   const status = data?.httpStatus

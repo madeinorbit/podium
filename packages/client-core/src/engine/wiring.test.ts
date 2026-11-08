@@ -403,6 +403,32 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
   })
 })
 
+describe('effect refusals through the executor', () => {
+  it.each([
+    'effectCreate',
+    'effectDismiss',
+  ] as const)('%s keeps the server message, kind and validation paths', async (kind) => {
+    const refusal = {
+      kind: 'invalid',
+      message: 'Choose a machine before starting the task.',
+      details: ['input.machineId'],
+    }
+    const api = {
+      sync: { submit: { mutate: vi.fn(async () => ({ outcome: 'rejected', refusal })) } },
+    }
+    await expect(
+      outboxExecutors(api as never)[kind]({
+        ...SAMPLE[kind],
+        mutationId: asMutationId('m-effect'),
+      }),
+    ).rejects.toMatchObject({
+      message: refusal.message,
+      refusal,
+      data: { code: 'BAD_REQUEST' },
+    })
+  })
+})
+
 describe('POD-6415 — an offer dismissal drains on the sync write entry point', () => {
   const entry = {
     sessionId: asSessionId('s-1'),
