@@ -67,11 +67,32 @@ failure or changing the candidate. Once a candidate is green, don't repeat valid
 a new change, failure or unresolved concern. "More confidence" without a concrete risk is not
 a reason to add a lane.
 
+## Disposable VPS lab
+
+For fresh Linux installer, VPS onboarding, machine join, tunnels and upgrade tests, use the
+versioned Docker rig at [`tools/vps-lab/`](../../tools/vps-lab/README.md). The entry point is
+`tools/vps-lab/lab`; no `vpslab` executable or old issue worktree is required. It provides
+Ubuntu 24.04 with systemd as PID 1 and SSH, so tests exercise real user services.
+
+Run the lab on a Linux Docker host. For a shared fleet, obtain host access and slot assignments
+from the test issue. Container SSH endpoints are localhost ports `2200 + N` on that Docker
+host. Read the README, inspect `tools/vps-lab/lab status`, and acquire `lab:vpsN` before
+changing an assigned slot. Record its host, container ID and build on the test issue. `lab up`
+recreates the fleet, `reset N` recreates one box, and `down`/`nuke` remove shared state.
+Resume a preserved stopped box with
+`docker start vpsN` only after coordinating ownership.
+
+Follow [release-testing.md](../release-testing.md) for current setup and upgrade cases. The
+saved `walk` runner targets the dev channel and older CLI assumptions; it resets vps1–vps5
+and is not a default gate. Lab drills require the matching changed behavior or release test
+scope, and follow the same one-validation-command-at-a-time budget above. For multiple
+Podium instances on one OS rather than a fresh distro, use [multi-instance.md](multi-instance.md).
+
 ## MobX click speed gate
 
 - Every capture first runs the focused structural lane (`bun run speed:structural`): named pool readers and app consumers, six clicks and three single-row deltas at 1×/4×, row calls, derivation bodies and collection elements compared individually against the visible-neighbourhood ratio. Known failures name their fixing issues in `work-pool-screens.json`; correctness and new reader failures remain enforced. `bun run speed:gate -- --structural-only` runs this portion without a production build, timing capture or benchmark lease. Promotion reuses the saved capture.
 - Exceptions are exact action/kind/reader entries in `tests/worklist/harness/src/screen-work.expected-failures.json`, each with an owning issue. Passing entries are reported as fixed without failing the gate; retire those entries with the fix so the same scan cannot return under an old exception. A new action, counter kind or reader has no allowance. The report also lists the app consumers and addressed neighbourhood for every step.
-- Run `bun run speed:gate` on flatblock once at the end of each MobX step before landing; skip small fixes and test-only changes. It owns `bench:flatblock`.
+- Run `bun run speed:gate` on the designated benchmark host once at the end of each MobX step before landing; skip small fixes and test-only changes. The runner acquires the benchmark lease.
 - One minified production build, real Chromium, the fixed 4× corpus: sidebar issue, mission switch, session pane, rename, unrelated visible background feed update; six samples each (ten exceeded the initial calibration budget), median and worst input → actual Paint.
 - Only an action median more than 10% above `docs/measurements/click-speed-baseline.json` makes the gate red; background timing starts at feed delivery. Measured noise and total runtime are in the JSON report.
 - After the green source lands on `integrate/4286-pilot`, `bun run speed:gate -- --promote` promotes its saved numbers; commit the small baseline JSON, without running the browser again.

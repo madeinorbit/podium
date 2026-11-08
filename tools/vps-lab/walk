@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# walk — run the installer paths that need no human, on the lab boxes, from the dev channel.
+#
+#   ./walk                 every automated path (about 10 minutes)
+#   ./walk user join       just those paths
+#   ./walk --tunnel        also the real Cloudflare quick-tunnel path (needs internet; slow)
+#   ./walk --list          what each path checks
+#
+# Each path starts from a freshly reset box. Everything goes over ssh WITHOUT a terminal, so
+# the installer takes its non-interactive path; the clack menus and `--vps` still need a person
+# (see TESTING.md). Output of each step is kept in ./walk-logs/.
+#
+# Box use: vps1 user path + second instance · vps2 root path · vps3 joins vps4 (server, then
+# re-install) · vps5 bare distro. Boxes are left as the tests end, so you can ssh in and look.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LAB="$HERE/lab"
+LOGS="$HERE/walk-logs"
+URL="https://github.com/madeinorbit/podium/releases/download/dev/install.sh"
+INSTALL="curl -fsSL $URL | sh -s -- --channel dev"
+PATHLINE='export PATH="$HOME/.local/bin:$PATH"'
+mkdir -p "$LOGS"
+
+declare -a RESULTS=()
+FAILED=0
+
+say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+pass() { RESULTS+=("PASS  $1"); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
+fail() { RESULTS+=("FAIL  $1 — $2"); FAILED=$((FAILED + 1)); printf '  \033[31mFAIL\033[0m %s — %s\n' "$1" "$2"; }
+check() { # check "<what>" <command...>: pass if the command succeeds
+  local what="$1"; shift
+  if "$@" >/dev/null 2>&1; then pass "$what"; else fail "$what" "check failed: $*"; fi
+}
+
+port_of() { echo $((2200 + $1)); }
+# ssh with no terminal. $1 box, $2 user, rest the remote command.
+on() {
+  local n="$1" user="$2"; shift 2
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+    -o ConnectTimeout=10 -p "$(port_of "$n")" "$user@127.0.0.1" "$@"
+}
+reset_box() {
+  "$LAB" reset "$1" >/dev/null 2>&1 || { echo "cannot reset vps$1"; return 1; }
+  local i
+  for i in $(seq 1 30); do on "$1" root true 2>/dev/null && return 0; sleep 1; done
+  echo "vps$1 did not come back"; return 1
+}
+# Run the installer on box $1 as $2 with extra args $3; log to $LOGS/$4.log.
+install_on() {
+  on "$1" "$2" "$INSTALL ${3:-}" >"$LOGS/$4.log" 2>&1
+  # The lab's container DNS drops a lookup now and then; that is the rig, not the installer.
+  # One retry, and the log says so.
+  if grep -qE "Could not resolve host|Connection timed out|Temporary failure in name resolution" "$LOGS/$4.log"; then
+    mv "$LOGS/$4.log" "$LOGS/$4.network-retry.log"
+    sleep 3
+    on "$1" "$2" "$INSTALL ${3:-}" >"$LOGS/$4.log" 2>&1
+  fi
+}
+logged() { grep -q "$2" "$LOGS/$1.log"; }
+
+# Checks every install should pass. $1 box, $2 user, $3 label, $4 log name.
+common_checks() {
+  local n="$1" user="$2" label="$3" log="$4"
+  if logged "$log" "Installed"; then pass "$label: installer finished"; else fail "$label: installer finished" "see walk-logs/$log.log"; return; fi
+  if logged "$log" "No systemd service"; then
+    fail "$label: systemd user service" "took the detached fallback (see walk-logs/$log.log)"
+  else
+    pass "$label: systemd user service (no detached fallback)"
+  fi
+  check "$label: podium --version runs" on "$n" "$user" "$PATHLINE; podium --version"
+  check "$label: channel is dev" on "$n" "$user" "$PATHLINE; podium channel | grep -q dev"
+  check "$label: podium-tunnel shipped and runs" on "$n" "$user" '~/.local/share/podium/podium-tunnel --version'
+  check "$label: PATH persisted for new shells" on "$n" "$user" 'grep -qs "\.local/bin" ~/.profile ~/.bashrc ~/.zshrc'
+}
+
+# Configure box $1 (user mgw) as a server reachable on the lab network, without the clack menus.
+make_server() {
+  local n="$1"
+  on "$n" mgw "$PATHLINE; printf '%s\n' '{\"configVersion\":3,\"mode\":\"all-in-one\",\"publicUrl\":\"http://vps$n:18787\",\"networkOption\":\"manual\",\"bindHost\":\"0.0.0.0\",\"persistence\":\"systemd\",\"updateChannel\":\"dev\"}' > ~/.podium/config.json && podium </dev/null >/dev/null 2>&1; for i in \$(seq 1 60); do curl -fsS http://127.0.0.1:18787/health >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1"
+}
+# Operator-authenticated tRPC call on box $1 (mgw). $2 method (GET|POST), $3 procedure.
+trpc() {
+  local n="$1" method="$2" proc="$3"
+  on "$n" mgw "$PATHLINE; T=\$(podium auth mint-session --print-only --ttl 1h 2>/dev/null); curl -sS -X $method http://127.0.0.1:18787/trpc/$proc -H 'content-type: application/json' -H \"cookie: podium_session=\$T\" $( [ "$method" = POST ] && echo "-d '{}'" )"
+}
+
+# ---------------------------------------------------------------------------------------------
+
+t_user() {
+  say "user: fresh install as a sudo user (vps1)"
+  reset_box 1 || { fail "user" "vps1 unavailable"; return; }
+  install_on 1 mgw "" user
+  common_checks 1 mgw user user
+}
+
+t_root() {
+  say "root: fresh install as root (vps2)"
+  reset_box 2 || { fail "root" "vps2 unavailable"; return; }
+  install_on 2 root "" root
+  common_checks 2 root root root
+}
+
+t_instance() {
+  say "instance: a second instance beside the first (vps1, after 'user')"
+  on 1 mgw "$PATHLINE; command -v podium" >/dev/null 2>&1 || { reset_box 1 && install_on 1 mgw "" instance-base; }
+  install_on 1 mgw "--instance two" instance
+  if logged instance "Installed"; then pass "instance: installer finished"; else fail "instance: installer finished" "see walk-logs/instance.log"; fi
+  check "instance: podium-two runs" on 1 mgw "$PATHLINE; podium-two --version"
+  check "instance: the default instance still runs" on 1 mgw "$PATHLINE; podium --version"
+}
+
+t_join() {
+  say "join: vps4 is the server, vps3 joins it with a minted token"
+  reset_box 4 && reset_box 3 || { fail "join" "vps3/vps4 unavailable"; return; }
+  install_on 4 mgw "" server
+  if make_server 4; then pass "join: server vps4 up and healthy"; else fail "join: server vps4 up" "health never answered"; return; fi
+  check "join: vps3 reaches http://vps4:18787" on 3 root 'curl -fsS -m 5 http://vps4:18787/health'
+  local token
+  token="$(trpc 4 POST machines.pairingCode | grep -o -- '--join [A-Za-z0-9_=-]*' | cut -d' ' -f2)"
+  if [ -n "$token" ]; then pass "join: server minted a join token"; else fail "join: server minted a join token" "machines.pairingCode returned none"; return; fi
+  install_on 3 mgw "--join $token" join
+  if logged join "Joined as"; then pass "join: vps3 joined"; else fail "join: vps3 joined" "see walk-logs/join.log"; fi
+  local i listed=""
+  for i in $(seq 1 30); do
+    if trpc 4 GET machines.list | grep -q vps3; then listed=1; break; fi
+    sleep 2
+  done
+  if [ -n "$listed" ]; then pass "join: server lists vps3"; else fail "join: server lists vps3" "machines.list never named vps3"; fi
+}
+
+t_reinstall() {
+  say "reinstall: the installer again over a configured server (vps4, after 'join')"
+  on 4 mgw 'grep -q "\"mode\"" ~/.podium/config.json' 2>/dev/null || {
+    reset_box 4 && install_on 4 mgw "" server && make_server 4 || { fail "reinstall" "could not set up vps4"; return; }
+  }
+  local before after
+  before="$(on 4 mgw 'cat ~/.podium/config.json')"
+  install_on 4 mgw "" reinstall
+  if logged reinstall "Installed"; then pass "reinstall: installer finished"; else fail "reinstall: installer finished" "see walk-logs/reinstall.log"; fi
+  if logged reinstall "configure this machine"; then
+    fail "reinstall: does not ask to configure again" "it did (see walk-logs/reinstall.log)"
+  else
+    pass "reinstall: does not ask to configure again"
+  fi
+  after="$(on 4 mgw 'cat ~/.podium/config.json')"
+  if [ "$(grep -o '"publicUrl": *"[^"]*"' <<<"$before")" = "$(grep -o '"publicUrl": *"[^"]*"' <<<"$after")" ] \
+    && grep -q '"mode": *"all-in-one"' <<<"$after"; then
+    pass "reinstall: mode and public URL kept"
+  else
+    fail "reinstall: mode and public URL kept" "config changed"
+  fi
+  check "reinstall: server healthy afterwards" on 4 mgw 'for i in $(seq 1 60); do curl -fsS http://127.0.0.1:18787/health >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+}
+
+t_bare() {
+  say "bare: a box with no curl and no wget (vps5, root)"
+  reset_box 5 || { fail "bare" "vps5 unavailable"; return; }
+  "$LAB" bare 5 >/dev/null
+  if on 5 root 'command -v curl || command -v wget' >/dev/null 2>&1; then fail "bare: downloaders removed" "curl or wget still present"; return; fi
+  pass "bare: downloaders removed"
+  curl -fsSL "$URL" | on 5 root 'sh -s -- --channel dev' >"$LOGS/bare.log" 2>&1
+  if logged bare "Installed"; then pass "bare: installer finished"; else fail "bare: installer finished" "see walk-logs/bare.log"; fi
+  check "bare: podium --version runs" on 5 root "$PATHLINE; podium --version"
+}
+
+t_tunnel() {
+  say "tunnel: supervised Cloudflare quick tunnel on a server (vps4; needs internet)"
+  on 4 mgw 'grep -q "\"mode\"" ~/.podium/config.json' 2>/dev/null || {
+    reset_box 4 && install_on 4 mgw "" server && make_server 4 || { fail "tunnel" "could not set up vps4"; return; }
+  }
+  on 4 root 'bash /root/lab/cloudflared.sh' >"$LOGS/cloudflared.log" 2>&1
+  check "tunnel: cloudflared installed" on 4 mgw 'command -v cloudflared'
+  on 4 mgw 'sed -i "s/\"networkOption\": *\"[a-z-]*\"/\"networkOption\": \"cloudflare-tunnel\"/" ~/.podium/config.json'
+  on 4 mgw "$PATHLINE; podium tunnel enable" >"$LOGS/tunnel-enable.log" 2>&1
+  if logged tunnel-enable "enabled"; then pass "tunnel: podium tunnel enable"; else fail "tunnel: podium tunnel enable" "see walk-logs/tunnel-enable.log"; return; fi
+  local first="" second="" i
+  for i in $(seq 1 60); do
+    first="$(on 4 mgw 'grep -o "https://[a-z0-9-]*\.trycloudflare\.com" ~/.podium/config.json' 2>/dev/null || true)"
+    [ -n "$first" ] && break; sleep 2
+  done
+  if [ -n "$first" ]; then pass "tunnel: URL recorded ($first)"; else fail "tunnel: URL recorded" "config never got a trycloudflare URL"; return; fi
+  if curl_ok "$first"; then pass "tunnel: $first answers /health"; else fail "tunnel: URL answers" "$first/health never answered"; fi
+  on 4 mgw 'systemctl --user kill --signal=SIGKILL --kill-whom=all podium-tunnel.service'
+  for i in $(seq 1 90); do
+    second="$(on 4 mgw 'grep -o "https://[a-z0-9-]*\.trycloudflare\.com" ~/.podium/config.json' 2>/dev/null || true)"
+    [ -n "$second" ] && [ "$second" != "$first" ] && break; sleep 2
+  done
+  if [ -n "$second" ] && [ "$second" != "$first" ]; then pass "tunnel: rotated URL recorded after a kill ($second)"; else fail "tunnel: rotated URL recorded" "still $first"; fi
+  if curl_ok "$second"; then pass "tunnel: new URL answers /health"; else fail "tunnel: new URL answers" "$second/health never answered"; fi
+  on 4 mgw "$PATHLINE; podium tunnel disable" >/dev/null 2>&1
+  check "tunnel: disable removes the service" on 4 mgw '! systemctl --user is-active --quiet podium-tunnel.service'
+}
+# A fresh trycloudflare URL takes a few seconds before it routes; give it a minute.
+curl_ok() { local i; for i in $(seq 1 30); do curl -fsS -m 5 "$1/health" >/dev/null 2>&1 && return 0; sleep 2; done; return 1; }
+
+list() {
+  cat <<'EOF'
+user       fresh install as a sudo user: installer finishes, systemd service, version, dev channel,
+           podium-tunnel shipped, PATH persisted
+root       the same as root
+instance   --instance two beside the default: podium-two and podium both run
+join       vps4 as server on the lab network, a minted token, vps3 joins, the server lists vps3
+reinstall  the installer over a configured server: no "configure" prompt, config kept, still healthy
+bare       no curl/wget on the box: install.sh piped in over ssh still installs
+tunnel     (--tunnel) podium tunnel enable on vps4: URL recorded and answering; SIGKILL the
+           service, systemd restarts it, the NEW URL is recorded and answers; disable cleans up
+EOF
+}
+
+main() {
+  local tests=() with_tunnel=""
+  for a in "$@"; do
+    case "$a" in
+      --list) list; exit 0 ;;
+      --tunnel) with_tunnel=1 ;;
+      -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+      *) tests+=("$a") ;;
+    esac
+  done
+  [ ${#tests[@]} -gt 0 ] || tests=(user root instance join reinstall bare)
+  [ -n "$with_tunnel" ] && tests+=(tunnel)
+  local t
+  for t in "${tests[@]}"; do
+    declare -F "t_$t" >/dev/null || { echo "unknown path: $t (see --list)"; exit 2; }
+    "t_$t"
+  done
+  say "summary"
+  printf '%s\n' "${RESULTS[@]}"
+  echo
+  if [ "$FAILED" -eq 0 ]; then echo "All ${#RESULTS[@]} checks passed."; else echo "$FAILED of ${#RESULTS[@]} checks failed. Logs: $LOGS"; fi
+  [ "$FAILED" -eq 0 ]
+}
+main "$@"

@@ -48,6 +48,8 @@ tag exists.
 ## Step 2. Test data: a filled previous-stable install
 
 No long-lived install stays on the previous stable release, so the upgrade tester builds one.
+Select and claim a disposable box through the [VPS lab guide](../tools/vps-lab/README.md)
+([testing guide](agents/testing.md#disposable-vps-lab)); preserve it for the update tests.
 
 1. On a fresh lab machine, install the current stable release: `install.sh` installs stable by
    default.
@@ -65,6 +67,15 @@ No long-lived install stays on the previous stable release, so the upgrade teste
 Each test starts from a clean lab machine and a Mac with no Podium installed. The VPS lab is the
 set of disposable lab VPSs the operator names for the release (`vps1` and up); record the machines
 used on the release issue.
+
+The reusable startup scripts and prerequisites are in [`tools/vps-lab/`](../tools/vps-lab/README.md).
+Run the lab on a Linux Docker host; obtain shared-host access and slot assignments from the
+release issue. From a checkout on that host, run `tools/vps-lab/lab status`, claim `lab:vpsN`,
+then use only your assigned slot. `lab up` recreates the fleet and `reset N` replaces a box;
+do not use them over preserved test data. The
+[testing guide](agents/testing.md#disposable-vps-lab) explains
+when to choose this rig. Use this release's selected build, rather than the historical
+`walk` runner's dev-channel defaults. Cloudflare quick tunnels need no separate credentials.
 
 | ID | Test | Passes when |
 | --- | --- | --- |

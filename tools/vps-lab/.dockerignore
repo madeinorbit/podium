@@ -1,0 +1,5 @@
+.known_hosts*
+walk-logs/
+*.md
+lab
+walk
