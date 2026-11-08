@@ -23,6 +23,7 @@ vi.mock('@/components/ui/dialog', () => {
 vi.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children }: { children: ReactNode }) => <>{children}</>,
   TabsList: () => null,
+  TabsTrigger: () => null,
   TabsContent: ({ value, children }: { value: string; children: ReactNode }) =>
     value === 'connection' ? <>{children}</> : null,
 }))
