@@ -128,12 +128,6 @@ describe('records.pin', () => {
       ),
     )
     expect(refusalOf(reply)?.kind).toBe('unauthorized')
-    // A refusal is an audit fact too.
-    expect(
-      (await o.store.settingsAudit.list()).filter(
-        (row) => row.command === 'records.userPreferences.edit',
-      ),
-    ).toEqual([expect.objectContaining({ outcome: 'refused', actorId: ME })])
   })
 })
 
@@ -276,6 +270,12 @@ describe('records.userPreferences', () => {
       ),
     )
     expect(refusalOf(reply)?.kind).toBe('unauthorized')
+    // A refusal is an audit fact too.
+    expect(
+      (await o.store.settingsAudit.list()).filter(
+        (row) => row.command === 'records.userPreferences.edit',
+      ),
+    ).toEqual([expect.objectContaining({ outcome: 'refused', actorId: ME })])
   })
 })
 
