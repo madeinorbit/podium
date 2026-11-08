@@ -272,6 +272,55 @@ describe('the mail writes are on the sync write entry point', () => {
     ])
   })
 
+  it('an inbox read of several unread rows marks each one inside the unit, one savepoint at a time (POD-6625)', async () => {
+    // Live: `podium mail inbox` with two or more unread rows refused with
+    // ParallelNestedTransactionError — the read marks were committed in
+    // parallel, two sibling savepoints on the one unit.
+    const f = await makeFixture()
+    const sent: string[] = []
+    for (const body of ['first unread', 'second unread', 'third unread']) {
+      sent.push(((await f.o.call.messages.send({ to: f.issueId, body })) as { id: string }).id)
+    }
+
+    const inbox = await relay(f, 'messages', 'inbox', {})
+    expect(inbox.ok, JSON.stringify(inbox.error)).toBe(true)
+    const rows = inbox.result as { id: string; readAt: string | null }[]
+    for (const id of sent) {
+      expect(rows.find((m) => m.id === id)?.readAt, id).toBeTruthy()
+      expect((await f.o.store.messages.getMessage(id))?.readAt, id).toBeTruthy()
+    }
+  })
+
+  it('the other row-looping mail writes hold with several rows too: the own-issue peek and the stop hook (POD-6625)', async () => {
+    const f = await makeFixture()
+    const peeked: string[] = []
+    for (const body of ['peek one', 'peek two']) {
+      peeked.push(((await f.o.call.messages.send({ to: f.issueId, body })) as { id: string }).id)
+    }
+    // `inbox --issue <own issue>` consumes, through the same readInbox.
+    const peek = await relay(f, 'messages', 'inbox', { issue: f.issueId })
+    expect(peek.ok, JSON.stringify(peek.error)).toBe(true)
+    for (const id of peeked) {
+      expect((await f.o.store.messages.getMessage(id))?.readAt, id).toBeTruthy()
+    }
+
+    const asked: string[] = []
+    for (const body of ['answer one', 'answer two']) {
+      asked.push(
+        (
+          (await f.o.call.messages.send({ to: f.agent, body, expectResponse: true })) as {
+            id: string
+          }
+        ).id,
+      )
+    }
+    // Delivered to the agent's session, so the stop hook reminds about both.
+    await relay(f, 'messages', 'inbox', {})
+    const reminders = await relay(f, 'messages', 'pendingReminders', {})
+    expect(reminders.ok, JSON.stringify(reminders.error)).toBe(true)
+    expect((reminders.result as { id: string }[]).map((r) => r.id).sort()).toEqual(asked.sort())
+  })
+
   it("a handler's refusal keeps its words on the relay, and is a refusal over sync.submit", async () => {
     const f = await makeFixture()
     const r = await relay(f, 'messages', 'reply', { id: 'msg_nope', body: 'x' })

@@ -346,34 +346,46 @@ export class MessageMailbox {
     )
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
-    return await Promise.all(
-      rows.map(async (m) => {
-        // Per-READER receipt first [POD-1379]: this session has now been shown the
-        // row whatever a peer on the same issue mailbox already did to the shared
-        // delivery ledger — otherwise a message a peer consumed keeps nagging.
-        if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
-        if (!readable(m) || m.toKind === 'operator') return m
-        const { firstRead } = await commitMessages(
-          writer,
-          async (scope) => await this.deps.messages.markRead(scope, m.id, opts.consume ?? null, at),
-        )
-        if (!firstRead) return m
-        await this.retireNotificationFact(m, at)
-        if (m.toKind === 'issue' && m.toId) {
-          try {
-            await this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
-          } catch {}
-        }
-        const read = {
-          ...m,
-          deliveryStatus: 'confirmed' as const,
-          readAt: at,
-          deliveredTo: m.deliveredTo ?? opts.consume ?? null,
-        }
-        await this.deps.emitTransition(read, 'message.read')
-        return read
-      }),
-    )
+    // ONE ROW AT A TIME (POD-6625). Inside a sync write's unit every read mark
+    // below is a savepoint on that unit, and savepoints are a stack: marked in
+    // parallel, the second row's commit (or the first row's receipt write)
+    // addresses the unit while a sibling's savepoint is open, and the executor
+    // refuses it with ParallelNestedTransactionError — the whole inbox read
+    // rolls back. Sequential is also what an inbox of a handful of rows costs.
+    const out: MessageRow[] = []
+    for (const m of rows) {
+      // Per-READER receipt first [POD-1379]: this session has now been shown the
+      // row whatever a peer on the same issue mailbox already did to the shared
+      // delivery ledger — otherwise a message a peer consumed keeps nagging.
+      if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
+      if (!readable(m) || m.toKind === 'operator') {
+        out.push(m)
+        continue
+      }
+      const { firstRead } = await commitMessages(
+        writer,
+        async (scope) => await this.deps.messages.markRead(scope, m.id, opts.consume ?? null, at),
+      )
+      if (!firstRead) {
+        out.push(m)
+        continue
+      }
+      await this.retireNotificationFact(m, at)
+      if (m.toKind === 'issue' && m.toId) {
+        try {
+          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
+        } catch {}
+      }
+      const read = {
+        ...m,
+        deliveryStatus: 'confirmed' as const,
+        readAt: at,
+        deliveredTo: m.deliveredTo ?? opts.consume ?? null,
+      }
+      await this.deps.emitTransition(read, 'message.read')
+      out.push(read)
+    }
+    return out
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
