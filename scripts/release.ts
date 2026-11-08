@@ -661,7 +661,9 @@ export function publishPreparedHeadless(p: {
   // Fixed names remain installer aliases, replaced only after the manifest switches.
   const published = prepared.map((item) => {
     if (!isRollingChannel(p.channel)) return item
-    const digest = createHash('sha256').update(readFileSync(join(p.dir, item.asset))).digest('hex')
+    const digest = createHash('sha256')
+      .update(readFileSync(join(p.dir, item.asset)))
+      .digest('hex')
     const asset = item.asset.replace(/\.tar\.gz$/, `-${version}-${digest}.tar.gz`)
     cpSync(join(p.dir, item.asset), join(p.dir, asset))
     cpSync(join(p.dir, `${item.asset}.sig`), join(p.dir, `${asset}.sig`))
@@ -751,7 +753,9 @@ export function publishPreparedHeadless(p: {
     ? prepared.flatMap((item) => [item.asset, `${item.asset}.sig`])
     : []
   const assets = [
-    ...releaseFiles.filter((file) => file !== manifestName && !aliases.includes(file)).map((file) => join(p.dir, file)),
+    ...releaseFiles
+      .filter((file) => file !== manifestName && !aliases.includes(file))
+      .map((file) => join(p.dir, file)),
     checksums,
     'install.sh',
   ]
@@ -788,7 +792,6 @@ export function publishPreparedHeadless(p: {
         '--notes',
         rollingBody,
       ])
-
     } else {
       execFileSync('gh', [
         'release',
