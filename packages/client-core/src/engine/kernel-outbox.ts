@@ -228,6 +228,11 @@ function commandInput(envelope: OutboxEnvelope): Record<string, unknown> {
  *  kind, which the command's name already carries, so that key stays home. The
  *  per-kind executors take the entry whole: they name the command from it. */
 function submitInput(kind: KernelKind, envelope: OutboxEnvelope): Record<string, unknown> {
+  // Effect contracts are strict. Their mutationId belongs on the envelope,
+  // unlike the legacy per-command inputs commandInput prepares for executors.
+  if (kind === 'effectCreate' || kind === 'effectDismiss') {
+    return envelope.input as Record<string, unknown>
+  }
   const input = commandInput(envelope)
   return isRecordOutboxKind(kind) ? recordWireInput(input) : input
 }
