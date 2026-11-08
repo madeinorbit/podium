@@ -166,8 +166,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/a' })
     const target = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
@@ -258,8 +258,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -772,12 +772,24 @@ describe('oracle: sessions.uploadImage', () => {
       kind: 'file' as const,
     }
 
+    // The chat send runs in the sync write entry point's unit of work
+    // (POD-6350): it stores the message and answers `queued`, and the delivery
+    // attempt that refuses the forged reference runs after the commit
+    // (POD-6349). The property this pins is unchanged: the attempt refuses the
+    // reference, and nothing crosses to the daemon (asserted at the end).
+    const messages = o.reg.modules.messages as unknown as {
+      attemptDelivery: (...args: unknown[]) => Promise<unknown>
+    }
+    const attempts = vi.spyOn(messages, 'attemptDelivery')
     await expect(
       o.call.sessions.sendText({ sessionId, text: 'chat exfiltration', attachments: [forged] }),
-    ).resolves.toMatchObject({
+    ).resolves.toMatchObject({ ok: true, queued: true })
+    await vi.waitFor(() => expect(attempts).toHaveBeenCalled())
+    await expect(attempts.mock.results[0]?.value).resolves.toMatchObject({
       ok: false,
       reason: 'file attachment reference was not staged for this session',
     })
+    attempts.mockRestore()
     await expect(
       o.call.messages.send({
         to: sessionId,

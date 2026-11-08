@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -167,10 +168,11 @@ function RefMiniviewContents({
   loading?: boolean
 }): JSX.Element | null {
   const machines = useChatReferenceMachines()
-  const { trpc, navigateToSession } = useRuntimeSelector(
+  const { trpc, navigateToSession, startIssueSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       navigateToSession: s.navigateToSession,
+      startIssueSession: s.startIssueSession,
     }),
     shallowEqual,
   )
@@ -219,8 +221,12 @@ function RefMiniviewContents({
         closeMiniview()
         navigateToSession(sessionId)
       }}
-      onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
-      onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
+      onStart={(issueId) =>
+        startIssueSession({ issueId, mode: 'begin' }).settled.then((queued) => {
+          if (!queued) throw new Error("Couldn't start the task")
+        })
+      }
+      onPromote={(issueId) => issueWrites(trpc).promote.mutate({ id: issueId })}
       loadComments={loadComments}
     />,
     document.body,
@@ -271,7 +277,8 @@ export function RefCard({
   onOpenFull: () => void
   /** Jump to the session running this task (or the ancestor's that covers it). */
   onGoToSession?: (sessionId: SessionId) => void
-  /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
+  /** Start an agent on the issue (POD-110): an `issue.begin` record in the
+   *  host (POD-6526), resolved once durably queued. */
   onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
   onPromote?: (issueId: IssueId) => Promise<unknown>

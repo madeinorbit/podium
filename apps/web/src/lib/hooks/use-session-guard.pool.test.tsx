@@ -69,17 +69,15 @@ it('preserves guard decisions with pool sessions and zero store subscriptions', 
   hook.unmount()
 })
 
-it('keeps refusal, forced end and cancellation on the existing actions', async () => {
+it('ends with one edit, leaves a refusal to the session bar, and keeps cancellation', async () => {
   const id = asSessionId('guard-session')
   const hook = renderHook(() => useSessionGuard(id, false, []))
-  f.actions.endSession.mockResolvedValueOnce({ ok: false, reason: 'unsaved worktree' })
+  // POD-6399: a stop is an edit; an unsaved-worktree refusal arrives later on
+  // the session itself, whose bar offers "End anyway". No dialog here.
   f.actions.endSession.mockResolvedValueOnce({ ok: true })
   await hook.result.current.guardedEnd(id)
-  expect(f.confirm).toHaveBeenCalledTimes(1)
-  expect(f.confirm).toHaveBeenCalledWith(
-    expect.objectContaining({ description: expect.stringContaining('unsaved worktree') }),
-  )
-  expect(f.actions.endSession.mock.calls).toEqual([[id], [id, true]])
+  expect(f.confirm).not.toHaveBeenCalled()
+  expect(f.actions.endSession.mock.calls).toEqual([[id]])
   f.confirm.mockResolvedValueOnce(false)
   await hook.result.current.guardedDelete(id)
   expect(f.actions.killSession).not.toHaveBeenCalled()

@@ -4,6 +4,7 @@
  * a broadcast can never brand a soon-to-be-attached session POD-DRAFT-n.
  */
 import { CHANGE_LOG_OBSERVER } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -15,11 +16,14 @@ async function harness() {
   await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
-  const issue = await reg.modules.issues.crud.create({
-    repoPath: '/r/podium',
-    title: 'T',
-    startNow: false,
-  })
+  const issue = await reg.modules.issues.crud.create(
+    reg.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: '/r/podium',
+      title: 'T',
+      startNow: false,
+    },
+  )
   const meta = async (id: string) => (await clientSessionViews(reg)).find((s) => s.sessionId === id)
   return { store, reg, issue, meta }
 }
@@ -66,7 +70,11 @@ describe('session birth naming (#474)', () => {
       agentKind: 'shell',
       cwd: '/elsewhere',
     })
-    await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    await reg.modules.sessions.setSessionIssueId(
+      reg.modules.sessions.serverWriter,
+      sessionId,
+      issue.id,
+    )
     expect((await meta(sessionId))?.displayRef).toBe(
       `${(await reg.modules.issues.reports.get(issue.id))!.displayRef}-A`,
     )
@@ -85,9 +93,13 @@ describe('session birth naming (#474)', () => {
       throw new Error('first attachment append failed')
     })
 
-    await expect(reg.modules.sessions.setSessionIssueId(sessionId, issue.id)).rejects.toThrow(
-      'first attachment append failed',
-    )
+    await expect(
+      reg.modules.sessions.setSessionIssueId(
+        reg.modules.sessions.serverWriter,
+        sessionId,
+        issue.id,
+      ),
+    ).rejects.toThrow('first attachment append failed')
     append.mockRestore()
     expect((await meta(sessionId))?.issueId).toBeUndefined()
     expect((await meta(sessionId))?.displayRef).toBeUndefined()
@@ -105,7 +117,11 @@ describe('session birth naming (#474)', () => {
     })
     expect(events).toEqual([])
 
-    await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    await reg.modules.sessions.setSessionIssueId(
+      reg.modules.sessions.serverWriter,
+      sessionId,
+      issue.id,
+    )
     expect((await meta(sessionId))?.displayRef).toBe(
       (await reg.modules.issues.reports.get(issue.id))!.displayRef + '-A',
     )
@@ -140,17 +156,24 @@ describe('session birth naming (#474)', () => {
 
   it('re-attach keeps the permanent birth name', async () => {
     const { reg, issue, meta } = await harness()
-    const other = await reg.modules.issues.crud.create({
-      repoPath: '/r/podium',
-      title: 'U',
-      startNow: false,
-    })
+    const other = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r/podium',
+        title: 'U',
+        startNow: false,
+      },
+    )
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/podium',
       issueId: issue.id,
     })
-    await reg.modules.sessions.setSessionIssueId(sessionId, other.id)
+    await reg.modules.sessions.setSessionIssueId(
+      reg.modules.sessions.serverWriter,
+      sessionId,
+      other.id,
+    )
     expect((await meta(sessionId))?.displayRef).toBe(
       `${(await reg.modules.issues.reports.get(issue.id))!.displayRef}-A`,
     )
@@ -167,8 +190,8 @@ describe('session birth naming (#474)', () => {
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
     // upsert keeps non-null refs, so write via a fresh row literal).
     const seeded = (await store.sessions.loadSessions()).find((r) => r.id === a)!
-    await store.sessions.purgeSession(a)
-    await store.sessions.upsertSession({
+    await store.sessions.purgeSession(fixtureWriteScope(), a)
+    await store.sessions.upsertSession(fixtureWriteScope(), {
       ...seeded,
       refIssueId: null,
       refLetter: null,

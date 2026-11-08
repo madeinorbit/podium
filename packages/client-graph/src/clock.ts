@@ -30,4 +30,5 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'query-result-seed': 'Seed demanded rows synchronously; row reactions and membership subscriptions maintain result atoms.',
   'lazy-batch-probe': 'Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader\'s dependency.',
   'spawn-sort-peek': 'Read addressed placement rows inside the spawn action without requesting cold payloads.',
+  'fresh-record-placement': 'Read held rows once when a create is pressed, to guess a new record\'s placement; its paint is fixed for the entry\'s life.',
 }

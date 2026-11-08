@@ -5,6 +5,7 @@ import type { AgentSessionHandle, RuntimeDriver } from './driver.js'
 import { createAgentRuntime, type AgentRuntimeDriverSource } from './runtime.js'
 import type { SessionSpec } from './session-spec.js'
 import { createFakeDriver, resetFakeRuntime } from './testing/fake-driver.js'
+import { testHarnessContext } from './testing/harness-context.js'
 
 const INVENTORY: Inventory = {
   os: 'linux',
@@ -22,6 +23,7 @@ const PRIMITIVE_SUPPORT = {
 function spec(): SessionSpec {
   return {
     harness: 'codex',
+    harnessContext: testHarnessContext({ kind: 'codex' }),
     selection: {
       auth: 'subscription',
       platform: 'linux',
@@ -168,6 +170,7 @@ describe('createAgentRuntime', () => {
     })
     const headlessSpec: SessionSpec = {
       harness: 'codex',
+      harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: {
         auth: 'unknown',
         platform: 'linux',
@@ -223,6 +226,7 @@ describe('createAgentRuntime', () => {
     }
     const claudeSpec: SessionSpec = {
       harness: 'claude-code',
+      harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: {
         auth: 'api-key',
         platform: 'linux',

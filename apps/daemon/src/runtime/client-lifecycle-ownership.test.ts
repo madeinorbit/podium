@@ -17,12 +17,22 @@
  * wires none.
  */
 
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { createSessionClientScope } from '../session/clients.js'
 import { SessionRegistry } from '../session/registry.js'
 import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach.js'
+
+/** The session's pinned harness context (POD-6546): a client terminal runs the
+ *  session's executable, never the harness's bare name. */
+const testClientContext = async (_sessionId: string, target: { kind: string; driverId?: string }) =>
+  testHarnessContext({
+    kind: target.kind as BuiltinHarnessKind,
+    executable: `/opt/rig/bin/${target.driverId === 'opencode2-server' ? 'opencode2' : target.kind}`,
+  })
 
 const SESSION = asSessionId('44444444-4444-4444-8444-444444444444')
 const TARGET = {
@@ -80,6 +90,7 @@ describe('client lifecycle ownership (§5: the session summons, the relay render
     const calls: string[] = []
     const clients = recordingScope(calls)
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: new SessionRegistry(),
       clients,
       frames: () => {},

@@ -252,6 +252,7 @@ export function describePersonalRowCompleteness(instantiation: SyncInstantiation
         overlay: {
           pending: () => [],
           reduce: () => ({ kind: 'no-reducer' }),
+          covers: (evidence) => evidence.matches.length > 0,
           retire: async () => {},
         },
         unitOfWork: {

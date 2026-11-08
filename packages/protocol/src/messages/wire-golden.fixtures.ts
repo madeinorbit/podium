@@ -1499,4 +1499,32 @@ export const WIRE_FIXTURES: WireFixture[] = [
       error: 'Codex is not logged in on this machine — run `codex login`.',
     },
   },
+  {
+    // Wire v2 rows carry the command that caused them (POD-6274). Provenance
+    // follows `value`, so the pinned `seq, entity, entityId, op, value` prefix
+    // is unchanged; the second row pins that absent provenance writes no key.
+    name: 'frame.feedDelta.provenance',
+    schema: ServerMessage,
+    value: {
+      type: 'feedDelta',
+      feedId: 'feed-1',
+      epoch: 'epoch-1',
+      fromSeq: 5,
+      seq: 7,
+      minAvailableSeq: 0,
+      changes: [
+        {
+          seq: 6,
+          entity: 'repo',
+          entityId: 'repo-1',
+          op: 'upsert',
+          value: { id: 'repo-1', prefix: 'POD' },
+          originId: 'peer-1',
+          causationId: 'mut-1',
+          mutationId: 'mut-1',
+        },
+        { seq: 7, entity: 'repo', entityId: 'repo-2', op: 'remove' },
+      ],
+    },
+  },
 ]

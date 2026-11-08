@@ -2,9 +2,9 @@
  * Resolve the account a spawn runs with into the env it carries (SP-6454, #216),
  * for ONE member on ONE machine (POD-6300; design §2.4, §2.5, Q1).
  *
- * WHOSE ACCOUNT. Always the session owner's own: a managed account id names the
- * owner's row with that id, never another member's. An id the owner has no row
- * for is refused, so a run never falls through to somebody else's credential.
+ * WHOSE ACCOUNT. The session owner's own managed key first, then a key another
+ * member explicitly shares. An unshared credential is never a fallback, even
+ * for an admin. The key's owner still decides which foreign machines receive it.
  *
  * WHICH MACHINE. A machine's native CLI logins belong to the person who looks
  * after it (its custodian). On the owner's own machine (or one nobody looks
@@ -25,10 +25,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { credentialEnv } from '@podium/runtime'
-import type { AccountsRepository } from '../../store/accounts'
+import type { AccountsRepository, ManagedAccountRow } from '../../store/accounts'
 
 export interface AccountEnvPorts {
-  accounts: Pick<AccountsRepository, 'getFor' | 'sentTo'>
+  accounts: Pick<AccountsRepository, 'own' | 'sharedWith' | 'sentTo'>
   machines: {
     custodian(id: string): Promise<UserId | null>
     getMachine(id: string): Promise<{ name: string } | undefined>
@@ -44,7 +44,43 @@ export interface AccountEnvTarget {
 
 /** A spawn refused because of its account: the message says what to do. */
 export class SpawnAccountRefusal extends Error {
-  override readonly name = 'SpawnAccountRefusal'
+  override readonly name: string = 'SpawnAccountRefusal'
+}
+
+/** The words a person reads for each managed account id. */
+const MANAGED_KEY_NAMES: Readonly<Record<string, string>> = {
+  'managed:anthropic': 'Anthropic API key',
+  'managed:openai': 'OpenAI API key',
+  'managed:openrouter': 'OpenRouter API key',
+  'managed:claude-oauth': 'Claude setup token',
+}
+
+export const managedKeyName = (accountId: AccountId): string =>
+  MANAGED_KEY_NAMES[accountId] ?? `managed key ${accountId}`
+
+/** Neither an owned key nor an explicitly shared one is available. */
+export class MissingManagedKeyError extends SpawnAccountRefusal {
+  override readonly name = 'MissingManagedKeyError'
+
+  constructor(readonly accountId: AccountId) {
+    super(
+      `No ${managedKeyName(accountId)} is available to you: this agent's role uses one, and you ` +
+        'have not connected your own (Settings → Accounts) and nobody shares one with you. An ' +
+        'admin can share theirs.',
+    )
+  }
+}
+
+/** Own key first, then an explicit share: admin status never supplies a key. */
+export async function managedKeyFor(
+  accounts: Pick<AccountsRepository, 'own' | 'sharedWith'>,
+  ownerUserId: UserId,
+  accountId: AccountId,
+): Promise<ManagedAccountRow | undefined> {
+  return (
+    (await accounts.own(ownerUserId, accountId)) ??
+    (await accounts.sharedWith(ownerUserId, accountId))[0]
+  )
 }
 
 const providerLabel = (accountId: string): string => {
@@ -79,20 +115,18 @@ export async function resolveAccountEnv(
     )
   }
 
-  const row = await ports.accounts.getFor(target.ownerUserId, accountId)
-  if (!row) {
-    throw new SpawnAccountRefusal(
-      `You have no ${providerLabel(accountId)} connection, and Podium never uses someone ` +
-        "else's. Connect yours in Settings → Accounts, or select another account.",
-    )
-  }
+  const row = await managedKeyFor(ports.accounts, target.ownerUserId, accountId)
+  if (!row) throw new MissingManagedKeyError(accountId)
+  const foreignToCredential = custodian !== null && custodian !== row.ownerUserId
   if (
-    foreign &&
-    !(await ports.accounts.sentTo(target.ownerUserId, accountId)).includes(target.machineId)
+    foreignToCredential &&
+    !(await ports.accounts.sentTo(row.ownerUserId, accountId)).includes(target.machineId)
   ) {
     throw new SpawnAccountRefusal(
       `Before your first run on "${await machineName()}": ${SHARED_MACHINE_ACCOUNT_WARNING} ` +
-        `To run there, send your ${providerLabel(accountId)} connection to it in Settings → Accounts.`,
+        (row.ownerUserId === target.ownerUserId
+          ? `To run there, send your ${providerLabel(accountId)} connection to it in Settings → Accounts.`
+          : 'The owner of the shared connection must send it to this machine in Settings → Accounts.'),
     )
   }
   const env = credentialEnv({

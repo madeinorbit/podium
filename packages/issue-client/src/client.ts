@@ -1,5 +1,9 @@
-import { type IssueContractName, type LockCommandName } from '@podium/commands'
-import { SESSION_COOKIE } from '@podium/protocol'
+import {
+  clientSendsThroughSubmit,
+  type IssueContractName,
+  type LockCommandName,
+} from '@podium/commands'
+import { SESSION_COOKIE, type SyncSubmitTransport, writesThroughSubmit } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -179,9 +183,11 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
       headers: res.headers,
     })
   }
-  return createTRPCClient({
-    links: [httpBatchLink({ url: `${baseUrl}/trpc`, fetch: guardedFetch })],
-  }) as unknown as IssueTrpc
+  return sendWritesThroughSubmit(
+    createTRPCClient({
+      links: [httpBatchLink({ url: `${baseUrl}/trpc`, fetch: guardedFetch })],
+    }) as unknown as IssueTrpc,
+  )
 }
 
 /** IssueTrpc client that relays each call to the local daemon's issue endpoint (agent path).
@@ -227,8 +233,39 @@ export function makeRelayIssueClient(
         },
       },
     )
-  return new Proxy(
-    {},
-    { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
-  ) as unknown as IssueTrpc
+  return sendWritesThroughSubmit(
+    new Proxy(
+      {},
+      { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
+    ) as unknown as IssueTrpc,
+  )
+}
+
+/**
+ * The listed issue writes (`SYNCED_ISSUE_COMMANDS`) of `client`, sent on the sync
+ * write entry point (ADR 12 D2, POD-6413), whichever transport the client rides:
+ * the operator's tRPC, or an agent's relay, which serves `sync.submit` too.
+ * LEGACY(remove-after: 2027-03): a server without `sync.submit`, or without the
+ * command on it yet, takes the command's own route.
+ *
+ * A refusal that asks for the caller's confirmation keeps the hint the route has
+ * always given an agent: re-run with `--outside-scope`.
+ */
+export function sendWritesThroughSubmit(client: IssueTrpc): IssueTrpc {
+  const issues = writesThroughSubmit(
+    client as unknown as SyncSubmitTransport,
+    client.issues,
+    'issues',
+    clientSendsThroughSubmit,
+    {
+      refused: (command, error) =>
+        error.refusal.kind === 'confirmation-required' && error.refusal.message === undefined
+          ? new Error(`${command} is outside your scope; re-run with --outside-scope to confirm`)
+          : error,
+    },
+  )
+  return new Proxy(client, {
+    get: (target, name, receiver) =>
+      name === 'issues' ? issues : Reflect.get(target, name, receiver),
+  })
 }

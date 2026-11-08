@@ -26,8 +26,13 @@
  * lease read it a second time: 20. Until a30edff62f (POD-6283) the access check
  * also read the session's grant edges through the operation's grant loader:
  * 19. Session grants are inert now and the owner alone decides (design §4.1).
+ *
+ * The sync write adapter adds a net statement (POD-6350): the two
+ * machine snapshot reads go away; dedup lookup/record and receipt head add three.
+ * The combined expected pin is 19; it has not been remeasured in this merge.
  */
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -58,7 +63,7 @@ async function fixture(size: number): Promise<Fixture> {
     for (let i = 0; i < size; i++) {
       const id = asSessionId(`parked-${String(i).padStart(4, '0')}`)
       ids.push(id)
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id,
         ownerUserId: owner,
         agentKind: 'claude-code',
@@ -88,7 +93,11 @@ async function fixture(size: number): Promise<Fixture> {
     }
   })
   for (const [index, id] of ids.entries()) {
-    await store.sessions.setOffer(id, { message: 'next', actions: [{ label: 'Go', prompt: 'go' }], createdAt: at })
+    await store.sessions.setOffer(fixtureWriteScope(), id, {
+      message: 'next',
+      actions: [{ label: 'Go', prompt: 'go' }],
+      createdAt: at,
+    })
     await store.sessions.setDraft(id, 'draft')
     await store.events.appendEvent({
       ts: at,
@@ -96,7 +105,10 @@ async function fixture(size: number): Promise<Fixture> {
       subject: id,
       payload: {
         t: 'item',
-        item: { kind: 'complete', item: { id: `item-${index}`, role: 'assistant', text: 'hi', ts: at } },
+        item: {
+          kind: 'complete',
+          item: { id: `item-${index}`, role: 'assistant', text: 'hi', ts: at },
+        },
         at,
         provenance: 'live',
         observerGeneration: 1,
@@ -150,7 +162,7 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      18,
+      19,
     )
   })
 })

@@ -3,30 +3,21 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
+import type { ResolvedHarnessInventory } from '@podium/harness'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS, harnessContext } from '@podium/harness'
 import {
   type HeadlessEmit,
   type HeadlessTurnSpec,
   runHostedHeadlessTurn,
 } from '@podium/harness/driver/host'
-import type { ResolvedHarnessInventory } from '@podium/harness'
 import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
-import {
-  isCursorCliAvailable,
-  resolveCursorBin,
-  validateCursorCliHelp,
-} from '../../../packages/harness/src/cursor/cli.js'
-import {
-  isOpencodeCliAvailable,
-  resolveOpencodeBin,
-} from '../../../packages/harness/src/adapters/opencode/cli.js'
-import { headlessTurnEnv } from './control/session-env.js'
+import { headlessTurnChildEnv } from './control/session-env.js'
 import { createSessionEngineScope } from './session/engines.js'
-import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 import { SessionRegistry } from './session/registry.js'
+import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 /**
  * REAL-BINARY smoke (repo rule from the #84 post-mortem): every constructed
@@ -41,7 +32,9 @@ import { SessionRegistry } from './session/registry.js'
  * Each turn gets a fresh session label; a resumed turn is a new session turn
  * on the same harness conversation, exactly as the server sends it.
  */
-const engines = createSessionEngineScope(createDurableProcess(), { sessions: new SessionRegistry() })
+const engines = createSessionEngineScope(createDurableProcess(), {
+  sessions: new SessionRegistry(),
+})
 let smokeTurns = 0
 function runHeadlessTurn(
   spec: Omit<HeadlessTurnSpec, 'durableLabel'>,
@@ -53,13 +46,19 @@ function runHeadlessTurn(
   return runHostedHeadlessTurn(
     {
       owner: engines,
-      childEnv: (invocation) =>
-        headlessTurnEnv({
-          agent: spec.agent,
-          ...(spec.env ? { specEnv: spec.env } : {}),
+      childEnv: (invocation) => {
+        const { env, strip } = headlessTurnChildEnv({
+          // The real CLI's own login: the machine home's account.
+          context: harnessContext(
+            harnessSnapshot,
+            spec.agent as BuiltinHarnessKind,
+            harnessSnapshot.commandEnvironment.machineHome,
+          ),
+          ...(spec.env ? { instanceEnv: spec.env } : {}),
           ...invocation,
-          commandEnv: harnessSnapshot.commandEnvironment.env,
-        }),
+        })
+        return { env, stripEnv: strip }
+      },
     },
     {
       spec: { ...spec, durableLabel: `podium-smoke-${sessionId.slice(0, 8)}` },
@@ -87,12 +86,27 @@ const hasBin = (bin: string): boolean => {
   }
 }
 
+/** `agent` is a generic executable name also used by Grok: the help text
+ *  proves this one is Cursor's. */
+const isCursorAgent = (): boolean => {
+  try {
+    return execFileSync('agent', ['--help'], {
+      timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      stdio: 'pipe',
+      encoding: 'utf8',
+    }).includes('Cursor Agent')
+  } catch {
+    return false
+  }
+}
+
+// A LIVE smoke: the developer's own CLIs on PATH stand in for the inventory.
 const snapshot = testHarnessSnapshot({
   'claude-code': 'claude',
   codex: 'codex',
   grok: 'grok',
-  opencode: resolveOpencodeBin(),
-  cursor: resolveCursorBin(),
+  opencode: 'opencode',
+  cursor: 'agent',
   pi: 'pi',
 })
 const identity = (agent: HarnessAgent) => ({
@@ -202,7 +216,7 @@ const resumeExecCases = [
   {
     agent: 'opencode' as const,
     label: 'opencode',
-    available: isOpencodeCliAvailable(),
+    available: hasBin('opencode'),
     tokenPrefix: 'IBIS',
   },
   {
@@ -210,7 +224,7 @@ const resumeExecCases = [
     label: 'cursor',
     // `agent` is a generic executable name also used by Grok. The help marker
     // proves this is Cursor before the smoke spends a real turn on it.
-    available: isCursorCliAvailable() && validateCursorCliHelp(),
+    available: hasBin('agent') && isCursorAgent(),
     tokenPrefix: 'LYNX',
   },
   {

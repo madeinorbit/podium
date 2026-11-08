@@ -3,11 +3,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   buildCodexResponsesBody,
-  type CodexEffort,
   CODEX_RESPONSES_URL,
-  codexAccessTokenExpiryMs,
+  type CodexEffort,
   CodexHttpError,
+  codexAccessTokenExpiryMs,
   codexResponsesHeaders,
+  harnessAccount,
   hasValidCodexCredential,
   parseCodexAuthContents,
   parseCodexResponsesSse,
@@ -15,7 +16,7 @@ import {
 } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { HarnessManagementContext } from '../harness-management.js'
-import { resolveManagementCredentialHome } from '../harness-management.js'
+import { resolveManagementAccount } from '../harness-management.js'
 import type { ControlHandlers } from './context'
 
 /**
@@ -53,13 +54,22 @@ export interface CodexDaemonAuth {
  */
 export const CODEX_DAEMON_HTTP_TIMEOUT_MS = 110_000
 
-function codexHome(credentialHome: string | undefined): string {
-  if (process.env.CODEX_HOME && process.env.CODEX_HOME.length > 0) return process.env.CODEX_HOME
-  return join(credentialHome ?? homedir(), '.codex')
+/**
+ * The account's Codex credential folder (POD-6532, F07). The account half of
+ * the harness context (`harnessAccount`, POD-6534): its env is the one the
+ * child gets for this credential home, so the daemon's OWN `CODEX_HOME` never
+ * redirects which login answers — the Responses call reads the same auth.json
+ * the inventory reported and the session runs under. Codex's selector is
+ * always set from the home, so the machine env contributes nothing to the
+ * folder and none is passed.
+ */
+function codexCredentialsDir(credentialHome: string | undefined): string {
+  const { roots } = harnessAccount('codex', credentialHome ?? homedir(), {})
+  return roots.credentials ?? roots.state
 }
 
 export function codexAuthPathFor(credentialHome: string | undefined): string {
-  return join(codexHome(credentialHome), 'auth.json')
+  return join(codexCredentialsDir(credentialHome), 'auth.json')
 }
 
 /** Cheap sync check so the handler can fail fast with a clear message. */
@@ -104,7 +114,9 @@ export async function resolveCodexDaemonAuth(
   try {
     JSON.parse(contents)
   } catch {
-    throw new CodexDaemonAuthError(`Codex auth file is corrupt: ${codexAuthPathFor(credentialHome)}`)
+    throw new CodexDaemonAuthError(
+      `Codex auth file is corrupt: ${codexAuthPathFor(credentialHome)}`,
+    )
   }
   const parsed = parseCodexAuthContents(contents)
   const token = parsed?.accessToken
@@ -153,7 +165,10 @@ export async function runCodexComplete(
       timeoutMs,
     )
     if (!res.ok) {
-      throw new CodexHttpError(res.status, `codex ${res.status}: ${truncateCodexError(await res.text(), 400)}`)
+      throw new CodexHttpError(
+        res.status,
+        `codex ${res.status}: ${truncateCodexError(await res.text(), 400)}`,
+      )
     }
     return parseCodexResponsesSse(await res.text())
   }
@@ -202,8 +217,12 @@ async function handleCodexComplete(
   ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'codexCompleteRequest' }>,
 ): Promise<void> {
-  const credentialHome = resolveManagementCredentialHome(ctx)
-  const outcome = await runCodexComplete({ credentialHome }, msg)
+  // The account context's home (POD-6534): the credential home, else the
+  // snapshot's machine home — never the daemon's own `homedir()`.
+  const account = await resolveManagementAccount(ctx)
+  const outcome: CodexCompleteOutcome = account
+    ? await runCodexComplete({ credentialHome: account.home }, msg)
+    : { ok: false, error: 'Codex call refused: no account home on this machine' }
   ctx.send({
     type: 'codexCompleteResult',
     requestId: msg.requestId,

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoveryRoots } from '@podium/harness'
+import { discoveryRoots, type HarnessContext, harnessContext } from '@podium/harness'
 import type { SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -13,7 +13,7 @@ import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { daemonRuntimeHost } from './host'
 
 describe('daemonRuntimeHost', () => {
-  it('shares the selected installation between hook setup and launch across inventory refresh', async () => {
+  it('installs hooks and launches from the session context, whatever the inventory says now', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'podium-selected-hooks-'))
     const launch = vi
       .spyOn(processControl, 'launchTerminalProcess')
@@ -38,34 +38,36 @@ describe('daemonRuntimeHost', () => {
         settingsDir: join(homeDir, 'settings'),
       } as DaemonContext
       const host = daemonRuntimeHost(ctx, () => {})
-      const spec: SessionSpec = {
+      const specFor = (harnessContext: HarnessContext): SessionSpec => ({
         harness: 'codex',
+        harnessContext,
         workdir: '/repo',
         model: {},
         selection: { auth: 'unknown', platform: 'darwin', available: [] },
         instructions: { supported: false, reason: 'fixture' },
         mcpServers: { supported: false, reason: 'fixture' },
         instrumentation: { endpointUrl: 'http://localhost/hooks/selected' },
-      }
+      })
+      const spec = specFor(harnessContext(await harnessRuntime.current(), 'codex', homeDir))
       const sessionId = asSessionId('selected-install')
       const instrumentation = await host.installInstrumentation(sessionId, spec)
+      // The selected installation's version passes the hook gate.
       expect(instrumentation.degradedKind).toBe('untrusted')
       await harnessRuntime.refresh()
-      // Reusing the same spec for another session must not overwrite the
-      // first installation's retained selection.
-      const secondWiring = await host.installInstrumentation(asSessionId('second-install'), spec)
+      // A session spawned after the refresh carries the replacement's context;
+      // it must not disturb the first session's.
+      const second = specFor(harnessContext(await harnessRuntime.current(), 'codex', homeDir))
+      const secondWiring = await host.installInstrumentation(asSessionId('second-install'), second)
       await host.launch({ sessionId, spec, instrumentation })
       await host.launch({
         sessionId: asSessionId('second-install'),
-        spec,
+        spec: second,
         instrumentation: secondWiring,
       })
-      expect(launch).toHaveBeenCalledWith(
-        ctx,
-        expect.objectContaining({ harnessSnapshot: selected }),
-      )
-      expect(launch.mock.calls[0]?.[1].harnessSnapshot).toBe(selected)
-      expect(launch.mock.calls[1]?.[1].harnessSnapshot).toBe(replacement)
+      expect(launch.mock.calls[0]?.[1].spec).toBe(spec)
+      expect(launch.mock.calls[1]?.[1].spec).toBe(second)
+      expect(spec.harnessContext.installation.executable).toBe('/opt/homebrew/bin/codex')
+      expect(second.harnessContext.installation.executable).toBe('/different/codex')
     } finally {
       launch.mockRestore()
       await rm(homeDir, { recursive: true, force: true })

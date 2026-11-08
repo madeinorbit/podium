@@ -54,8 +54,8 @@ export function useSessionGuard(
   /** Delete (kill) a session — ALWAYS confirms; the row does not come back. */
   guardedDelete: (sessionId: SessionId) => Promise<void>
   /** Clean end [spec:SP-9904] — stops the process, frees the worktree, keeps the
-   *  row. Prompts first only while the agent is working. Reports a server
-   *  refusal (e.g. an unsaved working tree) and offers to force past it. */
+   *  row. Prompts first only while the agent is working. A server refusal
+   *  (e.g. an unsaved working tree) shows on the session's own bar. */
   guardedEnd: (sessionId: SessionId) => Promise<void>
   /** Archive/unarchive a session, prompting first only when archiving a
    *  working session (unarchive is never destructive). */
@@ -104,19 +104,10 @@ export function useSessionGuard(
         })
         if (!ok) return
       }
-      const result = await endSession(sessionId)
-      // The server REFUSES rather than throws, and the refusal that matters is
-      // an unsaved working tree — recoverable by forcing, so offer that instead
-      // of leaving the operator with an error toast and no route forward.
-      if (!result.ok) {
-        const ok = await confirm({
-          title: 'End anyway?',
-          description: `${result.reason ?? 'The session could not be ended.'} Ending now frees the worktree regardless; the branch and any commits on it are kept.`,
-          confirmLabel: 'End anyway',
-        })
-        if (!ok) return
-        await endSession(sessionId, true)
-      }
+      // An edit of what the session should be (POD-6399): queued and shown at
+      // once. A refusal (an unsaved working tree) arrives on the session itself,
+      // where its bar offers to end anyway, on every device and after a reload.
+      await endSession(sessionId)
     },
     [isWorking, confirm, endSession],
   )

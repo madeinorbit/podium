@@ -104,13 +104,15 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   })
 
   describe('managementLoginCommandFor resolves before any handle exists', () => {
+    // Argv only (POD-6536, contract §3.4): the declaration names no command;
+    // control/session.ts binds it to the login harness context's executable.
     it.each([
-      { harness: 'claude-code', cmd: 'claude', args: ['auth', 'login'] },
-      { harness: 'codex', cmd: 'codex', args: ['login'] },
-      { harness: 'grok', cmd: 'grok', args: ['login'] },
-      { harness: 'opencode', cmd: 'opencode', args: ['auth', 'login'] },
-    ])('returns the static $harness argv with no runtime', ({ harness, cmd, args }) => {
-      expect(managementLoginCommandFor(harness)).toEqual({ cmd, args })
+      { harness: 'claude-code', args: ['auth', 'login'] },
+      { harness: 'codex', args: ['login'] },
+      { harness: 'grok', args: ['login'] },
+      { harness: 'opencode', args: ['auth', 'login'] },
+    ])('returns the static $harness argv with no runtime', ({ harness, args }) => {
+      expect(managementLoginCommandFor(harness)).toEqual({ args })
     })
 
     it.each(['cursor', 'shell', 'unknown-harness-xyz'])(
@@ -376,10 +378,12 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       } as unknown as Parameters<typeof inventoryHandlers.modelProbeRequest>[0]
       inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'mp-acct' })
       await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-      expect(probeModels.mock.calls[0]?.[0]).toMatchObject({
-        homeDir: '/accounts/alice',
-        claude: { homeDir: '/accounts/alice' },
-      })
+      // POD-6534: the account reaches the probe as `accountFor`, not homeDir.
+      const opts = probeModels.mock.calls[0]?.[0] as {
+        accountFor: (kind: string) => { home: string }
+      }
+      expect(opts.accountFor('claude-code').home).toBe('/accounts/alice')
+      expect(opts.accountFor('codex').home).toBe('/accounts/alice')
       await vi.waitFor(() =>
         expect(sent).toEqual([{ type: 'modelProbeResult', requestId: 'mp-acct', byAgent: {} }]),
       )
@@ -393,10 +397,12 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       } as unknown as Parameters<typeof inventoryHandlers.modelProbeRequest>[0]
       inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'mp-inst' })
       await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-      expect(probeModels.mock.calls[0]?.[0]).toMatchObject({
-        homeDir: '/instance/home',
-        claude: { homeDir: '/instance/home' },
-      })
+      // POD-6534: the account reaches the probe as `accountFor`, not homeDir.
+      const opts = probeModels.mock.calls[0]?.[0] as {
+        accountFor: (kind: string) => { home: string }
+      }
+      expect(opts.accountFor('claude-code').home).toBe('/instance/home')
+      expect(opts.accountFor('codex').home).toBe('/instance/home')
     })
 
     it('still answers with an empty catalog when the probe throws', async () => {

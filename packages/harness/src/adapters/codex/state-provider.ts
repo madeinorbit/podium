@@ -9,11 +9,9 @@
  * `./instrumentation.js`. The event fold itself is generic (`observer.ts`)
  * and names no harness.
  */
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
@@ -32,7 +30,9 @@ import {
   withStateChannelEvent,
 } from '../../agent-state/types.js'
 import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
+import { type HostTools, hostTools } from '../../host-tools.js'
 import { LineDecoder } from '../../jsonl-stream.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { initialAgentState, reduceAgentState } from '../../observer.js'
 import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import { cleanCodexTitle, codexPromptTitle, isInteractiveCodexSource } from './discovery.js'
@@ -44,12 +44,17 @@ import {
   PODIUM_CODEX_HOOK_URL_ENV,
   translateCodexEvent,
 } from './instrumentation.js'
+import { codexRootsFor } from './roots.js'
 import {
   CODEX_TRUST_SUMMARY,
   classifyCodexScreen,
   classifyCodexVerdict,
   codexUsageLimitSummary,
 } from './state.js'
+
+/** No OS tools at all: a caller that names no command environment gets the
+ *  portable `/proc` scan, never a `pgrep` off the daemon's PATH. */
+const NO_HOST_TOOLS: HostTools = hostTools({})
 
 export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 export {
@@ -114,13 +119,13 @@ function codexCallId(payload: Record<string, unknown>): string | undefined {
 async function codexBootEvents(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     try {
       const rollout = await findCodexRolloutPath({
         resumeValue: opts.resumeValue,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.account.home,
       })
       if (rollout) {
         const seed = classifyResumedRollout(await readFile(rollout, 'utf8'))
@@ -841,7 +846,7 @@ export const codexStateProvider: AgentStateProvider = {
       },
     }
   },
-  translate: (payload) => codexInstrumentation.payloadCodec.decode(payload),
+  translate: (payload, account) => codexInstrumentation.payloadCodec.decode(payload, account),
   screen: classifyCodexScreen,
   bootEvents: async (opts) => withStateChannel(await codexBootEvents(opts), 'poll'),
 }
@@ -878,7 +883,8 @@ export function observeCodexState(opts: {
   cwd: string
   resumeValue?: string
   podiumSessionId?: SessionId
-  homeDir?: string
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   codexHome?: string
   /** An owned-process resolver supersedes the legacy marker corpus walk. */
   allowCwdDiscovery?: boolean
@@ -887,6 +893,9 @@ export function observeCodexState(opts: {
   statTick?: StatTick
   /** Test override for Linux process correlation. */
   procRoot?: string
+  /** The OS tools (`pgrep`) in the session's command environment (POD-6536).
+   *  Absent: none, so the scan reads `/proc` directly. Never the daemon's PATH. */
+  hostTools?: HostTools
   /** Test override for platform-specific exact-correlation policy. */
   platform?: NodeJS.Platform
   /** Test seam for the indexed single-thread Codex state lookup. */
@@ -914,8 +923,9 @@ export function observeCodexState(opts: {
   /** Test/attribution seam for the expensive unbound corpus fallback. */
   onFilesystemRolloutScan?: () => void
 }): CodexStateObservation {
-  const codexHome = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
-  const root = join(codexHome, 'sessions')
+  const codexRootsForSession = codexRootsFor(opts.homeDir, opts.codexHome)
+  const codexHome = codexRootsForSession.state
+  const root = codexRootsForSession.transcripts
   const startedAtMs = opts.startedAtMs ?? 0
   // The cwd/time walk is a compatibility fallback only. A Podium-owned Linux
   // session has two exact identity channels instead: its inherited stable P id
@@ -1191,6 +1201,7 @@ export function observeCodexState(opts: {
           root,
           opts.podiumSessionId,
           opts.procRoot ?? '/proc',
+          opts.hostTools ?? NO_HOST_TOOLS,
         )
         if (
           processBound &&
@@ -1503,12 +1514,13 @@ async function readProcessRolloutIdentity(
 async function scanProcessBoundCodexRollouts(
   sessionsRoot: string,
   procRoot: string,
+  tools: HostTools,
 ): Promise<Map<string, ProcessBoundCodexRollout>> {
   const root = resolve(sessionsRoot)
   const byPodiumId = new Map<string, ProcessBoundCodexRollout>()
   let processes: { pid: string; codexNamed: boolean }[]
   try {
-    const named = procRoot === '/proc' ? await findNamedCodexProcesses() : undefined
+    const named = procRoot === '/proc' ? await findNamedCodexProcesses(tools) : undefined
     processes =
       named ??
       (await readdir(procRoot, { withFileTypes: true }))
@@ -1586,12 +1598,14 @@ async function scanProcessBoundCodexRollouts(
  * make the daemon open every process's cmdline on each fallback poll. Exit 1
  * means there are simply no matching processes; other failures fall back to
  * the portable directory scan above. */
-async function findNamedCodexProcesses(): Promise<{ pid: string; codexNamed: true }[] | undefined> {
+async function findNamedCodexProcesses(
+  tools: HostTools,
+): Promise<{ pid: string; codexNamed: true }[] | undefined> {
   return await new Promise((resolveResult) => {
-    execFile(
+    tools.execFile(
       'pgrep',
       ['-x', 'codex'],
-      { encoding: 'utf8', timeout: 1_000, maxBuffer: 256 * 1024 },
+      { timeout: 1_000, maxBuffer: 256 * 1024 },
       (err, stdout) => {
         if (err && err.code !== 1) {
           resolveResult(undefined)
@@ -1614,8 +1628,9 @@ export async function findProcessBoundCodexRollout(
   sessionsRoot: string,
   podiumSessionId: SessionId,
   procRoot = '/proc',
+  tools: HostTools = NO_HOST_TOOLS,
 ): Promise<ProcessBoundCodexRollout | undefined> {
-  return (await scanProcessBoundCodexRollouts(sessionsRoot, procRoot)).get(podiumSessionId)
+  return (await scanProcessBoundCodexRollouts(sessionsRoot, procRoot, tools)).get(podiumSessionId)
 }
 
 let processScanCache:
@@ -1630,6 +1645,7 @@ function cachedProcessBoundCodexRollout(
   sessionsRoot: string,
   podiumSessionId: SessionId,
   procRoot: string,
+  tools: HostTools,
 ): Promise<ProcessBoundCodexRollout | undefined> {
   const key = `${sessionsRoot}\0${procRoot}`
   const now = Date.now()
@@ -1641,7 +1657,7 @@ function cachedProcessBoundCodexRollout(
     processScanCache = {
       key,
       at: now,
-      value: scanProcessBoundCodexRollouts(sessionsRoot, procRoot),
+      value: scanProcessBoundCodexRollouts(sessionsRoot, procRoot, tools),
     }
   }
   return processScanCache.value.then((bindings) => bindings.get(podiumSessionId))
@@ -1783,14 +1799,14 @@ export async function findLiveCodexRollout(
  */
 export async function resolvePinnedCodexRollout(
   resumeValue: string,
-  homeDir: string | undefined,
+  homeDir: string,
   /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>,
   codexHome?: string,
 ): Promise<{ path: string; id: string; createdMs: number; confidence: 'exact' } | undefined> {
   const path = await findCodexRolloutPath({
     resumeValue,
-    ...(homeDir ? { homeDir } : {}),
+    homeDir,
     ...(readThreadState ? { readThreadState } : {}),
     ...(codexHome ? { codexHome } : {}),
   })
@@ -1810,12 +1826,14 @@ export async function resolvePinnedCodexRollout(
  */
 export async function findCodexRolloutPath(opts: {
   resumeValue: string
-  homeDir?: string
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   codexHome?: string
   /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
 }): Promise<string | undefined> {
-  const root = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
+  const roots = codexRootsFor(opts.homeDir, opts.codexHome)
+  const root = roots.state
   try {
     const meta = opts.readThreadState
       ? await opts.readThreadState(opts.resumeValue)
@@ -1840,7 +1858,7 @@ export async function findCodexRolloutPath(opts: {
       else if (e.name.endsWith('.jsonl') && e.name.includes(opts.resumeValue)) match = full
     }
   }
-  await walk(join(root, 'sessions'))
+  await walk(roots.transcripts)
   return match
 }
 

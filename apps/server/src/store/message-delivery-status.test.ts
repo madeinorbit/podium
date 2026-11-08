@@ -27,6 +27,7 @@ import {
   walkMoves,
 } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
@@ -78,7 +79,7 @@ function row(id: string): MessageRow {
 
 /** Plant a row in `status` directly: the walker is about the next move. */
 async function planted(id: string, status: MessageDeliveryStatus): Promise<void> {
-  await messages.addMessage(row(id))
+  await messages.addMessage(fixtureWriteScope(), row(id))
   db.prepare('UPDATE messages SET delivery_status = ? WHERE id = ?').run(status, id)
 }
 
@@ -89,9 +90,13 @@ const statusOf = (id: string) =>
 const move = (id: string, to: MessageDeliveryStatus): Promise<MoveOutcome<MessageDeliveryStatus>> =>
   (
     messages as unknown as {
-      move(id: string, to: MessageDeliveryStatus): Promise<MoveOutcome<MessageDeliveryStatus>>
+      move(
+        scope: ReturnType<typeof fixtureWriteScope>,
+        id: string,
+        to: MessageDeliveryStatus,
+      ): Promise<MoveOutcome<MessageDeliveryStatus>>
     }
-  ).move(id, to)
+  ).move(fixtureWriteScope(), id, to)
 
 describe('the table walker', () => {
   it('applies every listed move, answers "already there" for a repeat, refuses every other', async () => {
@@ -133,8 +138,8 @@ describe('the table walker', () => {
 })
 
 describe('accepted, and how the program holds it (POD-4885)', () => {
-  const S = 'sess_to' as Parameters<MessagesRepository['markAccepted']>[1]
-  const OTHER = 'sess_other' as Parameters<MessagesRepository['markAccepted']>[1]
+  const S = 'sess_to' as Parameters<MessagesRepository['markAccepted']>[2]
+  const OTHER = 'sess_other' as Parameters<MessagesRepository['markAccepted']>[2]
   const heldOf = (id: string) =>
     db.prepare('SELECT delivery_held AS h FROM messages WHERE id = ?').get(id) as {
       h: string | null
@@ -143,7 +148,9 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
   it('moves a typed message to accepted and records how it is held, once', async () => {
     await planted('a', 'typed')
     db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'a'").run()
-    expect(await messages.markAccepted('a', S, 'durable', 't1')).toMatchObject({ kind: 'applied' })
+    expect(await messages.markAccepted(fixtureWriteScope(), 'a', S, 'durable', 't1')).toMatchObject(
+      { kind: 'applied' },
+    )
     expect(statusOf('a').d).toBe('accepted')
     expect(heldOf('a').h).toBe('durable')
     expect(await messages.getMessage('a')).toMatchObject({
@@ -151,14 +158,18 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
       held: 'durable',
     })
     // A repeat with another kind changes nothing: the first report stands.
-    expect((await messages.markAccepted('a', S, 'memory', 't2')).kind).not.toBe('applied')
+    expect(
+      (await messages.markAccepted(fixtureWriteScope(), 'a', S, 'memory', 't2')).kind,
+    ).not.toBe('applied')
     expect(heldOf('a').h).toBe('durable')
   })
 
   it('is refused for a session the message was not handed to', async () => {
     await planted('b', 'typed')
     db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'b'").run()
-    expect((await messages.markAccepted('b', OTHER, 'memory', 't1')).kind).not.toBe('applied')
+    expect(
+      (await messages.markAccepted(fixtureWriteScope(), 'b', OTHER, 'memory', 't1')).kind,
+    ).not.toBe('applied')
     expect(statusOf('b').d).toBe('typed')
     expect(heldOf('b').h).toBeNull()
   })
@@ -169,16 +180,18 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
     db.prepare(
       "UPDATE messages SET delivered_to = 'sess_to' WHERE id IN ('durable', 'memory')",
     ).run()
-    await messages.markAccepted('durable', S, 'durable', 't1')
-    await messages.markAccepted('memory', S, 'memory', 't1')
+    await messages.markAccepted(fixtureWriteScope(), 'durable', S, 'durable', 't1')
+    await messages.markAccepted(fixtureWriteScope(), 'memory', S, 'memory', 't1')
 
-    expect(await messages.markUnknown('durable', S)).toEqual({
+    expect(await messages.markUnknown(fixtureWriteScope(), 'durable', S)).toEqual({
       kind: 'refused',
       current: 'accepted',
     })
     expect(statusOf('durable').d).toBe('accepted')
 
-    expect(await messages.markUnknown('memory', S)).toMatchObject({ kind: 'applied' })
+    expect(await messages.markUnknown(fixtureWriteScope(), 'memory', S)).toMatchObject({
+      kind: 'applied',
+    })
     expect(statusOf('memory').d).toBe('unknown')
     // Kept after the move: the message still says the program had taken it.
     expect(heldOf('memory').h).toBe('memory')
@@ -235,7 +248,7 @@ describe('the CHECK constraint', () => {
   })
 
   it('refuses a value outside it', async () => {
-    await messages.addMessage(row('x'))
+    await messages.addMessage(fixtureWriteScope(), row('x'))
     expect(() =>
       db.prepare("UPDATE messages SET delivery_status = 'queued' WHERE id = 'x'").run(),
     ).toThrow(/CHECK/)

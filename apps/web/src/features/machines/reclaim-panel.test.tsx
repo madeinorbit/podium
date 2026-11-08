@@ -99,7 +99,6 @@ vi.mock('@/app/store', () => {
     setView: vi.fn(),
     setSettingsTab: vi.fn(),
     trpc: {
-      issues: { stop: { mutate: stop } },
       hosts: {
         memoryBreakdown: { mutate: memoryBreakdown },
         reclaimInventory: { mutate: reclaimInventory },
@@ -113,6 +112,22 @@ vi.mock('@/app/store', () => {
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
+// The lifecycle settings are a pool read; this panel only names the GC policy.
+vi.mock('./host-lifecycle-settings', () => {
+  const lifecycle = {
+    hibernation: { enabled: true, memoryPct: 80, idleMinutes: 30, loadPerCore: 1.5, maxIdleSessions: 8 },
+    worktreeGc: { mode: 'propose' as const, afterDays: 14 },
+  }
+  return {
+    useHostLifecycleSettings: () => lifecycle,
+    useHibernationSetting: () => lifecycle.hibernation,
+  }
+})
+// The free is an `issue.stop` record (POD-6526); the hook answers with its
+// record's result, which is the old command's answer.
+vi.mock('@/features/issues/issue-action-ending', () => ({
+  useIssueActionOutcome: () => (issueId: string) => stop({ id: issueId }),
+}))
 
 // Same substitution NewIssueDialog.agent-start.test.tsx makes: the base-ui
 // checkbox does not answer a synthetic click under happy-dom, and what is under

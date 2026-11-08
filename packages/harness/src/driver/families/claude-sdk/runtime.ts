@@ -13,10 +13,6 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
-import {
-  claudeToolCallItem,
-  claudeToolResultItem,
-} from '../../../adapters/claude-code/transcript.js'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
 import { type TranscriptAnnotation, toolSummaryAnnotation } from '../../../store/annotations.js'
@@ -95,20 +91,6 @@ export interface ClaudeSdkPermissionRequest {
   suggestions?: readonly unknown[]
 }
 
-/** One tool the model invoked, keyed by the provider's own `tool_use.id`. */
-export interface ClaudeSdkToolCall {
-  toolUseId: string
-  toolName: string
-  input?: unknown
-}
-
-/** What that tool returned. `output` is always present and may be empty. */
-export interface ClaudeSdkToolResult {
-  toolUseId: string
-  output: string
-  isError?: boolean
-}
-
 /** The CLI's own one-line summary of the calls one model step made. */
 export interface ClaudeSdkToolSummary {
   id: string
@@ -170,10 +152,36 @@ export interface ClaudeSdkTurnHandle {
   dispose?(): void | Promise<void>
 }
 
+/**
+ * Where a session's runtime event stream stood: what the next daemon life
+ * continues from (POD-6280).
+ */
+export interface ClaudeSdkStreamPosition {
+  /** The ordinal of the last coarse event. */
+  seq: number
+  turnEpoch: number
+  /** The life's observer generation: the gate admits exactly the next one. */
+  observerGeneration: number
+  bindingVersion: number
+}
+
 /** Process and native-transcript operations owned by the daemon. */
 export interface ClaudeSdkRuntimeHost {
   /** Refuses the ask-the-user tools for a session below a coordinator (POD-6108). */
   askUserGate?: AskUserGate
+  /**
+   * THE STREAM POSITION ACROSS DAEMON LIVES (POD-6280), the codex rule: the
+   * ordinal and turn epoch never restart for a session id, and every new life
+   * is the next observer generation. A daemon restart resumes a fresh core
+   * under the same segment. Restarting its numbering made the gate read the
+   * new life as a replay of the old one: every event a silent duplicate, then
+   * `turn-epoch-jump` for the rest of the session's life, its turn ends never
+   * recorded. Absent (tests that never restart): each life starts at zero.
+   */
+  streamPosition?: {
+    recorded(sessionId: SessionId): ClaudeSdkStreamPosition | undefined
+    record(sessionId: SessionId, position: ClaudeSdkStreamPosition): void
+  }
   /** Keep an item the CLI never writes to its JSONL, so later reads carry it
    *  (POD-6258). Absent: the item is live-only. */
   recordAnnotation?(sessionId: SessionId, annotation: TranscriptAnnotation): Promise<void>
@@ -195,14 +203,27 @@ export interface ClaudeSdkRuntimeHost {
     onTypingStarted?: SendOptions['onTypingStarted']
     onPartialText(text: string, itemHint?: string): void
     onPermission(request: ClaudeSdkPermissionRequest): void
-    /** One tool call, as the provider issued it. Always delivered before the
-     *  matching `onToolResult`. */
-    onToolCall(call: ClaudeSdkToolCall): void
-    /** That call's return. `output` may be empty; the call still finished. */
-    onToolResult(result: ClaudeSdkToolResult): void
     /** The CLI's summary of a step's calls, after their results. */
     onToolSummary?(summary: ClaudeSdkToolSummary): void
   }): ClaudeSdkTurnHandle
+  /**
+   * THE SESSION FILE, TAILED (POD-6280): the Store's tail of the Claude session
+   * file, its items stamped with the cursors a read gives them. `from: 'end'`
+   * follows a resumed conversation from where its file stands (its history is
+   * the read's); `from: 'start'` reads a conversation this session began, all
+   * of which is new.
+   *
+   * The driver's only source of conversation items. It used to build its own
+   * copies from the stream: tool calls, tool results and the final reply, under
+   * ids of its own. The read served the file's copies, so where the two
+   * disagreed the chat kept both, and every Claude SDK reply showed twice. One
+   * reader means one identity, by construction (ADR 10 Decision B). Absent
+   * (tests that never read a file): the conversation has no live items.
+   */
+  watchTranscript?(
+    input: { sessionId: SessionId; workdir: string; resumeValue: string; from: 'start' | 'end' },
+    onItems: (items: readonly TranscriptItem[]) => void,
+  ): () => void
   readTranscript(input: {
     sessionId: SessionId
     workdir: string
@@ -290,10 +311,18 @@ interface SessionCore {
   idleInterruptNotedEpoch: number
   partialText: string
   partialItemId: string
-  /** Transcript-item ids already published for this session's tool calls and
-   *  results. See `notePublishedToolItem`. */
+  /** Podium-owned item ids already published (tool summaries). See
+   *  `notePublishedToolItem`. */
   publishedToolItems: Set<string>
-  publishedPromptItems: Set<string>
+  /** The file items' identity gate: identity to published content. */
+  fileItems: Map<string, string>
+  /** Ids of the file items published, for the turn-end record wait. */
+  fileIds: Set<string>
+  /** Turns waiting for a record id from the file. */
+  recordWaiters: Map<string, Array<() => void>>
+  /** The conversation the file tail follows, and how to stop it. */
+  watchedResume?: string
+  stopWatch?: () => void
   heldMessages: Set<HeldMessage>
   receiptTimer?: ReturnType<typeof setTimeout>
   receiptReading: boolean
@@ -351,6 +380,8 @@ export function createClaudeSdkRuntime(
    * same promise inside one daemon life.
    */
   const parked = new Map<SessionId, { spec: SessionSpec; binding: SessionBinding }>()
+  /** Each session's last coarse stream position in this daemon life (POD-6280). */
+  const streamPositions = new Map<SessionId, ClaudeSdkStreamPosition>()
 
   const cursorAt = (core: SessionCore, seq = core.seq): ProviderCursor => ({
     segmentId: core.binding.process.key,
@@ -371,6 +402,18 @@ export function createClaudeSdkRuntime(
       },
     })
     if (core.log.length > 512) core.log.splice(0, core.log.length - 512)
+    // Only coarse events checkpoint at the gate, so only they need to survive
+    // a restart, and a per-token write would cost a file write per token.
+    if (!(body.t === 'item' && body.item.kind !== 'complete')) {
+      const position = {
+        seq: core.seq,
+        turnEpoch: core.turnEpoch,
+        observerGeneration: core.observerGeneration,
+        bindingVersion: core.binding.bindingVersion,
+      }
+      streamPositions.set(core.sessionId, position)
+      host.streamPosition?.record(core.sessionId, position)
+    }
     for (const wake of [...core.wakers]) wake()
   }
 
@@ -474,10 +517,8 @@ export function createClaudeSdkRuntime(
           const item = found.get(message.uuid)
           if (item) {
             core.heldMessages.delete(message)
-            if (!core.publishedPromptItems.has(item.id)) {
-              core.publishedPromptItems.add(item.id)
-              publishItem(core, item)
-            }
+            // The file's own record, so it shares the tail's identity gate.
+            emitFileItems(core, [item])
             const harnessRef: HarnessRef = [{ kind: 'claude-uuid', id: message.uuid }]
             if (message.late) {
               message.options.onLateProof?.({ transcriptItem: { id: item.id }, harnessRef })
@@ -526,6 +567,15 @@ export function createClaudeSdkRuntime(
    * cannot grow this set without limit.
    */
   const TOOL_ITEM_MEMORY = 4096
+  /** How many file items one session remembers for the identity gate. */
+  const FILE_ITEM_MEMORY = 4096
+  /**
+   * How long a finished turn waits for its final record in the file. The tail
+   * polls (the Store tailer's cadence); a record the CLI never writes cannot
+   * hold the turn open past this. Late, it still lands: the gate admits a
+   * complete item in the epoch it closed.
+   */
+  const TURN_RECORD_WAIT_MS = 3_000
 
   /**
    * PUBLISH ONE TOOL ITEM AT MOST ONCE (POD-3050).
@@ -548,46 +598,74 @@ export function createClaudeSdkRuntime(
   }
 
   /**
-   * THE DURABLE RECORD OF ONE TOOL CALL, and the defect POD-3050 is about.
-   *
-   * A headless Claude turn used to reach the transcript as a prompt and an
-   * answer with a hole between them: the driver mapped `tool_use` to a status
-   * badge that nothing stores, and ignored `tool_result` entirely. A human
-   * reading the conversation back saw the model assert a file's contents with no
-   * record of it ever having read the file.
-   *
-   * The item is built by the store's shared builder (`@podium/harness/store`) — the same
-   * function the JSONL parser uses — so the item published live and the item a
-   * reload produces are the same item, by construction rather than by agreement.
+   * ONE IDENTITY GATE FOR THE FILE'S ITEMS (POD-6280), the terminal driver's
+   * rule: an item is published when its identity is new or its content
+   * changed. A record the turn-end stamper re-marks as the answer comes back
+   * under the same identity with new content, and replaces the row it was.
    */
-  function publishToolCall(core: SessionCore, call: ClaudeSdkToolCall): void {
-    if (!notePublishedToolItem(core, call.toolUseId)) return
-    publishItem(
-      core,
-      claudeToolCallItem({
-        id: call.toolUseId,
-        toolName: call.toolName,
-        input: call.input,
-        ts: host.now(),
-        toolUseId: call.toolUseId,
-      }),
+  function emitFileItems(core: SessionCore, items: readonly TranscriptItem[]): void {
+    for (const item of items) {
+      const identity = item.cursor ?? item.id
+      const version = JSON.stringify(item)
+      if (core.fileItems.get(identity) === version) continue
+      core.fileItems.set(identity, version)
+      core.fileIds.add(item.id)
+      // Sets and maps iterate in insertion order: drop the oldest.
+      if (core.fileItems.size > FILE_ITEM_MEMORY) {
+        const oldest = core.fileItems.keys().next()
+        if (!oldest.done) core.fileItems.delete(oldest.value)
+      }
+      if (core.fileIds.size > FILE_ITEM_MEMORY) {
+        const oldest = core.fileIds.values().next()
+        if (!oldest.done) core.fileIds.delete(oldest.value)
+      }
+      publishItem(core, item)
+      const waiting = core.recordWaiters.get(item.id)
+      if (waiting) {
+        core.recordWaiters.delete(item.id)
+        for (const wake of waiting) wake()
+      }
+    }
+  }
+
+  /** Tail the conversation's file, once per conversation the core is on. */
+  function watchFile(core: SessionCore, from: 'start' | 'end'): void {
+    const resumeValue = core.binding.resume?.value
+    if (!host.watchTranscript || core.disposed || !resumeValue) return
+    if (core.watchedResume === resumeValue) return
+    core.stopWatch?.()
+    core.watchedResume = resumeValue
+    core.stopWatch = host.watchTranscript(
+      { sessionId: core.sessionId, workdir: core.spec.workdir, resumeValue, from },
+      (items) => {
+        if (core.disposed || core.watchedResume !== resumeValue) return
+        emitFileItems(core, items)
+      },
     )
   }
 
-  /** The result half of the pair. Its id is derived from the call's so the two
-   *  are distinct items that a renderer can still join on `toolUseId`. */
-  function publishToolResult(core: SessionCore, result: ClaudeSdkToolResult): void {
-    const id = `${result.toolUseId}-result`
-    if (!notePublishedToolItem(core, id)) return
-    publishItem(
-      core,
-      claudeToolResultItem({
-        id,
-        output: result.output,
-        ts: host.now(),
-        toolUseId: result.toolUseId,
-      }),
-    )
+  function unwatchFile(core: SessionCore): void {
+    core.stopWatch?.()
+    core.stopWatch = undefined
+    core.watchedResume = undefined
+    for (const waiting of core.recordWaiters.values()) for (const wake of waiting) wake()
+    core.recordWaiters.clear()
+  }
+
+  /** Resolves once the tail delivered the record `id`, or after the bound. */
+  function fileRecord(core: SessionCore, id: string | undefined): Promise<void> {
+    if (!id || !host.watchTranscript || core.disposed) return Promise.resolve()
+    if (core.fileIds.has(id)) return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, TURN_RECORD_WAIT_MS)
+      function done(): void {
+        clearTimeout(timer)
+        resolve()
+      }
+      const waiting = core.recordWaiters.get(id) ?? []
+      waiting.push(done)
+      core.recordWaiters.set(id, waiting)
+    })
   }
 
   /** The CLI's summary of a step's calls (POD-6258). Published live and
@@ -920,14 +998,6 @@ export function createClaudeSdkRuntime(
               // The turn ended under the gate read: nothing is left to answer.
             })
         },
-        onToolCall(call) {
-          if (!core.turnOpen || core.turnEpoch !== epoch) return
-          publishToolCall(core, call)
-        },
-        onToolResult(result) {
-          if (!core.turnOpen || core.turnEpoch !== epoch) return
-          publishToolResult(core, result)
-        },
         onToolSummary(summary) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return
           publishToolSummary(core, summary)
@@ -980,7 +1050,9 @@ export function createClaudeSdkRuntime(
       // accepted, but no turn opens on a session that has ended.
       return accepted(options, userItemId, core.turnEpoch)
     }
+    const conversationIsNew = !core.conversationStarted
     epoch = openTurn(core, options.origin)
+    watchFile(core, conversationIsNew ? 'start' : 'end')
     core.partialText = ''
     core.partialItemId = `claude-sdk-${core.sessionId}-${epoch}`
     core.textDeliveries += 1
@@ -993,7 +1065,8 @@ export function createClaudeSdkRuntime(
           ...core.binding,
           resume: { kind: 'claude-session', value: result.resumeValue },
         }
-        const text = result.output || core.partialText
+        // The CLI may have moved the conversation (a fork): follow the new file.
+        watchFile(core, 'start')
         if (result.observedModel) {
           host.reportObservedConfiguration?.({
             sessionId: core.sessionId,
@@ -1001,22 +1074,14 @@ export function createClaudeSdkRuntime(
             ...(result.observedEffort ? { effort: result.observedEffort } : {}),
           })
         }
-        if (text) {
-          push(core, {
-            t: 'item',
-            item: {
-              kind: 'complete',
-              item: {
-                id: result.itemId ?? core.partialItemId,
-                role: 'assistant',
-                text,
-                ts: host.now(),
-              },
-            },
-          })
-        }
         void child.dispose?.()
-        closeTurn(core, core.interruptRequested ? 'interrupted' : 'done')
+        // THE REPLY IS THE FILE'S (POD-6280). Claude can write the final record
+        // a moment after the stream's result (measured: up to 1 ms on 2.1.317),
+        // so the turn closes once the tail has delivered it, or after a bound.
+        void fileRecord(core, result.itemId).then(() => {
+          if (!core.turnOpen || core.turnEpoch !== epoch) return
+          closeTurn(core, core.interruptRequested ? 'interrupted' : 'done')
+        })
       },
       (error) => {
         if (!core.turnOpen || core.turnEpoch !== epoch) return
@@ -1099,6 +1164,7 @@ export function createClaudeSdkRuntime(
     abandonQueue(core, 'teardown')
     if (exit) push(core, exit)
     core.disposed = true
+    unwatchFile(core)
     core.interactions.clear()
     core.interactionResponders.clear()
     slots.release(core.sessionId)
@@ -1448,6 +1514,15 @@ export function createClaudeSdkRuntime(
     resume: ResumeRef,
     fresh: boolean,
   ): SessionCore {
+    // A session id that already streamed continues where it stood: the next
+    // generation, ordinal and epoch where the last life left them (POD-6280).
+    // Within one daemon the memory carries it (a hibernate wake), across a
+    // restart the journal does; take whichever is further along.
+    const carried = [streamPositions.get(sessionId), host.streamPosition?.recorded(sessionId)]
+    const previous = carried.reduce<ClaudeSdkStreamPosition | undefined>(
+      (best, next) => (next && (!best || next.seq > best.seq) ? next : best),
+      undefined,
+    )
     const core: SessionCore = {
       sessionId,
       spec,
@@ -1462,14 +1537,14 @@ export function createClaudeSdkRuntime(
         // The key is fixed for the session's life: the engine's durable
         // label where an engine host answers, the in-memory key otherwise.
         process: { key: host.processFor?.(sessionId).key ?? `claude-sdk:${sessionId}` },
-        bindingVersion: 1,
+        bindingVersion: (previous?.bindingVersion ?? 0) + 1,
       },
       state: { phase: 'idle', since: host.now(), nativeSubagentCount: 0 },
-      seq: 0,
-      turnEpoch: 0,
+      seq: previous?.seq ?? 0,
+      turnEpoch: previous?.turnEpoch ?? 0,
       turnOpen: false,
       fenced: new Set(),
-      observerGeneration: 1,
+      observerGeneration: (previous?.observerGeneration ?? 0) + 1,
       log: [],
       wakers: new Set(),
       interactions: new Map(),
@@ -1487,7 +1562,9 @@ export function createClaudeSdkRuntime(
       partialText: '',
       partialItemId: '',
       publishedToolItems: new Set<string>(),
-      publishedPromptItems: new Set<string>(),
+      fileItems: new Map(),
+      fileIds: new Set(),
+      recordWaiters: new Map(),
       heldMessages: new Set(),
       receiptReading: false,
       receiptPollMs: 100,
@@ -1499,6 +1576,8 @@ export function createClaudeSdkRuntime(
     cores.set(sessionId, core)
     processCores.set(core.binding.process.key, core)
     foldState(core, { kind: 'session_started' })
+    // A resumed conversation's file exists; a fresh one's appears with its first turn.
+    if (!fresh) watchFile(core, 'end')
     return core
   }
 
@@ -1552,7 +1631,11 @@ export function createClaudeSdkRuntime(
         const woken = newCore(binding.sessionId, park.spec, park.binding.resume, false)
         woken.binding = {
           ...woken.binding,
-          bindingVersion: Math.max(binding.bindingVersion, park.binding.bindingVersion) + 1,
+          bindingVersion: Math.max(
+            binding.bindingVersion + 1,
+            park.binding.bindingVersion + 1,
+            woken.binding.bindingVersion,
+          ),
         }
         push(woken, {
           t: 'process',

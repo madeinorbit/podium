@@ -96,7 +96,12 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
           state,
         })
         const ctx = ports.context()
-        if (ctx) nativeClientStateObserved(ctx, message.sessionId, state)
+        if (ctx) {
+          // The turn a turn-scoped interrupt is checked against (POD-6397).
+          const entry = ctx.sessions.get(message.sessionId)
+          if (entry) entry.turnState = state
+          nativeClientStateObserved(ctx, message.sessionId, state)
+        }
       }
     }
     /**

@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UpdateTarget } from '@podium/protocol'
@@ -132,7 +140,30 @@ describe('informational update space', () => {
     )
     expect(
       result.volumes.find((volume) => volume.path === join(f.stateDir, 'podium.db'))?.peakBytes,
-    ).toBe(2 * ('database'.length + 'wal'.length))
+    ).toBe(2)
+  })
+
+  it.each([
+    [4, 'low'],
+    [6, 'enough'],
+  ] as const)('estimates a typical update with a 3 GiB database and %i GiB free as %s', async (free, status) => {
+    const f = fixture()
+    // A sparse file supplies the real stat size without allocating 3 GiB.
+    truncateSync(join(f.stateDir, 'podium.db'), 3 * GiB)
+    const result = await previewUpdateSpace(target, {
+      ...f,
+      hostsServer: true,
+      platform: 'linux-x86_64',
+      fetch: vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { headers: { 'content-length': String(64 * 1024 ** 2) } }),
+        ),
+      filesystem: async () => ({ id: 'volume', availableBytes: free * GiB }),
+    })
+    expect(result.status).toBe(status)
+    expect(result.volumes[0]?.requiredBytes).toBeGreaterThan(4 * GiB)
+    expect(result.volumes[0]?.requiredBytes).toBeLessThan(6 * GiB)
   })
 
   it.each([

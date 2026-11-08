@@ -1,3 +1,4 @@
+import { repoWrites } from '@podium/commands/fleet-synced'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineId } from '@podium/model'
 import { asMachineId, HOST_REPOS, isAbsoluteMachinePath, machinesFor } from '@podium/model'
@@ -198,7 +199,7 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
   // Direct add of the browsed repo. The picker closes itself afterward (its
   // onClose), and refreshRepos has already updated the sidebar.
   async function addThisFolder(path: string): Promise<void> {
-    await trpc.repos.add.mutate({ path, ...repoMachineInput() })
+    await repoWrites(trpc).add.mutate({ path, ...repoMachineInput() })
     await refreshRepos()
     finish(1)
   }
@@ -264,12 +265,12 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
     try {
       const failed: string[] = []
       if (add.length > 0) {
-        const res = await trpc.repos.addMany.mutate({ paths: add, ...repoMachineInput() })
+        const res = await repoWrites(trpc).addMany.mutate({ paths: add, ...repoMachineInput() })
         failed.push(...res.failed.map((f) => f.path))
       }
       for (const path of remove) {
         try {
-          await trpc.repos.remove.mutate({ path, ...repoMachineInput() })
+          await repoWrites(trpc).remove.mutate({ path, ...repoMachineInput() })
         } catch {
           failed.push(path)
         }

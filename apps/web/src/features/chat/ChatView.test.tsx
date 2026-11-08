@@ -94,6 +94,12 @@ const chatSend = outboxChatSendActions(() => fakeTrpc)
 const storeActions = {
   setPanelMode: vi.fn((_sessionId: SessionId, _mode: 'chat' | 'native') => {}),
   setSessionDraft: vi.fn(),
+  // Stop is a `session.interrupt` effect record naming the turn (POD-6397).
+  interruptTurn: vi.fn(
+    async (_sessionId: SessionId, _args: { turn?: string; messageId?: string }) => 'eff_1',
+  ),
+  endSession: vi.fn(async () => ({ ok: true })),
+  dismissEffect: vi.fn(async () => {}),
 }
 
 let storeSessions: SessionMeta[] = []
@@ -138,6 +144,9 @@ vi.mock('@/app/store', () => {
     chatSendsFor: chatSend.chatSendsFor,
     discardChat: chatSend.discardChat,
     setPanelMode: storeActions.setPanelMode,
+    interruptTurn: storeActions.interruptTurn,
+    endSession: storeActions.endSession,
+    dismissEffect: storeActions.dismissEffect,
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     uiState: fakeUiState,
@@ -292,6 +301,7 @@ describe('ChatView read-then-subscribe', () => {
           phase: 'working',
           since: '2026-06-03T00:00:01.000Z',
           nativeSubagentCount: 0,
+          turnStartedAt: '2026-06-03T00:00:01.000Z',
         },
       }),
     ]
@@ -315,7 +325,10 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+    // The Stop names the turn on screen, so it can never stop the next one.
+    expect(storeActions.interruptTurn).toHaveBeenCalledWith('s1', {
+      turn: '2026-06-03T00:00:01.000Z',
+    })
     expect(storeActions.setSessionDraft).toHaveBeenCalledWith('s1', 'tighten the copy')
   })
 
@@ -345,7 +358,8 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+    // No observed turn to name: the Stop is for whatever turn runs.
+    expect(storeActions.interruptTurn).toHaveBeenCalledWith('s1', {})
   })
 
   it('leaves the chord inert on a session that is not running', async () => {
@@ -365,16 +379,15 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).not.toHaveBeenCalled()
+    expect(storeActions.interruptTurn).not.toHaveBeenCalled()
   })
 
-  // A refusal RESOLVES `{ ok: false }` — it does not throw. Swallowing it made a
-  // stop that never reached the agent look exactly like one that worked.
-  it('shows why a refused stop did not stop anything', async () => {
-    fakeTrpc.sessions.interrupt.mutate.mockResolvedValueOnce({
-      ok: false,
-      reason: 'Codex only takes an interrupt while it is working',
-    })
+  // A Stop that could not even be queued says so at once. A refusal by the
+  // agent arrives later on the record, as the stuck notice with Kill.
+  it('shows why a stop that could not be queued did not stop anything', async () => {
+    storeActions.interruptTurn.mockRejectedValueOnce(
+      new Error('Codex only takes an interrupt while it is working'),
+    )
     storeSessions = [meta({ status: 'live', agentKind: 'codex', agentState: undefined })]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)

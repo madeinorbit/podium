@@ -19,6 +19,7 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import {
   createGrokAcpRuntime,
   type GrokAcpJournalEntry,
@@ -29,6 +30,7 @@ import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../tes
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
+  harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',
@@ -58,6 +60,7 @@ function world(): World {
     reports,
     serverFor: (sessionId) => servers.get(sessionId),
     host: {
+      harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),

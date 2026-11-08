@@ -14,7 +14,6 @@
  */
 import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
@@ -25,6 +24,7 @@ import type {
   InstrumentationDestination,
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
+import { codexRootsFor } from './roots.js'
 import { classifyCodexVerdict } from './state.js'
 
 const log = createLogger('harness:codex-instrumentation')
@@ -335,8 +335,9 @@ export function checkPodiumHookTrust(input: {
  * removes or reorders another tool's hooks. Skips silently when
  * `<home>/.codex` doesn't exist (codex not installed / not used).
  */
-export async function ensurePodiumCodexHooks(opts?: {
-  homeDir?: string
+export async function ensurePodiumCodexHooks(opts: {
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   codexHome?: string
   versionProbe?: CodexVersionProbe
   verifiedVersion?: string
@@ -349,9 +350,10 @@ export async function ensurePodiumCodexHooks(opts?: {
   trusted?: boolean
   untrustedEvents?: string[]
 }> {
-  const codexHome = opts?.codexHome ?? join(opts?.homeDir ?? homedir(), '.codex')
+  const roots = codexRootsFor(opts.homeDir, opts.codexHome)
+  const codexHome = roots.state
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
-  const hooksJsonPath = join(codexHome, 'hooks.json')
+  const hooksJsonPath = join(roots.hooks, 'hooks.json')
 
   let observedVersion: string
   try {
@@ -401,7 +403,7 @@ export async function ensurePodiumCodexHooks(opts?: {
   }
   const upserted = upsertHooksJson(doc)
   if (upserted.changed) {
-    await mkdir(codexHome, { recursive: true })
+    await mkdir(roots.hooks, { recursive: true })
     await writeAtomic(hooksJsonPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
 
@@ -410,7 +412,7 @@ export async function ensurePodiumCodexHooks(opts?: {
   // config.toml's [hooks.state] table and say so when our handlers lack it.
   let configText: string | undefined
   try {
-    configText = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    configText = await readFile(join(roots.config, 'config.toml'), 'utf8')
   } catch {
     configText = undefined
   }
@@ -709,7 +711,8 @@ async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentSt
 async function installCodexInstrumentation(
   destination: InstrumentationDestination,
 ): Promise<InstalledInstrumentation> {
-  const codexHome = destination.harnessHome ?? join(destination.homeDir ?? homedir(), '.codex')
+  const context = destination.harnessContext
+  const codexHome = context.roots.state
   const wiring = {
     args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
     env: {
@@ -722,8 +725,11 @@ async function installCodexInstrumentation(
   // reason reported instead of being refused.
   try {
     const result = await ensurePodiumCodexHooks({
+      homeDir: destination.harnessContext.home,
       codexHome,
-      ...(destination.verifiedVersion ? { verifiedVersion: destination.verifiedVersion } : {}),
+      // The version the inventory read off the executable this session
+      // launches; '' (the CLI printed none) degrades as a missing version.
+      ...(context.installation.version ? { verifiedVersion: context.installation.version } : {}),
     })
     const degradedReason = !result.installed
       ? (result.reason ?? 'hook installation failed')
@@ -784,22 +790,13 @@ function installerDegradedKind(
 // ---------------------------------------------------------------------------
 
 /**
- * The Codex home the install serializes by (POD-4531).
- *
- * The same rule the terminal family applied when it owned the
- * `global-env` branch: instance-owned homes override session values, an
- * ambient `CODEX_HOME` redirects otherwise, and the fallback is
- * `<home>/.codex`. Owned here so the mechanism never reads the environment
- * section — it only looks the `home` strategy up by scope.
+ * The Codex home the install serializes by (POD-4531): the session-pinned
+ * context's state root (POD-6533), the folder the session's child and its
+ * observer use. Owned here so the mechanism never reads the environment
+ * section; it only looks the `home` strategy up by scope.
  */
 function codexHomeOf(destination: InstrumentationDestination): string {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    ...(destination.env ?? {}),
-    ...(destination.homeDir ? { CODEX_HOME: join(destination.homeDir, '.codex') } : {}),
-  }
-  const homeDir = destination.homeDir ?? env.HOME ?? homedir()
-  return env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+  return destination.harnessContext.roots.state
 }
 
 export const codexInstrumentation: HarnessInstrumentation = {

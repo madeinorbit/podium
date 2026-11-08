@@ -5,12 +5,12 @@
  * `{ ...process.env, ...input.env }`, so a named instance's opencode/codex/grok
  * children inherited the daemon's REAL `HOME` — found live when an isolated
  * grok session refreshed the operator's real `~/.grok` credentials within
- * seconds of spawn. The PTY path never had the bug (`ctx.homeDir` rides
- * `spawnEnv`'s overlay).
+ * seconds of spawn. The PTY path never had the bug (`ctx.homeDir` rode its
+ * spawn overlay; both now come from `harnessChildEnv`, POD-6535).
  *
  * These tests assert the fix END TO END, per the issue's acceptance: the child
  * itself reports its env — a fake harness binary installed under the INSTANCE
- * home's `.local/bin` (which `serverChildEnv`'s PATH derivation makes
+ * home's `.local/bin` (which `harnessChildEnv`'s PATH derivation makes
  * authoritative, the same derivation that makes the fake resolvable at all)
  * writes its own `HOME` to a landing file, and the assertion reads the child's
  * write, not the composition function.
@@ -28,10 +28,11 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { grokSessionPaths } from '@podium/harness'
+import { grokSessionPaths, harnessContext } from '@podium/harness'
 import { manifestFor } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   codexEngineFacts,
@@ -56,10 +57,6 @@ import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
   opencodeVersionProbe,
-  opencodeVersionProbeForExecutable,
-  resetCodexAppServerVersionProbe,
-  resetGrokAcpVersionProbe,
-  resetOpencodeVersionProbe,
 } from './version-probe'
 import { SessionRegistry } from '../session/registry.js'
 
@@ -248,6 +245,42 @@ afterAll(() => {
 
 const resources = () => undefined
 
+/** A version each family admits: the inventory verified it, so launch's own
+ *  admission reads it instead of forking anything. */
+const VERIFIED: Partial<Record<BuiltinHarnessKind, string>> = {
+  opencode: '1.18.16',
+  codex: 'codex-cli 0.147.0',
+  grok: 'grok 0.2.23',
+}
+
+/**
+ * The session's pinned context (POD-6546), built by the production builder:
+ * the fake binary under the instance home is the selected installation, and
+ * the command environment is this process's own env (what the daemon's
+ * recovered command env holds on a machine with no login-shell probe).
+ */
+function sessionContext(kind: BuiltinHarnessKind) {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value
+  const path = join(instanceHome, '.local', 'bin', kind)
+  return harnessContext(
+    {
+      executables: new Map([[kind, { kind, path, version: VERIFIED[kind], generation: 0 }]]),
+      commandEnvironment: {
+        env,
+        pathEntries: [],
+        source: 'inherited',
+        generation: 0,
+        machineHome: instanceHome,
+        loginShell: '/bin/sh',
+        resolve: () => undefined,
+      },
+    },
+    kind,
+    instanceHome,
+  )
+}
+
 /**
  * Engines launch under a REAL podium-host here (POD-4433) — the same durable
  * object production passes in, so these tests prove the production spawn path,
@@ -257,13 +290,7 @@ const engineDurable = () => createDurableProcess()
 
 describe('a launched server-driver child runs in the INSTANCE home', () => {
   it('opencode serve: the child itself reports the instance HOME', async () => {
-    // Prime the memoized verdict so `launch()`'s own parameterless probe call
-    // hits the cache instead of forking the machine's real binary.
-    resetOpencodeVersionProbe()
-    expect((await opencodeVersionProbe(() => ({ output: '1.18.16', ok: true }))).drivable).toBe(
-      true,
-    )
-
+    const context = sessionContext('opencode')
     const landing = join(root, 'landing-opencode.json')
     const flavor = opencodeFlavor(manifestFor('opencode')!)
     // Launches go through the session layer's engine hold, as production
@@ -278,14 +305,18 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       homeDir: instanceHome,
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: ({ executable }) =>
-        opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
+      checkVersion: (installation) =>
+        opencodeVersionProbe(installation, { env: {} }).then((v) =>
+          v.drivable ? null : v.diagnostic,
+        ),
+      harnessContextFor: async () => context,
     })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
       secret: 'test-secret',
       username: 'podium',
+      harnessContext: context,
       env: { PODIUM_TEST_LANDING: landing, PODIUM_TEST_MANAGED: 'rides-through' },
     })
     try {
@@ -304,11 +335,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
   }, 30_000)
 
   it('codex app-server: the child itself reports the instance HOME', async () => {
-    resetCodexAppServerVersionProbe()
-    expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
-    ).toBe(true)
-
+    const context = sessionContext('codex')
     const landing = join(root, 'landing-codex.json')
     const facts = codexEngineFacts(manifestFor('codex')!)
     const engines = createSessionEngineScope(engineDurable(), { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
@@ -321,12 +348,14 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       homeDir: instanceHome,
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: () => codexAppServerVersionProbe(),
+      checkVersion: (installation) => codexAppServerVersionProbe(installation, { env: {} }),
+      harnessContextFor: async () => context,
       dialSocket: engines.dialerFor(dialEngineSocket),
     })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
+      harnessContext: context,
       env: {
         PODIUM_TEST_LANDING: landing,
         PODIUM_TEST_MANAGED: 'rides-through',
@@ -350,9 +379,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
   }, 30_000)
 
   it('grok agent stdio: the child reports instance HOME and exact lifecycle stamps', async () => {
-    resetGrokAcpVersionProbe()
-    expect((await grokAcpVersionProbe(() => ({ output: '0.2.23', ok: true }))).drivable).toBe(true)
-
+    const context = sessionContext('grok')
     const landing = join(root, 'landing-grok.json')
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
@@ -367,11 +394,13 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       instanceUuid,
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: () => grokAcpVersionProbe(),
+      checkVersion: (installation) => grokAcpVersionProbe(installation, { env: {} }),
+      harnessContextFor: async () => context,
     })
     const endpoint = await host.launch({
       sessionId,
       workdir,
+      harnessContext: context,
       env: {
         PODIUM_TEST_LANDING: landing,
         PODIUM_TEST_MANAGED: 'rides-through',
@@ -411,7 +440,8 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       homeDir: instanceHome,
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: () => grokAcpVersionProbe(),
+      checkVersion: (installation) => grokAcpVersionProbe(installation, { env: {} }),
+      harnessContextFor: async () => sessionContext('grok'),
     })
     const tail = await host.readNativeUpdates?.({
       sessionId: asSessionId('podium-reader-session'),

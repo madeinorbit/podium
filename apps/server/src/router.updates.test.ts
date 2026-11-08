@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, firstAdminMemberId, type UpdateChannel } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -58,6 +58,8 @@ interface HarnessOptions {
    * still carries a `server` step.
    */
   hostUpdateReceiver?: false | ((message: unknown) => void)
+  /** Call as this member (role `member`) instead of the admin operator (POD-6358). */
+  member?: string
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -122,8 +124,12 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     registry,
     repos,
     superagent,
-    capability: OPERATOR,
-    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+    capability: opts.member
+      ? userCommandPrincipal(asUserId(opts.member), 'member').capability
+      : OPERATOR,
+    principal: opts.member
+      ? userCommandPrincipal(asUserId(opts.member), 'member')
+      : userCommandPrincipal(firstAdminMemberId(), 'admin'),
     ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
@@ -1757,6 +1763,67 @@ describe('the update operation', () => {
     expect(second.operationId).toBe(first.operationId)
     expect(second.alreadyRunning).toBe(true)
     expect(await caller.operations.history({ kind: 'update' })).toHaveLength(1)
+    await registry.dispose()
+  })
+
+  it('refuses a member: only an admin may update the instance (POD-6358)', async () => {
+    const { registry, caller } = await behindHarness({
+      requestCoordinatorRestart: () => {},
+      member: 'mem_2MEMBERMEMBERMEMBERMEMBERM',
+    })
+    await expect(caller.updates.start()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(caller.updates.converge()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    // Refused before it looks, so a member cannot learn which updates exist.
+    await expect(caller.updates.retry({ id: 'op_none' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // Re-delivering a payload and restarting the server are an admin's too.
+    await expect(caller.updates.repairPayload()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(caller.updates.repairCompatibility()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // Nothing started: no operation, and no record left behind.
+    expect(await registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
+    await registry.dispose()
+  })
+
+  it('starts from a server.update effect record that every device reads on the feed (POD-6358)', async () => {
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
+    // Two presses at once: two records, one operation, named after the first.
+    const [started, again] = await Promise.all([caller.updates.start(), caller.updates.start()])
+    expect(started.operationId).toMatch(/^op_eff_/)
+    expect(again.operationId).toBe(started.operationId)
+    expect(again.alreadyRunning).toBe(true)
+    const recordId = started.operationId.replace(/^op_/, '')
+    const record = await registry.sessionStore.effects.get(recordId)
+    expect(record).toMatchObject({
+      kind: 'server.update',
+      target: { kind: 'machine', id: registry.sessionStore.hostMachineId },
+      result: { operationId: started.operationId },
+    })
+
+    // The operation's end is the record's end, in the standard status.
+    const engine = registry.modules.operations.engine
+    if ((await engine.active('lifecycle')) !== undefined) await engine.cancel(started.operationId)
+    const want = { done: 'succeeded', failed: 'failed', canceled: 'cancelled' } as const
+    let ended: string | undefined
+    for (let i = 0; i < 200; i++) {
+      const op = await engine.get(started.operationId)
+      const status = (await registry.sessionStore.effects.get(recordId))?.status
+      ended = op && op.state in want ? want[op.state as keyof typeof want] : undefined
+      if (ended !== undefined && status === ended) break
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(ended).toBeDefined()
+    expect((await registry.sessionStore.effects.get(recordId))?.status).toBe(ended)
+
+    // Every device reads it off the feed: pending, then running, then the end.
+    const feed = (await registry.sessionStore.sync.changesSince(0))
+      .filter((row) => row.entity === 'effect' && row.entityId === recordId)
+      .map((row) => JSON.parse(row.payload ?? 'null') as { effect: { status: string } })
+    expect(feed[0]?.effect.status).toBe('pending')
+    expect(feed.some((row) => row.effect.status === 'running')).toBe(true)
+    expect(feed.at(-1)?.effect.status).toBe(ended)
     await registry.dispose()
   })
 

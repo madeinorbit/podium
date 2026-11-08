@@ -45,13 +45,14 @@ import {
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
+import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
 import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
-import { DISCOVERY_QUERIES, REPO_QUERIES } from './modules/fleet/queries'
+import { REPO_QUERIES } from './modules/fleet/queries'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
 import {
   authFamilyProcedures,
@@ -78,11 +79,9 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
-import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { readPositionFamilyProcedures } from './modules/read-position/trpc'
-import { shellFamilyProcedures } from './modules/shells/trpc'
 import {
   PIN_QUERIES,
   SESSION_QUERIES,
@@ -92,9 +91,11 @@ import {
 } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
+import { shellFamilyProcedures } from './modules/shells/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
+import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
@@ -113,8 +114,8 @@ import type { AnyCommandContract } from '@podium/commands'
  * Every session-family MUTATION — session-state class, command plane and handoff — is
  * produced from the contract tables by `modules/sessions/trpc.ts` and spread into
  * the four routers below. There is deliberately no `.mutation(` for a session
- * anywhere in this file, and `scripts/audit-session-commands.ts` fails the build if
- * one appears: a hand-written procedure beside a derived one is a second answer to
+ * anywhere in this file, and the server typecheck refuses one
+ * (`modules/write-routes/write-routes.typecheck.ts`): a hand-written procedure beside a derived one is a second answer to
  * "how is this authorized", which is what the 3.2 split set out to end.
  *
  * `sessions.ask` is the one session write NOT built there: POD-729 owns its
@@ -126,11 +127,12 @@ import type { AnyCommandContract } from '@podium/commands'
  * work) and the audit checks procedure TYPE rather than name, so a write cannot hide
  * among them by being called a query.
  */
-import { fleetProcedures } from './modules/fleet/trpc'
+import { discoveryReadProcedures, fleetProcedures } from './modules/fleet/trpc'
 import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
 import { sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
+import { syncRoute } from './modules/write-routes/sync'
 import { type Context, mods, t } from './trpc'
 
 /**
@@ -201,9 +203,20 @@ function mailRun<Out>(name: MailProcName) {
     ))! as Promise<Out>
 }
 
-/** A mail contract whose policy action is `write`, served as a tRPC mutation. */
+/**
+ * A mail contract whose policy action is `write`, served as a tRPC mutation,
+ * generated from its sync registration (POD-6525, POD-6593): the messages gate
+ * submits it on the entry point as this transport's adapter. `awaitAgent` is a
+ * wait whose one write is the claim it retires, `mail.awaitObserved`.
+ */
 function mailMutation<Out = unknown>(name: MailProcName) {
-  return t.procedure.input(mailContractFor(name, 'write').input).mutation(mailRun<Out>(name))
+  const contract = mailContractFor(name, 'write')
+  return syncRoute({
+    command: contract,
+    ...(name === 'awaitAgent' ? { registration: 'mail.awaitObserved' } : {}),
+    input: contract.input,
+    run: mailRun<Out>(name),
+  })
 }
 
 /** A mail contract whose policy action is `read`, served as a tRPC query. */
@@ -220,10 +233,10 @@ function mailQuery<Out = unknown>(name: MailProcName) {
  */
 const sessionFamily = sessionFamilyProcedures()
 
-/** The seven superagent thread mutations, built from their contracts at module
- *  load (POD-383). Built once here for the same reason as `sessionFamily`: the
- *  spread stays readable at the router while the CONTRACT TABLE decides the
- *  membership — including that there are seven and not eight. */
+/** The eight superagent thread writes (POD-383): thin LEGACY adapters onto
+ *  `sync.submit` since POD-6419, for the shipped clients that still call them.
+ *  Built once here for the same reason as `sessionFamily`: the spread stays
+ *  readable at the router while the CONTRACT TABLE decides the membership. */
 const superagentFamily = superagentFamilyProcedures()
 
 /** The three spec writes, built from their contracts at module load (POD-386).
@@ -289,15 +302,16 @@ export const appRouter = t.router({
     // WRITES — THE DERIVED SURFACE (POD-382). create · resume · kill · handoff ·
     // continue · sendText · answerAskUserQuestion · resumeAndSend · hibernate ·
     // stop · resurrect · uploadImage · rename · setArchived · markRead ·
-    // markUnread · setIssueId · setWorkState · dismissOffer, every one built from its contract
+    // markUnread · setWorkState · dismissOffer, every one built from its contract
     // by modules/sessions/trpc.ts. Which commands exist is the CONTRACT TABLE's
     // answer, including which transports serve them — which is why `setDraft` is
-    // absent (it declares `ws`).
+    // absent (it declares `ws`). `setIssueId` is absent too: `sync.submit` is its
+    // only door (POD-6416).
     ...sessionFamily.sessions,
     // READS — the query table (POD-314). Declared in modules/sessions/queries.ts;
     // they carry no contract because a visibility class describes what a command
-    // WRITES, and audit-session-commands.ts checks procedure TYPE so a write
-    // cannot hide among them.
+    // WRITES, and write-routes.test.ts refuses a query carrying a registration,
+    // so a write cannot hide among them.
     ...queryProcedures('sessions', SESSION_QUERIES),
     // THE ONE SESSION WRITE NOT BUILT BY `sessionFamilyProcedures()`, and the
     // merge is why. POD-382 had given `ask` a command-plane contract to delete
@@ -309,7 +323,10 @@ export const appRouter = t.router({
     // so the audit still refuses a hand-written one here.
     ask: mailMutation('ask'),
   }),
-  sync: t.router(queryProcedures('sync', SYNC_QUERIES)),
+  // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): `sync.submit` takes an
+  // outbox envelope and replies with the result and a receipt. Every write to
+  // synced data moves onto it (POD-6350, POD-6359).
+  sync: t.router({ ...queryProcedures('sync', SYNC_QUERIES), ...syncWriteProcedures() }),
   // PER-USER STATE (POD-380 / POD-1350): each list is the CALLER's, not the instance's.
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).
@@ -364,9 +381,8 @@ export const appRouter = t.router({
      * hand-written: a `visibility` class names the state a command WRITES, and
      * this describes the CALLER rather than any settings state. Giving it one
      * would be a well-typed lie of the kind POD-1075 refused. It is named as
-     * an exception in `router.settings-guard.test.ts` and counted by
-     * `scripts/audit-settings-commands.ts`, so the exception is visible rather
-     * than assumed.
+     * an exception in `router.settings-guard.test.ts`, so the exception is
+     * visible rather than assumed.
      */
     viewer: t.procedure.query(async ({ ctx }) => ({
       permitted: settingsCommandsPermitted(await settingsAuthzDeps(ctx)),
@@ -408,8 +424,8 @@ export const appRouter = t.router({
    * PODIUM CONNECT (PDM-51). `check` asks connect.podium.do to probe a
    * public URL from the outside and say precisely why it does not work. The
    * result is the cloud's answer verbatim; nothing here is stored — it is a
-   * READ of the world, which is why it is a query and this router is in the
-   * census as reads-only (scripts/router-mutation-census.json).
+   * READ of the world, which is why it is a query and this router carries no
+   * registration.
    */
   connect: t.router({
     check: t.procedure
@@ -429,7 +445,7 @@ export const appRouter = t.router({
     // `machineVerb: 'use'` commands, each placing a filesystem walk on the target
     // machine's daemon.
     ...fleet.discovery,
-    ...queryProcedures('discovery', DISCOVERY_QUERIES),
+    ...discoveryReadProcedures(),
   }),
   machines: t.router({
     /**
@@ -446,8 +462,8 @@ export const appRouter = t.router({
      * costs four lines. When POD-1075 lands a real principal this is where it
      * belongs.
      */
-    list: t.procedure.query(async ({ ctx }) =>
-      await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
+    list: t.procedure.query(
+      async ({ ctx }) => await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     /**
      * Served harness descriptors for one machine (POD-4475): the daemon's
@@ -510,6 +526,12 @@ export const appRouter = t.router({
   // and `router.mail-derivation.test.ts` asserts it against this file's TEXT —
   // an audit that reads the source is the only kind that notices the tenth
   // procedure someone adds by hand next year.
+  //
+  // THE WRITES ARE ON THE SYNC WRITE ENTRY POINT (POD-6525): `send`, `reply`,
+  // `inbox`, `dismiss`, `cancel`, `dismissNotice` and `sessions.ask` reach their
+  // handler through `submit` with the transport tag `trpc` (the gate is the
+  // adapter).
+  // LEGACY(remove-after: 2027-03): these write routes, for the shipped mobile app, the desktop app's bundled web and older CLIs; removing one breaks that client's mail.
   messages: t.router({
     send: mailMutation('send'),
     // A mutation on the wire, because the recipient's own inbox read CONSUMES
@@ -556,8 +578,7 @@ export const appRouter = t.router({
    * Eighteen hand-written procedures — eleven of them `.mutation(` — are gone.
    * `workflowFamilyProcedures()` builds all of them from `WORKFLOW_CONTRACTS`
    * and `WORKFLOW_QUERIES`, so there is deliberately no procedure written out
-   * here, and `scripts/audit-workflow-commands.ts` fails the build if one
-   * appears.
+   * here, and the server typecheck refuses one (`write-routes.typecheck.ts`).
    */
   workflows: t.router(workflowFamilyProcedures()),
   /**
@@ -566,8 +587,8 @@ export const appRouter = t.router({
    *
    * The four writes — create · update · setEnabled · remove — are built from
    * `AUTOMATION_CONTRACTS` by `modules/automations/trpc.ts`, so there is
-   * deliberately no mutation written out here and
-   * `scripts/audit-automation-commands.ts` fails the build if one appears. The two
+   * deliberately no mutation written out here and the server typecheck refuses
+   * one (`write-routes.typecheck.ts`). The two
    * READS stay hand-written: a contract's `visibility` classifies what a command
    * WRITES, and a read writes nothing.
    *

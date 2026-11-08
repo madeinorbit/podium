@@ -226,6 +226,61 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     expect(existsSync(join(base, '.uploads', issueId, uploadId))).toBe(false)
   })
 
+  it('a staged upload no record ever publishes is swept after a day, not before (POD-6420)', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const issueId = asIssueId('iss_1')
+    const uploadId = randomUUID()
+    const staged = join(base, '.uploads', issueId, uploadId)
+    // The client died after its bytes arrived: begun and chunked, never committed.
+    await store.transfer(issueId, {
+      action: 'begin',
+      uploadId,
+      path: 'report.md',
+      entry: 'report.md',
+      files: [{ path: 'report.md', size: 1 }],
+    })
+    await store.transfer(issueId, {
+      action: 'chunk',
+      uploadId,
+      file: 'report.md',
+      offset: 0,
+      dataBase64: 'eA==',
+    })
+
+    await store.sweepUploads(Date.now() + 23 * 60 * 60 * 1000)
+    expect(existsSync(staged)).toBe(true)
+    await store.sweepUploads(Date.now() + 25 * 60 * 60 * 1000)
+    expect(existsSync(staged)).toBe(false)
+    // A publish record arriving after the sweep finds nothing to publish.
+    expect(await store.publishUpload(issueId, uploadId, asArtifactId('a1'))).toBeUndefined()
+  })
+
+  it('publishes a staged upload under the id it is given, replacing a crashed run', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const issueId = asIssueId('iss_1')
+    const uploadId = randomUUID()
+    await store.transfer(issueId, {
+      action: 'begin',
+      uploadId,
+      path: 'r.md',
+      entry: 'r.md',
+      files: [{ path: 'r.md', size: 1 }],
+    })
+    await store.transfer(issueId, {
+      action: 'chunk',
+      uploadId,
+      file: 'r.md',
+      offset: 0,
+      dataBase64: 'eA==',
+    })
+
+    const published = await store.publishUpload(issueId, uploadId, asArtifactId('keyed1'))
+
+    expect(published).toMatchObject({ path: 'r.md', snapshot: { artifactId: 'keyed1' } })
+    expect((await store.read(issueId, asArtifactId('keyed1'), 'r.md'))?.bytes.toString()).toBe('x')
+    expect(existsSync(join(base, '.uploads', issueId, uploadId))).toBe(false)
+  })
+
   it('rejects a direct-upload filename that could escape its artifact directory', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({}))
     await expect(

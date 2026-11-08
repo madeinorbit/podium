@@ -36,12 +36,12 @@
 
 import {
   type IssueEventWire,
+  type IssueId,
   isFeedEventKind,
   issueEventRowId,
   parseIssueEventRowId,
-  type IssueId,
 } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { PodiumEventRecord } from '../../store/events'
 
 /**
@@ -54,7 +54,7 @@ export const FEED_WINDOW = 200
 
 export interface IssueEventFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `issueEvent`. */
-  readonly ledger: Pick<Ledger, 'capture'>
+  readonly ledger: Pick<LedgerWriter, 'capture'>
   /** What the Authority already holds for this kind when async boot resolves it. */
   readonly seed: () => readonly IssueEventWire[] | Promise<readonly IssueEventWire[]>
   readonly windowSize?: number
@@ -76,7 +76,7 @@ export class IssueEventFeedPublisher {
     if (this.resolved) return
     if (!this.resolving) {
       this.resolving = (async () => {
-        this.window = [...await this.deps.seed()]
+        this.window = [...(await this.deps.seed())]
           .sort((a, b) => a.eventId - b.eventId)
           .map((row) => row.id)
           // A seed longer than the window (the size was lowered across a restart)

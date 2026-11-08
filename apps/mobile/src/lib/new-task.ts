@@ -1,5 +1,6 @@
-import type { IssueType, MachineId } from '@podium/model'
 import { AUTO } from '@podium/client-core/agent-models'
+import type { SpawnIssueAgentArgs } from '@podium/client-core/spawn-agent'
+import type { AgentKind, IssueStage, IssueType, MachineId } from '@podium/model'
 
 export interface NewTaskInput {
   repoPath: string
@@ -47,5 +48,47 @@ export function newTaskInput(args: {
           ...(args.launch.machineId ? { machineId: args.launch.machineId } : {}),
         }
       : {}),
+  }
+}
+
+/**
+ * "Create and start" as the pool's `issue.start` (POD-6421): the same fields
+ * the create took, the prompt verbatim as the task's description, and the
+ * agent left on the configured coding role when Agent stays Auto (the shown
+ * agent is then only what the start paints). Backlog is the screen's default
+ * and adds nothing: a started task reads In progress; another stage is applied
+ * once it has started.
+ */
+export function newTaskStart(args: {
+  repoPath: string
+  title: string
+  prompt: string
+  priority: number
+  stage: IssueStage
+  /** The agent the screen shows: painted, and started when pinned. */
+  agentKind: AgentKind
+  launch: {
+    defaultAgent?: string
+    defaultModel: string
+    defaultEffort: string
+    machineId: MachineId | null
+  }
+}): SpawnIssueAgentArgs {
+  const repoPath = args.repoPath.trim()
+  const pinned = args.launch.defaultAgent
+  return {
+    target: {
+      path: repoPath,
+      repoPath,
+      ...(args.launch.machineId ? { machineId: args.launch.machineId } : {}),
+    },
+    title: args.title.trim(),
+    description: args.prompt.trim().length > 0 ? args.prompt : '',
+    agentKind: (pinned as AgentKind | undefined) ?? args.agentKind,
+    ...(pinned ? {} : { inheritAgent: true }),
+    ...(args.launch.defaultModel !== AUTO ? { model: args.launch.defaultModel } : {}),
+    ...(args.launch.defaultEffort !== AUTO ? { effort: args.launch.defaultEffort } : {}),
+    ...(args.priority !== 2 ? { priority: args.priority } : {}),
+    ...(args.stage !== 'backlog' && args.stage !== 'shipping' ? { stage: args.stage } : {}),
   }
 }

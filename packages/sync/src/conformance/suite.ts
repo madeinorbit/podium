@@ -33,6 +33,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import type { OutboxSubmitPort } from '../outbox/ports'
 import { normalizeRefusal, recoveryPlanFor } from '../outbox/reasons'
 import { isDelegated } from '../outbox/records'
 import type { Cursor, ServerFrame } from '../replica/types'
@@ -1595,6 +1596,263 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await ada.replica.receive(nextFrame(authority, ada))
         await ada.settle()
         expect(storage.unitOfWorkTransactions()).toBe(uowBefore + 1)
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+      })
+    })
+
+    // ─────────────────────────────────────────────────────────────────────────
+    describe('covered retirement — the commit that covers a command retires it (ADR 12)', () => {
+      /**
+       * A server that found nothing to change. The Authority suppresses a write that
+       * changes nothing, so it appends NO row, and no frame will ever carry this
+       * command's provenance. Its reply still names the change-log head after the
+       * call as the receipt (ADR 12 Decision 1), and that cursor is the only
+       * evidence the replica will ever get. This is the stranded-collapse case.
+       */
+      const noOpServer: OutboxSubmitPort = {
+        submit: async () => ({
+          kind: 'applied',
+          receipt: { feedId: authority.feedId, epoch: authority.epoch, seq: authority.head() },
+        }),
+      }
+
+      const connectedWith = async (
+        principal: ConformancePrincipal,
+        submit: OutboxSubmitPort,
+      ): Promise<Client> => {
+        const c = (await openClient({
+          authority,
+          storage,
+          principal,
+          clock,
+          newMutationId: nextId,
+          submit,
+        })) as Client
+        c.replica.connect()
+        await c.settle()
+        return c
+      }
+
+      /** A row ADA cannot see: it moves the head, so ADA's next frame is a watermark. */
+      const graceOnlyRow = (n: number): number =>
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'GRACE-1',
+          op: 'upsert',
+          payload: { n },
+        })
+
+      it("a watermark reaching an applied command's receipt retires it in the same unit of work as the cursor", async () => {
+        seedTwoSlices()
+        const ada = await connectedWith(ADA, noOpServer)
+        const receiptSeq = graceOnlyRow(5)
+        const record = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { n: 1 },
+        })
+        await ada.outbox.drain()
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+        expect(ada.outbox.find(record.mutationId)?.receipt?.seq).toBe(receiptSeq)
+
+        const frame = nextFrame(authority, ada)
+        // A pure watermark: no row, so no provenance, can retire this command.
+        expect(frame.changes).toEqual([])
+        expect(frame.seq).toBe(receiptSeq)
+
+        const uowBefore = storage.unitOfWorkTransactions()
+        const outboxWritesBefore = storage.outboxWrites()
+        await ada.replica.receive(frame)
+        await ada.settle()
+
+        // ONE transaction carried the cursor and the retirement, and the queue region
+        // published inside it, not in a write of its own.
+        expect(storage.unitOfWorkTransactions()).toBe(uowBefore + 1)
+        expect(storage.outboxWrites()).toBe(outboxWritesBefore + 1)
+        expect(ada.view.cache.readCursor()?.seq).toBe(receiptSeq)
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await ada.view.outbox.read()).toEqual([])
+        expect(ada.outboxEvents).toContainEqual({ type: 'retired', mutationId: record.mutationId })
+      })
+
+      it('a delta below the receipt keeps the command; the delta at the receipt retires it', async () => {
+        seedTwoSlices()
+        const ada = await connectedWith(ADA, noOpServer)
+        const below = authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-2',
+          op: 'upsert',
+          payload: { n: 20 },
+        })
+        const at = authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { n: 10 },
+        })
+        const record = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { n: 10 },
+        })
+        await ada.outbox.drain()
+        expect(ada.outbox.find(record.mutationId)?.receipt?.seq).toBe(at)
+
+        // Below the receipt: a real delta, applied, and the command stays — the
+        // replica does not yet hold the truth the reply named.
+        const uowBefore = storage.unitOfWorkTransactions()
+        await ada.replica.receive(authority.frameFor(ADA, below - 1, below))
+        await ada.settle()
+        expect(ada.replica.view('issueProjection', 'ADA-2')).toEqual({ n: 20 })
+        expect(ada.view.cache.readCursor()?.seq).toBe(below)
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+        expect(await ada.view.outbox.read()).toHaveLength(1)
+        // Nothing covered, so nothing to enrol: a single-region autocommit.
+        expect(storage.unitOfWorkTransactions()).toBe(uowBefore)
+
+        // At the receipt: the same instrument now retires, in one transaction.
+        await ada.replica.receive(authority.frameFor(ADA, below, at))
+        await ada.settle()
+        expect(ada.view.cache.readCursor()?.seq).toBe(at)
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await ada.view.outbox.read()).toEqual([])
+        expect(storage.unitOfWorkTransactions()).toBe(uowBefore + 1)
+      })
+
+      it('an aborted frame commit leaves cursor and command where they were', async () => {
+        seedTwoSlices()
+        const ada = await connectedWith(ADA, noOpServer)
+        graceOnlyRow(5)
+        const record = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { n: 1 },
+        })
+        await ada.outbox.drain()
+        const preCursor = ada.view.cache.readCursor()
+        const preOutbox = await ada.view.outbox.read()
+        expect(preOutbox).toHaveLength(1)
+        const outboxEventsBefore = ada.outboxEvents.length
+
+        storage.failNextCommit(new Error('power loss mid-transaction'))
+        await ada.replica.receive(nextFrame(authority, ada))
+        await expect(ada.settle()).rejects.toThrow('power loss')
+
+        // PRE, on both halves: no cursor the outbox cannot back, no retirement the
+        // cursor did not commit, and no event announcing either.
+        expect(
+          ada.outboxEvents.slice(outboxEventsBefore).filter((event) => event.type === 'retired'),
+        ).toEqual([])
+        const recovered = (await ada.recover()) as Client
+        expect(recovered.view.cache.readCursor()).toEqual(preCursor)
+        expect(await recovered.view.outbox.read()).toEqual(preOutbox)
+        expect(recovered.outbox.find(record.mutationId)?.state).toBe('applied')
+
+        // POSITIVE CONTROL: the same frame without the fault retires it.
+        recovered.replica.connect()
+        await recovered.settle()
+        await pumpUntilCaughtUp(authority, recovered)
+        expect(recovered.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await recovered.view.outbox.read()).toEqual([])
+      })
+
+      it('an install in a new epoch retires receipts from the old epoch', async () => {
+        seedTwoSlices()
+        const ada = await connectedWith(ADA, noOpServer)
+        const oldEpoch = authority.epoch
+        const cursorBefore = ada.replica.cursor as Cursor
+        graceOnlyRow(5)
+        graceOnlyRow(6)
+        const record = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { n: 1 },
+        })
+        await ada.outbox.drain()
+        const receipt = ada.outbox.find(record.mutationId)?.receipt
+        expect(receipt).toEqual({ feedId: authority.feedId, epoch: oldEpoch, seq: 6 })
+
+        // A restore. The new epoch re-serves seqs, and the receipt's seq is no longer
+        // comparable with anything: the epoch is compared by equality only.
+        const restored = await authority.bumpEpoch('restore')
+        expect(restored).not.toBe(oldEpoch)
+
+        // The divergent frame is REFUSED as a delta (no cross-epoch comparison) and
+        // the replica re-bootstraps. Until that install commits, the command stays.
+        await ada.replica.receive(authority.frameFor(ADA, cursorBefore.seq))
+        await ada.settle()
+
+        expect(
+          ada.replicaEvents.some((e) => e.type === 'heal' && e.cause === 'epoch-mismatch'),
+        ).toBe(true)
+        expect(ada.replica.cursor?.epoch).toBe(restored)
+        // The install is the new truth: an old-epoch receipt can never be reached by a
+        // delta again, so the install retires it.
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await ada.view.outbox.read()).toEqual([])
+      })
+
+      it("a frame carrying an in-flight command's provenance retires it", async () => {
+        seedTwoSlices()
+        let release!: () => void
+        const replyHeld = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        let landed!: () => void
+        const commandLanded = new Promise<void>((resolve) => {
+          landed = resolve
+        })
+        const inner = authority.transportFor(ADA)
+        // The command lands at the authority at once; its HTTP reply is slow and
+        // arrives only after the WebSocket frame that carries the row.
+        const slowReply: OutboxSubmitPort = {
+          submit: async (envelope) => {
+            const outcome = await inner.submit(envelope)
+            const receipt = {
+              feedId: authority.feedId,
+              epoch: authority.epoch,
+              seq: authority.head(),
+            }
+            landed()
+            await replyHeld
+            return outcome.kind === 'applied' ? { ...outcome, receipt } : outcome
+          },
+        }
+        const ada = await connectedWith(ADA, slowReply)
+        const record = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
+        const draining = ada.outbox.drain()
+        // A latch, not a poll: a durable store's `sending` write takes real I/O turns.
+        await commandLanded
+        expect(authority.receiptFor(record.mutationId)).toBeDefined()
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('sending')
+
+        const frame = nextFrame(authority, ada)
+        expect(frame.changes.some((c) => c.mutationId === record.mutationId)).toBe(true)
+        await ada.replica.receive(frame)
+        await ada.settle()
+
+        expect(ada.view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ closed: true })
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await ada.view.outbox.read()).toEqual([])
+        const mine = ada.outboxEvents.filter(
+          (event) => 'mutationId' in event && event.mutationId === record.mutationId,
+        )
+        expect(mine.map((event) => event.type).slice(-2)).toEqual(['applied', 'retired'])
+
+        // The late reply completes the attempt quietly, and the partition goes on.
+        release()
+        await draining
+        const next = await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { closed: false },
+        })
+        await ada.outbox.drain()
+        expect(authority.receiptFor(next.mutationId)).toBeDefined()
         expect(ada.outbox.find(record.mutationId)).toBeUndefined()
       })
     })

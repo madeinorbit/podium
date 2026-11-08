@@ -43,7 +43,8 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 const setOpenIssueId = vi.fn()
 const setView = vi.fn()
 const navigateToSession = vi.fn()
-const start = vi.fn(async () => ({}))
+// Starting is an `issue.begin` effect record (POD-6526): the store action.
+const start = vi.fn(() => ({ settled: Promise.resolve(true) }))
 const setPlacement = vi.fn(async () => ({}))
 const updateIssue = vi.fn(async () => {})
 const closeIssue = vi.fn(async () => {})
@@ -84,7 +85,6 @@ vi.mock('@/app/store', () => {
   const state = () => ({
     trpc: {
       issues: {
-        start: { mutate: start },
         setPlacement: { mutate: setPlacement },
         close: { mutate: vi.fn(async () => ({})) },
         update: { mutate: vi.fn(async () => ({})) },
@@ -93,6 +93,7 @@ vi.mock('@/app/store', () => {
       sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
     },
     issues: mockIssues,
+    startIssueSession: start,
     setOpenIssueId,
     setView,
     navigateToSession,
@@ -239,7 +240,7 @@ describe('IssueCompactControls', () => {
     const action = screen.getByTestId('task-primary-action')
     expect(action.textContent).toBe('Start work')
     fireEvent.click(action)
-    expect(start).toHaveBeenCalledWith({ id: 'i' })
+    expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
   })
 
   /**
@@ -369,7 +370,7 @@ describe('IssueCompactControls', () => {
       fireEvent.click(await screen.findByTestId('task-placement-own'))
 
       expect(setPlacement).not.toHaveBeenCalled()
-      expect(start).toHaveBeenCalledWith({ id: 'i' })
+      expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
     })
 
     it('moves the work first, then starts it, when the operator disagrees', async () => {
@@ -386,7 +387,7 @@ describe('IssueCompactControls', () => {
       })
       // The start waits on the move: an agent must never boot into the shape
       // the operator just rejected.
-      await vi.waitFor(() => expect(start).toHaveBeenCalledWith({ id: 'i' }))
+      await vi.waitFor(() => expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' }))
       expect(setPlacement.mock.invocationCallOrder[0]).toBeLessThan(
         start.mock.invocationCallOrder[0] as number,
       )

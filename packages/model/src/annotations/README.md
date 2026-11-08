@@ -8,6 +8,7 @@ means, what happens offline, and whether any of it is secret.
 | File | Holds |
 |---|---|
 | `ownership.ts` | The closed vocabulary — every column's value set, plus the default-closed resolvers (`visibilityClassOf`, `isTenantVisible`, `grantVerbsOf`) |
+| `matrix-rows.ts` | The row ids (`ROW`) alone, so a client can name a row without carrying the rows |
 | `matrix.ts` | The DATA: one fully annotated row per class, transcribed from ADR 1 §§1–10 and Amendment 1 §3 (including its §11) |
 | `arbitration.ts` | The conflict-rule reads — **Authority-side callers only** |
 | `matrix.test.ts` | The totality test, and the planted unclassified fixture that proves the default fails closed |

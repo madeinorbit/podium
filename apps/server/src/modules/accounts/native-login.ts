@@ -23,8 +23,6 @@ export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
 
 const attemptKey = (ownerUserId: UserId, harness: HarnessAgent): string =>
   `${ownerUserId}\u0000${harness}`
-const harnessOfKey = (key: string): HarnessAgent =>
-  key.slice(key.indexOf('\u0000') + 1) as HarnessAgent
 
 /** Coordinates native CLI authentication without ever seeing provider tokens.
  * The PTY and inventory remain the two sources of truth.
@@ -35,7 +33,11 @@ const harnessOfKey = (key: string): HarnessAgent =>
  * kept per (member, harness), so Alice's attempt is never Bob's answer. */
 export class NativeLoginService {
   private readonly required = new Set<string>()
-  private readonly attempts = new Map<string, NativeLoginAttempt>()
+  /** Keyed by {@link attemptKey}: one attempt per (user, harness). */
+  private readonly attempts = new Map<
+    string,
+    NativeLoginAttempt & { readonly harness: HarnessAgent }
+  >()
   private readonly bySession = new Map<string, string>()
 
   constructor(
@@ -71,9 +73,12 @@ export class NativeLoginService {
     return [...machineIds].some((machineId) => this.required.has(`${machineId}:${harness}`))
   }
 
-  /** The member's own latest attempt for this harness. */
+  /** This user's latest attempt for this harness, if any. */
   attempt(ownerUserId: UserId, harness: HarnessAgent): NativeLoginAttempt | undefined {
-    return this.attempts.get(attemptKey(ownerUserId, harness))
+    const found = this.attempts.get(attemptKey(ownerUserId, harness))
+    if (!found) return undefined
+    const { harness: _harness, ...attempt } = found
+    return attempt
   }
 
   async start(input: {
@@ -90,7 +95,7 @@ export class NativeLoginService {
     ownerUserId: UserId
   }): Promise<NativeLoginAttempt> {
     const key = attemptKey(input.ownerUserId, input.harness)
-    const existing = this.attempts.get(key)
+    const existing = this.attempt(input.ownerUserId, input.harness)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
@@ -148,7 +153,7 @@ export class NativeLoginService {
       machineName: machine.name,
       status: 'running',
     }
-    this.attempts.set(key, attempt)
+    this.attempts.set(key, { ...attempt, harness: input.harness })
     this.bySession.set(spawned.sessionId, key)
     return attempt
   }
@@ -174,7 +179,7 @@ export class NativeLoginService {
   private async onInventory(machineId: MachineId): Promise<void> {
     for (const [key, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
-      const harness = harnessOfKey(key)
+      const harness = attempt.harness
       const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {

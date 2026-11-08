@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { declaredValue, type TranscriptSourceInput } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
 import { decodeCursor, fileChainSource } from '../../store/index.js'
-import { transcriptSourceFromGrammar } from '../../store/store.js'
 import { opencodeDbSource, stampOpencodeItems } from '../../store/sources/sqlite.js'
+import { transcriptSourceFromGrammar } from '../../store/store.js'
 
 /**
  * opencode sqlite source tests (POD-4471): the DB source and the row stamper
@@ -379,7 +380,7 @@ describe('Store routing by agentKind', () => {
     const src = await sourceForKind('opencode', {
       cwd: '/repo/oc',
       resumeValue: sid,
-      homeDir,
+      account: testAccount('opencode', homeDir),
     })
     const r = await src.readSlice({ direction: 'before', limit: 5 })
     expect(r.items.map((i) => i.text)).toEqual(['routed'])
@@ -387,7 +388,10 @@ describe('Store routing by agentKind', () => {
   })
 
   it('opencode with no resumeValue yields an empty source', async () => {
-    const src = await sourceForKind('opencode', { cwd: '/repo/oc' })
+    const src = await sourceForKind('opencode', {
+      cwd: '/repo/oc',
+      account: testAccount('opencode', '/nonexistent-podium-home'),
+    })
     const r = await src.readSlice({ direction: 'before', limit: 5 })
     expect(r.items).toEqual([])
     expect(r.hasMore).toBe(false)

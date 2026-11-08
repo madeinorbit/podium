@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueProjection, SessionId, UserId } from '@podium/model'
-import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
+import { attributionOf, type CommandAttribution, type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import { settingsAuditAttribution } from '../../../store/settings-audit'
 import type { IssueStore } from './core'
@@ -8,6 +8,7 @@ import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
 import type { IssueReportsModule } from './reads'
 import { IssueForbidden, IssueRefusal } from './refusal'
+import type { IssueWriter } from './types'
 
 /**
  * IS THIS COMMENT THE CALLER'S OWN (POD-6289, POD-6295; design §2.2)? Its
@@ -54,15 +55,18 @@ export class IssueCommentsMailModule {
    * the BUILD (not just the run) if a default comes back.
    */
   async addComment(
+    writer: IssueWriter,
     id: string,
     author: string,
     body: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<IssueProjection> {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
-    const attribution = attributionOf(principal)
+    // An effect's executor (POD-6394) has the stored attribution, not a live principal.
+    const attribution = 'kind' in principal ? attributionOf(principal) : principal
     return await this.store.persistWith(
+      writer,
       row,
       async () =>
         await this.store.deps.store.issues.addIssueComment({
@@ -86,11 +90,12 @@ export class IssueCommentsMailModule {
    * author could also suppress their notes.
    */
   async addCallerComment(
+    writer: IssueWriter,
     id: string,
     body: string,
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
-    return await this.addComment(id, await this.authorOf(principal), body, principal)
+    return await this.addComment(writer, id, await this.authorOf(principal), body, principal)
   }
 
   /**
@@ -105,23 +110,26 @@ export class IssueCommentsMailModule {
    * can only be moderated.
    */
   async editComment(
+    writer: IssueWriter,
     id: string,
     commentId: string,
     body: string,
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
-    return await this.changeComment(id, commentId, principal, { kind: 'edit', body })
+    return await this.changeComment(writer, id, commentId, principal, { kind: 'edit', body })
   }
 
   async deleteComment(
+    writer: IssueWriter,
     id: string,
     commentId: string,
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
-    return await this.changeComment(id, commentId, principal, { kind: 'delete' })
+    return await this.changeComment(writer, id, commentId, principal, { kind: 'delete' })
   }
 
   private async changeComment(
+    writer: IssueWriter,
     id: string,
     commentId: string,
     principal: CommandPrincipal,
@@ -146,7 +154,7 @@ export class IssueCommentsMailModule {
     }
     const attribution = attributionOf(principal)
     const at = this.store.now()
-    return await this.store.persistWith(row, async () => {
+    return await this.store.persistWith(writer, row, async () => {
       if (change.kind === 'edit') {
         await issues.editIssueComment({
           id: commentId,
@@ -214,6 +222,7 @@ export class IssueCommentsMailModule {
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   async mailInbox(
+    writer: IssueWriter,
     issueId: IssueId,
     opts?: {
       markRead?: boolean
@@ -249,8 +258,12 @@ export class IssueCommentsMailModule {
     // the write, and re-reading an inbox must stay free.
     const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
     if (markRead && (unreadIds.length || newReceipts.length)) {
-      await this.store.deps.funnel.run({
-        write: async () => {
+      // On the reading command's writer (POD-6602): the pull moves the messages
+      // rows' delivery status, a synced write; their feed changes come from the
+      // messages table's capture, so the commit declares none.
+      await writer.commit({
+        changes: () => [],
+        write: async (scope) => {
           const at = this.store.now()
           if (unreadIds.length) {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
@@ -272,7 +285,12 @@ export class IssueCommentsMailModule {
             // when it was overwhelmingly the pull path working. A readerless peek
             // (operator/UI) still has nobody to name and stays null.
             for (const mid of unreadIds)
-              await this.store.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
+              await this.store.deps.store.messages.markDeliveredByPull(
+                scope,
+                mid,
+                reader ?? null,
+                at,
+              )
           }
           if (reader)
             for (const mid of newReceipts)
@@ -295,12 +313,14 @@ export class IssueCommentsMailModule {
    *  reaches every session on the issue exactly once. Claiming does prove the
    *  claimer has the message, so it records that reader's receipt [POD-1379]. */
   async mailClaim(
+    writer: IssueWriter,
     messageId: string,
     claimedBy: string,
     opts?: { sessionId?: SessionId },
   ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
-    const claimed = await this.store.deps.funnel.run({
-      write: async () => {
+    const { result: claimed } = await writer.commit({
+      changes: () => [],
+      write: async (scope) => {
         const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,
           claimedBy,
@@ -311,6 +331,7 @@ export class IssueCommentsMailModule {
         // ledger names [POD-1420]; absent a session id there is nobody to name.
         if (won)
           await this.store.deps.store.messages.markDeliveredByPull(
+            scope,
             messageId,
             opts?.sessionId ?? null,
             this.store.now(),

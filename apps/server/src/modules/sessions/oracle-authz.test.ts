@@ -97,10 +97,10 @@ async function twoIssueOracle() {
   const o = await makeOracle()
   // Issues are placed on a machine that reported their repo (2b803efb5).
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
-  await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue B', startNow: false })
-  await o.reg.issues.crud.update(b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue B', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
   const agent = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',
@@ -318,8 +318,10 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
       input: { sessionId: stranger.sessionId },
     })
     expect(denied.ok).toBe(false)
+    // Since POD-6416 the entry point decides the scope (`confirmation-required`)
+    // and the relay adapter answers its refusal in the route adapters' words.
     expect(denied.error).toBe(
-      `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
+      'sessions.continue is outside your scope; re-run with --outside-scope to confirm',
     )
   })
 

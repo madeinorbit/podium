@@ -173,9 +173,6 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   networkEnabled?: boolean
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
-  /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
-   *  rollback test doesn't wait out the 2s broadcast-confirm grace). */
-  engineOverrides?: { spawnConfirmGraceMs?: number }
   /** Optional app data layer over THIS runtime. Attached after start; released
    * before dispose/destroy, including a principal/config rebuild. StrictMode
    * re-attaches it when the same runtime starts again. */
@@ -203,7 +200,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   makeSocket,
   networkEnabled,
   routerWindow,
-  engineOverrides,
   attachRuntime,
   unauthenticated = null,
   children,
@@ -280,7 +276,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         makeSocket,
         networkEnabled,
         routerWindow,
-        ...engineOverrides,
       }),
     }
   }

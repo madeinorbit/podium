@@ -1,11 +1,15 @@
 /**
- * SETTINGS → ACCOUNTS, REAL, IN A BROWSER (POD-6300). Mounts the shipping
- * `AccountsSection` inside the settings pane's own classes. `?theme=light`
- * opens the Paper appearance; `?width=` narrows the pane.
+ * SETTINGS → ACCOUNTS & KEYS, REAL, IN A BROWSER (POD-6390).
+ *
+ * Mounts the SHIPPING `AccountsSection` inside the settings pane's own classes,
+ * at the sheet's form width, on the sheet's card ground. `?scene=admin` (default)
+ * or `member` picks who is looking; `custody` shows native opt-in and sends to
+ * a shared machine. `?theme=light` opens the Paper appearance.
  */
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AccountsSection } from '@/features/settings/sections/accounts'
+import { sceneName } from './accounts-settings-store'
 import '@/index.css'
 import '@/styles.css'
 
@@ -18,6 +22,7 @@ function Shell(): JSX.Element {
       className="app-sheet-settings settings-pane"
       style={{ width, background: 'var(--card)', color: 'var(--text)', minHeight: '100vh' }}
       data-testid="accounts-harness"
+      data-scene={sceneName()}
     >
       <div className="settings-pane-scroll" style={{ overflow: 'visible' }}>
         <div className="settings-measure settings-section-enter">

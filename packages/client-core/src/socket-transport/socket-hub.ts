@@ -2202,6 +2202,7 @@ export class SocketHub {
         case 'issueGitState':
         case 'sessionUserState':
         case 'machine':
+        case 'effect':
           // These rows belong to the Replica. Session, conversation and
           // automation consumers read synced data without a hub projection.
           break

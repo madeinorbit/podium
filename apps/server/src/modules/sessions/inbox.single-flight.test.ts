@@ -1,9 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  harnessDisplayName,
-  harnessInterrupt,
-} from '../../harness-manifest'
+import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
 import { SessionInbox } from './inbox'
 
 /**
@@ -55,10 +52,6 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       },
       now: () => Date.now(),
       persist: vi.fn(async () => {}),
-      // The draft seam [POD-3330]: a real `write` applies the mutation to a
-      // draft and installs it on the session when the commit returns, so the
-      // in-memory effect a fixture has to reproduce is the mutation landing.
-      write: async (session, mutate) => mutate(session as never),
       draft: (session) => ({ ...session }) as never,
       persistDraft: vi.fn(async () => {}),
       broadcast: vi.fn(),

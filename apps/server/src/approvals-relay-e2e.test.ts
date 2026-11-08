@@ -42,8 +42,8 @@ describe('approval broker relay e2e (#410)', () => {
       { repos: ['/r'] },
     )
     await registry.modules.machines.recordInventory(machineId, fixtureInventory())
-    const A = await registry.issues.crud.create({ repoPath: '/r', title: 'epic', startNow: false })
-    await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    const A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'epic', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })

@@ -9,7 +9,6 @@ import type { NavigationIntent } from './navigation'
 
 import type { IssueUpdatePatch } from '@podium/commands'
 import type {
-  AgentKind,
   ArtifactId,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -27,9 +26,18 @@ import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
+import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import type {
+  IssueWorkAction,
+  LaunchSessionArgs,
+  SessionAnswer,
+  SpawnDraftAgentArgs,
+  SpawnIssueAgentArgs,
+  StartIssueSession,
+  TaskSpawnOutcome,
+} from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -382,25 +390,23 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     issueId: IssueId
     settled: Promise<boolean>
   }
+  /** Start a session in a folder, joining the panel's task when it has one
+   *  (POD-6523): a `session.launch` effect record under a session id minted
+   *  here, painted from that record (and its queued create) until the row
+   *  lands. Returns the id synchronously so the caller opens its panel. */
+  launchSession: (args: LaunchSessionArgs) => {
+    sessionId: SessionId
+    settled: Promise<boolean>
+  }
   /** Start a named task optimistically, including its first chat turn. */
-  spawnIssueAgent: (args: {
-    issueId?: IssueId
-    sessionId?: SessionId
-    mutationId?: MutationId
-    target: SpawnTarget
-    title: string
-    description: string
-    brief?: string
-    parentBranch?: string
-    agentKind: AgentKind
-    model?: string
-    effort?: string
-  }) => {
+  spawnIssueAgent: (args: SpawnIssueAgentArgs) => {
     sessionId: SessionId
     issueId: IssueId
     mutationId: MutationId
     settled: Promise<boolean>
     outcome: Promise<TaskSpawnOutcome>
+    /** True once the task was filed as a proposal (no agent comes). */
+    proposed: Promise<boolean>
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
@@ -434,6 +440,64 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Refuses rather than throws on a dirty/conflicted tree; the refusal is
    *  returned so the caller can offer `force`. */
   endSession: (sessionId: SessionId, force?: boolean) => Promise<SessionEndResult>
+  /**
+   * Stop the turn the person saw (POD-6397): a `session.interrupt` effect
+   * record naming that turn (`turn`: the session's `agentState.turnStartedAt`)
+   * and the send it retracts if it has not reached the agent. Resolves once the
+   * record is durably queued, with its id; the session model reads its progress
+   * (`interrupting`, `interruptStuck`) from the record, on every device.
+   */
+  interruptTurn: (
+    sessionId: SessionId,
+    args: { turn?: string; messageId?: string },
+  ) => Promise<string>
+  /**
+   * Change a running session's model or effort (POD-6523): a
+   * `session.configure` effect record with the patch. Resolves once it is
+   * durably queued, with its id; the session model reads its progress and the
+   * driver's answer (`configureChange`) from the record, on every device.
+   */
+  configureSession: (
+    sessionId: SessionId,
+    patch: { model?: string; effort?: string },
+  ) => Promise<string>
+  /**
+   * Move a session to another machine (POD-6422): a `session.handoff` effect
+   * record. Resolves once it is durably queued, with its id; the session model
+   * reads its progress (`handoff`, `handingOffTo`) from the record, on every
+   * device, and the caller that says how it ended waits for it (`awaitEffect`).
+   */
+  handoffSession: (sessionId: SessionId, machineId: MachineId) => Promise<string>
+  /** Take an ended effect record off the feed (`effects.dismiss`). */
+  dismissEffect: (id: string) => Promise<void>
+  /**
+   * Start a session on an existing issue (POD-6526): its first, with its
+   * worktree (`issue.begin`), or one more agent or a shell
+   * (`issue.addSession`), as an effect record under a session id minted here.
+   * The session is painted on the issue from its queued create and then from
+   * its record (also while the machine is offline) until the row lands; a
+   * failure is told once on this device. Returns synchronously.
+   */
+  startIssueSession: StartIssueSession
+  /**
+   * Stop, clean up, ship or refresh the assistant of an issue (POD-6526): its
+   * `issue.stop`, `issue.cleanup`, `issue.ship` or `issue.assistant` effect
+   * record. Resolves once it is durably queued, with its id; the issue model
+   * reads its progress (`workAction`) from the record, on every device, and a
+   * caller that says how it ended waits for it (`awaitEffect`).
+   */
+  issueAction: (
+    issueId: IssueId,
+    action: IssueWorkAction,
+    opts?: { force?: boolean },
+  ) => Promise<string>
+  /**
+   * Answer a session's question (POD-6415): a `session.answer` effect record,
+   * created at once (never queued; an answer is online-only). Resolves with its
+   * id once the server holds it; how the delivery went is the record's
+   * `result`, which a caller waits for (`awaitAnswer`).
+   */
+  answerSession: (sessionId: SessionId, answer: SessionAnswer) => Promise<string>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /**
    * Send one chat message to a session through the durable outbox (POD-4762),
@@ -499,6 +563,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * growing a case per field.
    */
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<void>
+  /**
+   * GENERIC SYNCED EDITS (ADR 12 D3, POD-6392): create, edit and remove any
+   * declared record kind. Each paints at once and is confirmed by receipt like
+   * every other write; the promise settles when the outbox entry is durable and
+   * rejects, painting nothing, for an input the kind's declaration refuses.
+   */
+  records: RecordsApi
   /**
    * DISMISS an issue — `issues.archive`, the sidebar's one-way archive.
    *

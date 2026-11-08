@@ -20,8 +20,14 @@ export type IssueCrudCapability = Pick<
   | 'panelArtifactAdd'
   | 'panelArtifactUpload'
   | 'panelArtifactTransfer'
+  | 'stageArtifactUpload'
   | 'panelArtifactRemove'
   | 'panelArtifactRead'
+  | 'planArtifactAdd'
+  | 'snapshotArtifact'
+  | 'publishStagedUpload'
+  | 'discardArtifact'
+  | 'artifactEntries'
   | 'panelChatUploadClaim'
   | 'chatUploadOwner'
   | 'chatUploadBytes'
@@ -106,8 +112,12 @@ export type IssueGitWorkflowCapability = Pick<
   IssueGitWorkflowModule,
   | 'rehome'
   | 'start'
+  | 'answerWithoutMachine'
   | 'createAndMaybeStart'
   | 'action'
+  | 'finishLanding'
+  | 'branchLanded'
+  | 'projectionNow'
   | 'freeWorktreeKeepBranch'
   | 'releaseWorktreeIfIdle'
   | 'tryWorktreeGcObserved'
@@ -275,7 +285,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
         if (session.issueId != null) continue
         const issueId = await this.reports.soleOwnerForCwd(session.cwd)
         if (!issueId) continue
-        await setSessionIssueId(session.sessionId, issueId)
+        await setSessionIssueId(store.serverWriter, session.sessionId, issueId)
         totalized += 1
       }
       if (totalized > 0) {

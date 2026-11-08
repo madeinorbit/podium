@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -14,6 +15,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   type IssueCloseReason,
+  type IssueId,
   type IssuePanelArtifact,
   issueStatusControlLabel,
   issueStatusMenuEntries,
@@ -108,7 +110,7 @@ export const TaskSheet = observer(function TaskSheet({
 
   const post = (body: string) => {
     if (!issue) return
-    void trpc.issues.addComment.mutate({ id: issue.id, body }).catch(() => {})
+    void issueWrites(trpc).addComment.mutate({ id: issue.id, body }).catch(() => {})
   }
 
   /**
@@ -187,8 +189,7 @@ const SheetHead = observer(function SheetHead({
   issue: IssueViewModel
   onOpenSession: (session: SessionView) => void
 }) {
-  const trpc = useTrpc()
-  const { updateIssue, closeIssue } = useStoreActions()
+  const { updateIssue, closeIssue, startIssueSession } = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -249,7 +250,9 @@ const SheetHead = observer(function SheetHead({
           onPress={() => {
             const target = asking[0]
             if (target) return onOpenSession(target)
-            void trpc.issues.start.mutate({ id: issue.id }).catch(() => {})
+            // An `issue.begin` record (POD-6526): the session paints at once and
+            // a failure is told once, on the shell's banner.
+            startIssueSession({ issueId: issue.id as IssueId, mode: 'begin' })
           }}
         >
           <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>

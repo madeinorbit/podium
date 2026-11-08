@@ -1,5 +1,4 @@
 import { readdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
 /**
@@ -18,13 +17,16 @@ import { basename, join, resolve } from 'node:path'
 
 export type PiEnvironment = Readonly<Record<string, string | undefined>>
 
-export function piAgentDir(homeDir?: string, env: PiEnvironment = process.env): string {
+// The selectors come from the ACCOUNT env a caller passes (POD-6534), never
+// the daemon's own `process.env`: the Pi child gets PI_CODING_AGENT_DIR from
+// its instance home, so an ambient selector here would read another folder.
+export function piAgentDir(homeDir: string, env: PiEnvironment = {}): string {
   const override = env.PI_CODING_AGENT_DIR?.trim()
   if (override) return override
-  return join(homeDir ?? homedir(), '.pi', 'agent')
+  return join(homeDir, '.pi', 'agent')
 }
 
-export function piSessionsRoot(homeDir?: string, env: PiEnvironment = process.env): string {
+export function piSessionsRoot(homeDir: string, env: PiEnvironment = {}): string {
   const override = env.PI_CODING_AGENT_SESSION_DIR?.trim()
   if (override) return override
   return join(piAgentDir(homeDir, env), 'sessions')
@@ -46,8 +48,8 @@ export function piCwdFromSlug(slug: string): string | undefined {
   return `/${match[1].replace(/-/g, '/')}`
 }
 
-export function piSessionDir(cwd: string, homeDir?: string): string {
-  return join(piSessionsRoot(homeDir), piCwdSlug(cwd))
+export function piSessionDir(cwd: string, homeDir: string, env: PiEnvironment = {}): string {
+  return join(piSessionsRoot(homeDir, env), piCwdSlug(cwd))
 }
 
 /** The session id a Pi session file name carries (`<timestamp>_<uuid>.jsonl`). */
@@ -84,16 +86,19 @@ async function sessionFileIn(dir: string, sessionId: string): Promise<string | u
 export async function locatePiSessionFile(opts: {
   cwd: string
   sessionId: string
-  homeDir?: string
+  homeDir: string
+  /** The account env (POD-6534): its Pi selectors relocate the sessions root. */
+  env?: PiEnvironment
   pathHint?: string
 }): Promise<string | undefined> {
   if (opts.pathHint && piSessionIdFromPath(opts.pathHint) === opts.sessionId) {
     const hinted = await sessionFileIn(join(opts.pathHint, '..'), opts.sessionId)
     if (hinted) return hinted
   }
-  const direct = await sessionFileIn(piSessionDir(opts.cwd, opts.homeDir), opts.sessionId)
+  const env = opts.env ?? {}
+  const direct = await sessionFileIn(piSessionDir(opts.cwd, opts.homeDir, env), opts.sessionId)
   if (direct) return direct
-  const root = piSessionsRoot(opts.homeDir)
+  const root = piSessionsRoot(opts.homeDir, env)
   let buckets: string[]
   try {
     buckets = await readdir(root)

@@ -1,5 +1,6 @@
 import { asSessionId } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { type ModelChipSession, SessionModelChip } from './SessionModelChip'
@@ -8,15 +9,59 @@ import { type ModelChipSession, SessionModelChip } from './SessionModelChip'
  * THE SESSION MODEL CHIP (POD-6264).
  *
  * Two faces on one rule: a running session whose driver reported `model` in
- * `configureFields` gets menus that call `sessions.configure` with only the
- * field that changed; every other session gets a readout that says why not.
+ * `configureFields` gets menus that write a `session.configure` effect record
+ * with only the field that changed (POD-6523); every other session gets a
+ * readout that says why not.
  */
 
 const configure = vi.hoisted(() => vi.fn())
-vi.mock('@/app/keyed-runtime', () => ({
-  useRuntimeActions: () => ({ trpc: { sessions: { configure: { mutate: configure } } } }),
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+/** The session's latest `session.configure` record, as the pool's model reads. */
+const { record, held } = vi.hoisted(() => {
+  const { observable } = require('mobx') as typeof import('mobx')
+  return {
+    record: observable.box<Record<string, unknown> | undefined>(undefined, { deep: false }),
+    /** The pool's effect table, which `awaitEffect` reads. */
+    held: observable.map<string, Record<string, unknown>>({}, { deep: false }),
+  }
+})
+vi.mock('@/app/store', () => ({
+  useRuntimeSelector: (pick: (s: { configureSession: typeof configure }) => unknown) =>
+    pick({ configureSession: configure }),
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => ({
+    sessionObject: () => ({
+      get configureChange() {
+        return record.get()
+      },
+    }),
+    tables: { effect: held },
+    model: (_entity: string, id: string) => held.get(id),
+  }),
+}))
+vi.mock('sonner', () => ({ toast: toasts }))
+
+/** The latest record as the feed brings it: on the session, and in the pool's table. */
+function show(value: Record<string, unknown>): void {
+  runInAction(() => {
+    record.set(value)
+    held.set(value.id as string, value)
+  })
+}
+
+function change(over: Record<string, unknown>): Record<string, unknown> {
+  const status = (over.status as string | undefined) ?? 'pending'
+  return {
+    id: 'eff_1',
+    kind: 'session.configure',
+    input: { model: 'claude-sonnet-5-5' },
+    createdAt: '2026-11-06T12:00:00.000Z',
+    inFlight: status === 'pending' || status === 'running',
+    ...over,
+    status,
+  }
+}
 
 function session(over: Partial<ModelChipSession> = {}): ModelChipSession {
   return {
@@ -31,7 +76,13 @@ function session(over: Partial<ModelChipSession> = {}): ModelChipSession {
 
 beforeEach(() => {
   configure.mockReset()
-  configure.mockResolvedValue({ ok: true, effective: 'next-turn' })
+  configure.mockResolvedValue('eff_1')
+  toasts.success.mockReset()
+  toasts.error.mockReset()
+  runInAction(() => {
+    record.set(undefined)
+    held.clear()
+  })
   modelCatalogFixture.current = {
     'claude-code': [
       { value: 'claude-opus-5-5', label: 'Opus 5.5', efforts: ['low', 'high'] },
@@ -77,7 +128,57 @@ describe('a session whose driver can change model mid-conversation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /Sonnet 5\.5/ }))
     await waitFor(() => expect(configure).toHaveBeenCalledTimes(1))
-    expect(configure).toHaveBeenCalledWith({ sessionId: 's1', model: 'claude-sonnet-5-5' })
+    expect(configure).toHaveBeenCalledWith('s1', { model: 'claude-sonnet-5-5' })
+  })
+
+  it('shows the chosen model while the change is on its way, then the record says how it ended', async () => {
+    const { rerender } = render(<SessionModelChip session={configurable()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Sonnet 5\.5/ }))
+    // Before any record: what was asked for paints at once.
+    expect(screen.getByRole('button', { name: 'Model' }).textContent).toBe('Sonnet 5.5')
+    expect(screen.getByTestId('session-model').getAttribute('data-pending')).toBe('true')
+    await waitFor(() => expect(configure).toHaveBeenCalledTimes(1))
+    // The record arrives pending: still the asked-for model, from the record.
+    show(change({ status: 'pending' }))
+    expect(screen.getByRole('button', { name: 'Model' }).textContent).toBe('Sonnet 5.5')
+    // The driver granted it: the session row now names it, and it is said once.
+    show(change({ status: 'succeeded', result: { ok: true, effective: 'now' } }))
+    rerender(
+      <SessionModelChip
+        session={{ ...configurable(), requestedModel: 'claude-sonnet-5-5' } as ModelChipSession}
+      />,
+    )
+    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('The running session changed.'))
+    expect(screen.getByTestId('session-model').getAttribute('data-pending')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Model' }).textContent).toBe('Sonnet 5.5')
+  })
+
+  it("says the driver's refusal and shows the session's own model again", async () => {
+    configure.mockResolvedValue('eff_2')
+    render(<SessionModelChip session={configurable()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Sonnet 5\.5/ }))
+    await waitFor(() => expect(configure).toHaveBeenCalledTimes(1))
+    show(
+      change({
+        id: 'eff_2',
+        status: 'failed',
+        error: { code: 'refused', message: 'refused' },
+        result: { reason: 'refused', detail: 'That model is not available here.' },
+      }),
+    )
+    await waitFor(() =>
+      expect(toasts.error).toHaveBeenCalledWith('That model is not available here.'),
+    )
+    expect(screen.getByRole('button', { name: 'Model' }).textContent).toBe('Opus 5.5')
+  })
+
+  it('tells nothing about a change another device asked for', async () => {
+    show(change({ id: 'eff_other', status: 'succeeded', result: { ok: true } }))
+    render(<SessionModelChip session={configurable()} />)
+    await Promise.resolve()
+    expect(toasts.success).not.toHaveBeenCalled()
   })
 
   it('offers no Use option for a typed model name (moved from the header, POD-3911)', async () => {

@@ -3,7 +3,9 @@ import { useStoreHandle } from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 import { observe, reaction } from 'mobx'
 import { readSessions } from '@/app/command-launch-readers'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { MobxPool } from '@podium/client-graph'
+import { paneHandingOffTo } from '@podium/client-graph/session-pane'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useConversation } from '@/features/chat/use-conversation'
 
@@ -74,6 +76,7 @@ import {
   HibernatedBanner,
   HibernatedPane,
   IssueOutcomeBanner,
+  LifecycleTransitionBar,
   MachineOfflineBanner,
 } from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
@@ -211,7 +214,11 @@ export function AgentPanel({
   // stopped here, shipped, and resumed there. `handover` covers the pane for the
   // whole window (and one beat past it, over the reattaching terminal), so
   // `inTransit` suppresses the parked-transcript fallback underneath it.
-  const handover = useHandoverView(session)
+  const requestedMove = useWorklistPoolProjection(
+    useCallback((pool: MobxPool) => paneHandingOffTo(pool, sessionId), [sessionId]),
+    undefined,
+  )
+  const handover = useHandoverView(session, requestedMove)
   const inTransit = handover?.phase === 'transit'
   // Re-arm hook for the chat→native draft flush, published by onMounted below.
   // Declared here because the arbitration hook owns the chat→native EDGE and
@@ -932,6 +939,7 @@ export function AgentPanel({
           </span>
         </div>
       )}
+      {session && <LifecycleTransitionBar session={session} />}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'pending' ? (
         // WAITING TO BE TOLD WHICH VIEW THIS SESSION HAS [POD-2290]. One

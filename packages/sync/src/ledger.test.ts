@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { addSink } from '@podium/logger'
+import { asMutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SyncRepository } from './adapters/sqlite/sync-repository'
 import {
@@ -11,6 +12,7 @@ import {
   testSyncServerTables,
 } from './adapters/sqlite/test-support'
 import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
+import { testLedgerWriter } from './conformance/ledger-writer'
 import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
 
 // The write-seam change log [spec:SP-3fe2] (#253): commit() must append exactly
@@ -38,7 +40,7 @@ const removeSpec = (id: string): EntityChangeSpec => ({
 
 /** commit() a batch of specs with a throwaway write. */
 async function commit(ledger: Ledger, specs: EntityChangeSpec[]) {
-  return await ledger.commit({ write: async () => 'ok', changes: () => specs })
+  return await testLedgerWriter(ledger).commit({ write: async () => 'ok', changes: () => specs })
 }
 
 describe('entityOverlayKey', () => {
@@ -84,7 +86,7 @@ describe('entityOverlayKey', () => {
 describe('Ledger', () => {
   it('appends declared changes, dedups no-op upserts, and returns the write result', async () => {
     const ledger = makeLedger()
-    const first = await ledger.commit({
+    const first = await testLedgerWriter(ledger).commit({
       write: async () => 42,
       changes: () => [issueSpec('a', 1), issueSpec('b', 1)],
     })
@@ -123,7 +125,7 @@ describe('Ledger', () => {
     const third = await commit(ledger, [issueSpec('a', 2)])
     expect(third.changes.map((c) => [c.id, c.op])).toEqual([['a', 'upsert']])
     // b is still in the baseline: reconciling the full truth without it removes it.
-    const rec = await ledger.reconcile('issueProjection', [
+    const rec = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 't2' } },
     ])
     expect(rec.map((c) => [c.id, c.op])).toEqual([['b', 'remove']])
@@ -135,14 +137,16 @@ describe('Ledger', () => {
     // the log's fold ends at "absent" (baseline-only dedup would drop the remove).
     const both = await commit(ledger, [issueSpec('x', 1), removeSpec('x')])
     expect(both.changes.map((c) => c.op)).toEqual(['upsert', 'remove'])
-    expect((await ledger.reconcile('issueProjection', [])).map((c) => c.op)).toEqual([]) // x already absent
+    expect(
+      (await testLedgerWriter(ledger).reconcile('issueProjection', [])).map((c) => c.op),
+    ).toEqual([]) // x already absent
   })
 
   it('reconcile() diffs full truth against the baseline including removes', async () => {
     const repo = createTestSyncRepository()
     const ledger = new Ledger({ repo, now: Date.now, transact: passthrough })
     await commit(ledger, [issueSpec('a', 1), issueSpec('b', 1)])
-    const rec = await ledger.reconcile('issueProjection', [
+    const rec = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 't2' } },
     ])
     expect(rec.map((c) => [c.id, c.op])).toEqual([
@@ -151,21 +155,24 @@ describe('Ledger', () => {
     ])
     // Unchanged truth reconciles to nothing.
     expect(
-      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }]),
+      await testLedgerWriter(ledger).reconcile('issueProjection', [
+        { id: 'a', value: { id: 'a', title: 't2' } },
+      ]),
     ).toEqual([])
   })
 
   it('capture() appends explicitly owned non-row changes without a full-list diff', async () => {
     const ledger = makeLedger()
 
-    expect(await ledger.capture([issueSpec('a', 1)])).toEqual([
+    expect(await testLedgerWriter(ledger).capture([issueSpec('a', 1)])).toEqual([
       expect.objectContaining({ entity: 'issueProjection', id: 'a', op: 'upsert', seq: 1 }),
     ])
-    expect(await ledger.capture([issueSpec('a', 1)])).toEqual([])
-    expect((await ledger.capture([issueSpec('a', 2), removeSpec('a')])).map((c) => c.op)).toEqual([
-      'upsert',
-      'remove',
-    ])
+    expect(await testLedgerWriter(ledger).capture([issueSpec('a', 1)])).toEqual([])
+    expect(
+      (await testLedgerWriter(ledger).capture([issueSpec('a', 2), removeSpec('a')])).map(
+        (c) => c.op,
+      ),
+    ).toEqual(['upsert', 'remove'])
     expect(await ledger.cursor()).toBe(3)
   })
 
@@ -381,7 +388,9 @@ describe('Ledger', () => {
     ).toEqual(['remove'])
     // And re-appearance after a remove is a fresh upsert.
     expect((await commit(ledger, [conv()])).changes.map((c) => c.op)).toEqual(['upsert'])
-    expect((await ledger.reconcile('conversation', [])).map((c) => c.op)).toEqual(['remove'])
+    expect((await testLedgerWriter(ledger).reconcile('conversation', [])).map((c) => c.op)).toEqual(
+      ['remove'],
+    )
   })
 
   it('deduplicates identical issue projections and records each own-field change', async () => {
@@ -483,7 +492,7 @@ describe('Ledger', () => {
     // post-restart truth (a edited, b gone) must emit exactly that difference —
     // not re-upsert the unchanged world, and not silently rebase past the gap.
     const after = new Ledger({ repo, now: Date.now, transact: passthrough })
-    const changes = await after.reconcile('issueProjection', [
+    const changes = await testLedgerWriter(after).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 't2' } },
     ])
     expect(changes.map((c) => [c.id, c.op])).toEqual([
@@ -492,7 +501,9 @@ describe('Ledger', () => {
     ])
     // An unchanged truth emits nothing — via reconcile AND via commit dedup.
     expect(
-      await after.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }]),
+      await testLedgerWriter(after).reconcile('issueProjection', [
+        { id: 'a', value: { id: 'a', title: 't2' } },
+      ]),
     ).toEqual([])
     expect((await commit(after, [issueSpec('a', 2)])).changes).toEqual([])
     expect((await after.changesSince(cursor))?.map((c) => [c.id, c.op])).toEqual([
@@ -507,7 +518,7 @@ describe('Ledger', () => {
     const off = ledger.onAppended((changes) => seen.push(changes.map((c) => `${c.id}:${c.op}`)))
     await commit(ledger, [issueSpec('a', 1)])
     await commit(ledger, [issueSpec('a', 1)]) // fully deduped -> no event
-    await ledger.reconcile('issueProjection', [])
+    await testLedgerWriter(ledger).reconcile('issueProjection', [])
     expect(seen).toEqual([['a:upsert'], ['a:remove']])
     off()
     await commit(ledger, [issueSpec('a', 2)])
@@ -545,7 +556,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     const f = makeSqliteFixture()
     const ledger = new Ledger({ repo: f.repo, now: Date.now, transact: f.transact })
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         write: async () => {
           f.insertIssue('a', 't1')
           throw new Error('write boom')
@@ -556,7 +567,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     expect(f.issueRows()).toEqual([])
     expect(await f.repo.maxChangeSeq()).toBe(0)
     // Baseline untouched: the same upsert still counts as first sight.
-    const ok = await ledger.commit({
+    const ok = await testLedgerWriter(ledger).commit({
       write: async () => f.insertIssue('a', 't1'),
       changes: () => [issueSpec('a', 1)],
     })
@@ -568,7 +579,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     const f = makeSqliteFixture()
     const ledger = new Ledger({ repo: f.repo, now: Date.now, transact: f.transact })
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         write: async () => f.insertIssue('a', 't1'),
         changes: () => {
           throw new Error('spec boom')
@@ -596,7 +607,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     })
     const ledger = new Ledger({ repo, now: Date.now, transact: f.transact })
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         write: async () => f.insertIssue('a', 't1'),
         changes: () => [issueSpec('a', 1)],
       }),
@@ -604,7 +615,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     expect(f.issueRows()).toEqual([]) // entity write rolled back with the append
     expect(await f.repo.maxChangeSeq()).toBe(0)
     // Baseline untouched: retrying appends the change as first sight.
-    const retry = await ledger.commit({
+    const retry = await testLedgerWriter(ledger).commit({
       write: async () => f.insertIssue('a', 't1'),
       changes: () => [issueSpec('a', 1)],
     })
@@ -626,7 +637,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
       throw new Error('listener boom')
     })
     ledger.onAppended((changes) => seen.push(changes.length)) // later listeners still run
-    const out = await ledger.commit({
+    const out = await testLedgerWriter(ledger).commit({
       write: async () => f.insertIssue('a', 't1'),
       changes: () => [issueSpec('a', 1)],
     })
@@ -641,7 +652,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     const f = makeSqliteFixture()
     const ledger = new Ledger({ repo: f.repo, now: Date.now, transact: f.transact })
     await commit(ledger, [issueSpec('z', 1)]) // seq 1
-    const out = await ledger.commit({
+    const out = await testLedgerWriter(ledger).commit({
       write: async () => {
         f.insertIssue('a', 't1')
         f.insertIssue('b', 't1')
@@ -681,7 +692,7 @@ describe('Codex review-round hardening (#253)', () => {
   it('rejects a failed awaited write: nothing appended, baseline untouched', async () => {
     const { ledger, repo } = makeLedgerForReviewTests()
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         write: async () => {
           throw new Error('write failed')
         },
@@ -689,7 +700,7 @@ describe('Codex review-round hardening (#253)', () => {
       }),
     ).rejects.toThrow('write failed')
     expect(await repo.maxChangeSeq()).toBe(0)
-    const after = await ledger.commit({
+    const after = await testLedgerWriter(ledger).commit({
       write: async () => 'ok',
       changes: () => [{ entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
     })
@@ -730,7 +741,7 @@ describe('Codex review-round hardening (#253)', () => {
     // Cross the retention cadence (64 batches) with a throwing prune.
     let lastLen = 0
     for (let i = 0; i < 70; i++) {
-      const { changes } = await ledger.commit({
+      const { changes } = await testLedgerWriter(ledger).commit({
         write: async () => i,
         changes: () => [
           { entity: 'issueProjection', id: `p${i}`, op: 'upsert', value: { id: `p${i}`, v: i } },
@@ -740,5 +751,36 @@ describe('Codex review-round hardening (#253)', () => {
     }
     expect(lastLen).toBe(1)
     expect(seen).toHaveLength(70)
+  })
+})
+
+describe('Ledger provenance (POD-6272)', () => {
+  // End to end through the facade, onto the REAL SQLite change log: the facade
+  // used to rebuild every spec from three keys and drop the rest.
+  it('passes the ambient provenance port to its Authority', async () => {
+    const repo = createTestSyncRepository()
+    const ledger = new Ledger({
+      repo,
+      now: Date.now,
+      transact: passthrough,
+      provenance: { current: () => ({ mutationId: asMutationId('m-1'), causationId: 'm-1' }) },
+    })
+    await commit(ledger, [issueSpec('i1', 1)])
+    expect(await repo.changesSince(0)).toEqual([
+      expect.objectContaining({ entityId: 'i1', mutationId: 'm-1', causationId: 'm-1' }),
+    ])
+  })
+
+  it('keeps a spec’s own provenance through toKernelSpec', async () => {
+    const repo = createTestSyncRepository()
+    const ledger = makeLedger(repo)
+    await testLedgerWriter(ledger).capture([
+      { ...issueSpec('i1', 1), mutationId: asMutationId('m-own'), originId: 'peer' },
+    ])
+    await testLedgerWriter(ledger).capture([{ ...removeSpec('i1'), causationId: 'c-rm' }])
+    expect(await repo.changesSince(0)).toEqual([
+      expect.objectContaining({ op: 'upsert', mutationId: 'm-own', originId: 'peer' }),
+      expect.objectContaining({ op: 'remove', causationId: 'c-rm' }),
+    ])
   })
 })

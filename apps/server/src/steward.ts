@@ -9,6 +9,7 @@ import type {
 } from '@podium/model'
 import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
+import type { LedgerWriter } from '@podium/sync'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import { derivedMessageId } from './message-ids'
@@ -57,9 +58,12 @@ export function noticeMessageId(factKey: string, sessionId: SessionId, eventId: 
  */
 export function stewardNoticeSender(
   messages: Pick<MessageDeliveryService, 'send'>,
+  /** The steward's own writer (`steward`): its notices are its own writes. */
+  writer: Pick<LedgerWriter, 'commit' | 'capture'>,
 ): StewardDeps['sendNotice'] {
   return async (sessionId, text, messageId, lifecycle) => {
     await messages.send(
+      writer,
       { kind: 'system', name: 'steward' },
       {
         messageId,
@@ -384,8 +388,13 @@ export interface StewardDeps {
    *  §07b/§10]: has the producer already told a target directly, so the
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
+  /** The steward's own writer, a `server` origin (`steward`, ADR 12 D9). */
+  writer: Pick<LedgerWriter, 'commit' | 'capture'>
   issues: {
-    readonly reports: Pick<IssueService['reports'], 'get' | 'getMeta' | 'getBySeq' | 'list' | 'comments'>
+    readonly reports: Pick<
+      IssueService['reports'],
+      'get' | 'getMeta' | 'getBySeq' | 'list' | 'comments'
+    >
     readonly commentsMail: Pick<IssueService['commentsMail'], 'addComment'>
     readonly hierarchy: Pick<IssueService['hierarchy'], 'ancestorIds'>
   }
@@ -626,7 +635,9 @@ export class StewardService {
     // (POD-5128). Keep the row and advance past it, as in POD-4992.
     const sessions = await this.deps.readSessionFactsByIds([
       ...new Set(
-        readEvents.flatMap((event) => (event.kind === 'session.phase' ? [asSessionId(event.subject)] : [])),
+        readEvents.flatMap((event) =>
+          event.kind === 'session.phase' ? [asSessionId(event.subject)] : [],
+        ),
       ),
     ])
     const events = readEvents.filter((event) => {
@@ -646,7 +657,9 @@ export class StewardService {
         // claim a fact. Event time can be hours behind this poll; record both
         // the producer's lifecycle snapshot and the current one.
         log.info(
-          stopped ? 'ignored phase for an already stopped session' : 'read settled phase for notification',
+          stopped
+            ? 'ignored phase for an already stopped session'
+            : 'read settled phase for notification',
           {
             eventSource: 'podium_events',
             cursor,
@@ -1114,13 +1127,17 @@ export class StewardService {
       const already = (await this.deps.issues.reports.comments(dependent.id)).some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
-      const closed = await this.deps.issues.reports.getBySeq(e.repoPath ?? dependent.repoPath, closedSeq)
+      const closed = await this.deps.issues.reports.getBySeq(
+        e.repoPath ?? dependent.repoPath,
+        closedSeq,
+      )
       if (!already) {
         const note = completionNote(
           closed,
           closed ? await this.deps.issues.reports.comments(closed.id) : [],
         )
         await this.deps.issues.commentsMail.addComment(
+          this.deps.writer,
           dependent.id,
           'steward',
           marker + ' ' + note,
@@ -1305,8 +1322,13 @@ export class StewardService {
       const child = await this.deps.issues.reports.getBySeq(e.repoPath ?? parent.repoPath, childSeq)
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
-      const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.reports.comments(child.id) : [])
+      const excerpt = sub.excerpt(
+        e,
+        child,
+        child ? await this.deps.issues.reports.comments(child.id) : [],
+      )
       await this.deps.issues.commentsMail.addComment(
+        this.deps.writer,
         parent.id,
         'steward',
         excerpt ? `${marker} ${excerpt}` : marker,

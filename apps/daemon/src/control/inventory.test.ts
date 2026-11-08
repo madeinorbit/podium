@@ -27,7 +27,7 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
   codexAppServerVersionProbe: vi.fn(() => new Promise(() => {})),
   grokAcpVersionProbe: vi.fn(() => new Promise(() => {})),
   opencodeVersionProbe: vi.fn(() => new Promise(() => {})),
-  opencode2VersionProbeForExecutable: vi.fn(async () => ({ drivable: true })),
+  opencode2VersionProbe: vi.fn(async () => ({ drivable: true })),
 }))
 
 import {
@@ -39,7 +39,7 @@ import {
 import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
-  opencode2VersionProbeForExecutable,
+  opencode2VersionProbe,
   opencodeVersionProbe,
 } from '../runtime/version-probe'
 
@@ -201,7 +201,11 @@ describe('daemon inventory reporting (#222)', () => {
 
     await reportInventory(ctx)
 
-    expect(opencode2VersionProbeForExecutable).toHaveBeenCalledWith('/agent-home/bin/opencode2')
+    // That installation, as a probe target (POD-6546), under the snapshot's env.
+    expect(opencode2VersionProbe).toHaveBeenCalledWith(
+      expect.objectContaining({ executable: '/agent-home/bin/opencode2' }),
+      expect.any(Object),
+    )
     expect(sent[0]).toMatchObject({
       inventory: {
         runtimeDrivers: expect.arrayContaining([
@@ -399,7 +403,12 @@ describe('daemon model probe (POD-1466)', () => {
     const { ctx } = makeCtx()
     inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'req-2' })
     await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-    expect(probeModels.mock.calls[0]?.[0]).toMatchObject({ claude: { homeDir: ctx.homeDir } })
+    // POD-6534: the probe is handed the account (asked for by kind), not a
+    // bare homeDir; its home is still the daemon's own.
+    const opts = probeModels.mock.calls[0]?.[0] as {
+      accountFor: (kind: string) => { home: string }
+    }
+    expect(opts.accountFor('claude-code').home).toBe(ctx.homeDir)
   })
 
   // A silent daemon would only burn the server correlator's 20s timeout, and the

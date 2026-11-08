@@ -326,7 +326,14 @@ describe('terminal recovery ownership', () => {
     } as Parameters<typeof sessionHandlers.reattach>[1]
     sessionHandlers.reattach(ctx, msg)
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
-    expect(init).toHaveBeenCalledWith(msg, stub.session, expect.anything(), { seedOnFrame: false })
+    // The observers are re-initialized with the session's harness context
+    // (POD-6533): this entry holds none, so it is rebuilt for the survivor.
+    expect(init).toHaveBeenCalledWith(msg, stub.session, expect.anything(), {
+      seedOnFrame: false,
+      harnessContext: expect.objectContaining({
+        installation: expect.objectContaining({ kind: 'claude-code' }),
+      }),
+    })
     expect(stub.state.attachedAt).toHaveLength(0)
     // No link-B redraw (POD-4723): nothing reaches the surviving program.
     expect(stub.state.writes).toBe(0)

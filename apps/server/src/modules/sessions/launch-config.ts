@@ -37,8 +37,9 @@ export class SessionLaunchConfig {
 
   /**
    * The managed credential (if any) for the coding role, as spawn env (#216),
-   * resolved for the session's OWNER on its machine (POD-6300): the owner's own
-   * selection and the owner's own connection, never anyone else's. Native
+   * resolved for the session's OWNER on its machine (POD-6300): the owner's
+   * selection and their own or an explicitly shared connection. Its owner must
+   * consent before a foreign machine receives that connection. Native
    * accounts yield {} on the owner's machine — the CLI uses its own login and
    * the frame is unchanged. A refusal (`SpawnAccountRefusal`) says why.
    */

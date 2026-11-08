@@ -185,7 +185,7 @@ import {
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
-import { MachineRepoDiscovery } from './repo-discovery'
+import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -215,7 +215,6 @@ const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
 // (PODIUM_LOG='server:loop=debug') without also turning up request logging.
 const loopLog = createLogger('server:loop')
-const repoDiscoveryLog = createLogger('server:repo-discovery')
 /**
  * The served-website identity. `server:updates` rather than `server:http`,
  * because the reader is somebody following an update end to end and this is the
@@ -800,9 +799,9 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub
-      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
-      : {}),
+    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
+    servesHub: role.hub,
     installationId: installation.installationId,
     updatePubkey: () => updateSigningKey.publicKey,
     // Under `updateScope: 'fleet-only'` this server's binary belongs to the
@@ -925,27 +924,6 @@ export async function startServer(
     loadConfig: () => store.settings.telemetryConfig(),
   })
   const repos = new RepoRegistry(registry, store)
-  // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
-  // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
-  const repoDiscovery = new MachineRepoDiscovery({
-    listRepos: async () => await store.repos.listRepos(),
-    addRepo: async (path, machineId, originUrl) =>
-      await store.repos.addRepo(path, machineId, originUrl),
-    removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
-    // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
-    // browseDirs answers from that daemon's own filesystem, and a directory that is
-    // gone comes back without a listing. Any failure to answer is treated as "cannot
-    // tell" by the caller, which then declines to heal.
-    pathExists: async (path, machineId) => {
-      const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
-      return Boolean(res.listing)
-    },
-    scanRepos: async (roots, opts, machineId) =>
-      await registry.modules.rpc.scanRepos(roots, opts, machineId),
-    machineNames: async (ids) => await registry.modules.machines.machineNames(ids),
-    localMachineId: asMachineId(hostMachineId),
-    log: (message) => repoDiscoveryLog.info(message),
-  })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = await SuperagentService.create(registry.modules, repos, store)
@@ -967,7 +945,16 @@ export async function startServer(
       // POD-419: the bot token is server-only material; the chat id stays routing.
     },
     telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
-    superagent,
+    // A chat message carries no client command: the bridge's sends write as the
+    // bridge (`superagent.bridge`, ADR 12 D9, POD-6606).
+    superagent: {
+      sendTurn: async (input) =>
+        await superagent.sendTurn(registry.modules.superagentBridgeWriter, input),
+      interruptTurn: (input) => superagent.interruptTurn(input),
+      restartThread: (input) => superagent.restartThread(input),
+      startBtwTurn: async (input) => await superagent.startBtwTurn(input),
+      ensureConciergeThread: async (input) => await superagent.ensureConciergeThread(input),
+    },
     issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
@@ -1279,6 +1266,27 @@ export async function startServer(
       { resume: !rehearsal },
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
+  // THE UPDATE EFFECT'S PORTS (POD-6358). An update request is an effect record
+  // the Operations engine runs; a record from any client runs with the same
+  // process ports a request carries on its tRPC context (below). Bound after
+  // adoption, so a record that waited through a restart starts on the server
+  // that will serve it; until now it stays pending.
+  if (!recoveryOnly)
+    registry.modules.updateEffects?.bindPorts({
+      updates: registry.modules.updates,
+      operations: registry.modules.operations,
+      store: registry.sessionStore,
+      serverPlacement,
+      serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+      ...(desktopSupervised ? { desktopSupervised: true } : {}),
+      ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
+      ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+      ...(devPublisher.requestWebRebuild
+        ? { requestWebRebuild: devPublisher.requestWebRebuild }
+        : {}),
+      servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+      servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
+    })
 
   bootStage('machines updates adoption', adoptionStarted)
   const deferredSourceJournal = registry.modules.serverTransfer.status()
@@ -1549,15 +1557,15 @@ export async function startServer(
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
+      messages: registry.modules.messages,
       // Read per handshake, never captured: a settings flip must reach the next
       // lease, not wait for a server restart (POD-564).
       worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
       liveSessionIds: async () =>
         new Set(registry.modules.sessions.runningSessionFacts().map((s) => s.sessionId)),
       stewardTick: async () => await registry.runStewardTick(),
-      connectScan: async (machineId) => {
-        void (await repoDiscovery.scan(machineId, { deep: false }))
-      },
+      // A `machine.scan` effect record under a system principal (POD-6396).
+      connectScan: async (machineId) => await connectScanThroughEffect(registry.modules, machineId),
       localMachineId: asMachineId(hostMachineId),
     }),
   })
@@ -1923,7 +1931,6 @@ export async function startServer(
           registry,
           repos,
           ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
-          discovery: repoDiscovery,
           superagent,
           cloud,
           principal,

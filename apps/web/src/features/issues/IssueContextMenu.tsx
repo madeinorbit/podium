@@ -4,11 +4,12 @@ import {
   discoveredPlacement,
   type ProposalPlacement,
   reposToViews,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
+  asIssueId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueStage,
@@ -48,6 +49,7 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
+import { useSessionHandoff } from '@/lib/session-handoff'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -158,7 +160,9 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     setIssueLabels,
     setIssuePlacement,
     restoreIssue,
+    startIssueSession,
   } = useStoreHandle<Trpc>().access
+  const handOff = useSessionHandoff()
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
   const { sessions, repos, machines } = poolInputs
@@ -266,16 +270,14 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
 
+  // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
   const handoffTo = (machineId: MachineId, machineName: string): void => {
     if (!handoffSession) return
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
-      (error: unknown) =>
-        toast.error(
-          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    )
+    handOff(handoffSession.sessionId, machineId, {
+      session: sessionDisplayName(handoffSession),
+      machine: machineName,
+    })
   }
 
   // Every one of these is optimistic + outboxed (POD-781). The menu serves the
@@ -289,9 +291,13 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     run(() =>
       Promise.all(toggleLabelAcross(issues, label).map((p) => setIssueLabels(p.id, p.labels))),
     )
+  // One more agent, or the first when the issue was never started: an effect
+  // record, painted on the issue on the press (POD-6526).
   const assignAgent = (agentKind: string): void =>
-    run(() =>
-      spawnIssueAgent(trpc.issues, agentKind ? { id: first.id, agentKind } : { id: first.id }),
+    run(
+      () =>
+        startIssueSession({ issueId: asIssueId(first.id), ...(agentKind ? { agentKind } : {}) })
+          .settled,
     )
   const close = (reason: IssueCloseReason): void => {
     if (onRequestClose) {
@@ -320,7 +326,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
   const duplicateOf = (canonicalId: string): void =>
-    run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
+    run(() => issueWrites(trpc).duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
     const sessionCount = cascadeSessionCount(issues)
@@ -448,7 +454,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         onClose()
         return
       case 'start':
-        run(() => trpc.issues.start.mutate({ id: first.id }))
+        run(() => startIssueSession({ issueId: asIssueId(first.id), mode: 'begin' }).settled)
         return
       case 'rename':
         rename()

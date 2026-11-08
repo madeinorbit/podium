@@ -16,7 +16,11 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
+import {
+  createMemoryDriverSlots,
+  serverFamilyLaunch,
+  testHarnessContext,
+} from '../../testing/index.js'
 import { codexEngineFacts } from './engine-facts.js'
 import type { CodexRuntimeHost } from './runtime.js'
 import { createCodexSessionRuntime, type DaemonCodexRuntime } from './session.js'
@@ -40,6 +44,7 @@ describe('codex launch with an initial prompt', () => {
     const entries = new Map<string, unknown>()
     let seq = 0
     const host: CodexRuntimeHost = {
+      harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
       stageAttachment: async ({ source }) => ({
         id: 'test-attachment',
         path: '/tmp/test-' + source.filename,
@@ -85,7 +90,12 @@ describe('codex launch with an initial prompt', () => {
     runtimes.push(runtime)
 
     await runtime.launch(
-      serverFamilyLaunch({ sessionId: SESSION_ID, cwd: '/work', initialPrompt: PROMPT }),
+      serverFamilyLaunch({
+        harnessContext: testHarnessContext({ kind: 'codex' }),
+        sessionId: SESSION_ID,
+        cwd: '/work',
+        initialPrompt: PROMPT,
+      }),
     )
 
     const server = servers.get(SESSION_ID)!

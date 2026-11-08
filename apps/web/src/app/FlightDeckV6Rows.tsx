@@ -43,7 +43,7 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
-  /** Open details for a task with no subtasks or crew. */
+  /** Open task details when its row is activated. */
   onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -230,8 +230,8 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             data-edge-gutter="6"
             onClick={(event) => {
               if (event.target !== event.currentTarget) return
+              actions.onOpenTask(task)
               if (task.foldable) task.deck.toggleFold(task.id)
-              else actions.onOpenTask(task)
             }}
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
@@ -349,8 +349,8 @@ const TaskBody = observer(function TaskBody({
       aria-expanded={task.foldable ? task.open : undefined}
       aria-controls={task.foldable ? contentId : undefined}
       onClick={() => {
+        onOpenTask(task)
         if (task.foldable) task.deck.toggleFold(task.id)
-        else onOpenTask(task)
       }}
     >
       {children}

@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type BrowserContext, chromium, type Page } from '@playwright/test'
-import { agentLaunchCommand } from '@podium/harness'
+import { agentLaunchCommand, manifestFor, shellCommand } from '@podium/harness'
 import type { SessionId } from '@podium/model'
 import { connectHost, hostSocketPath, resolveHostBin } from '@podium/process/durable'
 import { TerminalScreen } from '@podium/process/screen'
@@ -108,7 +108,14 @@ test.skipIf(process.env.PODIUM_E2E_REAL_AGENTS !== '1')(
         agentRelay: { port: 0 },
         discovery: { homeDir: dirs.discoveryHomeDir, background: false, cachePath: ':memory:' },
         launch: (kind, opts) => {
-          const spec = agentLaunchCommand(kind, { ...opts, model: 'haiku' })
+          // The daemon's launch seam hands a label-only context: a real agent here
+          // runs the harness's own CLI name from the test's PATH (test tooling,
+          // never production, which binds argv to the inventory's installation).
+          const bound = agentLaunchCommand(kind, { ...opts, model: 'haiku' })
+          const spec = shellCommand({
+            ...bound,
+            cmd: manifestFor(kind)?.inventory.executable.names[0] ?? bound.cmd,
+          })
           return { ...spec, env: { ...spec.env, HOME: dirs.discoveryHomeDir } }
         },
       })

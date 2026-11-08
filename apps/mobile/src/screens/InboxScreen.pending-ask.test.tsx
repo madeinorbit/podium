@@ -96,14 +96,20 @@ const INTERVIEW = {
 
 describe('Inbox needs-you card, question not yet in the transcript', () => {
   it('offers the interview from agent state and sends the answer', async () => {
-    const answer = vi.fn(async () => ({ ok: true }))
+    // An answer is a `session.answer` record on `sync.submit` (POD-6415).
+    const answer = vi.fn(async (_envelope: unknown) => ({
+      outcome: 'applied',
+      result: {},
+      receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+      replayed: false,
+    }))
     await renderWithMobileStore(<InboxScreen />, {
       sessions: [blockedOnQuestion(INTERVIEW)],
       api: {
         sessions: {
           transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
-          answerAskUserQuestion: { mutate: answer },
         },
+        sync: { submit: { mutate: answer } },
       },
     })
 
@@ -111,10 +117,16 @@ describe('Inbox needs-you card, question not yet in the transcript', () => {
     fireEvent.click(option)
 
     await waitFor(() =>
-      expect(answer).toHaveBeenCalledWith({
-        sessionId: 'sess_blocked',
-        choices: [{ optionIndices: [2] }],
-      }),
+      expect(answer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'effects.create',
+          input: expect.objectContaining({
+            kind: 'session.answer',
+            target: { kind: 'session', id: 'sess_blocked' },
+            input: { via: 'menu', choices: [{ optionIndices: [2] }] },
+          }),
+        }),
+      ),
     )
   })
 

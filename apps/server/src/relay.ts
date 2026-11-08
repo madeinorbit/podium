@@ -7,6 +7,7 @@ import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metad
 import type {
   AgentKind,
   Attribution,
+  EffectTarget,
   IssueEventWire,
   IssueId,
   MachineId,
@@ -29,6 +30,7 @@ import {
   asUserId,
   firstAdminMemberId,
   machinePathsEqual,
+  mintDeviceId,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
@@ -36,6 +38,7 @@ import type {
   LocalPortableStateControl,
   UpdateKeyRotation,
   VisibilityResolver,
+  WriteReceipt,
 } from '@podium/protocol'
 import {
   formatIssueRef,
@@ -59,8 +62,10 @@ import {
   GrantEdgeVisibilityPolicy,
   kernelVisibilityResolver,
   Ledger,
+  type LedgerWriter,
   MutationLedger,
   NoDelegationsGranted,
+  type WriteScope,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-route'
@@ -68,6 +73,7 @@ import { bootStage } from './boot-timing'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
+  attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
@@ -91,25 +97,42 @@ import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { AgentProfileService } from './modules/agent-profiles/service'
+import { registerApprovalExecuteEffect } from './modules/approvals/execute-effect'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
+import { awaitEffectSettled } from './modules/effects/await'
+import { makeEffectFeedCapture } from './modules/effects/feed'
+import { EffectExecutorRegistry } from './modules/effects/registry'
+import { EffectsRunner } from './modules/effects/runner'
+import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
+import { registerFileWriteEffect } from './modules/files/write-effect'
+import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
+import { registerFolderEffects } from './modules/fleet/folder-effects'
+import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
+import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
+import {
+  issueArtifactEffectPort,
+  registerIssueArtifactEffects,
+} from './modules/issues/artifact-effects'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
+import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
@@ -119,6 +142,12 @@ import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
+import { registerIssueStartEffect } from './modules/issues/start-effect'
+import {
+  finishSelfStop,
+  issueWorkEffectPort,
+  registerIssueWorkEffects,
+} from './modules/issues/work-effects'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -139,6 +168,7 @@ import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
+import type { MessageWriter } from './modules/messages/writer'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -151,6 +181,7 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
+import { registerRecordCommands } from './modules/records/register'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
@@ -165,9 +196,23 @@ import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
+import { SessionLifecycleController } from './modules/sessions/lifecycle-controller'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
+import { registerSessionConfigureEffect } from './modules/sessions/session-configure-effect'
+import { registerSessionHandoffEffect } from './modules/sessions/session-handoff-effect'
+import {
+  registerSessionInterruptEffect,
+  type SessionInterruptsHandle,
+} from './modules/sessions/session-interrupt-effect'
+import {
+  createSpawnLaunchInUnit,
+  refuseUnplaceable,
+  registerSessionLaunchEffect,
+  SESSION_LAUNCH_KIND,
+  settledSpawnLaunch,
+} from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import {
   bridgeConfigChanged,
@@ -190,6 +235,11 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import type { SuperagentService } from './modules/superagent/service'
+import { SyncWriteEntry } from './modules/sync-write/entry'
+import { registerFamilyCommands } from './modules/sync-write/family-commands'
+import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
+import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
 import {
   createUpdateFleetBridge,
@@ -201,15 +251,20 @@ import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
+import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { WorkflowService } from './modules/workflows/service'
-import { inferRepoFromRoots } from './repo-registry'
+import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
+import { MachineRepoDiscovery } from './repo-discovery'
+import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import { soleMemberFor } from './sole-member'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
+import type { EffectRow, EffectsRepository } from './store/effects'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
+import { WriteContexts } from './write-contexts'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -222,6 +277,7 @@ export type {
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:relay')
+const repoDiscoveryLog = createLogger('server:repo-discovery')
 
 export type { MemoryBreakdown }
 
@@ -299,12 +355,59 @@ interface SessionRegistryOptions {
   rehearseBoot?: boolean
   /** Which parked sessions stay in memory (POD-6160 D2f); absent keeps them all. */
   sessionResidency?: { evictParked?: boolean; sweepIntervalMs?: number }
+  /** Whether this server runs the hub role (`roles.ts`). Absent = hub, as a tRPC
+   *  context with no role is: the fleet's hub-only writes on `sync.submit` are
+   *  refused when it is false, as their routes 404 (POD-6417). */
+  servesHub?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
  *  router procs (ctx.modules), server assembly, superagent, tests — reaches
  *  services through. */
+/** One-shot effects as data (ADR 12 D5 E2, POD-6357): where a kind registers
+ *  its executor, and how an old route waits for a record to settle. */
+export interface EffectsModule {
+  readonly executors: EffectExecutorRegistry
+  readonly runner: EffectsRunner
+  awaitSettled(id: string, timeoutMs: number): ReturnType<typeof awaitEffectSettled>
+  /** One kind's newest record on a target that is still running, or that succeeded. */
+  newestOnTarget: EffectsRepository['newestOnTarget']
+  /**
+   * A record the server itself asks for (the janitor's connect scan, POD-6396):
+   * no caller, so no `sync.submit`; the kind's schema and deadline still apply,
+   * and the trigger runs it after the commit like any other.
+   */
+  createAsSystem(effect: {
+    readonly id: string
+    readonly kind: string
+    readonly target: EffectTarget
+    readonly input: unknown
+    readonly job: string
+  }): Promise<EffectRow>
+  /**
+   * A record a write creates in its OWN unit of work, attributed to whoever the
+   * write names (an approval's `approval.execute`, POD-6415). Only inside a
+   * unit: the record commits or rolls back with the write.
+   */
+  createInUnit(writer: Pick<LedgerWriter, 'commit'>, effect: NewEffectInUnit): Promise<EffectRow>
+}
+
+interface NewEffectInUnit {
+  readonly id: string
+  readonly kind: string
+  readonly target: EffectTarget
+  readonly input: unknown
+  readonly createdBy: UserId | null
+  readonly actor: string
+}
+
 export interface RegistryModules {
+  /** The superagent's own session writes (`superagent.tools`, POD-6601). */
+  superagentToolsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  /** The superagent's turn runner, after a send commits (`superagent.turns`, POD-6606). */
+  superagentTurnsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  /** The messaging bridge's superagent sends, with no command (`superagent.bridge`, POD-6606). */
+  superagentBridgeWriter: Pick<LedgerWriter, 'commit' | 'capture'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
@@ -316,6 +419,11 @@ export interface RegistryModules {
    * that a feature registering a new kind does it in a diff a reviewer sees.
    */
   operations: OperationsModule
+  /**
+   * One-shot effects (POD-6357). OPTIONAL for the reason `updatesReconciler`
+   * gives: a module set assembled by hand without it serves no effect kinds.
+   */
+  effects?: EffectsModule
   /**
    * Background convergence for machines that were asleep when an update ran
    * (POD-2105, spec §3.6). OPTIONAL because it is pure choreography: a registry
@@ -349,12 +457,33 @@ export interface RegistryModules {
   settings: SettingsService
   /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
   layout: LayoutService
+  /**
+   * THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): every write to synced data
+   * from a transport goes through `syncWrite.submit`. Families register their
+   * commands on `syncWrite.registry`.
+   */
+  syncWrite: SyncWriteEntry
   /** Server-owned dock-shell mapping (POD-4436) — per user, per worktree → shell session. */
   dockShells: DockShellService
   /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
   readPosition: ReadPositionService
   issueSessionLifecycle: IssueSessionLifecycle
+  /** Makes each session's desired state true (ADR 12 D5 E1, POD-6356). */
+  sessionLifecycleController: SessionLifecycleController
+  /** The `session.launch` effect kind's handle (POD-6398); absent in hand-built sets. */
+  sessionLaunches?: { errorOf(effectId: string): unknown }
+  /** The `session.interrupt` effect kind's handle (POD-6397); absent in hand-built sets. */
+  sessionInterrupts?: SessionInterruptsHandle
+  /** Software update as an effect record, and the ports it runs with (POD-6358). */
+  updateEffects?: UpdateEffects
   headless: HeadlessService
+  /**
+   * The superagent, LATE-BOUND (POD-6419): it is built after this registry
+   * (`server.ts`) over these modules, and {@link SuperagentService.create} sets
+   * it. Its writes on the sync write entry point read it per call; absent until
+   * then.
+   */
+  superagent?: SuperagentService
   notify: NotifyService
   issues: IssueService
   /** Named agent setups (POD-6107): the library and the launch resolver. */
@@ -440,6 +569,12 @@ export class SessionRegistry {
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
   /**
+   * Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Built here, not
+   * at the server's composition, because the `machine.scan` effect runs it and
+   * the effect kinds must be registered before the boot sweep (POD-6396).
+   */
+  readonly repoDiscovery: MachineRepoDiscovery
+  /**
    * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
    * `routeDaemonFrame` live here, not on the sessions service: a daemon
    * connection is a MACHINE principal whose frames belong to many features, and
@@ -482,6 +617,9 @@ export class SessionRegistry {
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   readonly syncDelta: SyncDeltaPorts
   private readonly ledger: Ledger
+  /** The write contexts over {@link ledger} (ADR 12 D9): the only source of a
+   *  write scope in the process. */
+  private readonly writes: WriteContexts
   /** Curated issue-event window, resolved during async registry hydration. */
   private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
@@ -504,6 +642,7 @@ export class SessionRegistry {
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
   private readonly issueGitWatch: IssueGitWatch
+  private readonly effectsRunner: EffectsRunner
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
@@ -511,7 +650,7 @@ export class SessionRegistry {
   private localDaemonPortableState: LocalPortableStateControl | undefined
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
-  private adoptedSuperagent: { dispose(): void | Promise<void> } | undefined
+  private adoptedSuperagent: SuperagentService | undefined
   private unsubscribeAccessChanges: (() => void) | undefined
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
@@ -539,7 +678,9 @@ export class SessionRegistry {
     stageStarted = performance.now()
     // Migration-seeded account state must be in the feed before the first bootstrap.
     await this.modules.layout.reconcileAllToLedger()
-    await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
+    await this.writes
+      .system('boot.reconcile')
+      .reconcile('machine', await this.modules.machines.projectionRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.messageFeed.resolve()
@@ -552,8 +693,9 @@ export class SessionRegistry {
       await this.store.shipping.listReceipts(),
       await this.store.shipping.listNativeStackEdges(),
     )
-    await this.ledger.reconcile('shipOrder', orderPlane.orders)
-    await this.ledger.reconcile('shipLane', orderPlane.lanes)
+    const bootTruth = this.writes.system('boot.reconcile')
+    await bootTruth.reconcile('shipOrder', orderPlane.orders)
+    await bootTruth.reconcile('shipLane', orderPlane.lanes)
     // The one boot WRITE, owned by the memory service rather than by the store.
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
@@ -581,6 +723,9 @@ export class SessionRegistry {
       }
     }
     bootStage('queued messages recovery', stageStarted)
+    // The effect trigger and its recovery sweep (POD-6357): the boot sweep
+    // expires, re-dispatches and recovers what a stop left behind.
+    if (!this.recoveryOnly && !rehearseBoot) this.effectsRunner.start()
   }
 
   /**
@@ -738,8 +883,17 @@ export class SessionRegistry {
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
+      // A SYSTEM WRITE (ADR 12 D2): the display projection is the server's own
+      // derivation of the machine row, republished whenever that row changes. It
+      // is not the caller's input, so it is allowed when a plain command's work
+      // triggers it (`setup.complete` enrolling the host, POD-6360).
       publishMachineProjection: async (id, value) => {
-        await this.ledger.capture([{ entity: 'machine', id, op: 'upsert', value }])
+        await asSystemWrite(
+          async () =>
+            await this.writes
+              .system('machines.projection')
+              .capture([{ entity: 'machine', id, op: 'upsert', value }]),
+        )
       },
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
@@ -1030,18 +1184,30 @@ export class SessionRegistry {
       // take the fold with it, or process memory keeps claiming rows the
       // database never kept [POD-3328, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
+      // WHICH COMMAND IS APPENDING (ADR 2 D8, POD-6273): the sync write entry
+      // point opens a provenance scope around each command's unit of work, and
+      // the Authority stamps every row it appends there with the command's
+      // mutationId and causationId. Outside a scope it stamps nothing. Inside a
+      // plain command (ADR 12 D8, POD-6360) it refuses: a plain handler has no
+      // access to the Authority, so it cannot write synced data by accident.
+      provenance: syncedWriteProvenance,
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
       },
     })
     this.ledger = ledger
+    // WHO MAY WRITE (ADR 12 D9, POD-6592): the Ledger's scope mint, taken once,
+    // here. The sync write entry point mints each command's scope from it; every
+    // other writer is a declared origin (`write-contexts.ts`).
+    const writes = new WriteContexts(ledger, ledger.takeScopeMint())
+    this.writes = writes
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
     // from a list of call sites somebody has to keep complete.
     this.issueEventFeed = issueEventFeed = new IssueEventFeedPublisher({
-      ledger,
+      ledger: writes.system('feed.issueEvents'),
       seed: async () => (await ledger.authority.snapshot('issueEvent')) as IssueEventWire[],
     })
     this.store.events.onAppend(async (id, event) => await issueEventFeed?.publish(id, event))
@@ -1050,7 +1216,10 @@ export class SessionRegistry {
     // transaction, so a person's messages and their delivery status reach every
     // device from the write path, whichever module moved them.
     const messageFeed = new MessageFeedPublisher({
-      ledger,
+      ledger: {
+        ...writes.system('feed.messages'),
+        onAppended: (listener) => ledger.onAppended(listener),
+      },
       sessions: this.store.sessions,
       snapshot: async () => await ledger.authority.snapshot('message'),
       listOpen: async () => await this.store.messages.listOpenChat(),
@@ -1058,7 +1227,7 @@ export class SessionRegistry {
     })
     this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
-    const issueArbitration = new IssueAuthorityArbitration(ledger)
+    const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -1177,7 +1346,7 @@ export class SessionRegistry {
         // Conversation writes commit through the write-seam ledger (#257):
         // discovery/meta commits + list reconciles append durably at
         // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger,
+        ledger: writes.system('conversations.discovery'),
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
         // versions that still need them (POD-1203).
@@ -1432,6 +1601,10 @@ export class SessionRegistry {
     // Sessions are private (POD-6283): the owner, and no grant.
     const liveSessionOwner = async (sessionId: SessionId) =>
       (await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
+    const liveSessionOwnership = async (sessionId: SessionId) => {
+      const owner = await liveSessionOwner(sessionId)
+      return owner ? { owner, grants: [] } : undefined
+    }
     // What a mail principal may address. Its own function so a check that
     // needs only this (the apply-time re-authorization of each queued row)
     // does not read the fleet's machine ownership as well (POD-6229).
@@ -1489,23 +1662,32 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
-      spawnPrompt?: (input: {
-        parentSessionId: SessionId
-        sessionId: SessionId
-        text: string
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      ownerPrompt?: (input: {
-        sessionId: SessionId
-        text: string
-        attribution: Attribution
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      continueSession?: (input: {
-        sessionId: SessionId
-        erroredTurn: string
-      }) => Promise<{ ok: boolean; reason?: string }>
+      handingOn?: (writer: MessageWriter, messageId: string, sessionId: SessionId) => Promise<boolean>
+      spawnPrompt?: (
+        writer: MessageWriter,
+        input: {
+          parentSessionId: SessionId
+          sessionId: SessionId
+          text: string
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      ownerPrompt?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          text: string
+          attribution: Attribution
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      continueSession?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          erroredTurn: string
+        },
+      ) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
       idMatched?: (
@@ -1535,12 +1717,14 @@ export class SessionRegistry {
       typing?: (messageId: string, sessionId: SessionId) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
       sessionsRemoved?: (
+        scope: WriteScope,
         sessionIds: readonly SessionId[],
         opts?: { endedIssueId?: IssueId },
       ) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
+      writer: writes.system('messages.daemon'),
       authorize: mail.authorizeAtApply,
       applied: async (messageId, sessionId) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.applied?.(
@@ -1580,15 +1764,15 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
-      handOffQueuedMessage: async (messageId, sessionId) =>
-        (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
-      recordSpawnPrompt: async (input) => {
+      handOffQueuedMessage: async (writer, messageId, sessionId) =>
+        (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,
+      recordSpawnPrompt: async (writer, input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.spawnPrompt(input)
+        return await queuedApplyHooks.spawnPrompt(writer, input)
       },
-      recordOwnerPrompt: async (input) => {
+      recordOwnerPrompt: async (writer, input) => {
         if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.ownerPrompt(input)
+        return await queuedApplyHooks.ownerPrompt(writer, input)
       },
       // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
       // composed below and only read once a row is forwarded.
@@ -1597,17 +1781,17 @@ export class SessionRegistry {
         owner: async (issueId, uploadId) => await issues.crud.chatUploadOwner(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
-      sendContinue: async (input) => {
+      sendContinue: async (writer, input) => {
         if (!queuedApplyHooks.continueSession)
           throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.continueSession(input)
+        return await queuedApplyHooks.continueSession(writer, input)
       },
       // Refuses rather than stranding: a removal that cannot end its messages
       // must not commit (POD-4816).
-      failMessagesToRemovedSessions: async (sessionIds, opts) => {
+      failMessagesToRemovedSessions: async (scope, sessionIds, opts) => {
         if (!queuedApplyHooks.sessionsRemoved)
           throw new Error('the message ledger is not wired yet')
-        await queuedApplyHooks.sessionsRemoved(sessionIds, opts)
+        await queuedApplyHooks.sessionsRemoved(scope, sessionIds, opts)
       },
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
@@ -1674,8 +1858,15 @@ export class SessionRegistry {
       funnel,
       clients: clientRegistry,
       subscriptions,
-      // Session writes commit through the write-seam ledger at persist() (#256).
-      ledger,
+      // Session writes commit through the writer of whoever asked (ADR 12 D9,
+      // POD-6601): a command's own, or one of these named origins. The boot
+      // writer also reads the installed snapshot (its prior personal rows).
+      writers: {
+        daemon: writes.system('sessions.daemon'),
+        lifecycle: writes.system('sessions.lifecycle'),
+        live: writes.system('sessions.live'),
+        boot: { ...writes.system('boot.reconcile'), authority: ledger.authority },
+      },
       machines,
       rpc,
       onSpawnTargetLogin: async ({ machineId, agentKind, ownerUserId }) =>
@@ -1692,10 +1883,13 @@ export class SessionRegistry {
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
       // The issue service is composed after sessions; these run only on a start.
-      draftForStart: async ({ cwd, agentKind, ownerUserId, machineId }) =>
+      draftForStart: async (writer, { cwd, agentKind, ownerUserId, machineId }) =>
         (await this.store.repos.machineHasRootContaining(cwd, machineId))
           ? (
               await this.issues.attention.createDraftFor(
+                // A session start's draft: a start is the server acting after
+                // its launch record commits (`sessions.lifecycle`, POD-6601).
+                writes.system('sessions.lifecycle'),
                 cwd,
                 agentKind,
                 undefined,
@@ -1704,12 +1898,12 @@ export class SessionRegistry {
               )
             ).id
           : undefined,
-      discardUnlaunchedDraft: async (issueId) => {
-        await this.issues.attention.discardUnlaunchedDraft(issueId)
+      discardUnlaunchedDraft: async (writer, issueId) => {
+        await this.issues.attention.discardUnlaunchedDraft(writer, issueId)
       },
       // A session landing on a task records its owner's start there (POD-6290).
-      recordIssueParticipation: async (issueId, userId, via) => {
-        await this.issues.attention.recordParticipation(issueId, userId, via)
+      recordIssueParticipation: async (writer, issueId, userId, via) => {
+        await this.issues.attention.recordParticipation(writer, issueId, userId, via)
       },
       // POD-1081: clientCount is a degenerate view of session-room occupancy.
       // Attach still owns frame delivery; presence rooms own who-is-watching.
@@ -1927,7 +2121,8 @@ export class SessionRegistry {
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
-        killShellSession: (input) => sessionsSvc.killSession(input),
+        // The host's pressure reaper: the server's own act (`sessions.lifecycle`).
+        killShellSession: (input) => sessionsSvc.killSession(sessionsSvc.serverWriter, input),
         hasScheduledWakeup: async (sessionId, now) => {
           const { lastSpawned, automations } = await scheduledWakeupsInScope()
           return automations.some((automation) => {
@@ -1948,7 +2143,10 @@ export class SessionRegistry {
     resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
-    this.store.issues.setSessionRefPublisher((ids) => sessionsSvc.captureReferenceChanges(ids))
+    const sessionRefs = writes.system('sessions.refs')
+    this.store.issues.setSessionRefPublisher((ids) =>
+      sessionsSvc.captureReferenceChanges(sessionRefs, ids),
+    )
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     const notify = new NotifyService(
       {
@@ -2106,7 +2304,9 @@ export class SessionRegistry {
         isHeld: (sessionId) => sessionsSvc.state.isHeld(sessionId),
         isWatched: (sessionId) => sessionsSvc.state.isWatched(sessionId),
         park: async (sessionId) => await sessionsSvc.parkShellSession({ sessionId }),
-        kill: async (sessionId) => await sessionsSvc.killSession({ sessionId }),
+        // A freed worktree's dock shell, in the issue's cleanup (`sessions.lifecycle`).
+        kill: async (sessionId) =>
+          await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
       },
       // A spawn names the person it runs for, so `roles.coding` is theirs
       // (POD-6285). With no user named, the read is for instance-tier policy
@@ -2177,12 +2377,15 @@ export class SessionRegistry {
       findRepoOnMachine: async (repoPath, machineId) =>
         await sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
       readSessionIssueId: async (sessionId) => await sessionsSvc.readSessionIssueId(sessionId),
-      setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
-      setSessionCwd: (sessionId, cwd) => sessionsSvc.setSessionCwd(sessionId, cwd),
-      setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // The issue write that asked passes its own writer (ADR 12 D9, POD-6601).
+      setSessionIssueId: (writer, sessionId, issueId) =>
+        sessionsSvc.setSessionIssueId(writer, sessionId, issueId),
+      setSessionCwd: (writer, sessionId, cwd) => sessionsSvc.setSessionCwd(writer, sessionId, cwd),
+      setSessionArchived: (writer, sessionId, archived) =>
+        sessionsSvc.setArchived(writer, { sessionId, archived }),
       // Closing an issue retires standing session offers (POD-290) so finished
       // work cannot keep demanding a decision after the close flip.
-      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
+      clearSessionOffer: (writer, sessionId) => sessionsSvc.clearOffer(writer, sessionId),
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
@@ -2192,6 +2395,8 @@ export class SessionRegistry {
       // the appended rows ARE what a client is served.
       funnel,
       ledger: issueArbitration.ledger,
+      // A command's own writer gets the same revision arbitration (POD-6594).
+      arbitrate: (writer) => issueArbitration.wrap(writer),
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
@@ -2241,7 +2446,8 @@ export class SessionRegistry {
           )
             break
           if (await issueAccess.isIssueWorktree(message.cwd)) break
-          await issues.crud.update(issue.id, {
+          // A daemon's worktree report: the server's own issue write.
+          await issues.crud.update(writes.system('issues.server'), issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
@@ -2275,9 +2481,60 @@ export class SessionRegistry {
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
+      arbitrate: (writer) => issueArbitration.wrap(writer),
     })
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
+
+    // THE SESSION LIFECYCLE CONTROLLER (ADR 12 D5 E1, POD-6356): makes a
+    // session's desired state true through the daemon channel, after each edit
+    // commits and again whenever that session's machine reconnects.
+    const sessionLifecycleController = new SessionLifecycleController({
+      read: async (sessionId) => await sessionsSvc.desiredStateOf(sessionId),
+      pending: async (machineId) => await this.store.sessions.lifecyclePending(machineId),
+      connected: (machineId) => machines.hasDaemon(machineId),
+      stop: async (sessionId, force, principal, selfStop) =>
+        await issueSessionLifecycle.stopSession({
+          sessionId,
+          ...(force ? { force: true } : {}),
+          ...(principal ? { principal } : {}),
+          // An agent stopping itself (POD-6422): park and free now; its process
+          // ends after the reply (the hook below, or `finishSelfStop`).
+          ...(selfStop ? { selfStop: true } : {}),
+        }),
+      hibernate: async (sessionId) => await sessionsSvc.hibernateSession({ sessionId }),
+      resurrect: async (sessionId) => await issueSessionLifecycle.resurrectSession({ sessionId }),
+      acknowledge: async (sessionId, revision, failure) =>
+        await sessionsSvc.acknowledgeDesiredState(
+          writes.system('sessions.lifecycle'),
+          sessionId,
+          revision,
+          failure,
+        ),
+      // A start is re-authorized when it is acted on, as a queued mail's apply
+      // is: the writer's human, with today's role and grants, must still hold
+      // `use`, narrowed by the writing agent's delegation when an agent wrote it.
+      mayStart: async ({ machineId, lifecycle }) => {
+        if (lifecycle.byUser === null) return false
+        const writer = await this.store.users.get(lifecycle.byUser)
+        if (!writer || writer.disabledAt) return false
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        if (
+          checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)
+        ) {
+          return false
+        }
+        const delegated = lifecycle.byAgent
+          ? ownership.delegatedMachines?.(lifecycle.byAgent)
+          : undefined
+        return delegated === undefined || delegated.has(machineId)
+      },
+    })
+    this.bus.on('machine.connected', ({ machineId }) =>
+      sessionLifecycleController.reconcileMachine(machineId).catch((err) => {
+        log.warn('session lifecycle reconcile on reconnect failed', { machineId, err })
+      }),
+    )
 
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
       if (process.env.PODIUM_REHEARSAL === '1') return
@@ -2352,7 +2609,16 @@ export class SessionRegistry {
     const locks = new LockService({
       locks: this.store.locks,
       transact: async (fn) => await this.store.transact(fn),
-      funnel,
+      // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
+      // write publishes no change (the funnel was handed `changes: () => []`),
+      // and a lock write from a person or an agent is a plain command, whose
+      // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
+      funnel: {
+        run: async (op) => {
+          await op.authorize?.()
+          return await op.write()
+        },
+      },
       now: () => this.now(),
       resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
       // HOLDER liveness: does the row still exist? A hibernated holder is
@@ -2372,9 +2638,18 @@ export class SessionRegistry {
       sessionWorkspace,
       // Grant/steal notices are messages to the holder's issue (POD-4846);
       // best-effort by contract (the waiter also discovers the grant by polling).
+      // The SERVER's own write (POD-6419): a lock write is a plain command,
+      // whose scope refuses synced writes; the notice it triggers is not one.
       sendMail: async (issueId, from, body) => {
         try {
-          await systemIssueNotice(messagesSvc, from)(issueId, body)
+          await asSystemWrite(
+            async () =>
+              await systemIssueNotice(
+                messagesSvc,
+                writes.system('messages.server'),
+                from,
+              )(issueId, body),
+          )
         } catch {}
       },
       appendEvent: async (e) => {
@@ -2429,7 +2704,12 @@ export class SessionRegistry {
               new Date().toISOString(),
             ),
         }),
-      transact: async (fn) => await this.store.transact(fn),
+      // The service's own accounts (POD-6602); every other messages write
+      // takes the writer of whoever asked.
+      writers: {
+        daemon: writes.system('messages.daemon'),
+        delivery: writes.system('messages.delivery'),
+      },
       // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
       // spawns a fresh agent on the target issue through the SAME machinery
       // issue_start rides (createSession); the service then queues the message
@@ -2462,7 +2742,7 @@ export class SessionRegistry {
       }
       for (const notice of reassignmentNotices(facts, (id) => names.get(id) ?? id)) {
         try {
-          await messagesSvc.send(notice.sender, notice.input)
+          await messagesSvc.send(writes.system('messages.server'), notice.sender, notice.input)
         } catch (err) {
           log.warn('reassignment notice not delivered', {
             err,
@@ -2472,13 +2752,15 @@ export class SessionRegistry {
         }
       }
     }
-    queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
+    queuedApplyHooks.spawnPrompt = async (writer, input) =>
+      await messagesSvc.recordSpawnPrompt(writer, input)
     queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
-    queuedApplyHooks.ownerPrompt = async (input) => await messagesSvc.recordOwnerPrompt(input)
-    queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
-      await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
-    queuedApplyHooks.handingOn = async (messageId, sessionId) =>
-      await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
+    queuedApplyHooks.ownerPrompt = async (writer, input) =>
+      await messagesSvc.recordOwnerPrompt(writer, input)
+    queuedApplyHooks.sessionsRemoved = async (scope, sessionIds, opts) =>
+      await messagesSvc.failMessagesToRemovedSessions(scope, sessionIds, opts)
+    queuedApplyHooks.handingOn = async (writer, messageId, sessionId) =>
+      await messagesSvc.onQueuedInputHandingOn(writer, messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
@@ -2507,7 +2789,11 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputTyping(messageId, sessionId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
-        await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
+        await messagesSvc.cancelPendingOperatorMessage(
+          writes.system('messages.delivery'),
+          sessionId,
+          messageId,
+        )
       } catch (error) {
         // A concurrent boundary delivery or retraction can win the guarded
         // cancellation. Storage and notification failures must reach the caller.
@@ -2597,6 +2883,7 @@ export class SessionRegistry {
         agentProfile: async (ref) => await agentProfiles.find(ref),
         notifyCoordinator: async (sessionId, text) => {
           await messagesSvc.send(
+            writes.system('messages.server'),
             { kind: 'system', name: 'workflow' },
             {
               to: { kind: 'session', id: sessionId },
@@ -2826,7 +3113,9 @@ export class SessionRegistry {
             machineId: launch.machineId,
           }
         },
-        createIssue: async (o) => await issues.crud.create({ ...o, startNow: false }),
+        // mail.spawnAgent --new: inside the mail command, with its writer.
+        createIssue: async (writer, o) =>
+          await issues.crud.create(writer, { ...o, startNow: false }),
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -2846,6 +3135,25 @@ export class SessionRegistry {
             target,
             new Date(this.now()).toISOString(),
           )
+        },
+        // The mail writes go through the sync write entry point (POD-6525);
+        // read per call, because the entry point is composed after the gate.
+        // Before the module set exists (boot), a write dispatches directly.
+        syncWrite: () => (this.modules as RegistryModules | undefined)?.syncWrite,
+        // An agent's spawn is a `session.launch` record its write creates
+        // (POD-6525); the adapter waits for it.
+        spawnRecord: {
+          refuseUnplaceable: async (principal, input) => {
+            if (principal.kind === 'system') throw new Error('a system principal spawns no agent')
+            await refuseUnplaceable(this.modules, principal, {
+              cwd: input.cwd,
+              ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+              ...(input.agentKind !== undefined ? { agentKind: input.agentKind as AgentKind } : {}),
+            })
+          },
+          create: async (writer, principal, launch) =>
+            await createSpawnLaunchInUnit(this.modules, writer, principal, launch),
+          settled: async (effectId) => await settledSpawnLaunch(this.modules, effectId),
         },
       },
       mail.gateOptions,
@@ -2892,23 +3200,26 @@ export class SessionRegistry {
     // makes the next occurrence a skipped_overlap rather than a pile-up.
     const automations = new AutomationsService({
       store: this.store.automations,
-      ledger,
+      ledger: writes.system('automations.schedule'),
       createSession: async (o) =>
         await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       // A run's prompt is its owner's message (POD-4846): stored, typed without a
       // frame, attributed to the automation, followed by its delivery status.
       deliverPrompt: automationPromptSender({
         messages: messagesSvc,
+        writer: writes.system('automations.schedule'),
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       }),
       createIssue: async (o) => {
-        const issue = await issues.crud.create({
+        const issue = await issues.crud.create(writes.system('automations.schedule'), {
           ...o,
           startNow: false,
           origin: 'agent',
           audience: 'human',
         })
-        await issues.crud.update(issue.id, { stage: 'in_progress' })
+        await issues.crud.update(writes.system('automations.schedule'), issue.id, {
+          stage: 'in_progress',
+        })
         return { id: issue.id }
       },
       liveSessionIds: async () =>
@@ -2960,7 +3271,11 @@ export class SessionRegistry {
       // whatever span the decision was running inside and died orphaned when the
       // span closed. Same shape as the lock bug (POD-3802).
       notifyIssue: async (issueId, body) => {
-        await systemIssueNotice(messagesSvc, 'approval-broker')(issueId, body)
+        await systemIssueNotice(
+          messagesSvc,
+          writes.system('messages.server'),
+          'approval-broker',
+        )(issueId, body)
       },
       executeServerOp: async (op, sessionId) => {
         const caller = await workflowCallerForCapability(
@@ -3026,7 +3341,11 @@ export class SessionRegistry {
             // Scheduling snapshots defaults without probing; spawn vets the selected host's row.
             catalog: null,
           })
+          // An approved server op, run by the `approval.execute` effect after
+          // its decision committed: the server's own write on the requester's
+          // behalf (ADR 12 D2), under its declared origin.
           const scheduled = await automations.create(
+            writes.system('approvals.execute'),
             {
               name: op.name,
               scheduleKind: 'once',
@@ -3071,17 +3390,32 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
+      // An effect record's run writes as the issue service's own work, after its
+      // record committed (POD-6603); no served command runs without its own.
+      effectRunWriter: writes.system('issues.server'),
+      // Git actions as effect records (POD-6394), read per call: the modules
+      // and the entry point are composed after this dispatcher.
+      gitEffects: issueGitEffectPort({ modules: () => this.modules }),
+      // Relayed and MCP issue writes through the entry point (POD-6413).
+      syncWrite: () => this.modules.syncWrite,
+      // Start, stop, sessions, cleanup, ship, assistant as effect records (POD-6414).
+      workEffects: issueWorkEffectPort({ modules: () => this.modules }),
+      // Adding, publishing and removing artifacts as effect records (POD-6420).
+      artifactEffects: issueArtifactEffectPort({
+        modules: () => this.modules,
+        record: async (id) => await this.store.effects.get(id),
+      }),
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: async (input) => await shippingPort().enqueueCurrent(input),
-        resolveHold: async (input) => await shippingPort().resolveHold(input),
-        cancel: async (input) => await shippingPort().cancel(input),
+        enqueueCurrent: async (writer, input) => await shippingPort().enqueueCurrent(writer, input),
+        resolveHold: async (writer, input) => await shippingPort().resolveHold(writer, input),
+        cancel: async (writer, input) => await shippingPort().cancel(writer, input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
-      deleteIssue: async (id, by) => await issueSessionLifecycle.deleteIssue(id, by),
-      restoreIssue: async (id) => await issueSessionLifecycle.restoreIssue(id),
+      deleteIssue: async (writer, id, by) => await issueSessionLifecycle.deleteIssue(writer, id, by),
+      restoreIssue: async (writer, id) => await issueSessionLifecycle.restoreIssue(writer, id),
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
@@ -3115,11 +3449,13 @@ export class SessionRegistry {
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
-      sendMessage: async (from, input) => await messagesSvc.send(from, input),
+      sendMessage: async (writer, from, input) => await messagesSvc.send(writer, from, input),
+      // mailSend's old doors answer with the hand-on after its commit (POD-6525).
+      mailHandOnOf: async (messageId) => await messagesSvc.handOnOf(messageId),
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as the
       // answerer's own message, which wakes a parked session (POD-4846).
-      answerSessionQuestion: async (sessionId, answer, caller) => {
+      answerSessionQuestion: async (writer, sessionId, answer, caller) => {
         // Answering an agent's question is driving it (design §2.3, POD-6283):
         // only the session's own human may, even on someone else's task.
         if (!(await sessionsSvc.mayReachSession(caller.capability, sessionId))) {
@@ -3133,6 +3469,7 @@ export class SessionRegistry {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer,
             rpc: {
               readTranscript: async (input) =>
                 await rpc.readTranscript(input, {
@@ -3169,9 +3506,14 @@ export class SessionRegistry {
           (await this.store.repos.listRepoPaths(machineId))[0] ??
           (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => (await readIssue(this.store.issues, id)) !== null,
-        createIssue: async (input) => await issues.crud.create(input),
+        createIssue: async (input) =>
+          await issues.crud.create(writes.system('issues.server'), input),
         sendMail: async (issueId, body) =>
-          await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
+          await systemIssueNotice(
+            messagesSvc,
+            writes.system('messages.server'),
+            'machine-diagnostic',
+          )(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
         warn: (message) => log.warn(message),
       })
@@ -3287,10 +3629,10 @@ export class SessionRegistry {
           return issue
         },
         children: async (id, recursive) => await issues.reports.children(id, recursive),
-        shippingCommit: async (id, mutation, write) =>
-          await issues.crud.shippingCommit(id, mutation, write),
-        shippingCommitMany: async (entries, write) =>
-          await issues.crud.shippingCommitMany(entries, write),
+        shippingCommit: async (writer, id, mutation, write) =>
+          await issues.crud.shippingCommit(writer, id, mutation, write),
+        shippingCommitMany: async (writer, entries, write) =>
+          await issues.crud.shippingCommitMany(writer, entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
@@ -3308,7 +3650,7 @@ export class SessionRegistry {
           }
         },
       },
-      ledger,
+      ledger: writes.system('shipping.lanes'),
       daemon: rpc,
       authorization: {
         attribution: (principal) => {
@@ -3586,21 +3928,113 @@ export class SessionRegistry {
     })
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
-    const layout = new LayoutService({ layout: this.store.layout, ledger })
+    const layout = new LayoutService({
+      layout: this.store.layout,
+      boot: writes.system('boot.reconcile'),
+    })
+    // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
+    // the one write-seam Ledger and the store's unit of work. It starts with no
+    // registrations: the outbox commands move onto it in POD-6350, the rest in
+    // POD-6359, each family registering on `syncWrite.registry`.
+    // ONE-SHOT EFFECTS AS DATA (ADR 12 D5 E2, POD-6357). Every write to the
+    // effects table reaches the feed inside its own transaction; the runner is
+    // the one after-commit trigger and the recovery sweep. Kinds register their
+    // executors on `modules.effects.executors`.
+    const effectExecutors = new EffectExecutorRegistry()
+    this.store.effects.setFeedCapture(
+      makeEffectFeedCapture(writes.system('feed.effects'), effectExecutors),
+    )
+    this.effectsRunner = new EffectsRunner({
+      repo: this.store.effects,
+      writer: writes.system('effects.runner'),
+      registry: effectExecutors,
+      now: this.now,
+    })
+    /**
+     * Write one effect record, in the caller's unit of work when one is open:
+     * the kind's schema and deadline apply, and the trigger runs it after the
+     * commit (never for a rollback). For the server's own records and for a sync
+     * command whose handler asks for an effect as part of its write (a dock
+     * shell's start, POD-6419), attributed to whoever the caller names. Written
+     * through `writer` (ADR 12 D9): the command's own, or a declared origin's.
+     */
+    const createEffectInUnit = async (
+      writer: Pick<LedgerWriter, 'commit'>,
+      effect: {
+        readonly id: string
+        readonly kind: string
+        readonly target: EffectTarget
+        readonly input: unknown
+        readonly createdBy: UserId | null
+        readonly actor: string
+      },
+    ) => {
+      const executor = effectExecutors.get(effect.kind)
+      if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
+      const now = this.now()
+      const insert = async (scope: WriteScope) =>
+        await this.store.effects.insert(
+          scope,
+          {
+            id: effect.id,
+            kind: effect.kind,
+            target: effect.target,
+            input: executor.input.parse(effect.input),
+            deadlineAt: now + executor.deadlineMs,
+            createdBy: effect.createdBy,
+            actor: effect.actor,
+          },
+          now,
+        )
+      return (await writer.commit({ write: insert, changes: () => [] })).result
+    }
+    const syncWrite = new SyncWriteEntry({
+      registry: new SyncWriteRegistry(),
+      mutations,
+      unitOfWork: async (fn) => await this.store.transact(fn),
+      afterCommit: (step, label) => this.store.effect(step, label),
+      spanOpen,
+      writer: (mutationId) => writes.sync(mutationId),
+      receipt: async () => await this.writeReceiptNow(),
+    })
     // Same composition seam for the read-cursor family (POD-1380).
     const readPosition = new ReadPositionService({
       cursors: this.store.readPositions,
-      ledger,
     })
     // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
-    // shell session, so the same dock shell opens on every device. Creation
-    // stays the normal shell spawn; the service only owns the mapping row.
+    // shell session, so the same dock shell opens on every device. Its write
+    // runs on the sync write entry point (POD-6419): the shell's start is a
+    // `session.launch` effect record created in that write, and the spawn runs
+    // after the commit. A mapped shell whose start is still pending or running
+    // is live: its row is born when the start succeeds.
     const dockShells = new DockShellService({
       dockShells: this.store.dockShells,
       sessions: {
-        sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
-        createShell: (input) => sessionsSvc.createSession({ agentKind: 'shell', ...input }),
-        archiveSession: (sessionId) => sessionsSvc.state.setArchived(sessionId, true),
+        sessionById: async (sessionId) => {
+          const view = await sessionsSvc.sessionById(sessionId)
+          if (view !== undefined) return view
+          const launch = await this.store.effects.newestOnTarget(
+            SESSION_LAUNCH_KIND,
+            { kind: 'session', id: sessionId },
+            'active',
+          )
+          return launch === undefined
+            ? undefined
+            : { sessionId, agentKind: 'shell', archived: false, status: 'starting' }
+        },
+        createShell: async ({ writer, sessionId, cwd, ownerUserId, machineId, actor }) => {
+          await createEffectInUnit(writer, {
+            id: mintDeviceId('eff_'),
+            kind: SESSION_LAUNCH_KIND,
+            target: { kind: 'session', id: sessionId },
+            input: { agentKind: 'shell', cwd, ...(machineId ? { machineId } : {}) },
+            createdBy: ownerUserId,
+            actor: actor ?? ownerUserId,
+          })
+          return { sessionId }
+        },
+        archiveSession: (writer, sessionId) =>
+          sessionsSvc.state.setArchived(writer, sessionId, true),
       },
     })
 
@@ -3680,7 +4114,7 @@ export class SessionRegistry {
      * behavior is unchanged" structural rather than careful.
      */
     const interactionFeed = new InteractionFeedPublisher({
-      ledger,
+      ledger: writes.system('feed.interactions'),
       seed: async () =>
         (await ledger.authority.snapshot('pendingInteraction')) as readonly {
           readonly id: string
@@ -3728,6 +4162,7 @@ export class SessionRegistry {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer: writes.system('messages.server'),
             rpc: {
               readTranscript: async (readInput) =>
                 await rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
@@ -3753,7 +4188,9 @@ export class SessionRegistry {
         return deliverToNativeMenu(
           {
             getState: () => state,
-            answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
+            // An answer run after its record committed: the server's own.
+            answer: (answerInput) =>
+              sessionsSvc.answerAskUserQuestion({ ...answerInput, writer: sessionsSvc.serverWriter }),
           },
           input,
         )
@@ -3788,7 +4225,7 @@ export class SessionRegistry {
         return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.inbox.deliverInteractionAnswer(input, () =>
+        await sessionsSvc.inbox.deliverInteractionAnswer({ ...input, writer: sessionsSvc.serverWriter }, () =>
           sessionsSvc.runtimeGateway.answer({
             sessionId: input.sessionId,
             interactionId: input.interactionId,
@@ -3863,6 +4300,24 @@ export class SessionRegistry {
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     this.modules = {
+      superagentToolsWriter: this.writes.system('superagent.tools'),
+      superagentTurnsWriter: this.writes.system('superagent.turns'),
+      superagentBridgeWriter: this.writes.system('superagent.bridge'),
+      effects: {
+        executors: effectExecutors,
+        runner: this.effectsRunner,
+        awaitSettled: async (id, timeoutMs) =>
+          await awaitEffectSettled(this.store.effects, id, timeoutMs),
+        newestOnTarget: async (kind, target, phase) =>
+          await this.store.effects.newestOnTarget(kind, target, phase),
+        createAsSystem: async (effect) =>
+          await createEffectInUnit(writes.system('effects.system'), {
+            ...effect,
+            createdBy: null,
+            actor: attributionOf(systemPrincipal(effect.job)).actor,
+          }),
+        createInUnit: async (writer, effect) => await createEffectInUnit(writer, effect),
+      },
       bus: this.bus,
       funnel,
       sessions: sessionsSvc,
@@ -3879,6 +4334,7 @@ export class SessionRegistry {
       hosts,
       settings,
       layout,
+      syncWrite,
       dockShells,
       readPosition,
       headless,
@@ -3888,6 +4344,7 @@ export class SessionRegistry {
       agentProfiles,
       shipping,
       issueSessionLifecycle,
+      sessionLifecycleController,
       issueCommands,
       specs,
       approvals,
@@ -3908,6 +4365,141 @@ export class SessionRegistry {
       fleetLogLevels,
       mutations,
     }
+    // THE OUTBOX COMMANDS ON THE ENTRY POINT (ADR 12 D2, POD-6350): every command
+    // the apps queue is registered on `syncWrite`, each family with its own
+    // target resolver and handler. Registered once the modules exist, because the
+    // session and issue handlers reach them per call.
+    const syncFamilyDeps = {
+      modules: () => this.modules,
+      roleOf: async (user: UserId) => await this.store.users.roleOf(user),
+    }
+    registerOutboxCommands(syncWrite.registry, syncFamilyDeps)
+    // The rest of the synced writes, family by family (POD-6359).
+    const fleetRepos = new RepoRegistry(this, this.store)
+    registerFamilyCommands(syncWrite.registry, {
+      ...syncFamilyDeps,
+      fleet: {
+        repos: () => fleetRepos,
+        store: () => this.store,
+        servesHub: () => options.servesHub !== false,
+      },
+    })
+    // The generic create, edit and remove of every declared synced kind (ADR 12
+    // D3, POD-6391), beside the queued commands they replace one by one.
+    registerRecordCommands(syncWrite.registry, { modules: () => this.modules })
+    registerEffectCommands(syncWrite.registry, {
+      repo: this.store.effects,
+      executors: effectExecutors,
+      now: this.now,
+    })
+    // The effect kinds (POD-6394..6396): each family registers its executors.
+    registerIssueGitEffects({ modules: () => this.modules })
+    // The issue commands that act on machines (POD-6414).
+    registerIssueWorkEffects({ modules: () => this.modules, users: this.store.users })
+    // Adding, publishing and removing an issue's artifacts (POD-6420).
+    registerIssueArtifactEffects({ modules: () => this.modules, users: this.store.users })
+    // Filing a task and starting its first agent at once (POD-6410).
+    registerIssueStartEffect({ modules: () => this.modules, users: this.store.users })
+    // Starting a session is an effect record too (POD-6398).
+    this.modules.sessionLaunches = registerSessionLaunchEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+    })
+    // Stop names the turn it is for and ends with it (POD-6397).
+    this.modules.sessionInterrupts = registerSessionInterruptEffect({
+      modules: () => this.modules,
+      now: this.now,
+    })
+    // A running session's model or effort changes through its driver (POD-6416).
+    registerSessionConfigureEffect({ modules: () => this.modules })
+    // An approved server-catalog op runs from its record (POD-6415).
+    registerApprovalExecuteEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+      approvals: () => this.modules.approvals,
+    })
+    // Answering an agent's question, every way Podium answers (POD-6415).
+    registerSessionAnswerEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+      superagentThread: async (id) => await this.store.superagent.getSuperagentThread(id),
+      deliverMenuText: async ({ sessionId, answer, principal }) => {
+        const r = await deliverAnswerToSession(
+          {
+            getSession: async (id) => await sessionsSvc.sessionById(id),
+            sessions: sessionsSvc,
+            messages: messagesSvc,
+            writer: this.writes.system('messages.server'),
+            rpc: {
+              readTranscript: async (input) =>
+                await rpc.readTranscript(input, { kind: 'system', id: 'superagent-answer' }),
+            },
+          },
+          { sessionId, answer, principal },
+        )
+        if (!r.ok) return r
+        if (r.via !== 'menu') return { ok: false, message: 'failed: unexpected delivery path' }
+        return { ok: true, choices: r.choices, ...(r.note ? { note: r.note } : {}) }
+      },
+    })
+    // Moving a session to another machine (POD-6422).
+    registerSessionHandoffEffect({ modules: () => this.modules, users: this.store.users })
+    // Software update and server move start from effect records; the
+    // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
+    this.modules.updateEffects = registerUpdateEffect({
+      executors: effectExecutors,
+      runner: this.effectsRunner,
+      engine: operationsModule.engine,
+      hostMachineId: this.store.hostMachineId,
+    })
+    registerServerMoveEffect({
+      executors: effectExecutors,
+      engine: operationsModule.engine,
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+    })
+    // Saving a file from the app (POD-6395).
+    registerFileWriteEffect({
+      modules: () => this.modules,
+      repoPaths: async () => await this.store.repos.listRepoPaths(),
+      hostMachineId: this.store.hostMachineId,
+    })
+    // Scans and clones on a machine (POD-6396).
+    this.repoDiscovery = new MachineRepoDiscovery({
+      listRepos: async () => await this.store.repos.listRepos(),
+      addRepo: async (path, machineId, originUrl) =>
+        await this.store.repos.addRepo(path, machineId, originUrl),
+      removeRepo: async (path, machineId) => await this.store.repos.removeRepo(path, machineId),
+      // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
+      // browseDirs answers from that daemon's own filesystem, and a directory that is
+      // gone comes back without a listing. Any failure to answer is treated as "cannot
+      // tell" by the caller, which then declines to heal.
+      pathExists: async (path, machineId) =>
+        Boolean((await this.modules.rpc.browseDirs(path, {}, machineId)).listing),
+      scanRepos: async (roots, opts, machineId) =>
+        await this.modules.rpc.scanRepos(roots, opts, machineId),
+      machineNames: async (ids) => await this.modules.machines.machineNames(ids),
+      log: (message) => repoDiscoveryLog.info(message),
+    })
+    const cloneRegistry = new RepoRegistry(this, this.store)
+    registerDiscoveryEffects({
+      modules: () => this.modules,
+      discovery: this.repoDiscovery,
+      addKnownOrigin: async (path, machineId, originUrl) =>
+        await cloneRegistry.addKnownOrigin(path, machineId, originUrl),
+    })
+    // The folder picker's writes and a machine's update (POD-6417).
+    registerFolderEffects({
+      modules: () => this.modules,
+      register: async (path, machineId) =>
+        await cloneRegistry.add(cloneRegistry.serverWriter, path, machineId),
+      registeredPaths: async (machineId) => await cloneRegistry.list(machineId),
+    })
+    registerMachineUpdateEffect({
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+      servesHub: () => options.servesHub !== false,
+    })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -3921,7 +4513,6 @@ export class SessionRegistry {
         featureStates: () => getFeatureStates(currentSettings),
         featureEnabled,
         issueCommands,
-        issueSessionLifecycle,
         issues,
         listRepos: async () => await this.store.repos.listRepos(),
         lockCommands,
@@ -3943,12 +4534,15 @@ export class SessionRegistry {
       afterSuccessfulReply: (msg, result) => {
         if (!result || typeof result !== 'object') return
         if ((result as { deferredKill?: boolean }).deferredKill !== true) return
-        if (
-          (msg.router === 'sessions' && msg.proc === 'stop') ||
-          (msg.router === 'issues' && msg.proc === 'stop')
-        ) {
-          void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
+        if (!(msg.router === 'sessions' || msg.router === 'issues') || msg.proc !== 'stop') return
+        // `issues.stop` as an effect record (POD-6414) left the caller's own
+        // session running: its `desired: stopped` now, as itself.
+        const self = result as { selfStopPending?: boolean; force?: boolean }
+        if (msg.router === 'issues' && self.selfStopPending === true) {
+          void finishSelfStop(this.modules, msg.sessionId, self.force === true).catch(() => {})
+          return
         }
+        void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
       },
     })
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
@@ -3969,6 +4563,7 @@ export class SessionRegistry {
     // was never awaited, so it raced the rest of boot AND the catch below it was
     // dead -- an unawaited rejection cannot be caught by the try that started it.
     this.steward = new StewardService({
+      writer: this.writes.system('steward'),
       principal: systemPrincipal('steward'),
       store: this.store.events,
       facts: this.store.notificationFacts,
@@ -3985,7 +4580,7 @@ export class SessionRegistry {
       // The steward's notices are messages from `system:steward` (POD-4846):
       // stored under their derived id, enveloped, delivered and followed like
       // mail. Wake notices resurrect a parked session through the mail wake path.
-      sendNotice: stewardNoticeSender(messagesSvc),
+      sendNotice: stewardNoticeSender(messagesSvc, this.writes.system('steward')),
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
       notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -4008,7 +4603,7 @@ export class SessionRegistry {
                 if (r.ok) lastCommit = r.output.split('\n')[0]
               } catch {}
             }
-            await messagesSvc.systemAckFallback(sessionId, {
+            await messagesSvc.systemAckFallback(this.writes.system('steward'), sessionId, {
               outcome,
               notificationFact,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
@@ -4203,6 +4798,17 @@ export class SessionRegistry {
     return this.ledger
   }
 
+  /**
+   * THE RECEIPT, read now (ADR 12 D2 step 8, POD-6273): the persisted feed
+   * identity and the change-log head. The entry point reads it after the call's
+   * commit, so the head covers every row the call wrote, and a no-op that wrote
+   * none (plan Decision 1).
+   */
+  async writeReceiptNow(): Promise<WriteReceipt> {
+    const identity = await this.syncDelta.serving.identity()
+    return { feedId: identity.feedId, epoch: identity.epoch, seq: await this.ledger.cursor() }
+  }
+
   /** Register the daemon-local upload fence for the all-in-one process. */
   attachLocalDaemonPortableState(control: LocalPortableStateControl): void {
     this.localDaemonPortableState = control
@@ -4225,7 +4831,7 @@ export class SessionRegistry {
    * `dispose()` here. One of them getting a new line and the others not is
    * exactly the shape this bug already had.
    */
-  adoptSuperagent(service: { dispose(): void | Promise<void> }): void {
+  adoptSuperagent(service: SuperagentService): void {
     this.adoptedSuperagent = service
   }
 
@@ -4241,6 +4847,8 @@ export class SessionRegistry {
     // Same hazard, same window: the superagent's turn reaper is a periodic
     // write against the store this shutdown is about to close (POD-2772).
     await this.adoptedSuperagent?.dispose()
+    // Effect runs write their outcome to the store this shutdown closes.
+    await this.effectsRunner.stop()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
     this.quotaBackfill.dispose()

@@ -30,6 +30,7 @@ const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setPane = vi.fn()
 const setView = vi.fn()
+const setOpenIssueId = vi.fn()
 const spawnDraftAgent = vi.fn((_args: Record<string, unknown>) => ({
   sessionId: asSessionId('optimistic-session'),
   issueId: asIssueId('optimistic-issue'),
@@ -40,7 +41,8 @@ const spawnIssueAgent = vi.fn((_args: Record<string, unknown>) => ({
   issueId: asIssueId('optimistic-issue'),
   mutationId: asMutationId('optimistic-mutation'),
   settled: Promise.resolve(true),
-  outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
+  outcome: Promise.resolve<'started' | 'failed'>('started'),
+  proposed: Promise.resolve(false),
 }))
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
@@ -100,6 +102,7 @@ const store = {
   setSelectedWorktree,
   setPane,
   setView,
+  setOpenIssueId,
   trpc: {
     settings: {
       get: {
@@ -158,7 +161,8 @@ afterEach(() => {
     issueId: asIssueId('optimistic-issue'),
     mutationId: asMutationId('optimistic-mutation'),
     settled: Promise.resolve(true),
-    outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
+    outcome: Promise.resolve<'started' | 'failed'>('started'),
+    proposed: Promise.resolve(false),
   })
   uploadImage.mockReset()
   // The server holds a new task's file and answers its ref (POD-2148).
@@ -442,17 +446,19 @@ describe('ColdStartComposer', () => {
     )
   })
 
-  it('retries start on the saved issue when create committed before start failed', async () => {
-    spawnIssueAgent.mockImplementationOnce((input) => {
-      return {
-        issueId: asIssueId(String(input.issueId)),
-        sessionId: asSessionId(String(input.sessionId)),
-        mutationId: asMutationId(String(input.mutationId)),
-        settled: Promise.resolve(false),
-        outcome: Promise.resolve('issue-only'),
-      }
-    })
-    start.mockResolvedValue({ id: asIssueId('partial-issue') })
+  it('shows the task, not an absent session, when the start was filed as a proposal', async () => {
+    let proposed: (value: boolean) => void = () => {}
+    spawnIssueAgent.mockImplementationOnce((input) => ({
+      issueId: asIssueId(String(input.issueId)),
+      sessionId: asSessionId(String(input.sessionId)),
+      mutationId: asMutationId(String(input.mutationId)),
+      settled: Promise.resolve(true),
+      outcome: Promise.resolve<'started' | 'failed'>('started'),
+      proposed: new Promise<boolean>((resolve) => {
+        proposed = resolve
+      }),
+    }))
+    setOpenIssueId.mockClear()
     uiValues.set(
       'podium.firstTaskActivation.draft',
       JSON.stringify({
@@ -461,24 +467,23 @@ describe('ColdStartComposer', () => {
         agent: 'codex',
         model: 'auto',
         effort: 'auto',
-        title: 'Keep the saved task',
+        title: 'A member files this',
         launchKind: 'issue',
-        createIssueId: 'legacy-issue',
-        createSessionId: 'legacy-session',
-        createMutationId: 'legacy-mutation',
+        createIssueId: 'reserved-issue',
+        createSessionId: 'reserved-session',
+        createMutationId: 'reserved-mutation',
       }),
     )
     render(<ColdStartComposer first={false} />)
     fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
-    await waitFor(() =>
-      expect(screen.getByText(/task was saved, but its agent couldn't start/i)).toBeTruthy(),
-    )
+    await waitFor(() => expect(setView).toHaveBeenLastCalledWith('workspace'))
+    expect(setPane).toHaveBeenLastCalledWith('A', asSessionId('reserved-session'))
+    expect(setOpenIssueId).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry starting work' }))
-    expect(start).toHaveBeenCalledWith(
-      expect.objectContaining({ id: spawnIssueAgent.mock.calls[0]?.[0].issueId }),
-    )
-    expect(spawnIssueAgent).toHaveBeenCalledTimes(1)
+    proposed(true)
+    await waitFor(() => expect(setOpenIssueId).toHaveBeenCalledWith(asIssueId('reserved-issue')))
+    expect(setPane).toHaveBeenLastCalledWith('A', null)
+    expect(setView).toHaveBeenLastCalledWith('issues')
   })
 
   it('switches to reusable workspace wording when tasks already exist', () => {

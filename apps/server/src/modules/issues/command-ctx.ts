@@ -39,6 +39,9 @@ import {
 import type { ShippingService } from '../shipping'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { ExecutionFactsStore } from './execution-visibility'
+import type { SyncWriteEntry } from '../sync-write/entry'
+import type { IssueArtifactEffectPort } from './artifact-effect-record'
+import type { IssueGitEffectPort } from './git-effects'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -49,17 +52,81 @@ import type {
   IssueTrackerCapabilities,
 } from './service'
 import type { IssueReader } from './service/reads'
+import type { IssueWriter, WriterRest } from './service/types'
+import type { IssueWorkEffectPort } from './work-effects'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
   capability: Capability
+  /**
+   * The writer of the command this call is (ADR 12 D9, POD-6594): the sync write
+   * entry point's `SyncWriteContext.ledger`. Absent for an issue command that
+   * runs as an effect record's run (`forEffectRun`, the `issues.server`
+   * origin); no served command runs a handler without one (POD-6603).
+   */
+  writer?: IssueWriter
   /** Authenticated transport principal; production dispatchers always provide it. */
   principal?: CommandPrincipal
   /** The agent passed --outside-scope: a knowing write outside its subtree. */
   overrideScope?: boolean
 }
 
+/** Who a session this caller starts is spawned by, as the session row records it. */
+export function spawnProvenanceOf(capability: IssueCaller['capability']): string {
+  if (capability.actorSessionId) return `session:${capability.actorSessionId}`
+  if (isPersonCapability(capability)) return 'user'
+  if (capability.scope.kind === 'subtree') return `issue:${capability.scope.rootId}`
+  return 'agent'
+}
+
+/** A send's delivery outcome, as a send answers it (`MessageSendResult`'s part). */
+export type MailHandOn = Pick<
+  MessageSendResult,
+  'ok' | 'queued' | 'reason' | 'position' | 'disposition'
+>
+
 export interface IssueCommandDeps {
+  /**
+   * The writer of a handler run whose caller brings none. The served dispatcher
+   * has none: every issue write is a sync command, which brings its own, or an
+   * effect record, which never runs a handler in the request (POD-6603). Set
+   * only by {@link IssueCommandDispatcher.forEffectRun} (an effect record's
+   * run, after its commit) and by a dispatcher a test builds by hand.
+   */
+  directWriter?: IssueWriter
+  /**
+   * The writer of an effect record's run (`issues.server`): the issue
+   * service's own work for a record that already committed, outside any
+   * client command. {@link IssueCommandDispatcher.forEffectRun} uses it.
+   */
+  effectRunWriter?: IssueWriter
+  /**
+   * Merge, rebase, PR and integrate as effect records (POD-6394): the command
+   * creates the record and answers once it settles. Absent only in a dispatcher
+   * a test builds by hand, which then runs the git work inline as before.
+   */
+  gitEffects?: IssueGitEffectPort
+  /**
+   * The sync write entry point (ADR 12 D2), read per call: it is composed after
+   * this dispatcher. When present, a relayed or MCP call of a command written
+   * through it (`SYNCED_ISSUE_COMMANDS`) goes there (POD-6413). Absent only in a
+   * dispatcher a test builds by hand.
+   */
+  syncWrite?: () => Pick<SyncWriteEntry, 'submitDetailed'>
+  /**
+   * Start, stop, sessions, cleanup, ship and the assistant as effect records
+   * (POD-6414): the command creates the record and answers once it settles.
+   * Absent in the executors' own dispatcher and in one a test builds by hand,
+   * which run the work inline.
+   */
+  workEffects?: IssueWorkEffectPort
+  /**
+   * Adding, publishing and removing artifacts as effect records (POD-6420): the
+   * old panelApply route creates the record and answers once it settles, and the
+   * entry point's commit reads the record. Absent in a dispatcher a test builds
+   * by hand, which moves the files inline.
+   */
+  artifactEffects?: IssueArtifactEffectPort
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate
@@ -74,13 +141,13 @@ export interface IssueCommandDeps {
    */
   attachSession(
     caller: IssueCaller,
-    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+    input: WriterRest<IssueAttentionCapability['attachSession']>[0],
   ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
   /** `by` is whose sessions the deletion ends (POD-6287): the deleter's own. */
-  deleteIssue(id: string, by?: import('@podium/model').UserId): unknown
+  deleteIssue(writer: IssueWriter, id: string, by?: import('@podium/model').UserId): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
-  restoreIssue(id: string): unknown
+  restoreIssue(writer: IssueWriter, id: string): unknown
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
    *
@@ -142,14 +209,19 @@ export interface IssueCommandDeps {
    *  sent. Optional so bare test dispatchers that never send keep working;
    *  mailSend refuses when it is absent. */
   sendMessage?(
+    writer: IssueWriter,
     from: MessageSender,
     input: MessageSendInput,
   ): MessageSendResult | Promise<MessageSendResult>
+  /** What a send's hand-on after its commit found (POD-6525,
+   *  `MessageDeliveryService.handOnOf`): `mailSend`'s old doors answer with it. */
+  mailHandOnOf?(messageId: string): Promise<MailHandOn | undefined>
   /** Deliver a Tray answer to the asking agent session (issue #53): the shared
    *  answer_question matching path (modules/superagent/answer-delivery) with
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
+    writer: IssueWriter,
     sessionId: SessionId,
     answer: string,
     caller: IssueCaller,
@@ -188,6 +260,98 @@ export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAc
   }
 }
 
+/** A function whose first parameter is the writer, without it. */
+type DropWriter<F> = F extends (writer: IssueWriter, ...rest: infer A) => infer R
+  ? (...rest: A) => R
+  : never
+
+/**
+ * A capability with its write methods `K` bound to one writer (ADR 12 D9). The
+ * keys are listed per capability below; a write method left off its list keeps
+ * its writer parameter, so a handler that calls it without one does not compile.
+ */
+export type Bound<T, K extends keyof T> = Omit<T, K> & { readonly [P in K]: DropWriter<T[P]> }
+
+/**
+ * The writer is resolved when a WRITE method is called, never when the view is
+ * taken: a read (a query handler, the reads before a write) reaches the same
+ * capability view and has no writer to give (POD-6603).
+ */
+function bindWriter<T extends object, K extends keyof T>(
+  target: T,
+  writer: () => IssueWriter,
+  keys: readonly K[],
+): Bound<T, K> {
+  const view = Object.create(target) as Record<PropertyKey, unknown>
+  for (const key of keys) {
+    const method = target[key] as unknown as (...args: unknown[]) => unknown
+    view[key as PropertyKey] = (...args: unknown[]) => method.call(target, writer(), ...args)
+  }
+  return view as unknown as Bound<T, K>
+}
+
+const CRUD_WRITES = [
+  'setState',
+  'panelApply',
+  'panelArtifactAdd',
+  'panelArtifactUpload',
+  'panelArtifactTransfer',
+  'panelArtifactRemove',
+  'panelChatUploadClaim',
+  'create',
+  'update',
+  'restoreTextRevision',
+  'move',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+  'setLabels',
+  'claim',
+  'setCoordinator',
+  'close',
+  'applySuggestion',
+  'dismissSuggestion',
+] as const satisfies readonly (keyof IssueCrudCapability)[]
+const HIERARCHY_WRITES = [
+  'addDep',
+  'removeDep',
+  'reparent',
+  'supersede',
+  'duplicate',
+] as const satisfies readonly (keyof IssueHierarchyCapability)[]
+const MAIL_WRITES = [
+  'addComment',
+  'addCallerComment',
+  'editComment',
+  'deleteComment',
+  'mailInbox',
+  'mailClaim',
+] as const satisfies readonly (keyof IssueCommentsMailCapability)[]
+const ATTENTION_WRITES = [
+  'recordParticipation',
+  'joinIssue',
+  'dismissAssignment',
+  'attachSession',
+  'createDraftFor',
+  'archive',
+  'defer',
+  'undefer',
+  'setNeedsHuman',
+  'clearNeedsHuman',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+] as const satisfies readonly (keyof IssueAttentionCapability)[]
+const SHIPPING_WRITES = [
+  'enqueueCurrent',
+  'resolveHold',
+  'cancel',
+] as const satisfies readonly (keyof IssueCommandDeps['shipping'])[]
+const WORKFLOW_WRITES = [
+  'rehome',
+  'createAndMaybeStart',
+] as const satisfies readonly (keyof IssueGitWorkflowCapability)[]
+
 /**
  * Per-call execution context handed to every command handler: the caller's
  * authz identity, narrowed tracker capabilities, and the cross-cutting helpers
@@ -202,26 +366,43 @@ export class IssueCommandCtx {
     _targetOf?: (input: Record<string, unknown>) => string | undefined,
   ) {}
 
-  get crud(): IssueCrudCapability {
-    return this.deps.issues.crud
+  /**
+   * The writer this command's writes commit on: its own, or an effect record
+   * run's (see {@link IssueCommandDeps.directWriter}).
+   */
+  get writer(): IssueWriter {
+    const own = this.caller.writer
+    if (own !== undefined) return own
+    const direct = this.deps.directWriter
+    if (direct === undefined) {
+      throw new Error(`issues.${this.name} has no writer: it runs outside sync.submit`)
+    }
+    return direct
   }
-  get hierarchy(): IssueHierarchyCapability {
-    return this.deps.issues.hierarchy
+
+  /** The capabilities, with their write methods bound to {@link writer}: a
+   *  handler calls `ctx.crud.update(id, patch)` and the write is the command's. */
+  get crud(): Bound<IssueCrudCapability, (typeof CRUD_WRITES)[number]> {
+    return bindWriter(this.deps.issues.crud, () => this.writer, CRUD_WRITES)
   }
-  get commentsMail(): IssueCommentsMailCapability {
-    return this.deps.issues.commentsMail
+  get hierarchy(): Bound<IssueHierarchyCapability, (typeof HIERARCHY_WRITES)[number]> {
+    return bindWriter(this.deps.issues.hierarchy, () => this.writer, HIERARCHY_WRITES)
   }
-  get attention(): IssueAttentionCapability {
-    return this.deps.issues.attention
+  get commentsMail(): Bound<IssueCommentsMailCapability, (typeof MAIL_WRITES)[number]> {
+    return bindWriter(this.deps.issues.commentsMail, () => this.writer, MAIL_WRITES)
   }
-  get gitWorkflow(): IssueGitWorkflowCapability {
-    return this.deps.issues.gitWorkflow
+  get attention(): Bound<IssueAttentionCapability, (typeof ATTENTION_WRITES)[number]> {
+    return bindWriter(this.deps.issues.attention, () => this.writer, ATTENTION_WRITES)
+  }
+  get gitWorkflow(): Bound<IssueGitWorkflowCapability, (typeof WORKFLOW_WRITES)[number]> {
+    return bindWriter(this.deps.issues.gitWorkflow, () => this.writer, WORKFLOW_WRITES)
   }
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
   }
-  get shipping(): IssueCommandDeps['shipping'] {
-    return this.deps.shipping
+  /** The ship commands, bound to this command's writer like the capabilities. */
+  get shipping(): Bound<IssueCommandDeps['shipping'], (typeof SHIPPING_WRITES)[number]> {
+    return bindWriter(this.deps.shipping, () => this.writer, SHIPPING_WRITES)
   }
   get access(): IssueCommandAccess {
     return commandAccess(this.deps.issues)
@@ -328,10 +509,10 @@ export class IssueCommandCtx {
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }
   deleteIssue(id: string): unknown {
-    return this.deps.deleteIssue(id, this.markerUser())
+    return this.deps.deleteIssue(this.writer, id, this.markerUser())
   }
   restoreIssue(id: string): unknown {
-    return this.deps.restoreIssue(id)
+    return this.deps.restoreIssue(this.writer, id)
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */
@@ -406,14 +587,7 @@ export class IssueCommandCtx {
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
   spawnProvenance(): string {
-    if (this.caller.capability.actorSessionId) {
-      return `session:${this.caller.capability.actorSessionId}`
-    }
-    if (isPersonCapability(this.caller.capability)) return 'user'
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return `issue:${this.caller.capability.scope.rootId}`
-    }
-    return 'agent'
+    return spawnProvenanceOf(this.caller.capability)
   }
 
   /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */

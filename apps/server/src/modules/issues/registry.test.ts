@@ -1,15 +1,14 @@
-import { commandAccess } from './command-ctx'
 import { executionFactsOf } from '../../test-support/execution-facts'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId} from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-
 import { SessionRegistry } from '../../relay'
 import { INLINE_BODY_MAX } from '../../store/messages'
 import { OPERATOR } from '../../test-support/capabilities'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { ShippingOrderAccessError } from '../shipping/service'
+import { commandAccess } from './command-ctx'
 import { IssueCommandDispatcher } from './dispatcher'
 import { guardIssueCommand, issueRegistry } from './registry'
 
@@ -351,8 +350,16 @@ describe('guardIssueCommand authorization matrix', () => {
 
   it('a subtree worker writing an outside target gets PRECONDITION unless overridden', async () => {
     const reg = await fresh()
-    const a = await reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await reg.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
     const scoped = {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
@@ -381,7 +388,11 @@ describe('guardIssueCommand authorization matrix', () => {
 
   it('the guard resolves display refs (#seq) before the subtree check (#140)', async () => {
     const reg = await fresh()
-    const a = await reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const scoped = {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
@@ -396,14 +407,22 @@ describe('guardIssueCommand authorization matrix', () => {
 
   it('lifecycle repairs and sibling moves are worker-write in subtree, confirm outside, and viewer-denied', async () => {
     const reg = await fresh()
-    const epic = await reg.issues.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = await reg.issues.crud.create({
+    const epic = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Epic',
+      startNow: false,
+    })
+    const child = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Child',
       parentId: epic.id,
       startNow: false,
     })
-    const outside = await reg.issues.crud.create({ repoPath: '/r', title: 'Outside', startNow: false })
+    const outside = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Outside',
+      startNow: false,
+    })
     const scoped = {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: epic.id } },
     }
@@ -453,27 +472,49 @@ describe('guardIssueCommand authorization matrix', () => {
 
   it('additive writes (create/mailSend) and manage-tier are gated by role only', async () => {
     const reg = await fresh()
-    const a = await reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await reg.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
     const scoped = {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
     // mailSend addressed OUTSIDE the subtree passes (no target extractor).
     await expect(
-      guardIssueCommand(scoped, commandAccess(reg.issues), 'mailSend', issueRegistry.defs.mailSend, {
-        id: b.id,
-        body: 'hi',
-      }),
+      guardIssueCommand(
+        scoped,
+        commandAccess(reg.issues),
+        'mailSend',
+        issueRegistry.defs.mailSend,
+        {
+          id: b.id,
+          body: 'hi',
+        },
+      ),
     ).resolves.toBeUndefined()
     // manage from a worker is a hard role denial regardless of target.
     await expect(
-      guardIssueCommand(scoped, commandAccess(reg.issues), 'delete', issueRegistry.defs.delete, { id: a.id }),
+      guardIssueCommand(scoped, commandAccess(reg.issues), 'delete', issueRegistry.defs.delete, {
+        id: a.id,
+      }),
     ).rejects.toThrow(/not allowed/)
     // the operator is unconstrained.
     await expect(
-      guardIssueCommand({ capability: OPERATOR }, commandAccess(reg.issues), 'delete', issueRegistry.defs.delete, {
-        id: b.id,
-      }),
+      guardIssueCommand(
+        { capability: OPERATOR },
+        commandAccess(reg.issues),
+        'delete',
+        issueRegistry.defs.delete,
+        {
+          id: b.id,
+        },
+      ),
     ).resolves.toBeUndefined()
   })
 })
@@ -515,6 +556,7 @@ describe('Shipping command boundary', () => {
     }))
     const dispatcher = new IssueCommandDispatcher({
       issues: registry.issues,
+      directWriter: registry.issues.reports.store.serverWriter,
       shipping: {
         enqueueCurrent: enqueueCurrent as never,
         resolveHold: resolveHold as never,
@@ -560,12 +602,17 @@ describe('Shipping command boundary', () => {
 
   it('resolves an omitted id only from an attached subtree and delegates once', async () => {
     const { registry, dispatcher, enqueueCurrent } = await harness()
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
 
     await dispatcher.dispatch(agentCaller(root.id), 'issues', 'ship', {})
 
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
     expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         issueId: root.id,
         overrideScope: false,
@@ -576,7 +623,11 @@ describe('Shipping command boundary', () => {
 
   it('requires operator/unattached callers to name an id and requires a principal', async () => {
     const { registry, dispatcher, enqueueCurrent } = await harness()
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
     const operator = {
       capability: OPERATOR,
       principal: {
@@ -605,8 +656,16 @@ describe('Shipping command boundary', () => {
 
   it('preserves the raw-target confirmation guard; override widens scope only', async () => {
     const { registry, dispatcher, enqueueCurrent } = await harness()
-    const own = await registry.issues.crud.create({ repoPath: '/r', title: 'Own', startNow: false })
-    const outside = await registry.issues.crud.create({ repoPath: '/r', title: 'Outside', startNow: false })
+    const own = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Own',
+      startNow: false,
+    })
+    const outside = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Outside',
+      startNow: false,
+    })
 
     await expect(
       dispatcher.dispatch(agentCaller(own.id), 'issues', 'ship', { id: outside.id }),
@@ -616,6 +675,7 @@ describe('Shipping command boundary', () => {
     await dispatcher.dispatch(agentCaller(own.id, true), 'issues', 'ship', { id: outside.id })
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
     expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ issueId: outside.id, overrideScope: true }),
     )
 
@@ -635,7 +695,11 @@ describe('Shipping command boundary', () => {
 
   it('forwards typed hold action and generation once without a fake question path', async () => {
     const { registry, dispatcher, resolveHold } = await harness()
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
 
     await dispatcher.dispatch(agentCaller(root.id), 'issues', 'resolveShipHold', {
       orderId: 'ship_order',
@@ -644,6 +708,7 @@ describe('Shipping command boundary', () => {
     })
     expect(resolveHold).toHaveBeenCalledTimes(1)
     expect(resolveHold).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         orderId: 'ship_order',
         action: 'retry',
@@ -656,7 +721,11 @@ describe('Shipping command boundary', () => {
 
   it('delegates cancel once with live root authorization and transport scope confirmation', async () => {
     const { registry, dispatcher, cancel } = await harness()
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
 
     await dispatcher.dispatch(agentCaller(root.id, true), 'issues', 'cancelShip', {
       orderId: 'ship_order',
@@ -664,6 +733,7 @@ describe('Shipping command boundary', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1)
     expect(cancel).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         orderId: 'ship_order',
         principal: expect.objectContaining({ kind: 'agent' }),
@@ -674,7 +744,11 @@ describe('Shipping command boundary', () => {
 
   it('returns the typed immutable receipt by order without transport scope override', async () => {
     const { registry, dispatcher, deliveryReceipt } = await harness()
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
 
     const receipt = await dispatcher.dispatch(
       agentCaller(root.id, true),
@@ -721,7 +795,7 @@ describe('Shipping command boundary', () => {
   it('intersects an agent subtree with the human current role and issue write right', async () => {
     const registry = await reportingRegistry()
     registries.push(registry)
-    const root = await registry.issues.crud.create({
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Delegated root',
       ownerUserId: asUserId('user:other'),
@@ -783,23 +857,29 @@ describe('Shipping command boundary', () => {
   it('authorizes receipt reads for any active member, not by agent write scope (POD-6288)', async () => {
     const registry = await reportingRegistry()
     registries.push(registry)
-    const attached = await registry.issues.crud.create({
+    const attached = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Attached root',
       startNow: false,
     })
-    const ownedOutside = await registry.issues.crud.create({
-      repoPath: '/r',
-      title: 'Human owned outside root',
-      ownerUserId: firstAdminMemberId(),
-      startNow: false,
-    })
-    const hiddenOutside = await registry.issues.crud.create({
-      repoPath: '/r',
-      title: 'Other human root',
-      ownerUserId: asUserId('user:other'),
-      startNow: false,
-    })
+    const ownedOutside = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Human owned outside root',
+        ownerUserId: firstAdminMemberId(),
+        startNow: false,
+      },
+    )
+    const hiddenOutside = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Other human root',
+        ownerUserId: asUserId('user:other'),
+        startNow: false,
+      },
+    )
     const caller = agentCaller(attached.id)
     const authorization = (
       registry.shipping as unknown as {
@@ -844,18 +924,38 @@ describe('normalized palette search', () => {
   it('keeps legacy search while returning canonical fields on the additive query', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Normalized search example', startNow: false })
-      const legacy = await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'search', { text: 'Normalized search' }) as Array<Record<string, unknown>>
-      const normalized = await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'searchNormalized', { text: 'Normalized search' }) as Array<Record<string, unknown>>
-      expect(legacy.map(row => row.id)).toEqual([issue.id])
-      expect(normalized.map(row => row.id)).toEqual([issue.id])
-      expect(normalized[0]).toMatchObject({ description: { value: '' }, isDraftVessel: false, intentOrigin: 'human' })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Normalized search example',
+        startNow: false,
+      })
+      const legacy = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'search',
+        { text: 'Normalized search' },
+      )) as Array<Record<string, unknown>>
+      const normalized = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'searchNormalized',
+        { text: 'Normalized search' },
+      )) as Array<Record<string, unknown>>
+      expect(legacy.map((row) => row.id)).toEqual([issue.id])
+      expect(normalized.map((row) => row.id)).toEqual([issue.id])
+      expect(normalized[0]).toMatchObject({
+        description: { value: '' },
+        isDraftVessel: false,
+        intentOrigin: 'human',
+      })
       expect(normalized[0]).not.toHaveProperty('draft')
       expect(normalized[0]).not.toHaveProperty('origin')
       expect(normalized[0]).not.toHaveProperty('humanQuestion')
       expect(normalized[0]?.displayRef).toBe(legacy[0]?.displayRef)
       expect(legacy[0]).toHaveProperty('draft')
-    } finally { await registry.dispose() }
+    } finally {
+      await registry.dispose()
+    }
   })
 })
 
@@ -863,7 +963,11 @@ describe('issues.get session membership', () => {
   it('returns every attached agent and excludes shell sessions', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+      })
       await attachHostDaemon(registry, () => {})
       const first = await registry.modules.sessions.createSession({
         agentKind: 'codex',
@@ -901,7 +1005,11 @@ describe('issue spawn provenance', () => {
   it('stamps agent comment actor and human owner from the transport principal', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+      })
       await registry.issueCommands.dispatch(
         {
           capability: {
@@ -936,11 +1044,17 @@ describe('issue spawn provenance', () => {
   it('stamps the displayed comment author from the caller, ignoring a spoofed author', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+      })
       const internal = registry as unknown as {
         store: {
           users: { get(id: UserId): Promise<{ displayName: string } | undefined> }
-          issues: { listIssueComments(id: string): Promise<Array<{ author: string; body: string }>> }
+          issues: {
+            listIssueComments(id: string): Promise<Array<{ author: string; body: string }>>
+          }
         }
       }
       const admin = await internal.store.users.get(firstAdminMemberId())
@@ -976,11 +1090,9 @@ describe('issue spawn provenance', () => {
         spoof,
       )
 
-      expect((await internal.store.issues.listIssueComments(issue.id)).map((c) => c.author)).toEqual([
-        admin?.displayName,
-        `issue:#${issue.seq}`,
-        'agent',
-      ])
+      expect(
+        (await internal.store.issues.listIssueComments(issue.id)).map((c) => c.author),
+      ).toEqual([admin?.displayName, `issue:#${issue.seq}`, 'agent'])
     } finally {
       await registry.dispose()
     }
@@ -989,40 +1101,54 @@ describe('issue spawn provenance', () => {
   it('passes the exact initiating session through start and add-session commands', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-      await registry.issues.crud.update(issue.id, {
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+      })
+      await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
         worktreePath: '/r/.worktrees/issue-1-a',
         stage: 'in_progress',
       })
+      // The initiating session is a real member: the effect record re-reads its
+      // writer at run time (POD-6414), and a session that does not exist is no writer.
+      const parent = (
+        await registry.modules.sessions.createSession({
+          cwd: '/r/.worktrees/issue-1-a',
+          agentKind: 'shell',
+          issueId: asIssueId(issue.id),
+        })
+      ).sessionId
       const caller = {
         capability: {
           role: 'worker',
           scope: { kind: 'subtree', rootId: issue.id },
-          actorSessionId: asSessionId('parent-session'),
+          actorSessionId: parent,
           onBehalfOf: firstAdminMemberId(),
         },
       } as const
+      // Each spawn also names the session id its record minted (once per id).
+      const minted = { sessionId: expect.any(String) }
       const start = vi.spyOn(registry.issues.gitWorkflow, 'start').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'start', { id: issue.id })
       // …and the human it starts for, whose the session will be (POD-6283).
       expect(start).toHaveBeenCalledWith(issue.id, undefined, {
-        spawnedBy: 'session:parent-session',
+        spawnedBy: `session:${parent}`,
+        ...minted,
         onBehalfOf: firstAdminMemberId(),
       })
       const add = vi.spyOn(registry.issues.gitWorkflow, 'addSession').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'addSession', { id: issue.id })
       expect(add).toHaveBeenCalledWith(issue.id, undefined, {
-        spawnedBy: 'session:parent-session',
+        spawnedBy: `session:${parent}`,
+        ...minted,
         onBehalfOf: firstAdminMemberId(),
       })
       const shell = vi.spyOn(registry.issues.gitWorkflow, 'addShell').mockResolvedValue(issue)
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
         id: issue.id,
       })
-      expect(shell).toHaveBeenCalledWith(issue.id, {
-        spawnedBy: 'user',
-        onBehalfOf: firstAdminMemberId(),
-      })
+      expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user', ...minted, onBehalfOf: firstAdminMemberId() })
     } finally {
       await registry.dispose()
     }
@@ -1105,7 +1231,7 @@ describe('issue spawn provenance', () => {
   it('exposes coordinatorSessionId on issues.get(), the projection mail routing reads', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/r',
         title: 'Routing reads the projection',
         startNow: false,
@@ -1118,7 +1244,9 @@ describe('issue spawn provenance', () => {
         id: issue.id,
         sessionId: 'sess_coord_wire',
       })
-      expect((await registry.issues.reports.get(issue.id))?.coordinatorSessionId).toBe('sess_coord_wire')
+      expect((await registry.issues.reports.get(issue.id))?.coordinatorSessionId).toBe(
+        'sess_coord_wire',
+      )
 
       // And it must go back to absent, or a stale coordinator keeps winning.
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'setCoordinator', {
@@ -1142,23 +1270,31 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
   it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
     const registry = await reportingRegistry()
     try {
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Shared', startNow: false })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Shared',
+        startNow: false,
+      })
       // REAL SESSIONS, not the bare ids main used. `authorizeAtApply` re-resolves
       // the SENDER's principal on every delivery (POD-728/POD-1193), so a send
       // from a session id that names no session is dead-lettered — "sender
       // authorization is no longer valid" — and never reaches a peer's mailbox.
       // The ids are the sessions' own; the arrangement (two agents, one issue,
       // one shared mailbox) is unchanged.
-      const sA = (await registry.modules.sessions.createSession({
-        agentKind: 'codex',
-        cwd: '/r',
-        issueId: issue.id,
-      })).sessionId
-      const sB = (await registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/r',
-        issueId: issue.id,
-      })).sessionId
+      const sA = (
+        await registry.modules.sessions.createSession({
+          agentKind: 'codex',
+          cwd: '/r',
+          issueId: issue.id,
+        })
+      ).sessionId
+      const sB = (
+        await registry.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/r',
+          issueId: issue.id,
+        })
+      ).sessionId
       const agent = (sessionId: string) =>
         ({
           capability: {
@@ -1215,6 +1351,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
     registries.push(registry)
     const dispatcher = new IssueCommandDispatcher({
       issues: registry.issues,
+      directWriter: registry.issues.reports.store.serverWriter,
       shipping: {} as never,
       arbitration: { run: (_input, operation) => operation() },
       executionFacts: executionFactsOf(registry.sessionStore),
@@ -1237,7 +1374,11 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
       repoPaths: () => ['/r'],
       inferRepoFromPath: () => undefined,
     })
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Own', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Own',
+      startNow: false,
+    })
     return { registry, dispatcher, issue }
   }
 
@@ -1326,8 +1467,14 @@ describe('issue types and labels [POD-6106]', () => {
   const setup = async () => {
     const registry = await reportingRegistry()
     registries.push(registry)
-    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
-    await registry.issues.crud.setLabels(root.id, ['bug'])
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
+    await registry.issues.crud.setLabels(registry.issues.reports.store.serverWriter, root.id, [
+      'bug',
+    ])
     const create = (caller: object, input: Record<string, unknown>) =>
       registry.issueCommands.dispatch(caller as never, 'issues', 'create', {
         repoPath: '/r',
@@ -1346,9 +1493,9 @@ describe('issue types and labels [POD-6106]', () => {
 
   it('an agent naming an unknown label is refused before anything is created', async () => {
     const { registry, root, create } = await setup()
-    await expect(
-      create(agentOn(root.id), { title: 'Typo', labels: ['bgu'] }),
-    ).rejects.toThrow(/unknown label "bgu".*Existing labels: bug.*--create-label/s)
+    await expect(create(agentOn(root.id), { title: 'Typo', labels: ['bgu'] })).rejects.toThrow(
+      /unknown label "bgu".*Existing labels: bug.*--create-label/s,
+    )
     const titles = (await registry.issues.reports.list('/r')).map((i) => i.title)
     expect(titles).not.toContain('Typo')
   })
@@ -1374,7 +1521,12 @@ describe('issue types and labels [POD-6106]', () => {
     const { registry, root, create } = await setup()
     const own = await create(operator, { title: 'Own' })
     const label = (caller: object, input: Record<string, unknown>) =>
-      registry.issueCommands.dispatch(caller as never, 'issues', 'setLabels', input as never) as Promise<{
+      registry.issueCommands.dispatch(
+        caller as never,
+        'issues',
+        'setLabels',
+        input as never,
+      ) as Promise<{
         labels: string[]
       }>
     expect((await label(agentOn(root.id), { id: own.id, labels: ['Bug'] })).labels).toEqual(['bug'])
@@ -1385,7 +1537,14 @@ describe('issue types and labels [POD-6106]', () => {
       (await label(agentOn(root.id), { id: own.id, labels: ['nope'], createLabels: true })).labels,
     ).toEqual(['nope'])
     // A write tier, not a free pass: outside the subtree it asks for confirmation.
-    const elsewhere = await registry.issues.crud.create({ repoPath: '/r', title: 'Other', startNow: false })
+    const elsewhere = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Other',
+        startNow: false,
+      },
+    )
     await expect(label(agentOn(root.id), { id: elsewhere.id, labels: ['bug'] })).rejects.toThrow(
       /outside-scope/,
     )
@@ -1398,12 +1557,12 @@ describe('issue types and labels [POD-6106]', () => {
     const dispatch = (proc: string, input: object) =>
       registry.issueCommands.dispatch(agent as never, 'issues', proc as never, input as never)
     await expect(dispatch('close', { id: decision.id })).rejects.toThrow(/only the user/)
-    await expect(
-      dispatch('update', { id: decision.id, patch: { stage: 'done' } }),
-    ).rejects.toThrow(/only the user/)
-    await expect(
-      dispatch('update', { id: decision.id, patch: { type: 'task' } }),
-    ).rejects.toThrow(/retype refused/)
+    await expect(dispatch('update', { id: decision.id, patch: { stage: 'done' } })).rejects.toThrow(
+      /only the user/,
+    )
+    await expect(dispatch('update', { id: decision.id, patch: { type: 'task' } })).rejects.toThrow(
+      /retype refused/,
+    )
     expect((await registry.issues.reports.get(decision.id))?.stage).not.toBe('done')
 
     await registry.issueCommands.dispatch(operator as never, 'issues', 'close', { id: decision.id })

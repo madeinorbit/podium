@@ -31,6 +31,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { userDockShell, userLayout } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -240,8 +241,19 @@ export class UserLayoutRepository {
   /**
    * Write one layout key. THROWS on a key outside the closed vocabulary so a
    * mis-routed device-local key cannot grow a server row.
+   *
+   * `user_layout` is a synced table: every writer here takes the commit's write
+   * scope, so it only runs inside the `Ledger.commit` that appends the row's
+   * change entry (ADR 12 D9, POD-6594). That is what retired the old write
+   * followed by a separate capture.
    */
-  async set(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
+  async set(
+    _scope: WriteScope,
+    userId: UserId,
+    key: string,
+    value: unknown,
+    updatedAt: string,
+  ): Promise<void> {
     if (!isLayoutKey(key)) {
       throw new Error(
         `'${key}' is not a replicated layout key (POD-1350 / isLayoutKey), so it has no server row`,
@@ -251,7 +263,12 @@ export class UserLayoutRepository {
   }
 
   /** Apply a multi-key patch. Refuses the whole batch if any key is inadmissible. */
-  async setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): Promise<void> {
+  async setMany(
+    _scope: WriteScope,
+    userId: UserId,
+    values: Record<string, unknown>,
+    updatedAt: string,
+  ): Promise<void> {
     for (const key of Object.keys(values)) {
       if (!isLayoutKey(key)) {
         throw new Error(
@@ -279,13 +296,13 @@ export class UserLayoutRepository {
   }
 
   /** Forget one key — the client falls back to its default. */
-  async clear(userId: UserId, key: string): Promise<void> {
+  async clear(_scope: WriteScope, userId: UserId, key: string): Promise<void> {
     await deleteLayoutKey(this.db).run({ userId, key })
   }
 
-  async clearMany(userId: UserId, keys: readonly string[]): Promise<void> {
+  async clearMany(scope: WriteScope, userId: UserId, keys: readonly string[]): Promise<void> {
     await this.createOrJoinTransaction(async () => {
-      for (const key of keys) await this.clear(userId, key)
+      for (const key of keys) await this.clear(scope, userId, key)
     })
   }
 

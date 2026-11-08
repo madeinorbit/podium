@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { costCohort, taskCostView } from '@podium/client-core/values'
 import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
 import { asMachineId, asUserId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
@@ -76,7 +77,7 @@ async function issue(over: Partial<IssueRow> = {}): Promise<IssueRow> {
     updatedAt: '2026-08-01T00:00:00.000Z',
     ...over,
   } as IssueRow
-  await store.issues.upsertIssue(row)
+  await store.issues.upsertIssue(fixtureWriteScope(), row)
   return row
 }
 
@@ -106,7 +107,7 @@ async function session(over: Partial<SessionRow> = {}): Promise<SessionRow> {
     machineId,
     ...over,
   }
-  await store.sessions.upsertSession(row)
+  await store.sessions.upsertSession(fixtureWriteScope(), row)
   return row
 }
 

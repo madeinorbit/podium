@@ -19,6 +19,7 @@
  * never meet in a real answer; the new lookup does not reproduce it.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { firstAdminMemberId, type IssueId, machinePathKey } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
@@ -50,7 +51,7 @@ async function seed(store: SessionStore, repos: readonly string[], rows: readonl
   for (let start = 0; start < rows.length; start += 500) {
     await store.transact(async () => {
       for (const row of rows.slice(start, start + 500)) {
-        await store.issues.upsertIssue({
+        await store.issues.upsertIssue(fixtureWriteScope(), {
           ...issueRowFixture({ id: row.id, repoPath: row.repoPath ?? repos[0]!, seq: row.seq, ownerUserId: firstAdminMemberId() }),
           repoId: undefined,
           machineId: store.hostMachineId,

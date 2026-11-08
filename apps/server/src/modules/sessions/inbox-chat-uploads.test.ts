@@ -18,6 +18,7 @@ import type {
 } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
+import { messageTestWriter } from '../../test-support/message-writer'
 import {
   chatUploadStageAnswer,
   type InboxPrincipalReference,
@@ -141,6 +142,7 @@ function harness(stage: (attachment: RuntimeAttachmentRef) => StageAnswer) {
   const inbox = new SessionInbox(deps as never)
   const queue = async (id: string, attachments?: readonly RuntimeAttachmentRef[]) =>
     await inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: id,
       principal: person(),
@@ -239,13 +241,17 @@ describe('chat uploads are staged at delivery (POD-2148)', () => {
   })
 
   it('a driver that refuses files for good fails the row; a refusal it may get over retries', async () => {
-    expect(chatUploadStageAnswer(held, { reason: 'unsupported', detail: 'no files for this agent' })).toEqual({
+    expect(
+      chatUploadStageAnswer(held, { reason: 'unsupported', detail: 'no files for this agent' }),
+    ).toEqual({
       fail: 'no files for this agent',
     })
     for (const reason of ['not_running', 'staging_failed', 'busy'] as const) {
       expect(chatUploadStageAnswer(held, { reason })).toEqual({ retry: reason })
     }
-    expect(chatUploadStageAnswer(held, { ...stagedRef(held), id: 'minted-elsewhere' })).toMatchObject({
+    expect(
+      chatUploadStageAnswer(held, { ...stagedRef(held), id: 'minted-elsewhere' }),
+    ).toMatchObject({
       fail: expect.stringContaining('older Podium'),
     })
     expect(chatUploadStageAnswer(held, stagedRef(held))).toEqual({ ref: stagedRef(held) })

@@ -18,6 +18,7 @@
 
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { type MessageDeliveryService, senderFromInboxPrincipal } from '../messages/service'
+import type { MessageWriter } from '../messages/writer'
 import type { AnswerChoice, InboxPrincipalReference } from '../sessions/inbox'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
@@ -26,10 +27,15 @@ export interface AnswerTargetSession {
 }
 
 export interface AnswerDeliveryDeps {
-  getSession(sessionId: SessionId): AnswerTargetSession | undefined | Promise<AnswerTargetSession | undefined>
+  getSession(
+    sessionId: SessionId,
+  ): AnswerTargetSession | undefined | Promise<AnswerTargetSession | undefined>
   sessions: {
-    pendingQuestion?(sessionId: SessionId): Promise<import('@podium/protocol').PendingInteractionWire | null>
+    pendingQuestion?(
+      sessionId: SessionId,
+    ): Promise<import('@podium/protocol').PendingInteractionWire | null>
     answerAskUserQuestion(input: {
+      writer: MessageWriter
       interactionId?: string
       sessionId: SessionId
       choices?: AnswerChoice[]
@@ -39,6 +45,9 @@ export interface AnswerDeliveryDeps {
   }
   /** The text fallback's one send path (POD-4846). */
   messages: Pick<MessageDeliveryService, 'send'>
+  /** Whose write the text fallback's send is (POD-6602): the answering
+   *  command's own, or the server's for an effect run. */
+  writer: MessageWriter
   rpc: {
     readTranscript(input: {
       sessionId: SessionId
@@ -88,7 +97,7 @@ export async function deliverAnswerToSession(
     // is a QUESTION ON SCREEN to answer natively — a question about what the
     // agent is showing, which no send receipt can answer and which decides
     // between two different actions, not two deliveries.
-    const r = await deps.messages.send(senderFromInboxPrincipal(input.principal), {
+    const r = await deps.messages.send(deps.writer, senderFromInboxPrincipal(input.principal), {
       to: { kind: 'session', id: sessionId },
       kind: 'message',
       urgency: 'next-turn',
@@ -107,7 +116,8 @@ export async function deliverAnswerToSession(
   // Capture identity before any asynchronous option work; replacement never
   // redirects this answer onto the new menu.
   const pending = await deps.sessions.pendingQuestion?.(sessionId)
-  if (deps.sessions.pendingQuestion && !pending) return { ok: false, message: 'no authoritative pending question' }
+  if (deps.sessions.pendingQuestion && !pending)
+    return { ok: false, message: 'no authoritative pending question' }
   let questions: Array<{
     question?: string
     multiSelect?: boolean
@@ -117,7 +127,9 @@ export async function deliverAnswerToSession(
     questions = [...(pending.payload as import('@podium/protocol').QuestionAsk).questions]
   } else {
     const { items } = await deps.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
-    const q = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+    const q = [...items]
+      .reverse()
+      .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
     if (!q) return { ok: false, message: 'no pending AskUserQuestion found in the transcript tail' }
     try {
       const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
@@ -167,7 +179,13 @@ export async function deliverAnswerToSession(
       ...(previewLayout ? { previewLayout: true } : {}),
     })
   }
-  const r = await deps.sessions.answerAskUserQuestion({ sessionId, interactionId: pending?.id, choices, principal: input.principal })
+  const r = await deps.sessions.answerAskUserQuestion({
+    writer: deps.writer,
+    sessionId,
+    interactionId: pending?.id,
+    choices,
+    principal: input.principal,
+  })
   // A reason only ever accompanies the undeliverable-choice refusal; the older
   // not-live refusal is bare, and keeps its original wording.
   if (!r.ok) return { ok: false, message: `failed: ${r.reason ?? 'session not running'}` }

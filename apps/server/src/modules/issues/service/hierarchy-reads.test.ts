@@ -10,6 +10,7 @@
  * the issue map, these reads were also compared with it.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, type RepoId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -75,7 +76,7 @@ describe('issue hierarchy reads over the database', () => {
     // A parent cycle: no write path makes one, so it is planted.
     rawSql(store, "UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'")
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(viewer, asIssueId('iss_8'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_8'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
     const svc = await serviceOver(store)
     const issues = svc.reports.store
     const crud = svc.crud as unknown as SortScopes

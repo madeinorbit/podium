@@ -67,10 +67,11 @@ import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { runAtRoot } from '../../store/executor/context'
 import type { SettingsAuditRow } from '../../store/settings-audit'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { EventBus } from '../bus'
 import { custodianFromEdges } from '../issues/execution-visibility'
 import type { Send } from '../sessions/session'
-import type { EnrollmentHost, MachineManagementContext } from './enrollment'
+import { broadcastAfterWrite, type EnrollmentHost, type MachineManagementContext, machineTransition } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
 import { supersedeMachine } from './supersession'
@@ -433,12 +434,26 @@ export class MachinesService {
     )
     if (result === 'missing') throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown machine' })
     if (result === 'server-transfer-required')
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: 'move the server through server transfer',
-      })
-    this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
-    await this.broadcastMachines()
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'move the server through server transfer' })
+    // The daemon is told once the assignment has committed (ADR 2 D10, POD-6417).
+    await this.outsideTheWrite(async () => {
+      this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
+      await this.broadcastMachines()
+    }, 'machines:assignment:push')
+  }
+
+  /**
+   * Work outside the database that follows a machine write (a daemon push, the
+   * bus, the clients' `machinesChanged`): after the commit when a unit of work
+   * is open, so a rollback sends nothing (ADR 2 D10, POD-6417); at once, and
+   * awaited, when none is.
+   */
+  private async outsideTheWrite(step: () => Promise<void>, label: string): Promise<void> {
+    if (spanOpen()) {
+      afterCommit(step, label)
+      return
+    }
+    await step()
   }
 
   // machineId -> control-message sender for that daemon. Replaces the single
@@ -2091,8 +2106,10 @@ export class MachinesService {
   async renameMachine(id: MachineId, name: string): Promise<void> {
     await this.deps.store.machines.renameMachine(id, name)
     await this.publishDisplayProjection(id)
-    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    await this.broadcastMachines()
+    await this.outsideTheWrite(async () => {
+      if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+      await this.broadcastMachines()
+    }, 'machines:rename:push')
   }
 
   /**
@@ -2111,7 +2128,7 @@ export class MachinesService {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown or revoked machine '${id}'`)
     await this.deps.store.machines.setUpdateChannel(id, channel)
-    await this.broadcastMachines()
+    await broadcastAfterWrite(this.enrollmentHost, 'machines:channel:broadcast')
   }
 
   async shareMachine(
@@ -2166,7 +2183,7 @@ export class MachinesService {
       actorId,
       onBehalfOf: attribution.onBehalfOf,
     })
-    await this.broadcastMachines()
+    await broadcastAfterWrite(this.enrollmentHost, 'machines:share:broadcast')
   }
 
   async unshareMachine(
@@ -2192,7 +2209,7 @@ export class MachinesService {
     )
       return
     await this.deps.store.grants.remove('machine', id, grantee, verb)
-    await this.broadcastMachines()
+    await broadcastAfterWrite(this.enrollmentHost, 'machines:unshare:broadcast')
   }
 
   /**
@@ -2212,7 +2229,7 @@ export class MachinesService {
     } = {},
   ): Promise<void> {
     if (opts.skipRowDelete) return
-    await credentials.withMachineTransition(this.enrollmentHost, id, async () => {
+    await machineTransition(this.enrollmentHost, [id], async () => {
       const now = new Date().toISOString()
       await this.deps.store.transact(async () => {
         const row = await this.deps.store.machines.getMachine(id)
@@ -2232,11 +2249,15 @@ export class MachinesService {
           createdAt: now,
         })
       })
-      this.retireIncarnation(id)
+      // The feed's projection is a database write: it commits with the revocation.
       await this.publishDisplayProjection(id)
+    }, async () => {
+      // The transports are retired by the commit itself: the machines table's
+      // commit funnel retires a revoked machine (`applyMachineWrite`), and a
+      // rollback never reaches it. What is left is telling the rest.
       if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
       await this.broadcastMachines()
-    })
+    }, 'machines:revoke:announce')
   }
 
   /** Explicit legacy-bearer fixture enrollment. Production setup uses completeHostSetup;

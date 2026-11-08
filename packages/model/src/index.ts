@@ -87,6 +87,7 @@ export * from './entities/loop'
 export * from './entities/machine'
 export * from './entities/machine-projection'
 // The message delivery lifecycle, declared as a forward-only machine (POD-4765).
+export * from './entities/effect'
 export * from './entities/message-delivery'
 export { MessageLedgerWire } from './entities/message-ledger'
 export * from './entities/message-record'

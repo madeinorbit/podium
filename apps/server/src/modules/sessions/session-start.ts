@@ -68,9 +68,10 @@ import type {
 import type { ControlMessage, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
-import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
+import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
+import type { MessageWriter } from '../messages/writer'
 import { authorSpawnBinding } from './binding-mint'
 import { createdByForBinding } from './command-plane'
 import { selectHarnessAccountId } from './harness-account'
@@ -78,6 +79,7 @@ import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
+import type { SessionWriter } from './session-lifecycle-types'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -117,6 +119,8 @@ export interface SessionStartPorts {
   store: SessionStore
   view: SessionView
   repository: SessionRepository
+  /** Its writes are the server's, after a commit (`sessions.lifecycle`, POD-6601). */
+  writer: SessionWriter
   state: SessionStateService
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
@@ -157,17 +161,25 @@ export interface SessionStartPorts {
   /** A new draft task for an agent started outside every task, in the repo
    *  the cwd belongs to on the machine the session runs on; undefined when the
    *  cwd is in no known repo there. Absent = such starts stay task-less. */
-  draftForStart?(input: {
-    cwd: string
-    agentKind: AgentKind
-    ownerUserId: UserId
-    machineId: MachineId
-  }): Promise<IssueId | undefined>
-  /** Drop a draft made for a start that failed before its session existed. */
-  discardUnlaunchedDraft?(issueId: IssueId): Promise<void>
+  draftForStart?(
+    writer: SessionWriter,
+    input: {
+      cwd: string
+      agentKind: AgentKind
+      ownerUserId: UserId
+      machineId: MachineId
+    },
+  ): Promise<IssueId | undefined>
+  /** Drop a draft with the writer of the start that created it. */
+  discardUnlaunchedDraft?(writer: SessionWriter, issueId: IssueId): Promise<void>
   /** Record that `userId` started work on the issue (POD-6290): their own start,
    *  or their agent's. Absent = no personal records (unit fixtures). */
-  recordIssueParticipation?(issueId: IssueId, userId: UserId, via: 'start' | 'agent'): Promise<void>
+  recordIssueParticipation?(
+    writer: SessionWriter,
+    issueId: IssueId,
+    userId: UserId,
+    via: 'start' | 'agent',
+  ): Promise<void>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
@@ -177,11 +189,7 @@ export interface SessionStartPorts {
     agentProfileId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
   /** The agent-profile launch resolver (POD-6107). Absent = profiles ignored. */
-  agentLaunch?(input: {
-    profileId: string
-    fields: AgentSetupFields
-    cwd: string
-  }): Promise<{
+  agentLaunch?(input: { profileId: string; fields: AgentSetupFields; cwd: string }): Promise<{
     profile: { id: string; name: string } | null
     agentKind: string
     model: string
@@ -190,6 +198,8 @@ export interface SessionStartPorts {
   }>
   sessionOwner(sessionId: SessionId): Promise<{ owner: UserId } | undefined>
   queueInitialPrompt(input: {
+    /** The start's own writer: the queued prompt's session write is its. */
+    writer: SessionWriter
     sessionId: SessionId
     text: string
     sourceMessageId?: string
@@ -203,21 +213,27 @@ export interface SessionStartPorts {
   /** Store the task prompt a session spawned another with as the spawner's
    *  message to it, already handed to it (POD-4778). Answers its id. Absent =
    *  no message ledger: the prompt is queued as plain input. */
-  recordSpawnPrompt?(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordSpawnPrompt?(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator, already handed to it (POD-4846).
    *  Answers its id. Absent = no message ledger. */
-  recordOwnerPrompt?(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordOwnerPrompt?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -278,7 +294,7 @@ export class SessionStart {
         draftId = id
       })
     } catch (error) {
-      if (draftId) await this.discardDraft(draftId)
+      if (draftId) await this.discardDraft(this.ports.writer, draftId)
       throw error
     }
   }
@@ -291,24 +307,30 @@ export class SessionStart {
    * machine, so every agent has a row in the task list. Shells, and a cwd
    * outside every known repo, stay task-less.
    */
-  async startTask(input: {
-    cwd: string
-    agentKind: AgentKind
-    ownerUserId: UserId | undefined
-    machineId: MachineId
-  }): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
+  async startTask(
+    writer: SessionWriter,
+    input: {
+      cwd: string
+      agentKind: AgentKind
+      ownerUserId: UserId | undefined
+      machineId: MachineId
+    },
+  ): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
     if (!input.ownerUserId) return undefined
     const owner = await this.ports.soleOwnerForCwd(input.cwd, input.machineId)
     if (owner && (await this.ports.mayJoinIssue(owner, input.ownerUserId)))
       return { issueId: owner, draft: false }
     if (input.agentKind === 'shell') return undefined
-    const draft = await this.ports.draftForStart?.({ ...input, ownerUserId: input.ownerUserId })
+    const draft = await this.ports.draftForStart?.(writer, {
+      ...input,
+      ownerUserId: input.ownerUserId,
+    })
     return draft ? { issueId: draft, draft: true } : undefined
   }
 
   /** Drop a draft minted for a start that failed before its session existed. */
-  async discardDraft(issueId: IssueId): Promise<void> {
-    await this.ports.discardUnlaunchedDraft?.(issueId)
+  async discardDraft(writer: SessionWriter, issueId: IssueId): Promise<void> {
+    await this.ports.discardUnlaunchedDraft?.(writer, issueId)
   }
 
   private async start(
@@ -363,10 +385,15 @@ export class SessionStart {
       })
       if (!launch.profile) agentProfileId = undefined
       requestedAgentKind = launch.agentKind
-      inheritedSelection = { agentKind: launch.agentKind, model: launch.model, effort: launch.effort }
+      inheritedSelection = {
+        agentKind: launch.agentKind,
+        model: launch.model,
+        effort: launch.effort,
+      }
       // A profile machine places only a session that is not bound to an issue:
       // an issue session runs where the issue's worktree is (its start homed it).
-      if (launch.machineId && !input.machineId && !input.issueId) profileMachineId = launch.machineId
+      if (launch.machineId && !input.machineId && !input.issueId)
+        profileMachineId = launch.machineId
     }
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -391,7 +418,9 @@ export class SessionStart {
       const machine = await this.ports.store.machines.getMachine(machineId)
       requestedDriverId = terminalRuntimeDriver(machine, agentKind)?.id
       if (!requestedDriverId) {
-        throw new Error(`machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`)
+        throw new Error(
+          `machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`,
+        )
       }
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
@@ -417,7 +446,12 @@ export class SessionStart {
     }
     const task = input.issueId
       ? undefined
-      : await this.startTask({ cwd: input.cwd, agentKind, ownerUserId: input.ownerUserId, machineId })
+      : await this.startTask(this.ports.writer, {
+          cwd: input.cwd,
+          agentKind,
+          ownerUserId: input.ownerUserId,
+          machineId,
+        })
     if (task?.draft) onDraft(task.issueId)
     const issueId = input.issueId ?? task?.issueId
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
@@ -487,19 +521,20 @@ export class SessionStart {
     let promptMessageId: string | undefined
     if (taskPrompt !== undefined && !useArgv) {
       promptMessageId = parentSessionId
-        ? await this.ports.recordSpawnPrompt?.({
+        ? await this.ports.recordSpawnPrompt?.(this.ports.writer, {
             parentSessionId,
             sessionId: spawned.sessionId,
             text: taskPrompt,
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
-        : await this.ports.recordOwnerPrompt?.({
+        : await this.ports.recordOwnerPrompt?.(this.ports.writer, {
             sessionId: spawned.sessionId,
             text: taskPrompt,
             attribution: createdBy,
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
       const queued = await this.ports.queueInitialPrompt({
+        writer: this.ports.writer,
         sessionId: spawned.sessionId,
         text: taskPrompt,
         ...(promptMessageId ? { sourceMessageId: promptMessageId } : {}),
@@ -573,7 +608,8 @@ export class SessionStart {
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     requestedDriverId?: string
   }): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
@@ -728,7 +764,7 @@ export class SessionStart {
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
     const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
-    await this.ports.repository.persistDraft(session, draft, additionalWrite)
+    await this.ports.repository.persistDraft(this.ports.writer, session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
@@ -759,7 +795,9 @@ export class SessionStart {
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
+      ...(input.requestedDriverId !== undefined
+        ? { requestedDriverId: input.requestedDriverId }
+        : {}),
     })
     this.ports.broadcastSessions()
     // THE STARTER'S PERSONAL RECORD (POD-6290): a session landing on a task
@@ -769,6 +807,7 @@ export class SessionStart {
     if (input.issueId && ownerUserId) {
       await this.ports
         .recordIssueParticipation?.(
+          this.ports.writer,
           input.issueId,
           ownerUserId,
           principal.kind === 'agent' ? 'agent' : 'start',

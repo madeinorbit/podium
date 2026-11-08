@@ -10,11 +10,9 @@
 
 import type { MachineId, SessionId } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type {
-  TurnDelivery,
-  TurnReceipt,
-} from '@podium/protocol/daemon'
+import type { TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { SYSTEM_INBOX_PRINCIPAL } from './inbox'
 import {
   type RuntimeDaemonRpcPort,
@@ -70,7 +68,9 @@ function makeGateway(
     runtimeLifecycle: async () => ({ result: { ok: true } }),
     runtimeConfigure: async (input) => {
       configured.push(input)
-      return { result: overrides.configureResult ?? { ok: true as const, effective: 'next-turn' as const } }
+      return {
+        result: overrides.configureResult ?? { ok: true as const, effective: 'next-turn' as const },
+      }
     },
   }
   const enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][] = []
@@ -139,6 +139,7 @@ describe('send', () => {
   it('completes `queue` from the durable table and never forwards it', async () => {
     const { gateway, forwarded } = makeGateway()
     const receipt = await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'later',
       origin: 'mail',
@@ -153,6 +154,7 @@ describe('send', () => {
   it('degrades `steer` to the queue and SAYS SO', async () => {
     const { gateway, forwarded, enqueued } = makeGateway()
     const receipt = await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'and this too',
       origin: 'mail',
@@ -175,6 +177,7 @@ describe('send', () => {
     // end.
     const { gateway, forwarded, enqueued } = makeGateway()
     await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       rowId: 'msg-chat',
       turnId: 'msg-chat',
@@ -188,8 +191,20 @@ describe('send', () => {
 
   it('forwards the deliveries only a driver can perform', async () => {
     const { gateway, forwarded } = makeGateway()
-    await gateway.send({ sessionId: SESSION, text: 'now', origin: 'human', delivery: 'when-ready' })
-    await gateway.send({ sessionId: SESSION, text: 'stop', origin: 'human', delivery: 'interrupt' })
+    await gateway.send({
+      writer: messageTestWriter(),
+      sessionId: SESSION,
+      text: 'now',
+      origin: 'human',
+      delivery: 'when-ready',
+    })
+    await gateway.send({
+      writer: messageTestWriter(),
+      sessionId: SESSION,
+      text: 'stop',
+      origin: 'human',
+      delivery: 'interrupt',
+    })
     expect(forwarded.map((f) => f.delivery)).toEqual(['when-ready', 'interrupt'])
   })
 
@@ -203,6 +218,7 @@ describe('send', () => {
       kind: 'image' as const,
     }
     await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'look',
       origin: 'human',
@@ -215,6 +231,7 @@ describe('send', () => {
     for (const delivery of ['queue', 'steer'] as const) {
       await expect(
         gateway.send({
+          writer: messageTestWriter(),
           sessionId: SESSION,
           text: `later ${delivery}`,
           origin: 'human',
@@ -232,6 +249,7 @@ describe('send', () => {
   it('refuses rather than forwarding into a socket that is not there', async () => {
     const { gateway, forwarded } = makeGateway({ machineOf: () => undefined })
     const receipt = await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'anyone?',
       origin: 'steward',
@@ -251,6 +269,7 @@ describe('send', () => {
       },
     })
     const receipt = await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'wake up',
       origin: 'mail',
@@ -273,6 +292,7 @@ describe('the acting principal', () => {
       delegation: null,
     }
     await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'mine',
       origin: 'human',
@@ -289,6 +309,7 @@ describe('the acting principal', () => {
   it("falls back to the composition root's system principal, never to a local guess", async () => {
     const { gateway, enqueued } = makeGateway()
     await gateway.send({
+      writer: messageTestWriter(),
       sessionId: SESSION,
       text: 'unattributed',
       origin: 'mail',
@@ -305,23 +326,34 @@ describe('the event sink', () => {
     const { gateway } = makeGateway()
     let release!: () => void
     let entered!: () => void
-    const commit = new Promise<void>(resolve => { release = resolve })
-    const started = new Promise<void>(resolve => { entered = resolve })
+    const commit = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     const order: string[] = []
     gateway.onEvent(async () => {
       entered()
       await commit
       order.push('projected')
     })
-    const pending = gateway.record(MACHINE, { sessionId: SESSION, event: {
-      t: 'state',
-      change: { kind: 'activity' },
-      at: '2026-08-14T00:00:00.000Z',
-      provenance: 'live',
-      cursor: { segmentId: 'seg', components: { seq: 1 } },
-      observerGeneration: 1,
-      turnEpoch: 1,
-    } }).then(() => { order.push('returned') })
+    const pending = gateway
+      .record(MACHINE, {
+        sessionId: SESSION,
+        event: {
+          t: 'state',
+          change: { kind: 'activity' },
+          at: '2026-08-14T00:00:00.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'seg', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      })
+      .then(() => {
+        order.push('returned')
+      })
     await started
     release()
     await pending
@@ -331,7 +363,9 @@ describe('the event sink', () => {
   it('fans out to subscribers and lets them leave', async () => {
     const { gateway } = makeGateway()
     const seen: string[] = []
-    const stop = gateway.onEvent(async (_sessionId, event) => { seen.push(event.t) })
+    const stop = gateway.onEvent(async (_sessionId, event) => {
+      seen.push(event.t)
+    })
     const event = {
       t: 'state' as const,
       change: { kind: 'activity' },
@@ -416,7 +450,7 @@ describe('configure', () => {
     expect(configured).toEqual([])
   })
 
-  it('carries the driver\'s typed refusal up verbatim', async () => {
+  it("carries the driver's typed refusal up verbatim", async () => {
     const { gateway } = makeGateway({
       configureResult: { reason: 'invalid_value', detail: 'effort "ludicrous" is not one' },
     })

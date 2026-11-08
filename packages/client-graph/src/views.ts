@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import { isClosed, issueAbandoned } from './shared/predicates'
 import { machinePathKey } from '@podium/model/browser'
 /**
@@ -192,7 +193,8 @@ export function bandOf(issue: SliceIssue, input: Pick<ViewInputs, 'reached'>): 0
 
 /** `prefix-seq`, else `#seq` (spec §3 R-SUM). */
 export function displayRefOf(seq: number, prefix: string | null | undefined): string {
-  return prefix ? `${prefix}-${seq}` : `#${seq}`
+  // A new issue's pending number reads `PREFIX-…` (POD-6400).
+  return issueRefText(seq, prefix)
 }
 
 // The current row/local channels carry no served descriptors. Use the canonical

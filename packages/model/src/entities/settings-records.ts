@@ -20,7 +20,9 @@ export const AccountView = z.object({
       lastError: z.string().optional(),
     })
     .optional(),
-  credentialSource: z.enum(['stored', 'legacy']).optional(),
+  credentialSource: z.enum(['stored', 'legacy', 'shared']).optional(),
+  sharing: z.object({ everyone: z.boolean(), users: z.array(z.string()) }).optional(),
+  sharedBy: z.string().optional(),
   loginRequired: z.boolean().optional(),
   loginMachines: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
   loginAttempt: z

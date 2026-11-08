@@ -33,6 +33,7 @@ import {
   type ShipAttempt,
   type ShipOrder,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -125,9 +126,9 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
 describe('shipping: the order-to-issue lookups', () => {
   it('answers null for an order it does not hold, and the issue id for one it does', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(baseIssue())
+    await s.issues.upsertIssue(fixtureWriteScope(), baseIssue())
     const order = shipOrder()
-    await s.shipping.createOrder(order)
+    await s.shipping.createOrder(fixtureWriteScope(), order)
 
     // Paired admission and denial in the same fixture, so "returns null" cannot
     // be satisfied by a repository that returns nothing for everything.
@@ -141,14 +142,14 @@ describe('shipping: the order-to-issue lookups', () => {
     const known: string[] = []
     for (let index = 0; index < 3; index += 1) {
       const issueId = asIssueId(`iss_many_${index}`)
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...baseIssue(),
         id: issueId,
         seq: 10 + index,
         branch: `issue/many-${index}`,
       })
       const orderId = asShipOrderId(`order-many-${index}`)
-      await s.shipping.createOrder(shipOrder({ id: orderId, issueId }))
+      await s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: orderId, issueId }))
       known.push(orderId)
     }
 
@@ -183,14 +184,14 @@ describe('shipping: the order-to-issue lookups', () => {
     const ids: string[] = []
     for (let index = 0; index < total; index += 1) {
       const issueId = asIssueId(`iss_chunk_${index}`)
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...baseIssue(),
         id: issueId,
         seq: 1000 + index,
         branch: `issue/chunk-${index}`,
       })
       const orderId = asShipOrderId(`order-chunk-${index}`)
-      await s.shipping.createOrder(shipOrder({ id: orderId, issueId }))
+      await s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: orderId, issueId }))
       ids.push(orderId)
     }
 
@@ -215,7 +216,7 @@ async function claimedTrain(s: SessionStore) {
   const orders: ShipOrder[] = []
   for (const [index, suffix] of suffixes.entries()) {
     const issueId = asIssueId(`iss_train_${suffix}`)
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...baseIssue(),
       id: issueId,
       seq: 70 + index,
@@ -227,12 +228,12 @@ async function claimedTrain(s: SessionStore) {
       issueId,
       requestedAt: `2026-08-12T10:0${index}:00.000Z`,
     })
-    await s.shipping.createOrder(order)
+    await s.shipping.createOrder(fixtureWriteScope(), order)
     orders.push(order)
   }
   const [green, leader] = orders
   if (!green || !leader) throw new Error('the fixture must build both members')
-  const claim = await s.shipping.claimTrain({
+  const claim = await s.shipping.claimTrain(fixtureWriteScope(), {
     leaderOrderId: leader.id,
     startedAt: '2026-08-12T10:04:00.000Z',
     members: orders.map((order) => ({ orderId: order.id })),
@@ -290,10 +291,10 @@ describe('shipping: isolating a failed train', () => {
     const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
-    await s.shipping.appendStep(steps.planned)
-    await s.shipping.appendStep(steps.running)
+    await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
+    await s.shipping.appendStep(fixtureWriteScope(), steps.running)
 
-    await s.shipping.isolateTrainFailure({
+    await s.shipping.isolateTrainFailure(fixtureWriteScope(), {
       trainId: claim.manifest.id,
       leaderOrderId: leader.id,
       leaderAttemptId: leaderAttempt.id,
@@ -343,11 +344,11 @@ describe('shipping: isolating a failed train', () => {
     const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
-    await s.shipping.appendStep(steps.planned)
-    await s.shipping.appendStep(steps.running)
+    await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
+    await s.shipping.appendStep(fixtureWriteScope(), steps.running)
 
     const call = async (overrides: Record<string, unknown> = {}) =>
-      await s.shipping.isolateTrainFailure({
+      await s.shipping.isolateTrainFailure(fixtureWriteScope(), {
         trainId: claim.manifest.id,
         leaderOrderId: leader.id,
         leaderAttemptId: leaderAttempt.id,

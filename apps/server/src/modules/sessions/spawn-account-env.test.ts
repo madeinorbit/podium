@@ -12,26 +12,49 @@
  *     frame shape every existing user already spawns with.
  */
 
-import { asAccountId, firstAdminMemberId } from '@podium/model'
+import { asAccountId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
+import { type ManagedAccountWrite, SHARED_WITH_EVERYONE } from '../../store/accounts'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
+import { MissingManagedKeyError } from './account-env'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
+/** Another user of the instance: not the sessions' owner. */
+const OTHER = asUserId('user:spawn-account-other')
+
+/** A stored key; `owner` defaults to the sessions' owner (the first admin). */
+type SeededKey = Omit<ManagedAccountWrite, 'ownerUserId'> & {
+  owner?: ManagedAccountWrite['ownerUserId']
+  sharedWith?: readonly string[]
+}
+
 /** A store whose coding role points at `accountId`, with the managed rows seeded. */
-async function storeWith(
-  accountId: string,
-  ...accounts: Array<Parameters<SessionStore['accounts']['upsert']>[0]>
-): Promise<SessionStore> {
+async function storeWith(accountId: string, ...accounts: SeededKey[]): Promise<SessionStore> {
   const store = await openTestStore(':memory:')
-  for (const a of accounts) await store.accounts.upsert(a)
+  const sessionOwner = await firstAdminMemberId(store)
+  for (const { owner, sharedWith, ...a } of accounts) {
+    const ownerUserId = owner ?? sessionOwner
+    await store.accounts.connect({ ...a, ownerUserId })
+    if (sharedWith) {
+      await store.accounts.share(ownerUserId, a.accountKey, sharedWith)
+      // The owner explicitly sends a shared key to the recipient's host. A
+      // share alone never waives foreign-machine consent (POD-6300).
+      await store.accounts.markSent(
+        ownerUserId,
+        a.accountKey,
+        store.hostMachineId,
+        '2026-11-03T00:00:00.000Z',
+      )
+    }
+  }
   const settings = await store.settings.getSettings()
   await store.settings.setSettings({
     ...settings,
@@ -45,8 +68,7 @@ async function storeWith(
 
 /** The connection of the instance's one member, who starts these sessions. */
 const MANAGED_ANTHROPIC = {
-  id: asAccountId('managed:anthropic'),
-  ownerUserId: firstAdminMemberId(),
+  accountKey: asAccountId('managed:anthropic'),
   provider: 'anthropic',
   kind: 'api-key',
   credential: 'sk-ant-managed',
@@ -80,8 +102,8 @@ async function createFrame(
   return frame as Extract<ControlMessage, { type: 'spawn' }>
 }
 
-/** The frame for a wake (call site 2: SessionLifecycle.resurrectSession). */
-async function resurrectFrame(store: SessionStore) {
+/** A codex session, bound and then hibernated: ready for a wake. */
+async function hibernatedSession(store: SessionStore) {
   const { reg, daemon } = await makeRegistry(store)
   const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'codex',
@@ -98,6 +120,12 @@ async function resurrectFrame(store: SessionStore) {
     geometry: { cols: 80, rows: 24 },
   })
   expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+  return { reg, daemon, sessionId }
+}
+
+/** The frame for a wake (call site 2: SessionLifecycle.resurrectSession). */
+async function resurrectFrame(store: SessionStore) {
+  const { reg, daemon, sessionId } = await hibernatedSession(store)
   const before = spawns(daemon).length
   expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
     ok: true,
@@ -140,4 +168,64 @@ it('never injects the managed credential into a SHELL pane (#216)', async () => 
   expect(frame.agentKind).toBe('shell')
   expect(Object.hasOwn(frame, 'env')).toBe(false)
   expect(JSON.stringify(frame)).not.toContain('sk-ant-managed')
+})
+
+// ---- WHOSE KEY (POD-6360, user decision 2026-11-04) -------------------------
+// The session owner's own key first, then a key explicitly shared with them;
+// another user's unshared key never; with neither, the spawn is refused with
+// the missing key named, before anything is persisted or sent.
+
+it("createSession uses a key another user explicitly shares with everyone", async () => {
+  const frame = await createFrame(
+    await storeWith('managed:anthropic', {
+      ...MANAGED_ANTHROPIC,
+      owner: OTHER,
+      credential: 'sk-ant-shared',
+      sharedWith: [SHARED_WITH_EVERYONE],
+    }),
+  )
+  expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-shared' })
+})
+
+it("createSession prefers the owner's own key over a shared one", async () => {
+  const frame = await createFrame(
+    await storeWith(
+      'managed:anthropic',
+      { ...MANAGED_ANTHROPIC, owner: OTHER, credential: 'sk-ant-shared', sharedWith: ['*'] },
+      { ...MANAGED_ANTHROPIC, credential: 'sk-ant-own' },
+    ),
+  )
+  expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-own' })
+})
+
+it("createSession never uses another user's unshared key: refused, nothing persisted or sent", async () => {
+  const store = await storeWith('managed:anthropic', {
+    ...MANAGED_ANTHROPIC,
+    owner: OTHER,
+    credential: 'sk-ant-not-yours',
+  })
+  const { reg, daemon } = await makeRegistry(store)
+  const sessionsBefore = (await store.sessions.loadSessions()).length
+  const refusal = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+  await expect(refusal).rejects.toBeInstanceOf(MissingManagedKeyError)
+  await expect(refusal).rejects.toThrow(/No Anthropic API key is available to you/)
+  expect(spawns(daemon)).toEqual([])
+  expect((await store.sessions.loadSessions()).length).toBe(sessionsBefore)
+  expect(JSON.stringify(daemon)).not.toContain('sk-ant-not-yours')
+})
+
+it('a revoked share stops the next wake, with the reason, and sends no spawn', async () => {
+  const store = await storeWith('managed:anthropic', {
+    ...MANAGED_ANTHROPIC,
+    owner: OTHER,
+    credential: 'sk-ant-shared',
+    sharedWith: [SHARED_WITH_EVERYONE],
+  })
+  const { reg, daemon, sessionId } = await hibernatedSession(store)
+  expect(await store.accounts.share(OTHER, MANAGED_ANTHROPIC.accountKey, [])).toBe(true)
+  const before = spawns(daemon).length
+  const result = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+  expect(result).toMatchObject({ ok: false })
+  expect((result as { reason?: string }).reason).toMatch(/No Anthropic API key is available to you/)
+  expect(spawns(daemon).length).toBe(before)
 })

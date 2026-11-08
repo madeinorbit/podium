@@ -38,7 +38,10 @@ async function harness(
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now: () => '2026-07-14T00:00:00.000Z',
@@ -46,6 +49,8 @@ async function harness(
   const svc = await IssueService.create(deps)
   const dispatcher = new IssueCommandDispatcher({
     issues: svc,
+    // These commands run outside sync.submit here, under the service's writer.
+    directWriter: svc.reports.store.serverWriter,
     shipping: {
       enqueueCurrent: async () => {
         throw new Error('not used')
@@ -63,7 +68,8 @@ async function harness(
     arbitration: { run: (_input, operation) => operation() },
     executionFacts: executionFactsOf(store),
     deleteIssue: () => undefined,
-    attachSession: async (_caller, input) => await svc.attention.attachSession(input),
+    attachSession: async (_caller, input) =>
+      await svc.attention.attachSession(svc.reports.store.serverWriter, input),
     restoreIssue: () => undefined,
     // A ledger with no durable store: never dedupes, so every call runs — the
     // pass-through this file's cases assume. Idempotency itself is characterized
@@ -96,7 +102,11 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('delivers to the asking session, then clears needsHuman', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
     const { svc, call } = await harness(deliver)
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await call('setNeedsHuman', {
       id: a.id,
       question: 'merge?',
@@ -108,6 +118,7 @@ describe('issues.answerQuestion (issue #53)', () => {
       deliveredVia: string
     }
     expect(deliver).toHaveBeenCalledWith(
+      expect.anything(),
       'sess_asker',
       'Yes',
       expect.objectContaining({ capability: OPERATOR }),
@@ -121,7 +132,11 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('keeps the pending question when delivery fails', async () => {
     const deliver = vi.fn(async () => ({ ok: false as const, message: 'unknown session' }))
     const { svc, call } = await harness(deliver)
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_gone' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
       /answer not delivered: unknown session/,
@@ -134,7 +149,11 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('refuses when no question is pending, and when the question is unattributed', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
     const { svc, call } = await harness(deliver)
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
       /no pending question/,
     )
@@ -149,7 +168,11 @@ describe('issues.answerQuestion (issue #53)', () => {
 
   it('refuses cleanly when delivery is not wired (test/legacy deps)', async () => {
     const { svc, call } = await harness(undefined)
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_asker' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(/not wired/)
     expect((await svc.reports.get(a.id))!.needsHuman).toBe(true)
@@ -157,7 +180,11 @@ describe('issues.answerQuestion (issue #53)', () => {
 
   it('setNeedsHuman defaults askedBy to the calling session', async () => {
     const { svc, call } = await harness(undefined, { actorSessionId: asSessionId('sess_self') })
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
     expect((await svc.reports.get(a.id))!.humanQuestionAskedBy).toBe('sess_self')
     // A PERSON may attribute explicitly (superagent-on-behalf, hub-side
@@ -170,7 +197,11 @@ describe('issues.answerQuestion (issue #53)', () => {
 
   it('rejects a spoofed askedBy from a constrained agent (issue #53 review)', async () => {
     const { svc, call } = await harness(undefined)
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const worker = {
       capability: {
         role: 'worker' as const,

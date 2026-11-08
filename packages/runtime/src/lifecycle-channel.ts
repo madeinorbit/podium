@@ -79,6 +79,13 @@ export const ChildMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('degraded'), reason: z.string() }),
   z.object({ type: z.literal('heartbeat') }),
   z.object({ type: z.literal('stopping'), reason: z.string() }),
+  /**
+   * The child finished one named step of its boot (POD-6618). Not health, and
+   * never read as health: it only tells a supervisor waiting on a handover that
+   * a slow boot is still moving, so the wait can stretch while it moves and end
+   * when it stops. A parent older than this frame drops it at the decode below.
+   */
+  z.object({ type: z.literal('progress'), stage: z.string().min(1) }),
   z.object({
     type: z.literal('control-request'),
     /** Correlates this ask with the one `control-result` that answers it. */
@@ -199,6 +206,8 @@ export interface ChildLifecycleReport {
   }
   degraded?: { reason: string; atMs: number }
   stopping?: { reason: string; atMs: number }
+  /** The most recent boot step the child finished. */
+  progress?: { stage: string; atMs: number }
   lastHeartbeatMs?: number
   closedAtMs?: number
 }
@@ -286,6 +295,9 @@ export function attachChildChannel(
       case 'stopping':
         update({ ...report, stopping: { reason: message.reason, atMs } })
         break
+      case 'progress':
+        update({ ...report, progress: { stage: message.stage, atMs } })
+        break
     }
     options.onMessage?.(message)
   }
@@ -317,6 +329,8 @@ export interface LifecycleClient {
   ready(extra?: { port?: number }): boolean
   degraded(reason: string): boolean
   stopping(reason: string): boolean
+  /** Say that one named boot step finished. See the `progress` frame. */
+  progress(stage: string): boolean
   /** True while this process still holds its line to the supervisor that spawned it. */
   open(): boolean
   /**
@@ -393,6 +407,7 @@ export function connectLifecycleChannel(
   >()
 
   const send = (message: ChildMessage): boolean => trySend(transport, encodeLifecycle(message))
+  const sendProgress = (stage: string): boolean => !closed && send({ type: 'progress', stage })
 
   const onMessage = (raw: unknown): void => {
     const message = decodeParentMessage(raw)
@@ -430,6 +445,7 @@ export function connectLifecycleChannel(
     // sharing one process across cases) has replaced it, and clearing it then
     // would take away a line that is still open.
     if (parentControlLink() === link) setParentControlLink(undefined)
+    if (progressSink === sendProgress) progressSink = undefined
     // THE CLOSE IS THE FAILURE SIGNAL. Every ask still waiting is answered now,
     // with the reason, rather than waiting for a reply that cannot come.
     for (const [, waiter] of [...pending]) {
@@ -489,6 +505,7 @@ export function connectLifecycleChannel(
    * say a thing that is true process-wide — a process has exactly one supervisor.
    */
   setParentControlLink(link)
+  progressSink = sendProgress
 
   return {
     open,
@@ -505,6 +522,7 @@ export function connectLifecycleChannel(
       }),
     degraded: (reason) => send({ type: 'degraded', reason }),
     stopping: (reason) => send({ type: 'stopping', reason }),
+    progress: sendProgress,
     identity: () => identity,
     onIdentity: (listener) => {
       identityListeners.push(listener)
@@ -517,6 +535,19 @@ export function connectLifecycleChannel(
     },
     close,
   }
+}
+
+/** This process's open line, for {@link reportLifecycleProgress}. */
+let progressSink: ((stage: string) => boolean) | undefined
+
+/**
+ * Tell this process's supervisor that a boot step finished, or do nothing when
+ * there is no supervisor. Process-wide for the reason `setParentControlLink`
+ * is: the server's boot stages are timed deep inside `startServer`, which is
+ * never handed the client.
+ */
+export function reportLifecycleProgress(stage: string): void {
+  progressSink?.(stage)
 }
 
 /**

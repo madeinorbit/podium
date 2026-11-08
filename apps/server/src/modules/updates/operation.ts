@@ -1,6 +1,10 @@
 import { updateFingerprint } from '@podium/runtime/machine-update'
 import type { ServerPlacement } from './service'
-import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
+import {
+  type PrepareCoordinatorUpdate,
+  type PreparedCoordinatorUpdate,
+  SupervisorUpdateFailure,
+} from './installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
@@ -209,6 +213,14 @@ export const UPDATE_ERROR_CODES = [
    */
   'update-withdrawn',
   'download-failed',
+  /**
+   * The supervisor installed the target and started it, and the new version
+   * did not become healthy before the handover deadline (POD-6618). Not a
+   * download problem: the bytes were on disk and running.
+   */
+  'handover-timeout',
+  /** The supervisor installed the target but could not hand over to it. */
+  'handover-failed',
   'supervisor-control-endpoint-missing',
   'server-did-not-reach-target',
   'web-build-failed',
@@ -319,6 +331,10 @@ export type UpdateFailure =
       code: 'download-failed' | 'supervisor-control-endpoint-missing'
       places?: string[]
       names?: string[]
+      detail?: string
+    }
+  | {
+      code: 'handover-timeout' | 'handover-failed'
       detail?: string
     }
   | {
@@ -554,6 +570,22 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         message: 'Supervisor control endpoint missing. The running supervisor cannot receive update grants. Restart the parent service, then retry.',
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
+    case 'handover-timeout':
+      return {
+        code: failure.code,
+        message:
+          'The new version was installed and started, but it did not finish starting before the ' +
+          "supervisor's deadline, so the update was stopped. The detail below says how far it got.",
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'handover-failed':
+      return {
+        code: failure.code,
+        message: failure.detail
+          ? `The new version was installed, but the supervisor could not hand over to it: ${failure.detail}`
+          : 'The new version was installed, but the supervisor could not hand over to it.',
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
     case 'download-failed':
       return {
         code: failure.code,
@@ -617,6 +649,26 @@ export type { MachineFailureCode }
 type _MachineCodesAreUpdateErrorCodes = MachineFailureCode extends UpdateErrorCode ? true : never
 const _machineCodesAreUpdateErrorCodes: _MachineCodesAreUpdateErrorCodes = true
 void _machineCodesAreUpdateErrorCodes
+
+/**
+ * The supervisor's handover reason codes (`@podium/runtime` `update-failure`),
+ * named as the operation's. Anything else the supervisor records — a download
+ * or verification it ran itself — is left to the sentence classifier.
+ */
+export function handoverFailureCode(
+  reasonCode: string | undefined,
+): 'handover-timeout' | 'handover-failed' | undefined {
+  if (!reasonCode) return undefined
+  if (reasonCode === 'handover-timeout') return 'handover-timeout'
+  if (
+    reasonCode === 'successor-exited' ||
+    reasonCode === 'successor-unhealthy' ||
+    reasonCode.startsWith('rollback-refused-') ||
+    /^(server|daemon)-/.test(reasonCode)
+  )
+    return 'handover-failed'
+  return undefined
+}
 
 export function classifyMachineFailure(detail: string | undefined): MachineFailureCode {
   return classifyUpdateFailureDetail(detail)
@@ -2392,6 +2444,19 @@ async function runCoordinatorReplacement(
       // reasons; unanchoring any pattern that yields a code this site reads would
       // make the chain reclassify silently. Keeping the classifier's input
       // unchanged is what stops that from ever being this line's problem.
+      // THE SUPERVISOR'S OWN VERDICT OUTRANKS THE SENTENCE (POD-6618). A
+      // handover that timed out, or a rollback refused after one, reached the
+      // download default below and withdrew the target fleet-wide as "couldn't
+      // be downloaded" while the new version was already running.
+      const handover = error instanceof SupervisorUpdateFailure
+        ? handoverFailureCode(error.reasonCode)
+        : undefined
+      if (handover) {
+        return {
+          state: 'failed',
+          error: describeUpdateOperationFailure({ code: handover, detail: describeError(error) }),
+        }
+      }
       const classified = classifyMachineFailure(
         error instanceof Error ? error.message : String(error),
       )

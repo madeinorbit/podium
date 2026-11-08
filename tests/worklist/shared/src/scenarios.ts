@@ -1056,9 +1056,10 @@ function takeMarkReadReceipts(ctx: ScenarioEngine): string[] {
  * server and then ECHOED as truth — `readAt` at the server's clock — before
  * the step ends (POD-4618).
  *
- * Without the echo the runtime keeps that read awaiting truth until its 60 s
- * WALL-CLOCK sweep (`AWAITING_TRUTH_TTL_MS`), which retires it in whichever
- * later step is running then and charges that step a row it did not change.
+ * Without the echo an awaiting read can retire in whichever later step is
+ * running then, and charge that step a row it did not change. (Before POD-6279
+ * that was the runtime's 60 s wall-clock sweep; now an overlay lives exactly
+ * as long as its outbox entry.)
  * Only an explicit press (#9a) is left un-echoed, on purpose: its echo is #9b.
  */
 export async function settled(ctx: ScenarioEngine): Promise<void> {
@@ -1327,9 +1328,8 @@ const OVERLAY_ENTITIES = [
  * in flight, or resolved and AWAITING TRUTH — as `<entity>:<id>`, sorted.
  * Empty when every optimistic write has settled.
  *
- * A write left here outlives its step: the runtime retires an awaiting write
- * only on covering truth or on its 60 s WALL-CLOCK sweep
- * (`AWAITING_TRUTH_TTL_MS`), and the sweep lands in whichever later step is
+ * A write left here outlives its step: an awaiting write paints until its
+ * outbox entry retires (POD-6279), which can land in whichever later step is
  * running then (POD-4618).
  */
 export function pendingWrites(ctx: ScenarioEngine): string[] {

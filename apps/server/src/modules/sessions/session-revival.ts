@@ -42,29 +42,43 @@ import { soleMemberFor } from '../../sole-member'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
+import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import type { SessionStore } from '../../store'
-import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
+import { SpawnAccountRefusal } from './account-env'
+import type { SessionFacts } from './facts'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionLaunchConfig } from './launch-config'
-import type { SessionRepository } from './repository'
 import type { SessionRecordReads, SessionSubject } from './records'
+import type { SessionRepository } from './repository'
 import type { Session } from './session'
-import type { SessionFacts } from './facts'
-import { SpawnAccountRefusal } from './account-env'
+import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionWorkspace } from './workspace'
 
+/** The explicit choices a wake may carry (`--model`, `--effort`, `--force-unknown-model`). */
+export interface ExplicitWake {
+  model?: string
+  effort?: string
+  forceUnknownModel?: boolean
+}
+
+/** An explicit wake asked of a session that is running, or already being woken. */
+export const EXPLICIT_WAKE_ON_LIVE =
+  '--model/--effort apply only when the session is woken; this session is already running or being woken and will not respawn with these flags.'
+
 export interface SessionRevivalPorts {
   store: SessionStore
   repository: SessionRepository
+  /** Its writes are the server's, after a commit (`sessions.lifecycle`, POD-6601). */
+  writer: SessionWriter
   state: SessionStateService
   terminalProof: SessionTerminalProof
   launchConfig: SessionLaunchConfig
@@ -74,7 +88,11 @@ export interface SessionRevivalPorts {
   /** The sessions of a conversation, parked ones read from the database (POD-6160). */
   records: Pick<SessionRecordReads, 'withResume'>
   /** Run `fn` with a session resident, restored from its row when parked. */
-  withSession?<T>(sessionId: SessionId, reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
+  withSession?<T>(
+    sessionId: SessionId,
+    reason: string,
+    fn: (session: Session | undefined) => Promise<T>,
+  ): Promise<T>
   machines: MachinesService
   rpc: DaemonRpcService
   /** THE CHEAP FLEET READ [POD-3857]. Revival's only fleet question is the
@@ -138,6 +156,13 @@ export class SessionRevival {
       spawnedBy?: string
       /** The calling principal's `use` decision per machine — see createSession. */
       use?: MachineUseResolver
+      /** The id a FRESH spawn takes: a `session.launch` record's target, minted on
+       *  the device (POD-6416). A resume that lands on an existing row keeps
+       *  that row's id. Absent: the server mints one. */
+      sessionId?: SessionId
+      /** An explicit wake selection for a PARKED row the resume lands on (a chat
+       *  send with --model/--effort, POD-6415). A live row refuses it. */
+      wake?: ExplicitWake
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
@@ -158,8 +183,13 @@ export class SessionRevival {
     }
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
+        const woke = await this.resurrectSession(
+          { sessionId: existing.sessionId, ...input.wake },
+          issues,
+        )
         if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
+      } else if (input.wake !== undefined) {
+        throw new Error(EXPLICIT_WAKE_ON_LIVE)
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
         // timer — the user is back on it even with no new message. (resurrectSession
@@ -182,7 +212,7 @@ export class SessionRevival {
     )
     // Only the authenticated owner may join or own a task; a caller without
     // one starts task-less, whatever owner the session itself falls back to.
-    const task = await this.ports.startTask({
+    const task = await this.ports.startTask(this.ports.writer, {
       cwd: input.cwd,
       agentKind: input.agentKind,
       ownerUserId: input.ownerUserId,
@@ -193,7 +223,7 @@ export class SessionRevival {
     try {
       return await this.mintResumed(input, ownerUserId, machineId, task?.issueId)
     } catch (error) {
-      if (task?.draft) await this.ports.discardDraft(task.issueId)
+      if (task?.draft) await this.ports.discardDraft(this.ports.writer, task.issueId)
       throw error
     }
   }
@@ -205,9 +235,10 @@ export class SessionRevival {
     machineId: MachineId,
     issueId: IssueId | undefined,
   ): Promise<{ sessionId: SessionId }> {
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = asSessionId(randomUUID())
+    // MINT SITE: a server-minted session id, unless a launch record named the
+    // one its device minted. The brand belongs where the id is GENERATED —
+    // nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,
@@ -272,7 +303,11 @@ export class SessionRevival {
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return await this.handoffs(issues).handoff(input, caller, await this.ports.machineUseGate(caller))
+    return await this.handoffs(issues).handoff(
+      input,
+      caller,
+      await this.ports.machineUseGate(caller),
+    )
   }
 
   /**
@@ -296,13 +331,13 @@ export class SessionRevival {
       listRepos: async () => await this.ports.store.repos.listRepos(),
       listMachines: async () => await this.ports.machines.listMachines(),
       waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
-      issueMeta: async (issueId) => await this.ports.issueAccess.getMeta(issueId) ?? undefined,
+      issueMeta: async (issueId) => (await this.ports.issueAccess.getMeta(issueId)) ?? undefined,
       rehomeIssue: async (issueId, where) => {
         await issues.rehome(issueId, where)
       },
       ensureTargetRepo: async (sourceRepo, targetMachineId) =>
         await this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
-      write: (session, mutate) => this.ports.repository.write(session, mutate),
+      write: (session, mutate) => this.ports.repository.write(this.ports.writer, session, mutate),
       mutateSessionView: (sessionId, mutate) => {
         this.ports.repository.mutateSessionView(sessionId, mutate)
       },
@@ -312,7 +347,8 @@ export class SessionRevival {
       onWorktreesChanged: (repoPath, machineId) =>
         this.ports.onWorktreesChanged(repoPath, machineId),
       resumeSession: async (resumeInput) => await this.resumeSession(resumeInput, issues),
-      resurrectSession: async (resurrectInput) => await this.resurrectSession(resurrectInput, issues),
+      resurrectSession: async (resurrectInput) =>
+        await this.resurrectSession(resurrectInput, issues),
       recordEvent: async (event) => {
         await this.ports.store.events.appendEvent(event)
       },
@@ -320,6 +356,60 @@ export class SessionRevival {
     }
     this.handoffCoordinator = new HandoffCoordinator(ports)
     return this.handoffCoordinator
+  }
+
+  /**
+   * An explicit wake's selection, decided NOW without starting anything (POD-6415):
+   * the write that asks for the wake checks it inside its unit of work, so an
+   * invalid choice refuses the send before it queues input or creates a record.
+   * The wake itself (a `session.launch` resume record's run) decides again.
+   */
+  async explicitWakeSelection(
+    sessionId: SessionId,
+    wake: ExplicitWake,
+  ): Promise<
+    { ok: true; selection: { model: string; effort: string } } | { ok: false; reason: string }
+  > {
+    const check = async () => {
+      const session = this.ports.sessions.get(sessionId)
+      if (!session) return { ok: false as const, reason: 'unknown session' }
+      if (
+        this.pendingResurrections.has(sessionId) ||
+        (session.status !== 'hibernated' && session.status !== 'exited')
+      ) {
+        return { ok: false as const, reason: EXPLICIT_WAKE_ON_LIVE }
+      }
+      // An invalid choice throws its `ModelValidationError`, as the wake does.
+      const selection = await this.explicitSelectionFor(session, wake)
+      return { ok: true as const, selection: { model: selection.model, effort: selection.effort } }
+    }
+    if (!this.ports.withSession) return await check()
+    return await this.ports.withSession(sessionId, 'wake-selection', check)
+  }
+
+  /** Wake overrides are explicit launches, but restart never inherits a
+   *  Settings, start, requested or observed model/effort (POD-3911). */
+  private async explicitSelectionFor(
+    session: Session,
+    wake: ExplicitWake,
+  ): Promise<ResolvedLaunchSelection> {
+    const [settings, catalog] = await Promise.all([
+      this.ports.store.settings.getSettingsFor(session.ownerUserId),
+      this.ports.store.settings.getModelCatalog(session.machineId),
+    ])
+    return resolveLaunchSelection({
+      agentKind: session.agentKind,
+      explicit: { model: wake.model, effort: wake.effort },
+      settings: {
+        ...settings,
+        roles: {
+          ...settings.roles,
+          coding: { ...settings.roles.coding, model: 'auto', effort: 'auto' },
+        },
+      },
+      catalog,
+      force: wake.forceUnknownModel,
+    })
   }
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
@@ -338,7 +428,9 @@ export class SessionRevival {
     // A parked session is out of memory: restore it from its row for the wake
     // (POD-6160). Every wake comes through here, the resume path included.
     if (!this.ports.withSession) return await this.resurrectResident(input, issues)
-    return await this.ports.withSession(input.sessionId, 'resurrect', () => this.resurrectResident(input, issues))
+    return await this.ports.withSession(input.sessionId, 'resurrect', () =>
+      this.resurrectResident(input, issues),
+    )
   }
 
   private async resurrectResident(
@@ -363,7 +455,7 @@ export class SessionRevival {
     const explicitWake = model !== undefined || effort !== undefined || forceUnknownModel === true
     const noOverride = {
       ok: false,
-      reason: '--model/--effort apply only when the session is woken; this session is already running or being woken and will not respawn with these flags.',
+      reason: EXPLICIT_WAKE_ON_LIVE,
     }
     const pending = this.pendingResurrections.get(sessionId)
     if (pending) return explicitWake ? noOverride : pending
@@ -412,31 +504,14 @@ export class SessionRevival {
 
     let selection: ResolvedLaunchSelection | undefined
     if (explicitWake) {
-      const [settings, catalog] = await Promise.all([
-        this.ports.store.settings.getSettingsFor(session.ownerUserId),
-        this.ports.store.settings.getModelCatalog(session.machineId),
-      ])
-      // Wake overrides are explicit launches, but restart never inherits a
-      // Settings, start, requested or observed model/effort (POD-3911).
-      selection = resolveLaunchSelection({
-        agentKind: session.agentKind,
-        explicit: { model, effort },
-        settings: {
-          ...settings,
-          roles: {
-            ...settings.roles,
-            coding: { ...settings.roles.coding, model: 'auto', effort: 'auto' },
-          },
-        },
-        catalog,
-        force: forceUnknownModel,
-      })
+      selection = await this.explicitSelectionFor(session, { model, effort, forceUnknownModel })
       // Catalog/settings reads suspend. Another wake may have claimed this
       // session meanwhile; never silently discard a caller's explicit choice.
       if (
         this.pendingResurrections.has(sessionId) ||
         (session.status !== 'hibernated' && session.status !== 'exited')
-      ) return noOverride
+      )
+        return noOverride
     }
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
@@ -451,7 +526,9 @@ export class SessionRevival {
       ? Promise.resolve({ ok: true, cwd: session.cwd })
       : Promise.resolve(this.ports.workspace.ensureSessionWorktree(session, issues))
     const resurrection = ensured
-      .then(async (result) => await this.finishResurrect(session, result, adoptedBinding, selection))
+      .then(
+        async (result) => await this.finishResurrect(session, result, adoptedBinding, selection),
+      )
       .finally(() => {
         this.pendingResurrections.delete(sessionId)
       })
@@ -476,6 +553,19 @@ export class SessionRevival {
     // produced it may have been AWAITED, so hoisting it is what keeps the draft
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
+    // Resolve the owner's account before marking the session starting: a
+    // missing connection or unapproved machine refuses the wake in place.
+    let accountEnv: { env?: Record<string, string> }
+    try {
+      accountEnv = await this.ports.launchConfig.accountEnv(
+        session.agentKind,
+        session.accountId,
+        { ownerUserId: session.ownerUserId, machineId: session.machineId },
+      )
+    } catch (error) {
+      if (error instanceof SpawnAccountRefusal) return { ok: false, reason: error.message }
+      throw error
+    }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
     const { subagentModel, seedCliTheme } =
@@ -489,20 +579,7 @@ export class SessionRevival {
       ...(session.agentProfileId ? { agentProfileId: session.agentProfileId } : {}),
       existingOnly: true,
     })
-    // The account is resolved BEFORE the session is marked starting, so a wake
-    // refused for its account (the owner's connection is gone, or the machine
-    // is someone else's: POD-6300) leaves the session as it was.
-    let accountEnv: { env?: Record<string, string> }
-    try {
-      accountEnv = await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId, {
-        ownerUserId: session.ownerUserId,
-        machineId: session.machineId,
-      })
-    } catch (error) {
-      if (error instanceof SpawnAccountRefusal) return { ok: false, reason: error.message }
-      throw error
-    }
-    await this.ports.repository.write(session, (draft) => {
+    await this.ports.repository.write(this.ports.writer, session, (draft) => {
       draft.cwd = cwd
       draft.status = 'starting'
       draft.exitCode = undefined

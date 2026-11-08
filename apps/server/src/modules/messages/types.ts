@@ -33,12 +33,7 @@ import type {
  *                   the issue's next session (delivered at its next boundary);
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
-export type SendDisposition =
-  | 'delivered'
-  | 'queued'
-  | 'held'
-  | 'spawning'
-  | 'dead_letter'
+export type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter'
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
@@ -74,6 +69,12 @@ export interface MessageSendInput {
   expectsResponse?: boolean
   /** Internal-only arbiter identity for message-backed notifications. */
   notificationFact?: { factKey: string; target: string }
+  /**
+   * Internal only (POD-6525): inside a unit of work, answer an address that can
+   * never be delivered to with its dead letter in the write, as a send outside
+   * one did. The mail commands on the sync write entry point set it.
+   */
+  terminalInUnit?: boolean
 }
 
 export interface MessageSendResult {

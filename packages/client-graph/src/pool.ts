@@ -102,7 +102,7 @@ import {
   type SessionModel,
 } from './models'
 import type { PreferenceRow } from './preference-schema'
-import type { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
+import type { AutomationRunWire, AutomationWire, EffectRecordWire, MachineProjection, MachineWire } from '@podium/model'
 import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { type Lookup, here, omitGone, isGone, NOT_VISIBLE, REMOVED } from './lookup'
@@ -214,6 +214,8 @@ export interface PoolLazyOptions {
 
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
 export interface PoolMutator {
+  /** The person the log writes for (a mark-read lands on their own row). */
+  readonly userId?: string
   mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
   notSaved?(kind: 'issue' | 'session', id: string): boolean
   /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
@@ -253,6 +255,8 @@ export interface PoolRows {
   machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
+  /** Stamped at the row-source boundary: a session target's id (POD-6397). */
+  effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>
@@ -830,7 +834,7 @@ export class MobxPool {
     if (this.transactions === null) {
       throw new WriteContractError(`the pool has no transaction log: cannot edit ${entity} ${id}`)
     }
-    const command = commandFor(entity, id, patch)
+    const command = commandFor(entity, id, patch, this.transactions.userId)
     return this.transactions.mutate(command.kind, command.input)
   }
 

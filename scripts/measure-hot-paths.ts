@@ -86,6 +86,7 @@
  * is a number a rebase can silently move.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
   asMachineId,
@@ -256,7 +257,7 @@ async function buildFixture(): Promise<Fixture> {
   for (let index = 0; index < ISSUE_COUNT; index += 1) {
     issueIds.push(
       (
-        await registry.issues.crud.create({
+        await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
           repoPath: '/repo',
           title: `issue ${index}`,
           startNow: false,
@@ -443,7 +444,10 @@ async function measureFrames(): Promise<Report> {
     for (const id of fixture.issueIds) {
       const row = await fixture.store.issues.getIssue(id)
       if (row === null || row === undefined) throw new Error(`fixture issue ${id} vanished`)
-      await fixture.store.issues.upsertIssue({ ...row, title: `${row.title} (aged out)` })
+      await fixture.store.issues.upsertIssue(fixtureWriteScope(), {
+        ...row,
+        title: `${row.title} (aged out)`,
+      })
     }
     inbox.length = 0
     await fixture.registry.issues.boot()

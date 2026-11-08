@@ -13,10 +13,13 @@ import {
   type IssueId,
   type MachineId,
   machinePathSeparator,
+  SessionDesired,
   type SessionId,
+  SessionLifecycleFailure,
   type SessionUserStateWire,
   type UserId,
 } from '@podium/model'
+import type { WriteScope } from '@podium/sync'
 import {
   and,
   asc,
@@ -65,10 +68,12 @@ import type {
   PinKind,
   PinState,
   SessionDeletionSource,
+  SessionLifecycleRow,
   SessionRow,
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
+import { NO_LIFECYCLE } from './types'
 import { WrittenColumns } from './written-columns'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
@@ -298,6 +303,23 @@ const liveSessions = prepared((db: StoreDrizzle) =>
 )
 
 /**
+ * A machine's sessions whose desired state the lifecycle controller has not
+ * acknowledged (POD-6356). The condition is the partial index's own, spelled as
+ * literal column comparisons so the planner can prove it, and the index is
+ * named (server-data rule 3); the FROM is an INDEXED BY clause, so the columns
+ * are bare identifiers.
+ */
+const lifecyclePendingOnMachine = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: sql<string>`id` })
+    .from(sql`${sessionsTable} INDEXED BY idx_sessions_lifecycle_pending`)
+    .where(
+      sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+    )
+    .prepare(),
+)
+
+/**
  * ONE PAGE OF THE LIVE SESSIONS, in id order after `after` (POD-6160 D2g): the
  * boot's ledger baseline reads every session this way, a page at a time, so no
  * statement returns the whole table and nothing is made resident.
@@ -407,7 +429,15 @@ const INDEXED_GROUPS: readonly (readonly SessionColumnKey[])[] = [
   ['resumeValue'],
   ['issueId'],
   ['cwd', 'machineId'],
-  ['spawnedBy', 'refIssueId', 'refDraft', 'deletedAt', 'deletedByIssueId'],
+  [
+    'spawnedBy',
+    'refIssueId',
+    'refDraft',
+    'deletedAt',
+    'deletedByIssueId',
+    'revision',
+    'observedRevision',
+  ],
 ]
 const INDEXED_COLUMNS = INDEXED_GROUPS.flat()
 const GROUP_BIT = new Map(
@@ -509,6 +539,13 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     stoppedAt: value('stoppedAt'),
     stopReason: value('stopReason'),
     oomKilledAt: value('oomKilledAt'),
+    desired: value('desired'),
+    desiredForce: value('desiredForce'),
+    revision: value('revision'),
+    observedRevision: value('observedRevision'),
+    lifecycleFailure: value('lifecycleFailure'),
+    desiredByUser: value('desiredByUser'),
+    desiredByAgent: value('desiredByAgent'),
     deletedAt: value('deletedAt'),
     deletionSource: value('deletionSource'),
     deletedByIssueId: value('deletedByIssueId'),
@@ -674,6 +711,13 @@ function sessionUpsertValues(row: SessionRow) {
      */
     stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
     oomKilledAt: row.oomKilledAt ?? null,
+    desired: (row.lifecycle ?? NO_LIFECYCLE).desired,
+    desiredForce: (row.lifecycle ?? NO_LIFECYCLE).force,
+    revision: (row.lifecycle ?? NO_LIFECYCLE).revision,
+    observedRevision: (row.lifecycle ?? NO_LIFECYCLE).observedRevision,
+    lifecycleFailure: encodeLifecycleFailure((row.lifecycle ?? NO_LIFECYCLE).failure),
+    desiredByUser: (row.lifecycle ?? NO_LIFECYCLE).byUser,
+    desiredByAgent: (row.lifecycle ?? NO_LIFECYCLE).byAgent,
     deletedAt: row.deletedAt ?? null,
     deletionSource: row.deletionSource ?? null,
     deletedByIssueId: row.deletedByIssueId ?? null,
@@ -1535,6 +1579,16 @@ export class SessionsRepository {
   }
 
   /** A machine's live sessions, unordered (POD-6160). */
+  /**
+   * A machine's sessions whose desired state is not yet acknowledged
+   * (POD-6356): what its daemon's reconnect reconciles. Ids only; the
+   * controller reads each row as it reconciles it.
+   */
+  async lifecyclePending(machineId: MachineId): Promise<SessionId[]> {
+    const rows = await lifecyclePendingOnMachine(this.db).all({ machineId })
+    return rows.map((row) => row.id as SessionId)
+  }
+
   async sessionsOnMachine(machineId: MachineId): Promise<SessionRow[]> {
     return (await liveSessionsOnMachine(this.db).all({ machineId })).map(mapSession)
   }
@@ -1548,7 +1602,7 @@ export class SessionsRepository {
     return (await deletedSessionsForIssue(this.db).all({ issueId })).map(mapSession)
   }
 
-  async upsertSession(row: SessionRow): Promise<void> {
+  async upsertSession(_scope: WriteScope, row: SessionRow): Promise<void> {
     const values = sessionUpsertValues(row)
     const groups = changedGroups(this.writtenColumns.get(values.id), values)
     try {
@@ -1571,7 +1625,7 @@ export class SessionsRepository {
    * session on one tick. Every row is checked before the first is written.
    * Rows are written in the order given; pass each session once.
    */
-  async upsertSessions(rows: readonly SessionRow[]): Promise<void> {
+  async upsertSessions(_scope: WriteScope, rows: readonly SessionRow[]): Promise<void> {
     if (rows.length === 0) return
     const byShape = new Map<string, ReturnType<typeof sessionUpsertValues>[]>()
     for (const row of rows) {
@@ -1616,6 +1670,7 @@ export class SessionsRepository {
    *  kept `status='live'` with no stop reason for as long as it existed. Only a
    *  RUNNING row changes; a hibernated or exited one already says how it stopped. */
   async softDeleteSessions(
+    _scope: WriteScope,
     ids: string[],
     deletedAt: string,
     source: SessionDeletionSource,
@@ -1631,12 +1686,17 @@ export class SessionsRepository {
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
-  async softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): Promise<void> {
-    await this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
+  async softDeleteForIssue(
+    _scope: WriteScope,
+    ids: string[],
+    issueId: IssueId,
+    deletedAt: string,
+  ): Promise<void> {
+    await this.softDeleteSessions(_scope, ids, deletedAt, 'issue', issueId)
   }
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
-  async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
+  async restoreDeletedForIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => restoreSessionsOfIssue(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1666,7 +1726,7 @@ export class SessionsRepository {
    * `refIssueId` is set — leaving the session permanently unable to earn the draft
    * ref it should now get.
    */
-  async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
+  async detachTombstonesFromIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => detachTombstones(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1678,6 +1738,11 @@ export class SessionsRepository {
    * of every reader in the process, so no in-memory `Session` exists yet to
    * desync. Returns the number of rows healed.
    */
+  /**
+   * The boot heal (`store.ts`): runs as the store opens, before the Ledger is
+   * composed, so it has no write scope to take; the boot reconcile that follows
+   * reports what it changed (POD-6601).
+   */
   async detachDanglingIssueReferences(): Promise<number> {
     const result = await this.writtenColumns.aside('all', () =>
       detachDanglingReferences(this.db).run(),
@@ -1687,7 +1752,7 @@ export class SessionsRepository {
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  async purgeSession(id: SessionId): Promise<void> {
+  async purgeSession(_scope: WriteScope, id: SessionId): Promise<void> {
     await deleteCheckpointsOfSession(this.db).run({ id })
     this.purgeObservationCheckpoint(id)
     await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
@@ -1861,7 +1926,12 @@ export class SessionsRepository {
     return row?.readAt ?? null
   }
 
-  async markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): Promise<void> {
+  async markSessionRead(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    readAt: string,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
@@ -1871,7 +1941,7 @@ export class SessionsRepository {
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
    *  would be two spellings of "never opened", and a table with two spellings of
    *  one fact acquires a second meaning nobody documented. */
-  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionUnread(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     requireUserId(userId)
     await deleteReadAt(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
@@ -1885,7 +1955,7 @@ export class SessionsRepository {
    * is true for everybody. It is not a widening — it removes rows, so no reader
    * ever sees another reader's state.
    */
-  async clearAllReadAt(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllReadAt(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllReadAtOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1917,7 +1987,12 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  async setSnooze(userId: UserId, sessionId: SessionId, until: string | null): Promise<void> {
+  async setSnooze(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    until: string | null,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -1930,7 +2005,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+  async clearSnooze(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     await deleteUserSnooze(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
 
@@ -1941,7 +2016,7 @@ export class SessionsRepository {
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
-  async clearAllSnoozes(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllSnoozes(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllSnoozesOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1975,7 +2050,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  async setOffer(sessionId: SessionId, offer: OfferRecord): Promise<void> {
+  async setOffer(_scope: WriteScope, sessionId: SessionId, offer: OfferRecord): Promise<void> {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     const values = {
@@ -1998,7 +2073,7 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  async clearOffer(sessionId: SessionId): Promise<void> {
+  async clearOffer(_scope: WriteScope, sessionId: SessionId): Promise<void> {
     await deleteOfferOf(this.db).run({ id: asSessionId(sessionId.trim()) })
   }
 
@@ -2214,6 +2289,51 @@ function* chunked<T>(values: readonly T[]): Generator<T[]> {
 }
 
 /**
+ * The lifecycle columns as stored (POD-6356). An unknown `desired` value (a
+ * newer build's) reads as no intent rather than as one this build would act on.
+ */
+function lifecycleOfRow(r: SessionSelect): SessionLifecycleRow | undefined {
+  const desired = SessionDesired.safeParse(r.desired)
+  const lifecycle: SessionLifecycleRow = {
+    desired: desired.success ? desired.data : null,
+    force: r.desiredForce === true,
+    revision: r.revision,
+    observedRevision: r.observedRevision,
+    failure: decodeLifecycleFailure(r.lifecycleFailure),
+    byUser: r.desiredByUser ?? null,
+    byAgent: r.desiredByAgent ?? null,
+  }
+  // ABSENT when nothing was ever recorded, so a row from before the columns
+  // (and every session nobody has edited) decodes exactly as it did.
+  const recorded =
+    lifecycle.desired !== null ||
+    lifecycle.force ||
+    lifecycle.revision !== NO_LIFECYCLE.revision ||
+    lifecycle.observedRevision !== NO_LIFECYCLE.observedRevision ||
+    lifecycle.failure !== null ||
+    lifecycle.byUser !== null
+  return recorded ? lifecycle : undefined
+}
+
+const optionalLifecycle = (lifecycle: SessionLifecycleRow | undefined) =>
+  lifecycle === undefined ? {} : { lifecycle }
+
+/** The failure column is plain text: a corrupt blob reads as no failure. */
+function encodeLifecycleFailure(failure: SessionLifecycleRow['failure']): string | null {
+  return failure === null ? null : JSON.stringify(failure)
+}
+
+function decodeLifecycleFailure(raw: string | null): SessionLifecycleRow['failure'] {
+  if (raw == null) return null
+  try {
+    const parsed = SessionLifecycleFailure.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * SERIALIZATION EDGE — the one place a `sessions` row becomes a `SessionRow`.
  *
  * WHAT IS LEFT HERE IS DECISIONS. The brand casts and the `?? null` decodes are
@@ -2317,6 +2437,7 @@ function mapSession(r: SessionSelect): SessionRow {
         ? r.stopReason
         : null,
     oomKilledAt: r.oomKilledAt ?? null,
+    ...optionalLifecycle(lifecycleOfRow(r)),
     workflowRunId: r.workflowRunId ?? null,
     workflowStepId: r.workflowStepId ?? null,
     agentProfileId: r.agentProfileId ?? null,

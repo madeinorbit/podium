@@ -21,24 +21,58 @@
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
 import { senderFromPrincipal } from '../service'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 export async function askHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailAskContract>,
 ): Promise<unknown> {
+  return await askAnswer(ctx, input, await askSend(ctx, input))
+}
+
+/** What the question's write records: the question, as it was stored. */
+export interface AskSent {
+  readonly questionId: string
+  readonly clamped?: true
+}
+
+/**
+ * THE WRITE HALF (POD-6525): the gate, and the question stored as a message.
+ * On the sync write entry point this is the command's handler, in its unit of
+ * work; its delivery follows the commit.
+ */
+export async function askSend(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof mailAskContract>,
+): Promise<AskSent> {
   const { caller, deps, access } = ctx
   await access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages
-  const r = await svc.send(senderFromPrincipal(caller.principal), {
+  const r = await svc.send(mailWriter(ctx, 'mail.ask'), senderFromPrincipal(caller.principal), {
     to: { kind: 'session', id: input.sessionId },
     body: input.question,
     kind: 'question',
     urgency: 'next-turn',
     lifecycle: 'wake',
+    ...(ctx.inEntry ? { terminalInUnit: true } : {}),
   })
+  return { questionId: r.message.id, ...(r.message.clampedFrom ? { clamped: true as const } : {}) }
+}
+
+/**
+ * THE WAIT (POD-6525): the bounded wait for the answer, and the target's
+ * status. Never part of a write: an adapter runs it after the question's write
+ * committed, and a replay of that write waits again on the same question.
+ */
+export async function askAnswer(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof mailAskContract>,
+  sent: AskSent,
+): Promise<unknown> {
+  const { deps } = ctx
+  const svc = deps.messages
   const sleep = deps.sleep ?? undefined
-  const ack = await svc.awaitAck(r.message.id, {
+  const ack = await svc.awaitAck(sent.questionId, {
     timeoutMs: (input.timeoutSeconds ?? 30) * 1000,
     ...(deps.awaitPollMs !== undefined ? { pollMs: deps.awaitPollMs } : {}),
     ...(sleep ? { sleep } : {}),
@@ -55,7 +89,7 @@ export async function askHandler(
   if (ack) {
     return {
       answered: true,
-      questionId: r.message.id,
+      questionId: sent.questionId,
       answer: ack.body,
       ackId: ack.id,
       snapshot,
@@ -63,9 +97,9 @@ export async function askHandler(
   }
   return {
     answered: false,
-    questionId: r.message.id,
+    questionId: sent.questionId,
     reason: 'no answer yet — the question is delivered/queued; check back or await the ack',
-    ...(r.message.clampedFrom ? { clamped: true } : {}),
+    ...(sent.clamped ? { clamped: true } : {}),
     snapshot,
   }
 }

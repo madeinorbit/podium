@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
@@ -111,7 +112,7 @@ const freshStore = async (): Promise<SessionStore> => {
 describe('issue scope read cache', () => {
   it('serves a repeat read of the same id within a scope, then re-reads in the next scope', async () => {
     const store = await freshStore()
-    await store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a'))
     const reads = readProbe(store)
 
     const afterFirst = await withReadScope(async () => {
@@ -132,7 +133,7 @@ describe('issue scope read cache', () => {
 
   it('hands every caller its own object, so one mutation cannot reach another', async () => {
     const store = await freshStore()
-    await store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a'))
     await withReadScope(async () => {
       const first = await store.issues.getIssue('iss_a')
       expect(first).not.toBeNull()
@@ -143,10 +144,10 @@ describe('issue scope read cache', () => {
 
   it('a write inside the scope is visible to the read that follows it', async () => {
     const store = await freshStore()
-    await store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a'))
     await withReadScope(async () => {
       expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
-      await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+      await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a', { stage: 'in_progress' }))
       expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
       // And a delete is not served from the cache either.
       await store.issues.deleteIssue(asIssueId('iss_a'))
@@ -169,13 +170,13 @@ describe('issue scope read cache', () => {
    */
   it('does not serve a row a rolled-back transaction put in the cache', async () => {
     const store = await freshStore()
-    await store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a'))
     await withReadScope(async () => {
       expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
 
       await expect(
         store.transact(async () => {
-          await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+          await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a', { stage: 'in_progress' }))
           // The read that would fill the cache from inside the transaction.
           expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
           throw new Error('rolled back')
@@ -189,8 +190,8 @@ describe('issue scope read cache', () => {
 
   it('getIssues serves the scope and still asks for the ids it has not seen', async () => {
     const store = await freshStore()
-    await store.issues.upsertIssue(issue('iss_a'))
-    await store.issues.upsertIssue(issue('iss_b', { seq: 2, title: 'Second' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_b', { seq: 2, title: 'Second' }))
     const reads = readProbe(store)
 
     await withReadScope(async () => {

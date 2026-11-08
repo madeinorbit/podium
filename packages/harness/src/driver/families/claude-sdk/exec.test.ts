@@ -5,7 +5,10 @@
 
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { buildClaudeDurableTurn } from './exec.js'
+
+const claudeAt = (executable: string) => testHarnessContext({ kind: 'claude-code', executable })
 
 describe('buildClaudeDurableTurn', () => {
   it('uses Claude native auto mode and keeps machine context out of stdin', () => {
@@ -18,14 +21,14 @@ describe('buildClaudeDurableTurn', () => {
         sessionUuid: randomUUID(),
       },
       { mcp: '/tmp/mcp.json' },
-      '/opt/claude',
+      claudeAt('/opt/claude'),
     )
-    expect(turn.cmd).toBe('/opt/claude')
+    expect(turn.command.cmd).toBe('/opt/claude')
     expect(turn.stdin).toBe('human text')
-    expect(turn.args).toContain('--permission-mode')
-    expect(turn.args[turn.args.indexOf('--permission-mode') + 1]).toBe('auto')
-    expect(turn.args).not.toContain('--dangerously-skip-permissions')
-    expect(turn.args[turn.args.indexOf('--append-system-prompt') + 1]).toBe(
+    expect(turn.command.args).toContain('--permission-mode')
+    expect(turn.command.args[turn.command.args.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect(turn.command.args).not.toContain('--dangerously-skip-permissions')
+    expect(turn.command.args[turn.command.args.indexOf('--append-system-prompt') + 1]).toBe(
       'orchestrator\n\nmachine context',
     )
   })
@@ -38,14 +41,17 @@ describe('buildClaudeDurableTurn', () => {
         resumeValue: 'claude-thread-1',
       },
       { mcp: '/tmp/mcp.json' },
-      '/opt/claude',
+      claudeAt('/opt/claude'),
     )
 
     expect(turn.stdin).toBe('Why?')
     expect(
-      turn.args.slice(turn.args.indexOf('--resume'), turn.args.indexOf('--resume') + 2),
+      turn.command.args.slice(
+        turn.command.args.indexOf('--resume'),
+        turn.command.args.indexOf('--resume') + 2,
+      ),
     ).toEqual(['--resume', 'claude-thread-1'])
-    expect(turn.args[turn.args.indexOf('--append-system-prompt') + 1]).toBe(
+    expect(turn.command.args[turn.command.args.indexOf('--append-system-prompt') + 1]).toBe(
       'NORMAL: HARD LIMIT 80 words total',
     )
     expect(turn.knownSessionId).toBe('claude-thread-1')
@@ -59,11 +65,14 @@ describe('buildClaudeDurableTurn', () => {
         mcpConfig: '{"mcpServers":{"podium":{"url":"http://podium.invalid"}}}',
       },
       { mcp: '/tmp/mcp.json' },
-      '/opt/claude',
+      claudeAt('/opt/claude'),
     )
     expect(
-      turn.args.slice(turn.args.indexOf('--tools'), turn.args.indexOf('--tools') + 2),
+      turn.command.args.slice(
+        turn.command.args.indexOf('--tools'),
+        turn.command.args.indexOf('--tools') + 2,
+      ),
     ).toEqual(['--tools', ''])
-    expect(turn.args).not.toContain('--mcp-config')
+    expect(turn.command.args).not.toContain('--mcp-config')
   })
 })

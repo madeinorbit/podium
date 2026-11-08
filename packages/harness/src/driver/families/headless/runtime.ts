@@ -199,9 +199,11 @@ export interface HeadlessDriverHost {
     accountId: AccountId,
     inventory: Pick<Inventory, 'agents'>,
   ): void
-  /** The instance-owned child environment for one turn (HOME + relay routing +
-   *  tool-less account HOME). Mirrors the `spawnEnv` composition the legacy
-   *  path builds per request, over the same snapshot the dispatch runs under. */
+  /** What the instance decides for one turn's child (relay routing, a
+   *  tool-less turn's pinned config folder). Never the command env or HOME:
+   *  `turnChildEnv` composes those from the turn's account context
+   *  (`harnessChildEnv`, POD-6535), so nothing here can make an inherited
+   *  credential look chosen. */
   sessionEnv(input: {
     sessionId: SessionId
     agent: HarnessAgent

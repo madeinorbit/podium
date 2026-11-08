@@ -31,12 +31,16 @@ export {
   accountsConnectInput,
   accountsDisconnectContract,
   accountsDisconnectInput,
+  accountsKeysContract,
+  accountsKeysInput,
   accountsLoginContract,
   accountsLoginInput,
   accountsSendContract,
   accountsSendInput,
   accountsUseOnMyMachinesContract,
   accountsUseOnMyMachinesInput,
+  accountsShareContract,
+  accountsShareInput,
 } from './accounts/contracts'
 export {
   AGENT_PROFILE_CONTRACT_NAMES,
@@ -143,6 +147,17 @@ export {
   conversationsSetMetaContract,
   conversationsSetMetaInput,
 } from './conversations/contracts'
+export {
+  EFFECT_CONFLICT_RULE,
+  EFFECT_CONTRACTS,
+  EFFECT_MAX_DEADLINE_MS,
+  EffectsCancelInput,
+  EffectsCreateInput,
+  EffectsDismissInput,
+  effectsCancelContract,
+  effectsCreateContract,
+  effectsDismissContract,
+} from './effects/contracts'
 export {
   FILE_CONTRACT_NAMES,
   FILE_CONTRACTS,
@@ -263,6 +278,7 @@ export {
   ISSUE_ATTRIBUTION,
   ISSUE_REDACTION,
   ISSUE_VISIBILITY,
+  MACHINE_WORK_DELIVERY,
   MANAGE_POLICY,
   PER_USER_DELIVERY,
   PER_USER_POLICY,
@@ -283,6 +299,19 @@ export {
   type IssueContractName,
   type IssueUpdatePatch,
 } from './issues/contracts'
+export {
+  ARTIFACT_EFFECT_OPS,
+  clientSendsThroughSubmit,
+  isSyncedIssueCommand,
+  MAIL_ISSUE_COMMANDS,
+  QUEUED_ISSUE_COMMANDS,
+  runsAsArtifactEffect,
+  SESSION_ISSUE_COMMANDS,
+  STRUCTURE_ISSUE_COMMANDS,
+  SYNCED_ISSUE_COMMANDS,
+  type SyncedIssueCommand,
+  writesThroughEntry,
+} from './issues/synced'
 export {
   LAYOUT_CONTRACT_NAMES,
   LAYOUT_CONTRACTS,
@@ -411,6 +440,60 @@ export {
   readPositionAdvanceContract,
   readPositionAdvanceInput,
 } from './read-position/contracts'
+export {
+  RECORD_CONTRACTS,
+  recordContracts,
+  recordContractTable,
+  recordCreateInput,
+  recordEditInput,
+  recordRemoveInput,
+} from './records/contracts'
+export {
+  createFields,
+  declarationProblems,
+  defineSyncedKind,
+  editNeedsRevision,
+  fieldConflict,
+  key as recordKeyField,
+  label as recordLabelField,
+  RECORD_CONFLICTS,
+  RECORD_OPS,
+  type RecordConflict,
+  type RecordField,
+  type RecordFieldRole,
+  type RecordOp,
+  type RecordOpPolicy,
+  recordCommandName,
+  type SyncedKindDeclaration,
+  spec as recordSpecField,
+  specFields,
+  status as recordStatusField,
+  unsettableFields,
+} from './records/declare'
+export {
+  type FreshContext,
+  type FreshRecord,
+  freshCreateFields,
+  freshProblems,
+  freshRow,
+  pendingCells,
+  wireCells,
+} from './records/fresh'
+export {
+  ISSUE_FIELD_DEFAULTS,
+  ISSUE_FRESH_CELLS,
+  issueSeqPending,
+  PENDING_ISSUE_SEQ,
+} from './records/issue-fresh'
+export {
+  ISSUE_RECORD,
+  ISSUE_USER_STATE_RECORD,
+  NOT_YET_GENERIC,
+  SESSION_RECORD,
+  SESSION_USER_STATE_RECORD,
+  SYNCED_KINDS,
+  USER_LAYOUT_RECORD,
+} from './records/kinds'
 export {
   applyRedaction,
   applyRedactionWithReport,

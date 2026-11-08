@@ -5,7 +5,10 @@ import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
-import { harnessCompatEnv, sessionHandlers, sessionSize, wireBridge } from './session'
+import { harnessChildEnv } from '@podium/harness'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import { sessionHandlers, sessionSize, wireBridge } from './session'
+import { shellChildEnv } from './session-env'
 import { testSessions } from '../session/testing.js'
 
 /**
@@ -167,12 +170,19 @@ describe('harness terminal compatibility env', () => {
   // Not a Draft Sync feature (POD-859 only needed it first): xterm.js does not
   // implement the kitty keyboard protocol codex pushes, so which keyboard path a
   // codex session runs on must not depend on an experiment flag (POD-628).
+  // Declared by the codex adapter (`environment.set`, POD-6535) and applied by
+  // the one child-env recipe, so the terminal and the attach client both get it.
+  const compat = (kind: 'codex' | 'claude-code') =>
+    harnessChildEnv(testHarnessContext({ kind }), {}).env.CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT
+
   it('disables codex keyboard enhancement for every codex session', () => {
-    expect(harnessCompatEnv('codex')).toEqual({ CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' })
+    expect(compat('codex')).toBe('1')
   })
 
   it('leaves other harnesses untouched', () => {
-    expect(harnessCompatEnv('claude-code')).toEqual({})
-    expect(harnessCompatEnv('shell')).toEqual({})
+    expect(compat('claude-code')).toBeUndefined()
+    expect(
+      shellChildEnv({ podiumEnv: {} }, {}).CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT,
+    ).toBeUndefined()
   })
 })

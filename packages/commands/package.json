@@ -32,10 +32,25 @@
       "types": "./src/mail/mail-command.ts",
       "import": "./src/mail/mail-command.ts"
     },
+    "./issues-synced": {
+      "@podium/source": "./src/issues/synced.ts",
+      "types": "./src/issues/synced.ts",
+      "import": "./src/issues/synced.ts"
+    },
+    "./fleet-synced": {
+      "@podium/source": "./src/fleet/synced.ts",
+      "types": "./src/fleet/synced.ts",
+      "import": "./src/fleet/synced.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",
       "import": "./src/settings/write-plan.ts"
+    },
+    "./records": {
+      "@podium/source": "./src/records/index.ts",
+      "types": "./src/records/index.ts",
+      "import": "./src/records/index.ts"
     }
   },
   "scripts": {

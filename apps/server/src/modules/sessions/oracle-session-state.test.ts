@@ -10,11 +10,19 @@ import { attachTestClient } from '../../test-support/client-transport'
  * for the must-not-change / will-change contract.
  */
 
-import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { randomUUID } from 'node:crypto'
+import { asMutationId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
+import {
+  disposeOracles,
+  MUST_NOT_CHANGE,
+  makeOracle,
+  type Oracle,
+  provisional,
+  waitFor,
+} from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -79,6 +87,17 @@ const lastSession = (client: ServerMessage[], sessionId: string) =>
     .filter((change) => change.op === 'upsert')
     .at(-1)?.value as { name?: string; readAt?: string; draftUpdatedAt?: string } | undefined
 
+/** `sessions.setIssueId` is on `sync.submit` only (POD-6416). */
+async function setIssueId(o: Oracle, sessionId: SessionId, issueId: string | null): Promise<void> {
+  const reply = await o.call.sync.submit({
+    mutationId: asMutationId(`m-issue-${randomUUID()}`),
+    command: 'sessions.setIssueId',
+    version: 1,
+    input: { sessionId, issueId },
+  })
+  if (reply.outcome !== 'applied') throw new Error(`setIssueId refused: ${JSON.stringify(reply)}`)
+}
+
 describe('oracle: rename (the curated name slot)', () => {
   it(`${MUST_NOT_CHANGE}: rename trims, persists the name, and stamps nameSource 'user'`, async () => {
     const o = await makeOracle()
@@ -106,7 +125,12 @@ describe('oracle: rename (the curated name slot)', () => {
     expect((await o.meta(sessionId)).name).toBeUndefined()
     expect((await o.meta(sessionId)).nameSource).toBeUndefined()
     // The precedence rule that depends on it: with the stamp gone, the agent wins.
-    expect(await o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })).toEqual({
+    expect(
+      await o.reg.modules.sessions.setAgentName(o.reg.modules.sessions.serverWriter, {
+        sessionId,
+        name: 'agent pick',
+      }),
+    ).toEqual({
       ok: true,
       name: 'agent pick',
     })
@@ -118,7 +142,10 @@ describe('oracle: rename (the curated name slot)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'Human pick' })
 
-    const refused = await o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })
+    const refused = await o.reg.modules.sessions.setAgentName(o.reg.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'agent pick',
+    })
 
     expect(refused.ok).toBe(false)
     expect(refused.name).toBe('Human pick')
@@ -129,10 +156,18 @@ describe('oracle: rename (the curated name slot)', () => {
   it(`${MUST_NOT_CHANGE}: an agent may overwrite its OWN earlier agent-set name`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.modules.sessions.setAgentName({ sessionId, name: 'first guess' })
+    await o.reg.modules.sessions.setAgentName(o.reg.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'first guess',
+    })
 
     expect(
-      (await o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' })).ok,
+      (
+        await o.reg.modules.sessions.setAgentName(o.reg.modules.sessions.serverWriter, {
+          sessionId,
+          name: 'second guess',
+        })
+      ).ok,
     ).toBe(true)
     expect(await o.meta(sessionId)).toMatchObject({ name: 'second guess', nameSource: 'agent' })
   })
@@ -222,7 +257,9 @@ describe('oracle: read state', () => {
     const seen = (await o.meta(sessionId)).lastActiveAt
     now += 2 * 24 * 60 * 60 * 1000
     await o.call.sessions.markRead({ sessionId, readAt: seen })
-    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(new Date(now).toISOString())
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(
+      new Date(now).toISOString(),
+    )
   })
   it('stores only observed session activity for delayed receipts and keeps cursors independent', async () => {
     const o = await makeOracle()
@@ -356,7 +393,11 @@ describe('oracle: setIssueId', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/p',
+      title: 'target',
+      startNow: false,
+    })
     // Outside every reported repo: no prefix, so no draft ordinal at birth.
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/scratch' })
     const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
@@ -364,13 +405,13 @@ describe('oracle: setIssueId', () => {
     expect(born?.refLetter ?? null).toBeNull()
     expect(born?.refDraft ?? null).toBeNull()
 
-    await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
+    await setIssueId(o, sessionId, issue.id)
     expect((await o.meta(sessionId)).issueId).toBe(issue.id)
     const attached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(attached?.refIssueId).toBe(issue.id)
     expect(typeof attached?.refLetter).toBe('string')
 
-    await o.call.sessions.setIssueId({ sessionId, issueId: null })
+    await setIssueId(o, sessionId, null)
     expect((await o.meta(sessionId)).issueId).toBeUndefined()
     // The ref allocation is NOT rewound — a detach must not mint a DRAFT ordinal.
     const detached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
@@ -382,12 +423,16 @@ describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: a session born in a reported repo is named at birth with a draft ordinal, and attaching an issue does not rename it`, async () => {
     const o = await makeOracle()
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/p',
+      title: 'target',
+      startNow: false,
+    })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(typeof born?.refDraft).toBe('number')
 
-    await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
+    await setIssueId(o, sessionId, issue.id)
 
     expect((await o.meta(sessionId)).issueId).toBe(issue.id)
     const attached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)

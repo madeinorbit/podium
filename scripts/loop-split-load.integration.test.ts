@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
@@ -81,7 +82,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
   it('holds publication interaction and event-loop targets at 588 sessions / 800 issues', async () => {
     const store = await openTestStore(':memory:')
     await store.transact(async () => {
-      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(issueRow(seq))
+      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(fixtureWriteScope(), issueRow(seq))
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionIds: SessionId[] = []

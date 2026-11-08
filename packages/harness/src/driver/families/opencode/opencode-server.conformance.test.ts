@@ -41,6 +41,7 @@ import { attachmentKindFor } from '../../turns.js'
 // because the barrel is the corpus's surface to curate, and this file has no
 // business widening it.
 import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
@@ -161,6 +162,7 @@ function makeWorld(options: WorldOptions = {}): {
   })
 
   const host: OpencodeRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     promptRecordTimeoutMs: 100,
     reportObservedConfiguration: (input) => observed.push(input),
     stageAttachment:
@@ -584,6 +586,7 @@ function makeWorld(options: WorldOptions = {}): {
       },
       spec: () => ({
         harness: 'opencode',
+        harnessContext: testHarnessContext({ kind: 'opencode' }),
         selection: { auth: 'api-key', platform: 'linux', available: ['opencode-server'] },
         workdir: '/tmp/conformance-opencode',
         model: {},

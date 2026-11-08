@@ -9,7 +9,6 @@ import {
   type MissionDeparture,
   type machineViewsFromWire,
   continuationPresenceLine as sharedContinuationPresenceLine,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -59,7 +58,6 @@ import {
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
@@ -72,13 +70,7 @@ import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { useMissionEndings } from './mission-endings'
 import { useOperatorFocus } from './operator-focus'
-import {
-  CLOSE_RIGHT_PANEL,
-  OPEN_RIGHT_PANEL_EVENT,
-  REVEAL_IN_DECK_EVENT,
-  RIGHT_PANEL_KEY,
-  readRightPanel,
-} from './shell-state'
+import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
 import { useRuntimeSelector } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
@@ -710,7 +702,7 @@ export function ReviewSignpost({
  *
  * A LOAD, NOT A STATE — and therefore WORDLESS. The session already carries an
  * `issueId`: the composer's spawn paints the draft vessel and the session
- * together (`optimisticDraftIssue` / `optimisticStartingSession`), so a root
+ * together (`draftIssueRow` / `startingSessionRow`), so a root
  * exists and this column is only waiting for the selection to catch up. What
  * follows is a real tree a beat later, so anything written here is a sentence
  * the operator watches get taken away.
@@ -1097,6 +1089,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setSelectedIssueId,
     openSessionTab,
     focusIssueSession,
+    startIssueSession,
     preferPanelMode,
     setView,
     markIssueRead,
@@ -1104,7 +1097,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setIssueTucked,
     closeIssue,
     updateIssue,
-    trpc,
   } = useRuntimeSelector(
     (store) => ({
       paneA: store.paneA,
@@ -1122,6 +1114,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
       focusIssueSession: store.focusIssueSession,
+      startIssueSession: store.startIssueSession,
       preferPanelMode: store.preferPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
@@ -1131,26 +1124,11 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       // it can be tucked (POD-1212) — the fold is for finished work.
       closeIssue: store.closeIssue,
       updateIssue: store.updateIssue,
-      trpc: store.trpc,
     }),
     shallowEqual,
   )
   const { setFocusedIssueId } = useOperatorFocus()
-  // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
-  // panel's own pointer — not this column's focus — because a chip or a linked
-  // row may have pointed it somewhere else since, and a row that claims to
-  // already be open there has to mean the task on screen.
-  //
-  // THROUGH REFS, read when the click resolves rather than when the row rendered.
-  // A strip's memo deliberately ignores its handler props, so a strip goes on
-  // holding the closure from the render BEFORE the panel followed the focus —
-  // which is exactly the render whose answer is stale.
-  const { issueId: dockIssueId, show: showInDock } = useDockIssue()
-  const rightPanel = usePersistedUiValue(RIGHT_PANEL_KEY, readRightPanel)
-  const dockIssueRef = useRef(dockIssueId)
-  dockIssueRef.current = dockIssueId
-  const dockPanelRef = useRef(rightPanel)
-  dockPanelRef.current = rightPanel
+  const { show: showInDock } = useDockIssue()
   const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
   const [revealSessionId, setRevealSessionId] = useState<string | null>(null)
@@ -1281,16 +1259,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   }, [revealSessionId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
-    // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
-    // is the one the dock is already showing is the operator asking for the
-    // stage back — the first click was the request to see this task, so the
-    // second can only be about the panel.
-    //
-    // The PREVIEW click only. A promotion (double click, or the strip menu's
-    // Open) is an unambiguous "show me this task" and must never end with the
-    // inspector shut.
-    const dockShowsThisIssue =
-      dockPanelRef.current === 'issue' && dockIssueRef.current === row.issue.id
     setFocusedIssueId(row.issue.id)
     // Pointed explicitly too: when the focus does not move — the row is already
     // focused but a chip took the panel elsewhere — this is what brings it back.
@@ -1300,7 +1268,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     // operator previously dismissed it.
     window.dispatchEvent(
       new CustomEvent(OPEN_RIGHT_PANEL_EVENT, {
-        detail: !permanent && dockShowsThisIssue ? CLOSE_RIGHT_PANEL : 'issue',
+        detail: 'issue',
       }),
     )
     void markIssueRead(row.issue.id)
@@ -1378,12 +1346,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
 
   const rootFinished = screen.rootFinished
   const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
-    const input = agentKind ? { id: rootId, agentKind } : { id: rootId }
     const existingSessionIds = source
       .attached(rootId)
       .filter((session) => !(session as SessionModel).archived)
       .map((session) => session.sessionId)
-    await spawnIssueAgent(trpc.issues, input)
+    // One more agent, or the first when the mission was never started: an
+    // effect record, painted on the issue on the press (POD-6526).
+    const started = startIssueSession({
+      issueId: asIssueId(rootId),
+      ...(agentKind ? { agentKind } : {}),
+    })
+    if (!(await started.settled)) return
     await focusIssueSession(asIssueId(rootId), { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (

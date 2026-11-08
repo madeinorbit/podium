@@ -1,4 +1,4 @@
-// Screenshot the Settings → Accounts harness (POD-6300). Start it first with
+// Screenshot the Settings → Accounts & Keys harness (POD-6390). Start it first with
 // `bunx vite --config vite.accounts-settings-harness.config.ts` from apps/web.
 // Usage: bun harness/accounts-settings-shots.ts <outDir>
 import { readdirSync } from 'node:fs'
@@ -26,25 +26,54 @@ const tickD11: Act = async (page) => {
     .click()
   await page.getByText(/Not copied to bob-desk/).waitFor()
 }
-const shots: { name: string; query: string; act?: Act }[] = [
-  { name: 'unsent-dark', query: '' },
-  { name: 'warning-dark', query: '', act: openSend },
-  { name: 'warning-light', query: 'theme=light', act: openSend },
+const custodyShots: { name: string; query: string; act?: Act }[] = [
+  { name: 'unsent-dark', query: 'scene=custody' },
+  { name: 'warning-dark', query: 'scene=custody', act: openSend },
+  { name: 'warning-light', query: 'scene=custody&theme=light', act: openSend },
   {
     name: 'sent-dark',
-    query: '',
+    query: 'scene=custody',
     act: async (page) => {
       await openSend(page)
       await page.getByRole('button', { name: 'Send to alice-desk' }).click()
       await page.getByText(/Also runs on alice-desk/).waitFor()
     },
   },
-  { name: 'warning-narrow-dark', query: 'width=430', act: openSend },
+  { name: 'warning-narrow-dark', query: 'scene=custody&width=430', act: openSend },
   // POD-6301: the D11 box, unticked, then ticked with a kept login reported.
-  { name: 'd11-unticked-light', query: 'theme=light' },
-  { name: 'd11-ticked-dark', query: '', act: tickD11 },
-  { name: 'd11-ticked-light', query: 'theme=light', act: tickD11 },
-  { name: 'd11-ticked-narrow-dark', query: 'width=430', act: tickD11 },
+  { name: 'd11-unticked-light', query: 'scene=custody&theme=light' },
+  { name: 'd11-ticked-dark', query: 'scene=custody', act: tickD11 },
+  { name: 'd11-ticked-light', query: 'scene=custody&theme=light', act: tickD11 },
+  { name: 'd11-ticked-narrow-dark', query: 'scene=custody&width=430', act: tickD11 },
+]
+
+const shots: { name: string; query: string; act?: Act }[] = [
+  ...custodyShots,
+  { name: 'admin-dark', query: '' },
+  {
+    name: 'admin-edit-people-dark',
+    query: '',
+    act: async (page) => {
+      await page.getByRole('button', { name: 'Change who can use Anthropic API key' }).click()
+    },
+  },
+  {
+    name: 'admin-members-key-light',
+    query: 'theme=light',
+    act: async (page) => {
+      await page
+        .getByRole('button', { name: "Change who can use Ana Sousa's OpenAI API key" })
+        .click()
+      await page.getByLabel('Everyone on this server').check()
+    },
+  },
+  {
+    name: 'member-edit-dark',
+    query: 'scene=member',
+    act: async (page) => {
+      await page.getByRole('button', { name: 'Change who can use OpenAI API key' }).click()
+    },
+  },
 ]
 
 for (const shot of shots) {

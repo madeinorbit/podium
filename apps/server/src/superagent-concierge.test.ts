@@ -8,6 +8,7 @@ import {
   type UnbrandIds,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssueToolProvider } from './issue-mcp'
@@ -185,7 +186,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     }),
   )
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r') // conciergeTurn rejects unregistered repos
+  await repos.add(repos.serverWriter, '/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
   await sa.history(firstAdminMemberId())
   await sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId: asSessionId('s1') })
@@ -291,14 +292,14 @@ describe('buildConciergeDelta', () => {
 
 describe('concierge threads (issue #64)', () => {
   it('reuses one thread per repo across turns — never duplicates', async () => {
-    const { sa, settle } = await harness()
-    const a = await sa.conciergeTurn({
+    const { registry, sa, settle } = await harness()
+    const a = await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'hello',
     })
     await settle()
-    const b = await sa.conciergeTurn({
+    const b = await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'again',
@@ -315,23 +316,31 @@ describe('concierge threads (issue #64)', () => {
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
     const { registry, sa, turnReqs } = await harness()
-    const ready = await registry.issues.crud.create({
+    const ready = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Fix login',
       startNow: false,
     })
-    const asking = await registry.issues.crud.create({
+    const asking = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Deploy',
       startNow: false,
     })
-    await registry.issues.crud.setNeedsHuman(asking.id, 'Which region?')
+    await registry.issues.crud.setNeedsHuman(
+      registry.issues.reports.store.serverWriter,
+      asking.id,
+      'Which region?',
+    )
     await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r',
       spawnedBy: 'user',
     })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'status?' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'status?',
+    })
     await vi.waitFor(() => expect(turnReqs).toHaveLength(1))
     const request = turnReqs[0]
     const context = request?.contextPrompt ?? ''
@@ -344,7 +353,11 @@ describe('concierge threads (issue #64)', () => {
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+    })
     const tid = conciergeThreadId('/r')
     // Unconfirmed → refused, nothing spawned, issue untouched.
     expect(await sa.callMcpTool('issue_start', { id: issue.id }, tid)).toBe(NOT_CONFIRMED_MSG)
@@ -377,9 +390,13 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('rejects an unregistered repoPath without minting a thread', async () => {
-    const { sa } = await harness()
+    const { registry, sa } = await harness()
     await expect(
-      sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/typo', text: 'hi' }),
+      sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+        ownerUserId: firstAdminMemberId(),
+        repoPath: '/typo',
+        text: 'hi',
+      }),
     ).rejects.toThrow(/unknown repo/)
     expect(
       (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
@@ -470,7 +487,7 @@ describe('concierge threads (issue #64)', () => {
     // harness clients strip args absent from tools/list, so a hidden param makes
     // the confirmed-gate unsatisfiable from a concierge thread.
     it('advertises `confirmed` on start-capable issue tools in tools/list', async () => {
-      const { sa, list } = await httpHarness()
+      const { registry, sa, list } = await httpHarness()
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       const props = (name: string, tools: Awaited<ReturnType<typeof list>>) =>
         Object.keys(
@@ -494,7 +511,11 @@ describe('concierge threads (issue #64)', () => {
 
     it('attaches the confirmed-gate for a concierge thread token', async () => {
       const { registry, sa, call } = await httpHarness()
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'X',
+        startNow: false,
+      })
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       // Start-capable tools without confirmed → refused over HTTP, nothing spawned.
       expect(await call('issue_start', { id: issue.id }, tok)).toBe(NOT_CONFIRMED_MSG)
@@ -534,13 +555,33 @@ describe('concierge threads (issue #64)', () => {
 
   it('advances the watermark only to the last read event on delta overflow', async () => {
     const { registry, sa, turnReqs, settle } = await harness({ eventReadLimit: 2 })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'hi' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'hi',
+    })
     await settle()
     // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
-    await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'C',
+      startNow: false,
+    })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'update?',
+    })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(2))
     const second = turnReqs[1]?.contextPrompt ?? ''
@@ -549,7 +590,11 @@ describe('concierge threads (issue #64)', () => {
     expect(second).toContain('created "B"')
     expect(second).not.toContain('created "C"')
     // The overflowed remainder arrives on the next turn — nothing silently lost.
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'more?' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'more?',
+    })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(3))
     const third = turnReqs[2]?.contextPrompt ?? ''
@@ -570,7 +615,7 @@ describe('search_all tool', () => {
   it('wraps the real searchAll: renders one line per typed hit plus the data payload', async () => {
     const { registry, sa } = await harness()
     registry.gateway.attachDaemon('m1', () => {})
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'replace the flux capacitor',
       description: 'it drifts',
@@ -580,13 +625,16 @@ describe('search_all tool', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor refactor',
+    })
     registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await registry.sessionStore.conversations.index.upsert([
+    await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -613,12 +661,19 @@ describe('search_all tool', () => {
 
   it('filters by kinds and caps the limit', async () => {
     const { registry, sa } = await harness()
-    await registry.issues.crud.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'capacitor issue',
+      startNow: false,
+    })
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor session',
+    })
     const out = await sa.callMcpTool(
       'search_all',
       { query: 'capacitor', kinds: ['issue'] },
@@ -642,7 +697,9 @@ describe('list_sessions boundIssue', () => {
       { repoPath: '/r', title: 'Worktree work', start: true, confirmed: true },
       conciergeThreadId('/r'),
     )
-    const issue = (await registry.issues.reports.list('/r')).find((i) => i.title === 'Worktree work')
+    const issue = (await registry.issues.reports.list('/r')).find(
+      (i) => i.title === 'Worktree work',
+    )
     expect(issue?.worktreePath).toBeTruthy()
     // A second session inside the issue worktree, one outside.
     await registry.modules.sessions.createSession({
@@ -701,15 +758,25 @@ describe('thread ownership after administrator removal', () => {
   })
 })
 
-
-it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: global digest and concierge titles for %s', async repoPath => {
-  const text = buildGlobalSeed({ repos: [{ repoPath, worktrees: 1, issues: 1, ready: 1, inProgress: 0, needsHuman: 1 }], sessions: [], questions: [{ repoPath, seq: 1 }], events: [], maxEventId: 0 })
+it.each([
+  '/src/podium',
+  'C:\\src\\podium',
+])('machine paths: global digest and concierge titles for %s', async (repoPath) => {
+  const text = buildGlobalSeed({
+    repos: [{ repoPath, worktrees: 1, issues: 1, ready: 1, inProgress: 0, needsHuman: 1 }],
+    sessions: [],
+    questions: [{ repoPath, seq: 1 }],
+    events: [],
+    maxEventId: 0,
+  })
   expect(text).toContain('- podium (')
   expect(text).toContain('- podium #1')
   const { registry, sa } = await harness()
   await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId)
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
-  expect((await sa.listThreads(firstAdminMemberId())).find(t => t.id === thread.threadId)?.title).toBe('concierge · podium')
+  expect(
+    (await sa.listThreads(firstAdminMemberId())).find((t) => t.id === thread.threadId)?.title,
+  ).toBe('concierge · podium')
 })
 
 it('machine paths: Windows concierge identity folds separators and drive case', () => {
@@ -717,20 +784,32 @@ it('machine paths: Windows concierge identity folds separators and drive case', 
   expect(conciergeRepoPath(conciergeThreadId('C:\\src\\podium'))).toBe('c:\\src\\podium')
 })
 
-it.each(['/src/podium', String.raw`C:\Src\Podium`])('machine paths: session title and concierge repo usage under %s', async cwd => {
+it.each([
+  '/src/podium',
+  String.raw`C:\Src\Podium`,
+])('machine paths: session title and concierge repo usage under %s', async (cwd) => {
   const { registry, sa, turnReqs, settle } = await harness()
   await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId)
   expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
-  const created = await registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: cwd + '/src' })
+  const created = await registry.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: cwd + '/src',
+  })
   const session = await registry.modules.sessions.sessionById(created.sessionId)
   expect(session?.title).toBe('src')
   expect(session?.cwd).toBe(cwd + '/src')
-  await registry.modules.sessions.renameSession({ sessionId: created.sessionId, name: 'path regression worker' })
-  await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: cwd, text: 'status?' })
+  await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+    sessionId: created.sessionId,
+    name: 'path regression worker',
+  })
+  await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+    ownerUserId: firstAdminMemberId(),
+    repoPath: cwd,
+    text: 'status?',
+  })
   await settle()
   expect(turnReqs.at(-1)?.contextPrompt).toContain('path regression worker · claude-code')
 })
-
 
 it('keeps malformed Windows identity/display paths non-throwing without Unicode key aliases', () => {
   const path = String.raw`C:\repo\...`

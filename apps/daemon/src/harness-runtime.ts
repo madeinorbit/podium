@@ -1,14 +1,13 @@
 import {
   agentLaunchCommand,
-  bindHarnessLaunch,
   buildResolvedInventory,
-  type HarnessLaunchOptions,
+  type HarnessContext,
+  type LaunchOptions,
   type LaunchSpec,
   type LoginProbeExec,
   type ProbeExec,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
-import type { AgentKind } from '@podium/model'
 import { createCommandEnvironment } from '@podium/runtime/command-environment'
 
 export interface HarnessRuntimeOptions {
@@ -36,6 +35,16 @@ export class DaemonHarnessRuntime {
 
   current(): Promise<ResolvedHarnessInventory> {
     return this.authoritative
+  }
+
+  /**
+   * The last snapshot a wave installed, without waiting for one in flight
+   * (POD-6534). A reprobe holds `current()` open for a whole version/login
+   * wave; latency-sensitive account reads (transcripts) take the settled
+   * command environment instead. `undefined` before the first wave settles.
+   */
+  settled(): ResolvedHarnessInventory | undefined {
+    return this.authoritativeValue
   }
 
   refresh(): Promise<ResolvedHarnessInventory> {
@@ -74,20 +83,28 @@ export class DaemonHarnessRuntime {
     return this.authoritativeValue === snapshot
   }
 
+  /**
+   * The launch spec for one session. A harness session launches from ITS
+   * context (POD-6533): the installation and account environment pinned when
+   * the session was spawned, never the inventory as it stands now, so a
+   * refresh between spawn and launch cannot move the session to another
+   * executable. A plain shell has no harness and runs in the current command
+   * environment.
+   */
   async launch(
-    kind: AgentKind,
-    options: HarnessLaunchOptions,
-    selectedSnapshot?: ResolvedHarnessInventory,
+    target: HarnessContext | 'shell',
+    options: Omit<LaunchOptions, 'harnessContext'>,
   ): Promise<LaunchSpec> {
-    const invocation = (this.options.launch ?? agentLaunchCommand)(kind, options)
-    if (kind === 'shell') {
+    const build = this.options.launch ?? agentLaunchCommand
+    if (target === 'shell') {
+      const invocation = build('shell', options)
       const snapshot = await this.current()
       return {
         ...invocation,
         env: { ...snapshot.commandEnvironment.env, ...invocation.env },
       }
     }
-    return bindHarnessLaunch(selectedSnapshot ?? (await this.current()), kind, invocation)
+    return build(target.installation.kind, { ...options, harnessContext: target })
   }
 
   private install(

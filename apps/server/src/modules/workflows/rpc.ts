@@ -32,6 +32,10 @@
  */
 
 import type { TransportTag } from '@podium/commands'
+import { refusalSentence } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
+import type { SyncWriteEntry } from '../sync-write/entry'
+import { mutationIdOf } from '../sync-write/route-adapter'
 import {
   isWorkflowQuery,
   isWorkflowQueryExposedOn,
@@ -41,12 +45,51 @@ import {
 import { isWorkflowCommand, isWorkflowProcExposedOn } from './registry'
 import type { WorkflowCaller, WorkflowService } from './service'
 
+/** How a relayed workflow WRITE is sent: onto the sync write entry point. */
+export type WorkflowRelayWrite = (proc: string, raw: unknown) => Promise<unknown>
+
+/**
+ * LEGACY(remove-after: 2027-03): a workflow write an older `podium workflow`
+ * sends on the agent relay as `workflows.<proc>`, as a thin adapter onto
+ * `sync.submit` (POD-6418). A newer CLI sends the envelope itself. Removing this
+ * breaks an older CLI's checkpoints against this server.
+ *
+ * The envelope's id is the one the input carries (an advance's `mutationId`), so
+ * the older CLI's retries dedupe as they always did. The answer is the one the
+ * relay always gave: the result, or the handler's own error, or for a refusal of
+ * the permission checks a sentence naming it.
+ */
+export function workflowRelayWrite(
+  entry: Pick<SyncWriteEntry, 'submitDetailed'>,
+  principal: () => Promise<CommandPrincipal>,
+  confirmed: boolean,
+): WorkflowRelayWrite {
+  return async (proc, raw) => {
+    const command = `workflows.${proc}`
+    const { reply, cause } = await entry.submitDetailed(
+      {
+        mutationId: mutationIdOf(raw),
+        command,
+        version: 1,
+        input: raw ?? {},
+        ...(confirmed ? { confirmed: true as const } : {}),
+      },
+      await principal(),
+      'relay',
+    )
+    if (reply.outcome === 'applied') return reply.result
+    if (cause !== undefined) throw cause
+    throw new Error(`${command}: ${refusalSentence(reply.refusal)}`)
+  }
+}
+
 export async function dispatchWorkflowRpc(
   service: WorkflowService,
   caller: WorkflowCaller,
   proc: string,
   raw: unknown,
   transport: TransportTag = 'relay',
+  write?: WorkflowRelayWrite,
 ): Promise<unknown | undefined> {
   if (isWorkflowCommand(proc)) {
     // NOT `undefined`. A proc that exists but is not served here is a REFUSAL,
@@ -57,7 +100,10 @@ export async function dispatchWorkflowRpc(
     if (!isWorkflowProcExposedOn(proc, transport)) {
       throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
     }
-    return await Promise.resolve(service.execute(caller, proc, raw ?? {}))
+    // A write has one door, the sync write entry point; without one, nothing is
+    // written (default-closed: no path quietly runs the handler itself).
+    if (write === undefined) throw new Error(`workflows.${proc}: no write path on this transport`)
+    return await write(proc, raw)
   }
   if (isWorkflowQuery(proc)) {
     if (!isWorkflowQueryExposedOn(proc, transport)) {

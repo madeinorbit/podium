@@ -31,8 +31,8 @@ import {
   SyncCancelledError,
   SyncNetworkError,
 } from '../sync-stream'
-import { ReplicaGateError } from './failure'
 import { decideLegacyAdoption, type LegacyIdentityEvidence } from './adoption'
+import { ReplicaGateError } from './failure'
 import { SyncProgressStore } from './progress'
 
 export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
@@ -168,10 +168,10 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       signedInAs: options.principal,
       identitiesEverSignedIn: namespace.knownPrincipals,
     }
-    const adoption = decideLegacyAdoption(
-      evidence,
-      { kind: 'principal-scoped', writtenUnder: [options.principal] },
-    )
+    const adoption = decideLegacyAdoption(evidence, {
+      kind: 'principal-scoped',
+      writtenUnder: [options.principal],
+    })
     if (!adoption.adopt) {
       view.cache.discardCache()
       options.onDegraded?.({
@@ -185,6 +185,8 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       api: options.api,
       now,
       onDegraded: (detail) => options.onDegraded?.(detail),
+      // Late-bound: the replica is built below, after the queue it confirms.
+      confirmedThrough: () => kernel?.cursor ?? null,
     })
     side = createSideCache({
       ...settings,
@@ -259,14 +261,40 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
           }
         },
       },
+      // WRITE CONFIRMATION (ADR 12, POD-6277). Every commit that covers an applied
+      // entry — by the provenance on its rows, or a cursor reaching its receipt —
+      // retires it in that same unit of work, with the rows and the cursor.
+      overlay: createOutboxFn.overlay,
+      unitOfWork: store.unitOfWork,
       onEvent: (event) => {
         syncTelemetry.noteReplicaEvent(event)
         progress.noteEvent(event)
         facade.onKernelEvent(event)
+        // A reply recorded while this commit was in flight was not yet applied when
+        // the commit decided what it covers. Its cursor is durable now, so ask again
+        // (from memory; a commit that covers nothing writes nothing).
+        if (event.type === 'cursor') {
+          void createOutboxFn
+            .confirmThrough(event.cursor)
+            .catch((error: unknown) => options.onDegraded?.(error))
+        }
       },
       batchEvents: (emitAll) => facade.batch(emitAll),
     })
     kernel = replicaKernel
+    // AT REST: what the persisted cursor already covers retires before anything
+    // paints — a receipt at or below it, and every applied entry without a receipt
+    // that an older build left behind (the stranded nulldisk clear). What is ahead
+    // of it keeps painting until the replica catches up.
+    // A store that cannot take this write is reported, never a reason to refuse
+    // the open: the entries stay, and the next commit confirms them.
+    if (replicaKernel.cursor !== null) {
+      try {
+        await createOutboxFn.confirmThrough(replicaKernel.cursor)
+      } catch (error) {
+        options.onDegraded?.(error)
+      }
+    }
     progress.begin(replicaKernel.posture)
     const sink = new FeedSink({ replica: replicaKernel })
     progress.retry = () => {

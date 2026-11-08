@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useIssueActionOutcome } from '@/features/issues/issue-action-ending'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
@@ -465,11 +466,12 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * stopped. There is no apply-everything button on purpose: the operator asked
  * for the janitor's list to be approved row by row rather than accepted whole.
  *
- * Freeing keeps the branch (`issues.stop`); a dirty tree refuses and lands in
+ * Freeing keeps the branch (an `issue.stop` record); a dirty tree refuses and lands in
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
   const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const stopIssue = useIssueActionOutcome()
   const lifecycle = useHostLifecycleSettings()
   const { inventory, error: inventoryError } = useReclaimInventory(trpc, machineId)
   const candidates = inventory?.candidates ?? []
@@ -502,7 +504,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
     })
 
   /**
-   * One free. `issues.stop` reports a refusal as `ok: true` with
+   * One free. A stop reports a refusal as `ok: true` with
    * `worktreeFreed: false` and a reason — it stopped the sessions, it just did
    * not take the disk — so the outcome is read off `worktreeFreed`, never off
    * "the call did not throw".
@@ -511,7 +513,11 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
     const record = (reason: string): void =>
       setHeld((prev) => [...prev.filter((h) => h.issueId !== issueId), { issueId, reason }])
     try {
-      const result = await trpc.issues.stop.mutate({ id: issueId })
+      // An `issue.stop` record (POD-6526): its answer is the old command's.
+      const result = (await stopIssue(issueId, 'stop')) as {
+        worktreeFreed?: boolean
+        reason?: string
+      }
       if (result.worktreeFreed) {
         setFreed((prev) => (prev.includes(issueId) ? prev : [...prev, issueId]))
         setHeld((prev) => prev.filter((h) => h.issueId !== issueId))

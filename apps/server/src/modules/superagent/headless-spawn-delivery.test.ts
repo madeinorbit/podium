@@ -13,6 +13,8 @@
 // The daemon half is completed too: the daemon's result/event frames are
 // routed back into the server gateway, so a green run means the whole first
 // turn — spawn, dispatch, harness run, resume bind — lands end to end.
+
+import { createHash } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,24 +28,22 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { createHash } from 'node:crypto'
-import { TRPCError } from '@trpc/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BindingStore } from '../../../../daemon/src/binding-store'
 import { sessionHandlers } from '../../../../daemon/src/control/session'
 import { runtimeHandlers, sessionIsBehindContract } from '../../../../daemon/src/runtime/handlers'
 import { composeHeadlessDeliveryDaemon } from '../../../../daemon/src/test-support/headless-delivery-daemon'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessResumeKind } from '../../harness-manifest'
-import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
-import { SessionMachineReconciler } from '../sessions/machine-reconciler'
-import { selectHarnessAccountId } from '../sessions/harness-account'
-import { SuperagentService } from './service'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { selectHarnessAccountId } from '../sessions/harness-account'
+import { SessionMachineReconciler } from '../sessions/machine-reconciler'
+import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
+import { SuperagentService } from './service'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -121,7 +121,9 @@ async function onlineHarness() {
     }
   }
   await registry.gateway.attachDaemon(host, peer)
-  registry.gateway.routeDaemonFrame(host, {
+  // Awaited: the report seeds the superagent's default harness (POD-1313), and
+  // a real daemon's report lands long before anyone's first turn.
+  await registry.gateway.routeDaemonFrame(host, {
     type: 'inventoryReport',
     machineId: host,
     inventory: {
@@ -141,7 +143,7 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', host)
+  await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }
 }
@@ -149,7 +151,7 @@ async function onlineHarness() {
 describe('superagent first turn past the binding gate (POD-4827)', () => {
   it('the actual spawn establishes a contract session and the actual turn delivers to the engine', async () => {
     const h = await onlineHarness()
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',
@@ -224,7 +226,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     )
     const receipt = sent.find(
       (m) =>
-        m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === turn.requestId,
+        m.type === 'runtimeSendResult' &&
+        (m as { requestId?: string }).requestId === turn.requestId,
     ) as
       | { receipt?: { outcome?: string; refusal?: { reason?: string; detail?: string } } }
       | undefined
@@ -246,7 +249,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     for (;;) {
       const pending = await h.registry.sessionStore.superagent.listPendingTurns()
       if (pending.length === 0) break
-      if (Date.now() - start > 10_000) throw new Error('timed out waiting for the superagent turn to finish')
+      if (Date.now() - start > 10_000)
+        throw new Error('timed out waiting for the superagent turn to finish')
       await new Promise((r) => setTimeout(r, 10))
     }
     expect(
@@ -254,7 +258,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     ).toBe('harness-1')
   })
 
-  it('the offline refusal is a typed client error with no server stack', async () => {
+  it('over the route the send is accepted, and the offline refusal is the turn’s durable failure', async () => {
     const h = await onlineHarness()
     const call = appRouter.createCaller({
       registry: h.registry,
@@ -265,10 +269,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     })
     // Bind the thread's headless session to the host WITHOUT running a turn:
     // `ensureSession` mints the binding only, so no turn is ever in flight and
-    // the offline send below cannot queue behind one (a queued send resolves
-    // instead of refusing, which is what made a complete-the-first-turn setup
-    // race the finish).
-    const ensured = await h.sa.ensureSession({
+    // the offline send below cannot queue behind one.
+    const ensured = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
     })
@@ -277,34 +279,39 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     h.registry.gateway.detachDaemon(h.host, h.peer)
     expect(h.registry.modules.machines.hasDaemon(h.host)).toBe(false)
 
-    const outcome = await call.superagent
-      .sendTurn({ threadId: 'global', text: 'second', agentKind: 'codex' })
-      .then(
-        (r) => ({ returned: r }) as const,
-        (e: unknown) => ({ thrown: e as TRPCError }) as const,
-      )
-    const err = 'thrown' in outcome ? outcome.thrown : null
-    expect(err).not.toBeNull()
-    // Same message as before, but typed: PRECONDITION_FAILED (HTTP 412), the
-    // same code the machine picker uses for an offline machine — never the
-    // 500 INTERNAL_SERVER_ERROR with the server stack the re-check caught.
-    expect(err).toBeInstanceOf(TRPCError)
-    expect(err!.code).toBe('PRECONDITION_FAILED')
-    expect(err!.message).toContain('is offline')
-    expect(err!.message).toContain('bring its daemon online, then retry')
-    expect(err!.stack).toBeUndefined()
+    // The route is an adapter onto `sync.submit` (POD-6419): the write accepts
+    // the turn, and the turn runs after the commit. Its offline refusal is not
+    // an answer to the request any more; it is the turn's own failure, the
+    // durable rows a reload shows (POD-4806) and the turn-end every client
+    // already reads for a queued send.
+    const ack = await call.superagent.sendTurn({ threadId: 'global', text: 'second' })
+    expect(ack).toMatchObject({ threadId: 'global', queued: false })
+    await vi.waitFor(async () => {
+      const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+      expect(failure?.error).toContain('is offline')
+    })
+    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    expect(failure?.userText).toBe('second')
+    // The PRECONDITION_FAILED refusal's own sentence, never a class name or a
+    // server stack.
+    expect(failure?.error).toContain('bring its daemon online, then retry')
+    expect(failure?.error).not.toContain('TRPCError')
+    expect(failure?.error).not.toMatch(/\n\s+at /)
   })
 
   it('a daemon re-attach re-establishes a never-bound headless session before its first turn', async () => {
     const h = await onlineHarness()
     // A real headless row with an explicit account (the account fix is test
     // 1's subject, not this one's — pin it so the mechanism turn verifies).
-    const created = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-      accountId: asAccountId('native:codex:fp-test'),
-    })
+    const created = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+        accountId: asAccountId('native:codex:fp-test'),
+      },
+    )
     const s1 = h.frames.find(
       (m) => m.type === 'spawn' && m.sessionId === created.sessionId,
     ) as Extract<ControlMessage, { type: 'spawn' }>
@@ -359,12 +366,15 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     await waitFor(
       () =>
         gen2.sent.some(
-          (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
+          (m) =>
+            m.type === 'runtimeSendResult' &&
+            (m as { requestId?: string }).requestId === 'req-restart',
         ),
       'generation 2 refusing the turn',
     )
     const firstReceipt = gen2.sent.find(
-      (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
+      (m) =>
+        m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
     ) as { receipt?: { outcome?: string; refusal?: { reason?: string; detail?: string } } }
     expect(firstReceipt.receipt).toMatchObject({
       outcome: 'refused',
@@ -375,14 +385,19 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // plane + HeadlessService) the way a daemon attach does. The loop must
     // route the never-bound row to re-establish (not rebind), while a resumed
     // row still rebinds its tail.
-    const createdResumed = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-      accountId: asAccountId('native:codex:fp-test'),
-    })
+    const createdResumed = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+        accountId: asAccountId('native:codex:fp-test'),
+      },
+    )
     const row = h.registry.modules.sessions.headless.headlessSession(created.sessionId)
-    const rowResumed = h.registry.modules.sessions.headless.headlessSession(createdResumed.sessionId)
+    const rowResumed = h.registry.modules.sessions.headless.headlessSession(
+      createdResumed.sessionId,
+    )
     if (!row || !rowResumed) throw new Error('headless rows missing')
     // A resumed live row, assigned the way production's bind does (the
     // persisted setter lands on the draft/store, not the live object).
@@ -402,6 +417,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       resetPriorities: () => {},
       pushPriorities: () => {},
       parkArchivedSession: async () => {},
+      retireArchivedSurvivor: async () => {},
       reattachMessage: async () => {
         throw new Error('no headed probe expected for live headless rows')
       },
@@ -433,7 +449,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // the frames rather than awaiting a promise that resolves before they land.
     await waitFor(
       () =>
-        h.frames.filter((m) => m.type === 'spawn' && m.sessionId === created.sessionId).length === 2,
+        h.frames.filter((m) => m.type === 'spawn' && m.sessionId === created.sessionId).length ===
+        2,
       'the attach re-sending the establish frame',
     )
     await waitFor(
@@ -479,12 +496,16 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     await waitFor(
       () =>
         gen2.sent.some(
-          (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart-2',
+          (m) =>
+            m.type === 'runtimeSendResult' &&
+            (m as { requestId?: string }).requestId === 'req-restart-2',
         ),
       'generation 2 accepting the retried turn',
     )
     const secondReceipt = gen2.sent.find(
-      (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart-2',
+      (m) =>
+        m.type === 'runtimeSendResult' &&
+        (m as { requestId?: string }).requestId === 'req-restart-2',
     ) as { receipt?: { outcome?: string; refusal?: unknown } }
     expect(secondReceipt.receipt?.outcome).toBe('accepted')
     expect(gen2.turns.map((t) => t.turnId)).toContain('turn-restart')
@@ -519,7 +540,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       agentKind: 'codex',
       cwd: '/r',
     })
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
@@ -543,20 +564,28 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // turn with no accountId, which the daemon refuses every time ("headless
     // result identity mismatch" in the chat) — the thread could never recover.
     const h = await onlineHarness()
-    await h.sa.ensureSession({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
-    const legacy = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
+    await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
     })
-    expect(h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId).toBeUndefined()
+    const legacy = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+      },
+    )
+    expect(
+      h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId,
+    ).toBeUndefined()
     await h.registry.sessionStore.superagent.updateSuperagentThreadBinding('global', {
       agentKind: 'codex',
       podiumSessionId: legacy.sessionId,
       harnessSessionId: 'harness-old',
     })
 
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello again',
@@ -586,7 +615,9 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // The selection table both paths call (selectHarnessAccountId): a native
     // id for another harness must never be spent silently, while matching,
     // explicit-shaped and non-native ids ride unchanged.
-    expect(selectHarnessAccountId('codex', asAccountId('native:codex:fp-a'))).toBe('native:codex:fp-a')
+    expect(selectHarnessAccountId('codex', asAccountId('native:codex:fp-a'))).toBe(
+      'native:codex:fp-a',
+    )
     expect(selectHarnessAccountId('codex', asAccountId('native:codex'))).toBe('native:codex')
     expect(selectHarnessAccountId('codex', asAccountId('native:claude-code:fp-b'))).toBe(
       'native:codex',

@@ -8,6 +8,7 @@ import type {
   ShipOrder,
 } from '@podium/model'
 import type { ShippingJobClassification, ShippingJobRequestMessage } from '@podium/protocol/daemon'
+import type { ShippingWriter } from './service'
 
 export interface ShippingRepairFailure {
   operation: 'prepare-merge-group' | 'validate'
@@ -83,7 +84,9 @@ export type ShippingRepairDecision =
  * before Shipping raises its normal hold. Implementations may only propose an
  * attempt-scoped candidate; Shipping retains custody and always revalidates it. */
 export interface ShippingRepairPort {
-  consider(input: ShippingRepairContext): Promise<ShippingRepairDecision>
+  /** The repair's headless sessions commit through `writer`: the ship command
+   *  that asked (a hold's `open-repair`), or the lanes' own (ADR 12 D9, POD-6606). */
+  consider(input: ShippingRepairContext, writer: ShippingWriter): Promise<ShippingRepairDecision>
   acknowledge(input: {
     resultToken: string
     orderId: ShipOrder['id']

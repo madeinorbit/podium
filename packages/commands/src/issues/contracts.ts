@@ -65,6 +65,8 @@ import {
   MachineIdField,
   MessageId,
   MutationIdField,
+  NewIssueId,
+  NewSessionId,
   Revision,
   SessionIdField,
   ShipHoldAction,
@@ -81,6 +83,7 @@ import {
   ISSUE_ATTRIBUTION,
   ISSUE_REDACTION,
   ISSUE_VISIBILITY,
+  MACHINE_WORK_DELIVERY,
   MANAGE_POLICY,
   owns,
   PER_USER_DELIVERY,
@@ -288,12 +291,20 @@ export const panelApplyInput = z.object({
   /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
   sourceRoot: z.string().optional(),
   upload: ArtifactUploadPacket.optional(),
+  /**
+   * The artifact effect record whose panel change this commits (POD-6420): set
+   * only by its executor, on the sync write entry point. The entry comes from
+   * the record, never from this call's other fields.
+   */
+  effectId: z.string().min(1).optional(),
 })
 
 export const createInput = z.object({
   // Client-minted identities let insert-shaped optimistic UI reconcile in place.
-  // The service refuses collisions before it creates or starts anything.
-  id: IssueIdField.optional(),
+  // The service refuses collisions before it creates or starts anything. ADR 12
+  // D4: a new id is `iss_` and a random UUID, nothing else; above all not a
+  // string that looks like a human ref (`#12`, `POD-12`).
+  id: NewIssueId.pipe(IssueIdField).optional(),
   startSessionId: SessionIdField.optional(),
   repoPath: z.string(),
   title: z.string().min(1),
@@ -336,6 +347,9 @@ export const startInput = z.object({
   /** Agent profile by name or id (POD-6107); persists onto the issue like --model. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The spawned session's id, minted on the device (POD-6414): a start that
+   *  names it spawns at most once under it. */
+  sessionId: NewSessionId.optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -461,9 +475,11 @@ export const addSessionInput = z.object({
   id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The new session's id, minted on the device (POD-6414): spawned at most once. */
+  sessionId: NewSessionId.optional(),
 })
 
-export const addShellInput = byIssueId
+export const addShellInput = byIssueId.extend({ sessionId: NewSessionId.optional() })
 
 export const applySuggestionInput = byIssueId
 
@@ -1318,7 +1334,7 @@ export const issueStartContract = {
   input: startInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1385,7 +1401,7 @@ export const issueActionContract = {
   input: actionInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1401,7 +1417,7 @@ export const issueCleanupContract = {
   input: cleanupInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1417,7 +1433,7 @@ export const issueStopContract = {
   input: stopInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1433,7 +1449,7 @@ export const issueIntegrateContract = {
   input: integrateInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1519,7 +1535,7 @@ export const issueAddSessionContract = {
   input: addSessionInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1539,7 +1555,7 @@ export const issueAddShellContract = {
   input: addShellInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1589,7 +1605,7 @@ export const issueRefreshAssistantContract = {
   input: refreshAssistantInput,
   policy: WRITE_POLICY,
   exposure: SERVED_ON_WIRE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1747,7 +1763,7 @@ export const issueAnswerQuestionContract = {
       'member’s task and admit the task owner, who must not drive it.',
   },
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -2175,9 +2191,7 @@ export const issueLinearSearchContract = {
  * The seam biconditional (`resource: 'issue'` iff a `target` extractor exists) still
  * holds — the extractor exists, and returning `undefined` is a value it returns, not
  * an extractor it lacks. That distinction is exactly why the biconditional is written
- * over the PRESENCE of the extractor and not over the value it happens to produce,
- * and `audit-issue-commands.ts` plants a fixture that removes the extractor entirely
- * to prove the check can say NO.
+ * over the PRESENCE of the extractor and not over the value it happens to produce.
  *
  * A message the caller may not reach fails NOT_FOUND, identically to an unknown
  * message id — D20.2, and the shipped handler already throws exactly that.

@@ -1,5 +1,5 @@
 /**
- * THE JOIN — the two account contracts (L1) paired with the L3 code that
+ * THE JOIN — the account contracts (L1) paired with the L3 code that
  * implements them, per ADR 3 D1.
  *
  * The handlers are the router procedure bodies, MOVED and not rewritten: the same
@@ -29,9 +29,12 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
+import { SHARED_WITH_EVERYONE } from '../../store/accounts'
+import type { PlainTargetCheck } from '../plain-command/entry'
 
 /** Exactly what the account family reaches, named. */
 export interface AccountState {
@@ -82,8 +85,34 @@ export interface AccountState {
 
 export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out
 
+/**
+ * THE TARGET CHECK FOR A USER'S OWN HARNESS ACCOUNTS (POD-6360). Every user
+ * manages their own accounts, and only their own: each handler acts for the
+ * signed-in caller (the login terminal is spawned as them, on a machine they may
+ * use; a key is stored, removed or shared as theirs), so the target is the caller
+ * by construction. What is left to refuse is a principal that is not that user:
+ * an agent may not sign its human in, store a key as them, remove or share one.
+ * Agents and the system principal are refused; a signed-in user passes.
+ */
+export const callersOwnAccount: PlainTargetCheck = (principal) => principal.kind === 'user'
+
+/**
+ * `accounts.share`: the key's owner, or an admin. A signed-in user may change the
+ * sharing of their own key; naming another owner needs the admin role.
+ */
+export const ownerOrAdmin: PlainTargetCheck = (principal, input) => {
+  if (principal.kind !== 'user') return false
+  const owner = (input as { owner?: UserId }).owner
+  return owner === undefined || owner === principal.user || principal.capability.role === 'admin'
+}
+
+/** One answer for "no such key" and "not yours" (errorConsistency: nonexistent). */
+const noSuchKey = (): TRPCError =>
+  new TRPCError({ code: 'NOT_FOUND', message: 'no such stored key' })
+
 export interface AccountCommand {
   readonly contract: AnyCommandContract
+  readonly targetPermitted?: PlainTargetCheck
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous table; each entry's
   // input type is pinned by its own contract through the `satisfies` below.
   readonly handler: AccountHandler<any, unknown>
@@ -92,6 +121,7 @@ export interface AccountCommand {
 export const ACCOUNT_COMMANDS_TRPC = {
   login: {
     contract: ACCOUNT_CONTRACTS.login,
+    targetPermitted: callersOwnAccount,
     handler: ((state, input) =>
       state.nativeLogin.start({
         harness: input.harness,
@@ -101,15 +131,18 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   connect: {
     contract: ACCOUNT_CONTRACTS.connect,
+    targetPermitted: callersOwnAccount,
     handler: (async (state, input) => {
       // A Claude setup-token is its own account, distinct from an Anthropic API
       // key. Derived server-side, which is what makes the contract's
       // `callerSuppliedTargetId: false` true rather than aspirational. The row
       // is the CALLER's (POD-6300): the same id is another member's own row.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
-      await state.accounts.upsert({
-        id: asAccountId(id),
+      // The caller's own row: a reconnect replaces their key and keeps their
+      // sharing; a first connect starts private.
+      await state.accounts.connect({
         ownerUserId: asUserId(state.callerUserId),
+        accountKey: asAccountId(id),
         provider: input.provider,
         kind: input.kind,
         credential: input.credential,
@@ -123,8 +156,11 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   disconnect: {
     contract: ACCOUNT_CONTRACTS.disconnect,
+    targetPermitted: callersOwnAccount,
     handler: (async (state, input) => {
-      await state.accounts.removeFor(asUserId(state.callerUserId), input.id)
+      // Only the caller's own row. Another user's key, shared with the caller or
+      // not, is untouched: idempotent revocation, as the contract states.
+      await state.accounts.disconnect(asUserId(state.callerUserId), input.id)
       return { ok: true as const }
     }) satisfies AccountHandler<
       z.infer<(typeof ACCOUNT_CONTRACTS)['disconnect']['input']>,
@@ -133,6 +169,7 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   send: {
     contract: ACCOUNT_CONTRACTS.send,
+    targetPermitted: callersOwnAccount,
     handler: (async (state, input) => {
       const owner = asUserId(state.callerUserId)
       if (!(await state.accounts.getFor(owner, input.id))) {
@@ -160,6 +197,7 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   useOnMyMachines: {
     contract: ACCOUNT_CONTRACTS.useOnMyMachines,
+    targetPermitted: callersOwnAccount,
     handler: (async (state, input) => {
       const owner = asUserId(state.callerUserId)
       const custody = [...(await state.machineStanding())]
@@ -216,6 +254,39 @@ export const ACCOUNT_COMMANDS_TRPC = {
       z.infer<(typeof ACCOUNT_CONTRACTS)['useOnMyMachines']['input']>,
       unknown
     >,
+  },
+  share: {
+    contract: ACCOUNT_CONTRACTS.share,
+    targetPermitted: ownerOrAdmin,
+    handler: (async (state, input) => {
+      const owner = input.owner ?? asUserId(state.callerUserId)
+      // The owner always has their own key; naming them shares nothing more.
+      const users = input.users.filter((user) => user !== owner)
+      const sharedWith = input.everyone ? [SHARED_WITH_EVERYONE, ...users] : users
+      if (!(await state.accounts.share(owner, input.id, sharedWith))) throw noSuchKey()
+      return { ok: true as const }
+    }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['share']['input']>, unknown>,
+  },
+  keys: {
+    contract: ACCOUNT_CONTRACTS.keys,
+    // Admin floor from the contract; the target check refuses agents, so an
+    // agent holding an admin's capability cannot list its human's keys.
+    targetPermitted: callersOwnAccount,
+    handler: (async (state) => {
+      // Built field by field: the credential is never selected, and a field
+      // added to the stored row later cannot reach the answer by being additive.
+      return (await state.accounts.summaries()).map((row) => ({
+        owner: row.ownerUserId,
+        id: row.accountKey,
+        provider: row.provider,
+        kind: row.kind,
+        ...(row.identity ? { identity: row.identity } : {}),
+        sharing: {
+          everyone: row.sharedWith.includes(SHARED_WITH_EVERYONE),
+          users: row.sharedWith.filter((grantee) => grantee !== SHARED_WITH_EVERYONE),
+        },
+      }))
+    }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['keys']['input']>, unknown>,
   },
 } as const satisfies Record<AccountContractName, AccountCommand>
 

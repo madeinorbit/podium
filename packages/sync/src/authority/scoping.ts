@@ -45,8 +45,8 @@
  * chose, and `authority.scoped.test.ts` asserts the absence of any other route.
  */
 
-import { readChangesRange, type ChangeLogStore } from '../change-log'
-import { type Principal } from '@podium/protocol'
+import type { Principal } from '@podium/protocol'
+import { type ChangeLogStore, readChangesRange } from '../change-log'
 import type {
   EntityRef,
   FeedVisibilityPolicy,
@@ -369,10 +369,7 @@ export async function* scopeChangesRange(
       if (delivery.kind === 'rescope') return
       previous = end
     }
-    pending = page.map(change => {
-      const base = { seq: change.seq, entity: change.entity, entityId: change.id, op: change.op }
-      return change.op === 'upsert' ? { ...base, value: change.value } : base
-    })
+    pending = page
   }
-  yield { ...await scopeBatch(deps, principal, pending ?? [], through), fromSeq: previous }
+  yield { ...(await scopeBatch(deps, principal, pending ?? [], through)), fromSeq: previous }
 }

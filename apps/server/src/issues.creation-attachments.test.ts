@@ -40,20 +40,20 @@ describe('creation attachments at review', () => {
       },
     }
     const svc = await IssueService.create(deps)
-    const issue = await svc.crud.create({ repoPath: '/r', title: 'Coordinator', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Coordinator', startNow: false })
     return { svc, issue, upload, remove }
   }
 
   it('marks creation uploads and allows review with no worktree', async () => {
     const { svc, issue, upload } = await harness()
     for (let n = 0; n < 6; n++) {
-      await svc.crud.panelArtifactUpload(issue.id, {
+      await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, {
         id: `att-${n}`,
         filename: 'image.png',
         dataBase64: 'aW1n',
       })
     }
-    const reviewed = await svc.crud.update(issue.id, { stage: 'review' })
+    const reviewed = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })
     expect(reviewed.stage).toBe('review')
     expect(reviewed.worktreePath).toBeUndefined()
     const artifacts = reviewed.panel?.artifacts ?? []
@@ -67,8 +67,8 @@ describe('creation attachments at review', () => {
   it('keeps creation provenance when an upload replaces the same attachment', async () => {
     const { svc, issue, remove } = await harness()
     const input = { id: 'att-1', filename: 'image.png', dataBase64: 'aW1n' }
-    await svc.crud.panelArtifactUpload(issue.id, input)
-    const updated = await svc.crud.panelArtifactUpload(issue.id, input)
+    await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, input)
+    const updated = await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, input)
     expect(updated.panel?.artifacts).toEqual([
       expect.objectContaining({
         path: 'attachments/att-1/image.png',
@@ -81,17 +81,17 @@ describe('creation attachments at review', () => {
 
   it('still blocks unsnapshotted agent evidence mixed with creation attachments', async () => {
     const { svc, issue } = await harness()
-    await svc.crud.panelArtifactUpload(issue.id, {
+    await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, {
       id: 'att-1',
       filename: 'image.png',
       dataBase64: 'aW1n',
     })
-    await svc.crud.panelApply(issue.id, { op: 'artifact-add', path: '/tmp/review.png' })
-    await expect(svc.crud.update(issue.id, { stage: 'review' })).rejects.toThrow(
+    await svc.crud.panelApply(svc.reports.store.serverWriter, issue.id, { op: 'artifact-add', path: '/tmp/review.png' })
+    await expect(svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })).rejects.toThrow(
       /no owning worktree/,
     )
-    await svc.crud.update(issue.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.crud.update(issue.id, { stage: 'review' })).rejects.toThrow(
+    await svc.crud.update(svc.reports.store.serverWriter, issue.id, { worktreePath: '/wt/issue-1' })
+    await expect(svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })).rejects.toThrow(
       /outside the owning issue worktree/,
     )
   })

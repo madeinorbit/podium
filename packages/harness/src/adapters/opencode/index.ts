@@ -1,29 +1,27 @@
 import { join } from 'node:path'
 import { promptEchoCorrelation } from '../../accept-correlation.js'
-import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createOpencodeConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   isSet,
   type LaunchFile,
+  selectedRoot,
   selectRuntimeDriver,
   supported,
   unsupported,
 } from '../../manifest.js'
-import { detectOpencodeLogin } from './auth.js'
-import { resolveOpencode2Bin, resolveOpencodeBin } from './cli.js'
-import {
-  opencodeDbPathForSession,
-} from './paths.js'
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
-import { opencodeCredentials } from './credentials.js'
-import { opencodeInstall } from './install.js'
-import { opencodeUsage } from './usage.js'
+import { detectOpencodeLogin } from './auth.js'
 import { opencodeCatalog } from './catalog.js'
+import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
+import { createOpencodeConversationProvider } from './discovery.js'
+import { opencodeInstall } from './install.js'
+import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
+import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodePromptTextMatches, opencodeTranscript } from './transcript.js'
+import { opencodeUsage } from './usage.js'
 
 export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
@@ -58,7 +56,25 @@ export const opencodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'opencode-session',
-  environment: { removeInherited: [] },
+  // XDG base directories, as OpenCode itself reads them: data (auth.json and
+  // opencode.db) under XDG_DATA_HOME, config under XDG_CONFIG_HOME. The data
+  // root is paths.ts's `opencodeDataRoot`, the one statement of that rule.
+  roots: (home, env) => {
+    const state = opencodeDataRoot(home, env)
+    return {
+      state,
+      config: join(selectedRoot(env, 'XDG_CONFIG_HOME', home, '.config'), 'opencode'),
+      credentials: state,
+      transcripts: state,
+    }
+  },
+  // The XDG base dirs OpenCode keeps its data, config, state and cache under.
+  // A named account drops the operator's values (POD-6604), so its folders
+  // derive from its HOME; XDG_RUNTIME_DIR and the system search paths stay.
+  environment: {
+    removeInherited: [],
+    operatorSelectors: ['XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'],
+  },
 
   inventory: {
     executable: {
@@ -66,12 +82,9 @@ export const opencodeManifest: AgentManifest = {
       fallbackCandidates: (machineHome) => [join(machineHome, '.opencode', 'bin', 'opencode')],
       versionArgs: ['--version'],
     },
-    // DELIBERATELY a bare name, unlike every other cmd in this file: the daemon binds
-    // this one to the current generation's verified executable and command environment
-    // (apps/daemon/src/control/session.ts, above bindHarnessLaunch). Resolving here
-    // would duplicate that snapshot and let login drift from the executable the rest of
-    // the launch uses. Not an oversight — POD-2914.
-    loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
+    // argv only, like every declaration here: the daemon binds it to the login
+    // account's harness context (POD-2914, POD-6536).
+    loginCommand: supported({ args: ['auth', 'login'] }),
     loginCommandProbe: unsupported(
       'OpenCode login detection still uses its local authentication database',
     ),
@@ -103,7 +116,7 @@ export const opencodeManifest: AgentManifest = {
 
   launch(opts) {
     const databasePath = opencodeDbPathForSession({
-      homeDir: opts.homeDir,
+      homeDir: opts.harnessContext.home,
       podiumSessionId: opts.podiumSessionId,
       resumeValue: opts.resume?.value,
     })
@@ -123,7 +136,6 @@ export const opencodeManifest: AgentManifest = {
       })
     }
     const base = {
-      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         // Headed TUI always runs in auto permissions mode: auto-approve
         // permissions that are not explicitly denied (`opencode --help`).
@@ -153,7 +165,9 @@ export const opencodeManifest: AgentManifest = {
     let config: Record<string, unknown>
     try {
       config = JSON.parse(
-        opts.env?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? '{}',
+        opts.env?.OPENCODE_CONFIG_CONTENT ??
+          opts.harnessContext.env.OPENCODE_CONFIG_CONTENT ??
+          '{}',
       ) as Record<string, unknown>
     } catch {
       throw new Error('malformed OPENCODE_CONFIG_CONTENT — refusing to discard existing config')
@@ -179,7 +193,6 @@ export const opencodeManifest: AgentManifest = {
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return {
-      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         'run',
         ...(model ? ['-m', model] : []),
@@ -254,8 +267,7 @@ export const opencodeManifest: AgentManifest = {
          * generation is not reset.
          */
         parkOnRelease: true,
-        launch: ({ cwd, conversation, endpoint, env }) => ({
-          cmd: resolveOpencodeBin(undefined, env),
+        launch: ({ cwd, conversation, endpoint }) => ({
           args: ['attach', endpoint.address ?? '', '--session', conversation],
           cwd,
           env: {
@@ -284,8 +296,7 @@ export const opencodeManifest: AgentManifest = {
         clientTerminal: supported({
           labelToken: 'oc2',
           parkOnRelease: true,
-          launch: ({ cwd, conversation, endpoint, env }) => ({
-            cmd: resolveOpencode2Bin(undefined, env),
+          launch: ({ cwd, conversation, endpoint }) => ({
             args: ['mini', '--server', endpoint.address ?? '', '--session', conversation],
             cwd,
 
@@ -348,7 +359,6 @@ export const opencodeManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: resolveOpencodeBin(undefined, opts.env),
         args: [
           'run',
           '--format',
@@ -363,7 +373,9 @@ export const opencodeManifest: AgentManifest = {
   }),
 
   state: supported(opencodeStateProvider),
-  instrumentation: unsupported('opencode posts no hook payloads; observation is poll-only over its event stream and store'),
+  instrumentation: unsupported(
+    'opencode posts no hook payloads; observation is poll-only over its event stream and store',
+  ),
   stateChannels: [
     {
       source: 'poll',
@@ -383,7 +395,7 @@ export const opencodeManifest: AgentManifest = {
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.loadOpencodeSource ? { loadSource: input.loadOpencodeSource } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      homeDir: input.account.home,
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
       onModel: (model, effort) => host.onModel?.(model, effort),
@@ -397,7 +409,9 @@ export const opencodeManifest: AgentManifest = {
 
   transcript: opencodeTranscript,
 
-  composer: unsupported('opencode has no composer scrape rules; sessions drive through its server protocol'),
+  composer: unsupported(
+    'opencode has no composer scrape rules; sessions drive through its server protocol',
+  ),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
 

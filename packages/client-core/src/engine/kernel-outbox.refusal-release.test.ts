@@ -12,7 +12,8 @@
  *   wait for an unrelated trigger.
  */
 
-import { asMutationId, asSessionId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, asUserId, issueUserStateRowId } from '@podium/model'
+import { SyncSubmitRefusedError } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -115,6 +116,77 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('server refusal explanations', () => {
+  it.each([
+    'kernel',
+    'executor',
+  ] as const)('keeps the message and paths in the toast and durable recovery entry through the %s', async (path) => {
+    const refusal = {
+      kind: 'invalid' as const,
+      message: 'Choose a machine before starting the task.',
+      details: ['input.machineId'],
+    }
+    const api = {
+      sync: {
+        submit: {
+          mutate: vi.fn(async () => {
+            if (path === 'executor') throw new SyncSubmitRefusedError('effects.create', refusal)
+            return { outcome: 'rejected', refusal }
+          }),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const { outbox, errors } = await open(api)
+    try {
+      await outbox.enqueue('effectCreate', {
+        id: 'eff_00000000-0000-4000-8000-000000000001',
+        kind: 'issue.begin',
+        target: { kind: 'issue', id: 'iss_task' },
+        input: { text: 'Keep my task instructions.' },
+      })
+      await vi.waitFor(() => expect(outbox.deadLetters()).toHaveLength(1))
+      expect(outbox.deadLetters()[0]?.reason).toEqual({
+        code: 'invalid',
+        message: refusal.message,
+        details: refusal.details,
+      })
+      expect(errors).toEqual([
+        'Couldn’t start the task — Choose a machine before starting the task.',
+      ])
+    } finally {
+      outbox.dispose()
+    }
+  })
+
+  it('explains a refused Start even when no prose is parked', async () => {
+    const api = {
+      sync: {
+        submit: {
+          mutate: async () => ({
+            outcome: 'rejected',
+            refusal: { kind: 'conflict', message: 'This task is already starting.' },
+          }),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const { outbox, errors } = await open(api)
+    try {
+      await outbox.enqueue('effectCreate', {
+        id: 'eff_00000000-0000-4000-8000-000000000001',
+        kind: 'issue.begin',
+        target: { kind: 'issue', id: 'iss_task' },
+        input: { sessionId: 's-1' },
+      })
+      await vi.waitFor(() =>
+        expect(errors).toEqual(['Couldn’t start the task — This task is already starting.']),
+      )
+      expect(outbox.deadLetters()).toEqual([])
+    } finally {
+      outbox.dispose()
+    }
+  })
+})
+
 describe("POD-5415's sequence through the app's queue", () => {
   it('parks the refused rename with its text and sends the read receipt and the next rename', async () => {
     const { api, sends } = authority((sent) =>
@@ -130,7 +202,13 @@ describe("POD-5415's sequence through the app's queue", () => {
       },
     )
     await vi.waitFor(() => expect(outbox.deadLetters()).toHaveLength(1))
-    await outbox.enqueue('issueMarkRead', { id: 'iss_90f8' })
+    // A read mark is a record edit (POD-6404); this server has no sync.submit,
+    // so it goes out as the old `issues.markRead`.
+    await outbox.enqueue('recordEdit', {
+      kind: 'issueUserState',
+      id: issueUserStateRowId(asUserId('u-reader'), asIssueId('iss_90f8')),
+      patch: { readAt: '2026-11-05T00:00:00.000Z' },
+    })
     await outbox.enqueue('issueUpdate', { id: 'iss_90f8', patch: { title: 'B' } })
 
     await vi.waitFor(() => expect(outbox.pending()).toEqual([]))
@@ -189,7 +267,7 @@ describe('a release outside a drain pass starts a drain', () => {
   })
 })
 
-describe("a refused task base branch (POD-2153)", () => {
+describe('a refused task base branch (POD-2153)', () => {
   // The task page awaits only the enqueue: a server refusal arrives later, here.
   it('surfaces as the outbox recovery notice naming the branch change', async () => {
     const refused = (): Error =>
@@ -199,7 +277,9 @@ describe("a refused task base branch (POD-2153)", () => {
     const { api } = authority(() => refused())
     const { outbox, errors } = await open(api)
     await outbox.enqueue('issueUpdate', { id: 'iss_2153', patch: { parentBranch: 'nope' } })
-    await vi.waitFor(() => expect(errors).toEqual(['Couldn’t save issue branch']))
+    await vi.waitFor(() =>
+      expect(errors).toEqual(["Couldn’t save issue branch — Branch 'nope' does not exist"]),
+    )
     outbox.dispose()
   })
 })

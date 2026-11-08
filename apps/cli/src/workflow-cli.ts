@@ -2,15 +2,18 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
-import type {
-  ApprovalOp,
-  WorkflowGitObservation,
-  WorkflowNextActionWire,
-  WorkflowRunWire,
-  WorkflowStep,
-  WorkflowWire,
+import {
+  type ApprovalOp,
+  type SyncSubmitTransport,
+  submitNow,
+  type WorkflowGitObservation,
+  type WorkflowNextActionWire,
+  type WorkflowRunWire,
+  type WorkflowStep,
+  type WorkflowWire,
 } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { requestApproval } from './approval-cli'
 import {
   declareFlags,
   type FlagDeclaration,
@@ -18,10 +21,9 @@ import {
   parseFlags,
   withUnknownFlagAs,
 } from './argv'
-import { requestApproval } from './approval-cli'
 import { makeOperatorIssueClient } from './operator-client'
 
-type WorkflowClient = Pick<IssueTrpc, 'workflows'>
+type WorkflowClient = Pick<IssueTrpc, 'workflows'> & SyncSubmitTransport
 type ArgValue = string | boolean
 
 export class WorkflowCliError extends Error {}
@@ -265,7 +267,17 @@ async function call(
   query = false,
 ): Promise<unknown> {
   const endpoint = client.workflows[proc]
-  return query ? endpoint.query(input) : endpoint.mutate(input)
+  if (query) return endpoint.query(input)
+  // A write goes on the sync write entry point (ADR 12 D2, POD-6418), over the
+  // operator's tRPC or the agent's relay alike. An advance's own `mutationId`
+  // is the envelope's, so a retried checkpoint is one write.
+  // LEGACY(remove-after: 2027-03): an older server, without `sync.submit` or
+  // without this command on it, takes the command's own route.
+  const mutationId = typeof input.mutationId === 'string' ? input.mutationId : undefined
+  return await submitNow(client, `workflows.${proc}`, input, {
+    ...(mutationId !== undefined ? { mutationId } : {}),
+    legacy: async () => await endpoint.mutate(input),
+  })
 }
 
 async function approved(deps: WorkflowCliDeps, op: ApprovalOp): Promise<string> {

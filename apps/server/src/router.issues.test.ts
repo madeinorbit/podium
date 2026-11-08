@@ -44,7 +44,10 @@ describe('issues router inputs (P1)', () => {
     for (const type of ['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
       expect(inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }).type).toBe(type)
     for (const type of ['blocks', 'waits-on', 'duplicate', 'parent-child', 'tracks'])
-      expect(() => inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }), type).toThrow()
+      expect(
+        () => inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }),
+        type,
+      ).toThrow()
   })
 
   // POD-1342: the CLI's truncation footer tells the reader to raise these, so
@@ -245,9 +248,22 @@ describe('issues.* subtree scope (P1a)', () => {
     // Asks as itself (server-authoritative default); that session isn't live in
     // this registry, so delivery below must fail and preserve the flag.
     await c.issues.setNeedsHuman({ id: A.id, question: 'merge?' })
-    // The asking session doesn't exist in this registry → delivery fails →
-    // the pending question must survive.
+    // The answer is a `session.answer` record (POD-6415) whose run re-reads its
+    // writer: an agent writer whose session is gone may no longer act, and
+    // nothing is delivered.
     await expect(c.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
+      /may no longer/,
+    )
+    // A person answers; the asking session doesn't exist in this registry →
+    // delivery fails → the pending question must survive.
+    const human = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    })
+    await expect(human.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
       /answer not delivered/,
     )
     const w = (await c.issues.get({ id: A.id })) as { needsHuman: boolean }
@@ -275,8 +291,8 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
-    const i = await registry.issues.crud.create({ repoPath: '/r', title: 'W', startNow: false })
-    await registry.issues.crud.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const i = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'W', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
     const wt = (await registry.issues.reports.get(i.id))!.worktreePath as string
 
     const { sessionId: sid } = await registry.modules.sessions.createSession({
@@ -304,7 +320,9 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     // No session behind the id → no actor to name.
-    expect(await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
+    expect(
+      await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session')),
+    ).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })
@@ -497,7 +515,12 @@ describe('issues.mail* (agent mail #103)', () => {
   it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
     const op = callerWith(OPERATOR)
     const mine = await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'mine')
-    const theirs = await seedMailboxRow(registry.sessionStore, asIssueId(B.id), 'operator', 'theirs')
+    const theirs = await seedMailboxRow(
+      registry.sessionStore,
+      asIssueId(B.id),
+      'operator',
+      'theirs',
+    )
     const c = scopedToA()
     const r = await c.issues.mailClaim({ messageId: mine.id })
     expect(r.claimed).toBe(true)

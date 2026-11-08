@@ -3,6 +3,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
+import { superagentWrites } from '@/features/superagent/superagent-writes'
 import { Button } from '@/components/ui/button'
 import { useFeature } from '@/lib/use-feature'
 import { type AccountView, RoleBackendEditor, Section } from './shared'
@@ -75,7 +76,7 @@ function RestartSuperagentButton(): JSX.Element {
           setDone(false)
           setError(null)
           try {
-            await trpc.superagent.restart.mutate({ threadId: 'global' })
+            await superagentWrites(trpc).restart.mutate({ threadId: 'global' })
             setDone(true)
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e))

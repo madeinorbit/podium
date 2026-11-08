@@ -5,10 +5,17 @@
  *
  * `credential` never leaves the server. Clients see only `identity` (masked),
  * via accountViews().
+ *
+ * PER USER, SHARED ONLY EXPLICITLY (POD-6360, user decision 2026-11-04). A row
+ * belongs to one user (`ownerUserId`) and answers one public account id
+ * (`accountKey`, the `managed:<provider>` a role selects); there is at most one
+ * row per (owner, account id). A key reaches another user's agents only through
+ * `sharedWith`, which its owner (or an admin) sets: never by default, never as a
+ * fallback. `id` is the storage key and is never shown to a client.
  */
 
 import { type AccountId, asAccountId, type MachineId, type UserId } from '@podium/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -18,13 +25,16 @@ import {
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
+/** The grantee that means every user of this instance. */
+export const SHARED_WITH_EVERYONE = '*'
+
 export interface ManagedAccountRow {
-  /** The account id members select and sessions record (`managed:anthropic`).
-   *  Unique per OWNER, not per instance (POD-6300). */
+  /** Storage key on `own`/`ownedBy`; the public account id on `getFor`/`listFor`. */
   id: AccountId
-  /** The member this connection belongs to. Nobody else lists, edits or runs
-   *  with it, admins included (design §2.5). */
+  /** Whose key this is. */
   ownerUserId: UserId
+  /** The public account id a role selects (`managed:anthropic`). */
+  accountKey: AccountId
   provider: string
   kind: 'api-key' | 'oauth'
   credential: string
@@ -33,6 +43,49 @@ export interface ManagedAccountRow {
    *  'ambient' = injected into every spawn (#214, GitHub). */
   scope: 'role' | 'ambient'
   createdAt: number
+  /** Who else may use it: user ids, or {@link SHARED_WITH_EVERYONE}. Empty = private. */
+  sharedWith: readonly string[]
+}
+
+/**
+ * One stored key as an admin's `accounts.keys` sees it (POD-6390): whose it is
+ * and who may use it, with the masked identity `connect` stored. There is no
+ * credential field, and the query behind it never selects that column.
+ */
+export interface ManagedKeySummary {
+  ownerUserId: UserId
+  accountKey: AccountId
+  provider: string
+  kind: 'api-key' | 'oauth'
+  identity: string
+  createdAt: number
+  sharedWith: readonly string[]
+}
+
+/** What a connect writes. Sharing is not part of it: a reconnect keeps it. */
+export type ManagedAccountWrite = Omit<ManagedAccountRow, 'id' | 'sharedWith'>
+
+/**
+ * `shared_with` as stored: NULL, or a JSON array of strings. FAILS CLOSED: a
+ * value this build cannot read shares with nobody, so an unreadable share can
+ * only deny.
+ */
+function parseSharedWith(raw: string | null): readonly string[] {
+  if (raw === null) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (grantee): grantee is string => typeof grantee === 'string' && grantee !== '',
+    )
+  } catch {
+    return []
+  }
+}
+
+const encodeSharedWith = (sharedWith: readonly string[]): string | null => {
+  const unique = [...new Set(sharedWith)].sort()
+  return unique.length === 0 ? null : JSON.stringify(unique)
 }
 
 /**
@@ -45,61 +98,136 @@ export interface ManagedAccountRow {
  * capability rather than the broader one. They are not the driver-returned-
  * `unknown` casts the conversion removes.
  *
- * Only rows with an owner reach here: every query below names the owner.
+ * A row with no owner or no account id is nobody's (an older binary wrote it
+ * after a rollback, or the store had no admin to own it at migration): it is
+ * dropped, so it is never listed and never injected.
  */
-function toRow(r: typeof accounts.$inferSelect, ownerUserId: UserId): ManagedAccountRow {
+function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow | undefined {
+  const accountKey = r.accountKey ?? r.ref
+  if (!r.ownerUserId || !accountKey) return undefined
   return {
-    id: r.ref ?? r.id,
-    ownerUserId,
+    id: r.id,
+    ownerUserId: r.ownerUserId,
+    accountKey,
     provider: r.provider,
     kind: r.kind === 'oauth' ? 'oauth' : 'api-key',
     credential: r.credential,
     identity: r.identity,
     scope: r.scope === 'ambient' ? 'ambient' : 'role',
     createdAt: r.createdAt,
+    sharedWith: parseSharedWith(r.sharedWith),
   }
 }
 
-/** The physical key of a row connected after owners existed: unique per owner,
- *  and never equal to a bare ref, so it cannot collide with a pre-owner row. */
-const physicalId = (ownerUserId: UserId, ref: AccountId): AccountId =>
-  asAccountId(`${ref}@${ownerUserId}`)
+const rowsOf = (rows: readonly (typeof accounts.$inferSelect)[]): ManagedAccountRow[] =>
+  rows.flatMap((r) => {
+    const row = toRow(r)
+    return row ? [row] : []
+  })
 
-// Every query this repository runs, prepared once per store [POD-6147]. EVERY
-// ONE NAMES THE OWNER: there is no instance-wide read of a credential.
+/** The storage key of a NEW row. Rows from before POD-6360 keep their old id. */
+const storageIdFor = (ownerUserId: UserId, accountKey: AccountId): AccountId =>
+  asAccountId(`${accountKey}@${ownerUserId}`)
 
-const ownerIs = () => eq(accounts.ownerUserId, param(accounts.ownerUserId, 'owner'))
-const refIs = () => eq(accounts.ref, param(accounts.ref, 'ref'))
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const accountsByCreation = prepared((db: StoreDrizzle) =>
+  db.select().from(accounts).orderBy(asc(accounts.createdAt), asc(accounts.id)).prepare(),
+)
+
+/** Every owned row WITHOUT its credential, for the admin's keys read. */
+const keySummaries = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      ownerUserId: accounts.ownerUserId,
+      accountKey: accounts.accountKey,
+      provider: accounts.provider,
+      kind: accounts.kind,
+      identity: accounts.identity,
+      createdAt: accounts.createdAt,
+      sharedWith: accounts.sharedWith,
+    })
+    .from(accounts)
+    .where(and(isNotNull(accounts.ownerUserId), isNotNull(accounts.accountKey)))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .prepare(),
+)
 
 const accountsOfOwner = prepared((db: StoreDrizzle) =>
-  db.select().from(accounts).where(ownerIs()).orderBy(asc(accounts.createdAt)).prepare(),
+  db
+    .select()
+    .from(accounts)
+    .where(eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .prepare(),
 )
 
-const accountOfOwner = prepared((db: StoreDrizzle) =>
-  db.select().from(accounts).where(and(ownerIs(), refIs())).prepare(),
+const ownAccount = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
+        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+      ),
+    )
+    .prepare(),
 )
 
-const accountPlaceholders = {
+/** Every row of one account id that its owner shares with somebody. */
+const sharedAccountsOfKey = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+        isNotNull(accounts.sharedWith),
+      ),
+    )
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .prepare(),
+)
+
+/** Every row someone shares, for the list's "shared with you" rows. */
+const sharedAccounts = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(accounts)
+    .where(isNotNull(accounts.sharedWith))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .prepare(),
+)
+
+const connectPlaceholders = {
   id: sql.placeholder('id'),
+  ownerUserId: sql.placeholder('ownerUserId'),
+  accountKey: sql.placeholder('accountKey'),
   provider: sql.placeholder('provider'),
   kind: sql.placeholder('kind'),
   credential: sql.placeholder('credential'),
   identity: sql.placeholder('identity'),
   scope: sql.placeholder('scope'),
   createdAt: sql.placeholder('createdAt'),
-  ownerUserId: sql.placeholder('owner'),
-  ref: sql.placeholder('ref'),
+  ref: sql.placeholder('accountKey'),
 }
 
-/** A reconnect replaces the owner's credential in place: the row and its
- *  physical id stay, and so do the machines it was sent to. */
-const upsertAccount = prepared((db: StoreDrizzle) =>
+/**
+ * One row per (owner, account id): a reconnect REPLACES the stored material in
+ * the owner's row (whatever its storage key, including a pre-POD-6360 one) and
+ * leaves its sharing as it was. The conflict target is the
+ * `accounts_owner_account_key` unique index; `id` is not in the `set`, so the
+ * row keeps its storage key.
+ */
+const connectAccount = prepared((db: StoreDrizzle) =>
   db
     .insert(accounts)
-    .values(accountPlaceholders)
+    .values(connectPlaceholders)
     .onConflictDoUpdate({
-      target: [accounts.ownerUserId, accounts.ref],
+      target: [accounts.ownerUserId, accounts.accountKey],
       set: {
+        ref: sql.placeholder('accountKey'),
         provider: sql.placeholder('provider'),
         kind: sql.placeholder('kind'),
         credential: sql.placeholder('credential'),
@@ -111,8 +239,31 @@ const upsertAccount = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAccount = prepared((db: StoreDrizzle) =>
-  db.delete(accounts).where(and(ownerIs(), refIs())).prepare(),
+const deleteOwnAccount = prepared((db: StoreDrizzle) =>
+  db
+    .delete(accounts)
+    .where(
+      and(
+        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
+        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+      ),
+    )
+    .returning({ id: accounts.id })
+    .prepare(),
+)
+
+const shareOwnAccount = prepared((db: StoreDrizzle) =>
+  db
+    .update(accounts)
+    .set({ sharedWith: sql.placeholder('sharedWith') })
+    .where(
+      and(
+        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
+        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+      ),
+    )
+    .returning({ id: accounts.id })
+    .prepare(),
 )
 
 const deleteSendsOf = prepared((db: StoreDrizzle) =>
@@ -121,6 +272,9 @@ const deleteSendsOf = prepared((db: StoreDrizzle) =>
     .where(eq(accountMachineSends.accountId, param(accountMachineSends.accountId, 'accountId')))
     .prepare(),
 )
+
+const ownerIs = () => eq(accounts.ownerUserId, param(accounts.ownerUserId, 'owner'))
+const refIs = () => eq(accounts.accountKey, param(accounts.accountKey, 'ref'))
 
 const sentMachines = prepared((db: StoreDrizzle) =>
   db
@@ -292,50 +446,125 @@ export class AccountsRepository {
     return this.rootDb
   }
 
-  /** The owner's connections, oldest first. Nobody else's are reachable. */
+  /** The owner's public account refs, for the custody and discovery APIs. */
   async listFor(ownerUserId: UserId): Promise<ManagedAccountRow[]> {
-    return (await accountsOfOwner(this.db).all({ owner: ownerUserId })).map((row) =>
-      toRow(row, ownerUserId),
-    )
+    return (await this.ownedBy(ownerUserId)).map((row) => ({ ...row, id: row.accountKey }))
   }
 
-  /** The owner's connection with this account id, or undefined. Another
-   *  member's row with the same id is not an answer. */
+  /** The owner's connection only; neither admin rights nor a share changes this read. */
   async getFor(ownerUserId: UserId, id: string): Promise<ManagedAccountRow | undefined> {
-    const row = await accountOfOwner(this.db).get({ owner: ownerUserId, ref: asAccountId(id) })
-    return row ? toRow(row, ownerUserId) : undefined
+    const row = await this.own(ownerUserId, asAccountId(id))
+    return row ? { ...row, id: row.accountKey } : undefined
+  }
+
+  /** The custody API names the public ref as `id`; connecting writes both aliases. */
+  async upsert(row: Omit<ManagedAccountRow, 'accountKey' | 'sharedWith'>): Promise<void> {
+    await this.connect({ ...row, accountKey: row.id })
+  }
+
+  /** Every owned row, whoever owns it. For audits and tests; never a client answer. */
+  async list(): Promise<ManagedAccountRow[]> {
+    return rowsOf(await accountsByCreation(this.db).all())
   }
 
   /**
-   * Connect, or reconnect, the owner's account `row.id`. One live credential per
-   * (owner, account id): a reconnect replaces the stored material rather than
-   * adding a second row. The insert names every column it sets, and the conflict
-   * target is the `(owner_user_id, ref)` unique index.
+   * Every owned key without its credential, oldest first: what an admin may see
+   * of other users' keys. A row with no owner is nobody's and is left out, as
+   * {@link toRow} drops it.
    */
-  async upsert(row: ManagedAccountRow): Promise<void> {
-    await upsertAccount(this.db).run({
-      id: physicalId(row.ownerUserId, row.id),
+  async summaries(): Promise<ManagedKeySummary[]> {
+    return (await keySummaries(this.db).all()).flatMap((r) =>
+      r.ownerUserId && r.accountKey
+        ? [
+            {
+              ownerUserId: r.ownerUserId,
+              accountKey: r.accountKey,
+              provider: r.provider,
+              kind: r.kind === 'oauth' ? ('oauth' as const) : ('api-key' as const),
+              identity: r.identity,
+              createdAt: r.createdAt,
+              sharedWith: parseSharedWith(r.sharedWith),
+            },
+          ]
+        : [],
+    )
+  }
+
+  /** One user's own keys. */
+  async ownedBy(ownerUserId: UserId): Promise<ManagedAccountRow[]> {
+    return rowsOf(await accountsOfOwner(this.db).all({ ownerUserId }))
+  }
+
+  /** One user's own key for one account id. */
+  async own(ownerUserId: UserId, accountKey: AccountId): Promise<ManagedAccountRow | undefined> {
+    const row = await ownAccount(this.db).get({ ownerUserId, accountKey })
+    return row ? toRow(row) : undefined
+  }
+
+  /**
+   * The keys for one account id that OTHER users share with this user, by name
+   * or with everyone, oldest first. The caller's own key is not among them.
+   */
+  async sharedWith(userId: UserId, accountKey: AccountId): Promise<ManagedAccountRow[]> {
+    return rowsOf(await sharedAccountsOfKey(this.db).all({ accountKey })).filter(
+      (row) => row.ownerUserId !== userId && isSharedWith(row, userId),
+    )
+  }
+
+  /** Every key other users share with this user, oldest first. */
+  async sharedWithUser(userId: UserId): Promise<ManagedAccountRow[]> {
+    return rowsOf(await sharedAccounts(this.db).all()).filter(
+      (row) => row.ownerUserId !== userId && isSharedWith(row, userId),
+    )
+  }
+
+  /**
+   * Store (or replace) the owner's key for one account id. A new row gets a
+   * storage key of its own; an existing one keeps its key and its sharing.
+   */
+  async connect(row: ManagedAccountWrite): Promise<void> {
+    await connectAccount(this.db).run({
+      id: storageIdFor(row.ownerUserId, row.accountKey),
+      ownerUserId: row.ownerUserId,
+      accountKey: row.accountKey,
       provider: row.provider,
       kind: row.kind,
       credential: row.credential,
       identity: row.identity,
       scope: row.scope,
       createdAt: row.createdAt,
-      owner: row.ownerUserId,
-      ref: row.id,
     })
+  }
+
+  /** Delete the owner's key for one account id. False when they had none. */
+  async disconnect(ownerUserId: UserId, accountKey: AccountId): Promise<boolean> {
+    return await this.createOrJoinTransaction(async () => {
+      const row = await ownAccount(this.db).get({ ownerUserId, accountKey })
+      if (!row) return false
+      await deleteSendsOf(this.db).run({ accountId: row.id })
+      return (await deleteOwnAccount(this.db).all({ ownerUserId, accountKey })).length > 0
+    })
+  }
+
+  /**
+   * Replace who the owner shares one key with. An empty list makes it private.
+   * False when the owner has no key for that account id.
+   */
+  async share(
+    ownerUserId: UserId,
+    accountKey: AccountId,
+    sharedWith: readonly string[],
+  ): Promise<boolean> {
+    const encoded = encodeSharedWith(sharedWith)
+    return (
+      (await shareOwnAccount(this.db).all({ ownerUserId, accountKey, sharedWith: encoded }))
+        .length > 0
+    )
   }
 
   /** Remove the owner's connection (and every record of where it was sent). */
   async removeFor(ownerUserId: UserId, id: string): Promise<void> {
-    // The sends go with the credential explicitly, not only by the foreign
-    // key's cascade, which a connection with foreign keys off would skip.
-    await this.createOrJoinTransaction(async () => {
-      const row = await accountOfOwner(this.db).get({ owner: ownerUserId, ref: asAccountId(id) })
-      if (!row) return
-      await deleteSendsOf(this.db).run({ accountId: row.id })
-      await deleteAccount(this.db).run({ owner: ownerUserId, ref: asAccountId(id) })
-    })
+    await this.disconnect(ownerUserId, asAccountId(id))
   }
 
   /** Record that the owner sent this connection to a machine (idempotent). A
@@ -347,7 +576,7 @@ export class AccountsRepository {
     sentAt: string,
   ): Promise<void> {
     await this.createOrJoinTransaction(async () => {
-      const row = await accountOfOwner(this.db).get({ owner: ownerUserId, ref: asAccountId(id) })
+      const row = await ownAccount(this.db).get({ ownerUserId, accountKey: asAccountId(id) })
       if (row) await insertSend(this.db).run({ accountId: row.id, machineId, sentAt })
     })
   }
@@ -422,3 +651,7 @@ export class AccountsRepository {
     }))
   }
 }
+
+/** Whether a row's owner shares it with this user (by name or with everyone). */
+export const isSharedWith = (row: ManagedAccountRow, userId: UserId): boolean =>
+  row.sharedWith.includes(SHARED_WITH_EVERYONE) || row.sharedWith.includes(userId)

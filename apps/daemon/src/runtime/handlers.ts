@@ -21,7 +21,7 @@
 
 import { isDriverRefusal } from '@podium/harness/driver/host'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
-import type { SessionId } from '@podium/model'
+import { hasTurnEnded, type SessionId } from '@podium/model'
 import type {
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
@@ -272,7 +272,7 @@ export const runtimeHandlers: Pick<
     // `interrupt()` REQUESTS a fence and returns nothing to await, so its reply
     // is the lifecycle result shape: the request was accepted, or it was refused.
     // The fence itself arrives — or does not — on the causal stream.
-    const answer = (result: { ok: true } | { reason: 'not_running' }): void => {
+    const answer = (result: { ok: true } | { reason: 'not_running' | 'turn_ended' }): void => {
       ctx.send({
         type: 'runtimeLifecycleResult',
         requestId: msg.requestId,
@@ -289,6 +289,15 @@ export const runtimeHandlers: Pick<
       void handle.cancelDelivery(msg.cancelRowId).then((result) => {
         ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
       }).catch(() => answer({ reason: 'not_running' }))
+      return
+    }
+    // TURN-SCOPED (POD-6397): this daemon owns the turn marker, so it alone
+    // says whether the named turn is over. Over means nothing is sent: a late
+    // or replayed stop never reaches the turn that runs now. A session whose
+    // state was never seen here cannot say, and gets the stop.
+    const turnState = ctx.sessions.get(msg.sessionId)?.turnState
+    if (msg.turn !== undefined && turnState !== undefined && hasTurnEnded(turnState, msg.turn)) {
+      answer({ reason: 'turn_ended' })
       return
     }
     void handle

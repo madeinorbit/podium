@@ -79,40 +79,20 @@ interface AcceptedFinding {
 
 const ACCEPTED: readonly AcceptedFinding[] = [
   {
-    key: 'node:fs/promises.rm@apps/server/src/application/issue-attach-orchestrator.ts:26',
+    key: 'node:fs/promises.rm@apps/server/src/application/issue-attach-orchestrator.ts:27',
     why: "the attach orchestrator's span reaches IssueArtifactStore.removeIssue through draft cleanup, and an rm(recursive) is not something a rollback takes back. This is the same capability as the four fire-and-forget sites the ledger §F left unsettled; POD-3260 could not demonstrate it, and this is the demonstration.",
   },
   {
-    key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated@apps/server/src/application/issue-attach-orchestrator.ts:26',
+    key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated@apps/server/src/application/issue-attach-orchestrator.ts:27',
     why: "the analytics publication hook, whose own doc says it is 'for a composition root that publishes it'. Reached from issue creation inside the attach span.",
   },
   {
-    key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueClosed@apps/server/src/application/issue-attach-orchestrator.ts:26',
+    key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueClosed@apps/server/src/application/issue-attach-orchestrator.ts:27',
     why: 'starts session teardown, which tears down processes outside this one, from inside the attach span. STILL CALLED in the span, but no longer ACTING in it: POD-3806 moved the drop one level down, so `IssueSessionLifecycle.stopClosedIssue` registers the teardown with afterCommit and it runs once the span commits. The line stays because the call is what the graph can see, and the deferral is a fact about the callee.',
   },
   {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: 'Authority.finalize publishes immediately when AuthorityDeps.postCommit is UNSET, and relay.ts sets it — ledger §A row 3. The immediate branch is real code the type system cannot tell is unreachable in the server, so the lint sees it and this line records why it stands.',
-  },
-  {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:225',
-    why: "The chat message feed's boot reconcile [POD-4764]: `Ledger.reconcile` inside `MessageFeedDeps.transact` reaches Authority.finalize, whose immediate-delivery arm is the same one the two rows around this adjudicate — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the reconcile's commit. The reconcile is in a span on purpose: the open set it reads, the changes it appends and the capture it turns on must be one unit, or a write between the read and the turn-on would be neither reconciled nor captured.",
-  },
-  {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:376',
-    why: "The chat message feed's retire of an ended session's window [POD-4814]: `Ledger.capture` inside `MessageFeedDeps.transact` reaches Authority.finalize, whose immediate-delivery arm is the one the reconcile row above adjudicates — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the retire's commit. The retire is in a span on purpose: it re-reads which sessions are still live and removes the rest's records as one unit, so a session resumed between the read and the removal cannot lose the window it is typing into.",
-  },
-  {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@packages/sync/src/authority/authority.ts:250',
-    why: "THE SAME BRANCH, from the Authority's OWN span rather than through the attach orchestrator's — `deps.transact` at authority.ts:247, finalize at :562, broadcast at :634, `subscription.deliver` at :643. Adjudicated against ledger §A row 3 and it stands for the reason the row itself gives: `AuthorityDeps.postCommit` is OPTIONAL, and unset MEANS immediate because that is what every client adapter and every unit test wants. relay.ts is what sets it in the server, so the immediate arm is unreachable there — a wiring fact, which is exactly the kind of fact a type checker cannot have. Making the arm unreachable in the type system would mean making the port required, which row 3 rules out in as many words. Two rows for one code path is not duplication: an ACCEPTED key names a capability AND the span root that reaches it, so the second root has to be adjudicated on its own or it reads as a new finding, which is what it did at the tip [POD-3518].",
-  },
-  {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/issues/service/core.ts:883',
-    why: "The issue git-state reconcile [POD-6158]: `Ledger.reconcile` inside `SessionStore.transact` reaches Authority.finalize, whose immediate-delivery arm is the one the message feed's reconcile row adjudicates — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the commit. The reconcile is in a span on purpose: it reads the observed issues from the database (no longer from the issue map) and diffs them as one unit, so a delete that commits between the read and the diff cannot have its git state re-published.",
-  },
-  {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/issues/service/core.ts:926',
-    why: "The issue projection reconcile [POD-6158]: the same arm, reached the same way, unreachable in the server for the same reason. The span is there for the same reason too: every issue is read from the database a page at a time (no longer from the issue map) and diffed as one unit, so a write that commits between two pages, or between the read and the diff, cannot be undone by a stale projection.",
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@packages/sync/src/authority/authority.ts:302',
+    why: "THE IMMEDIATE-DELIVERY BRANCH, from the Authority's OWN span. (Its twins through the attach orchestrator, the message feed and the issue reconciles went with POD-6592: those callers now hold a scoped `LedgerWriter`, classified contained in span-effect-graph.ts for this same reason.) `deps.transact` at authority.ts:302, finalize at :672, broadcast at :726, `subscription.deliver` at :735. Adjudicated against ledger §A row 3 and it stands for the reason the row itself gives: `AuthorityDeps.postCommit` is OPTIONAL, and unset MEANS immediate because that is what every client adapter and every unit test wants. relay.ts is what sets it in the server, so the immediate arm is unreachable there — a wiring fact, which is exactly the kind of fact a type checker cannot have. Making the arm unreachable in the type system would mean making the port required, which row 3 rules out in as many words. Two rows for one code path is not duplication: an ACCEPTED key names a capability AND the span root that reaches it, so the second root has to be adjudicated on its own or it reads as a new finding, which is what it did at the tip [POD-3518].",
   },
 ]
 

@@ -10,6 +10,7 @@
  * as it did when the issue map was the truth.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, type IssueGitState } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -99,7 +100,7 @@ describe('full-truth reconcile over the database', () => {
     const store = await seededStore([], ['/a'])
     stores.push(store)
     await store.transact(async () => {
-      for (const row of rows) await store.issues.upsertIssue(rowOf(row, '/a', store.hostMachineId))
+      for (const row of rows) await store.issues.upsertIssue(fixtureWriteScope(), rowOf(row, '/a', store.hostMachineId))
     })
     const sizes: number[] = []
     for await (const page of store.issues.issueRowPages()) sizes.push(page.length)

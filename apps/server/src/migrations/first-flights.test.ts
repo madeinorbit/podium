@@ -1,13 +1,15 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asUserId, type LayoutWire, layoutRowId } from '@podium/model'
+import { asMutationId, asUserId, type LayoutWire, layoutRowId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { Ledger } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
+import type { WriteContexts } from '../write-contexts'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -137,7 +139,7 @@ it('publishes upgraded tip rows before scoped bootstrap and keeps them through u
   try {
     // Neither row has a ledger entry yet: one was inserted before upgrade and
     // the other is an ordinary durable layout row written without the service.
-    await store.layout.set(otherId, 'dockTab', 'files', '2026-01-01T00:00:00Z')
+    await store.layout.set(fixtureWriteScope(), otherId, 'dockTab', 'files', '2026-01-01T00:00:00Z')
     registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       rehearseBoot: true,
@@ -167,7 +169,15 @@ it('publishes upgraded tip rows before scoped bootstrap and keeps them through u
     }
     // The same full entity snapshot used for subsequent deliveries retains all
     // seven seeded values when another device changes an unrelated layout key.
-    await registry.modules.layout.set(userId, { dockTab: 'chat' }, '2026-10-27T20:00:00Z')
+    // Another device's write, as its own command.
+    await registry.modules.layout.set(
+      (registry as unknown as { writes: WriteContexts }).writes.sync(
+        asMutationId('m-other-device'),
+      ),
+      userId,
+      { dockTab: 'chat' },
+      '2026-10-27T20:00:00Z',
+    )
     const rows = (await ledger.authority.snapshot('userLayout')) as LayoutWire[]
     const accountRows = Object.fromEntries(
       rows.filter((row) => row.userId === userId).map((row) => [row.key, row.value]),
@@ -179,7 +189,7 @@ it('publishes upgraded tip rows before scoped bootstrap and keeps them through u
     const before = await ledger.cursor()
     await registry.modules.layout.reconcileAllToLedger()
     expect(await ledger.cursor()).toBe(before)
-    await store.layout.clear(otherId, 'dockTab')
+    await store.layout.clear(fixtureWriteScope(), otherId, 'dockTab')
     await registry.modules.layout.reconcileAllToLedger()
     expect(
       ((await ledger.authority.snapshot('userLayout')) as LayoutWire[]).some(

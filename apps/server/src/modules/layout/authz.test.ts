@@ -6,6 +6,7 @@
  */
 
 import { asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { createBunStoreExecutor } from '../../store/executor'
@@ -52,12 +53,12 @@ describe('a refused principal does not write', () => {
     if (refusal) {
       // no write
     } else {
-      await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
+      await service.set(fixtureCommitWriter(), firstAdminMemberId(), { dockTab: 'files' }, 't')
     }
     expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({})
     // Positive control: the same service DOES write when the gate would pass.
     expect(layoutAuthzFailure('layout.set', deps('member'))).toBeUndefined()
-    await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
+    await service.set(fixtureCommitWriter(), firstAdminMemberId(), { dockTab: 'files' }, 't')
     expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({ dockTab: 'files' })
     db.close?.()
   })

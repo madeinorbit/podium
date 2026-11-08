@@ -10,9 +10,12 @@ import { NativeLoginService } from './native-login'
 
 const SESSION = asSessionId('login-session')
 const MACHINE = asMachineId('machine-a')
+const OTHER_MACHINE = asMachineId('machine-b')
 const OWNER = asUserId('user:operator')
+const OTHER = asUserId('user:other-member')
 
 function fixture(opts?: {
+  otherMemberMachine?: boolean
   authorizerFor?: () => (machineId: typeof MACHINE) => string | undefined
 }) {
   const bus = new EventBus()
@@ -32,8 +35,9 @@ function fixture(opts?: {
     },
   })
   const toMachine = vi.fn()
+  let spawned = 0
   const createSession = vi.fn(async () => ({
-    sessionId: SESSION,
+    sessionId: spawned++ === 0 ? SESSION : asSessionId(`login-session-${spawned}`),
     agentId: SESSION,
     harness: 'shell',
     model: null,
@@ -44,13 +48,19 @@ function fixture(opts?: {
   }))
   const service = new NativeLoginService({
     bus,
-    machines: { listMachines: async () => [machine()], toMachine } as never,
+    machines: {
+      listMachines: async () => [
+        machine(),
+        ...(opts?.otherMemberMachine ? [{ ...machine(), id: OTHER_MACHINE, name: 'Beta' }] : []),
+      ],
+      toMachine,
+    } as never,
     sessions: { createSession } as never,
     // SETUP ONLY (POD-3257 / spec rule 18): `authorize` became `authorizerFor`,
     // which resolves the owner once and returns the per-machine check.
     authorizerFor: opts?.authorizerFor ?? (() => () => undefined),
     cwdForMachine: () => '/repo',
-    custodianOf: async () => OWNER,
+    custodianOf: async (id) => (id === OTHER_MACHINE ? OTHER : OWNER),
   })
   return {
     bus,
@@ -124,5 +134,28 @@ describe('NativeLoginService', () => {
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a'), inventory: true })
     await Promise.resolve()
     expect(f.service.attempt(OWNER, 'codex')?.status).toBe('succeeded')
+  })
+
+  it("never hands one user's running attempt to another user (POD-6360)", async () => {
+    const f = fixture({ otherMemberMachine: true })
+    const mine = await f.service.start({ harness: 'codex', ownerUserId: OWNER })
+    // The same user asking again joins their own running attempt.
+    await expect(f.service.start({ harness: 'codex', ownerUserId: OWNER })).resolves.toEqual(mine)
+    expect(f.createSession).toHaveBeenCalledTimes(1)
+
+    // Another user gets a terminal of their own, spawned as them.
+    const theirs = await f.service.start({ harness: 'codex', ownerUserId: OTHER })
+    expect(theirs.sessionId).not.toBe(mine.sessionId)
+    expect(f.createSession).toHaveBeenCalledTimes(2)
+    expect(f.createSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: OTHER }),
+    )
+    expect(f.service.attempt(OTHER, 'codex')?.sessionId).toBe(theirs.sessionId)
+    expect(f.service.attempt(OWNER, 'codex')?.sessionId).toBe(mine.sessionId)
+
+    // Each exit settles only its own attempt.
+    f.bus.emit('session.exited', { sessionId: theirs.sessionId, code: 1 })
+    expect(f.service.attempt(OTHER, 'codex')?.status).toBe('failed')
+    expect(f.service.attempt(OWNER, 'codex')?.status).toBe('running')
   })
 })

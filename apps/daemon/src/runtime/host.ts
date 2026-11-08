@@ -18,13 +18,12 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import type { AcceptedDriverId } from '@podium/harness'
-import { discoveryRoots, type ResolvedHarnessInventory, resolveWithinRoots } from '@podium/harness'
+import type { AcceptedDriverId, HarnessContext } from '@podium/harness'
+import { discoveryRoots, harnessChildEnv, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
   OpencodeEngineClientTerminals,
-  InstalledTerminalInstrumentation,
   TerminalHostPorts,
 } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
@@ -39,7 +38,6 @@ import {
   recoverTerminalProcess,
   stopSessionProcess,
 } from '../control/session'
-import { serverChildEnv } from '../control/session-env'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { reportHarnessProbe } from '../harness-version-reporting'
@@ -61,9 +59,6 @@ export function daemonRuntimeHost(
   send: TerminalHostPorts['send'],
   stageAttachment: AttachmentStager = stageRuntimeAttachment,
 ): TerminalHostPorts {
-  // Instrumentation and launch are separate driver calls. Retain their single
-  // immutable selection across an inventory refresh, without a second lookup.
-  const launchSnapshots = new WeakMap<InstalledTerminalInstrumentation, ResolvedHarnessInventory>()
   return {
     send,
     stageAttachment,
@@ -103,32 +98,21 @@ export function daemonRuntimeHost(
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })
     },
-    installInstrumentation: async (sessionId, spec) => {
-      const snapshot = await ctx.harnessRuntime?.current()
-      const version = snapshot?.executables.get(
-        spec.harness as Exclude<AgentKind, 'shell'>,
-      )?.version
-      const wiring = await installTerminalInstrumentation({
+    // Instrumentation and launch are separate driver calls over ONE spec, and
+    // both read the session's pinned context off it (POD-6533): the hooks gate
+    // on the version of the executable the launch binds, in the folders the
+    // observer reads. Neither asks the inventory, so a refresh between them
+    // changes nothing for this session.
+    installInstrumentation: (sessionId, spec) =>
+      installTerminalInstrumentation({
         sessionId,
         harness: spec.harness,
         spec,
         sections: terminalInstrumentationSectionsFor(spec.harness),
         settingsDir: ctx.settingsDir,
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
-        ...(version ? { verifiedVersion: version } : {}),
-      })
-      if (snapshot) launchSnapshots.set(wiring, snapshot)
-      return wiring
-    },
-    launch: (input) => {
-      const harnessSnapshot = launchSnapshots.get(input.instrumentation)
-      launchSnapshots.delete(input.instrumentation)
-      return launchTerminalProcess(ctx, {
-        ...input,
-        ...(harnessSnapshot ? { harnessSnapshot } : {}),
-      })
-    },
+      }),
+    launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
@@ -285,36 +269,40 @@ export type SessionProcessEnv = (
 ) => Readonly<Record<string, string>>
 
 /**
- * The engine families' `buildEnv`: an engine child's whole environment. The
- * same stored-login precedence merge every other child gets (instance overlay,
- * managed credentials, inherited overrides stripped) PLUS the session's
- * Podium env — owned here so no family re-derives either, and built from a
- * {@link SessionProcessEnv} so no wiring can hand a family a builder that
- * leaves the relay out. The harness identity arrives as a value the families
- * read off their own adapter sections; no literal here.
+ * The engine families' `buildEnv`: an engine child's whole environment, from
+ * the one recipe every harness child gets (`harnessChildEnv`, POD-6535) PLUS
+ * the session's Podium env — owned here so no family re-derives either, and
+ * built from a {@link SessionProcessEnv} so no wiring can hand a family a
+ * builder that leaves the relay out. The harness identity arrives as a value
+ * the families read off their own adapter sections; no literal here.
+ *
+ * The base is the session's pinned context (POD-6546): the recovered command
+ * environment for this account, never a GUI-launched daemon's own
+ * `process.env`. HOME is the context's account home.
  */
 export function engineEnvBuilder(podium: SessionProcessEnv) {
   return (input: {
     sessionId: SessionId
     agentKind: AgentKind
-    homeDir?: string
+    /** The session's pinned harness context (POD-6546). */
+    harnessContext: HarnessContext
+    /** The spawn frame's env (`spec.env`): the only explicitly chosen keys. */
     sessionEnv?: Readonly<Record<string, string>>
+    /** Driver-composed config env (e.g. codex MCP config): wiring. */
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
-  }): Record<string, string> => {
-    const env = serverChildEnv({
-      ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
-      sessionId: input.sessionId,
-      agentKind: input.agentKind,
-      podiumEnv: podium(input.sessionId, input.agentKind),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+  }): Record<string, string> =>
+    harnessChildEnv(input.harnessContext, {
       ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-      ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-    })
-    const out: Record<string, string> = {}
-    for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
-    return out
-  }
+      ...(input.harnessEnv ? { wiringEnv: input.harnessEnv } : {}),
+      podiumEnv: {
+        ...podium(input.sessionId, input.agentKind),
+        // Immutable daemon ownership stamp for orphan attribution, and the
+        // exact Podium session this child serves.
+        ...(input.instanceUuid ? { PODIUM_INSTANCE_UUID: input.instanceUuid } : {}),
+        PODIUM_SESSION_ID: input.sessionId,
+      },
+    }).env
 }
 
 /**

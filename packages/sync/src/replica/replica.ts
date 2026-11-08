@@ -36,7 +36,7 @@
  */
 
 import { sameCursor } from './cache-completeness'
-import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
+import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
 import {
   type AuthorityReadPort,
@@ -522,7 +522,7 @@ export class Replica {
     // still be available to the synchronous caller.
     const row = this.classify(changes)
     const done = this.commitRegions(
-      retirementsOf([changes]),
+      { matches: retirementsOf([changes]), through: nextCursor, install: false },
       (span) => {
         if (generation !== undefined) {
           const prepare = (): void => {
@@ -550,24 +550,29 @@ export class Replica {
   /**
    * ONE logical commit, ADR 2 D10 as settled with POD-370.
    *
-   * The retirement batch and the cache write are ONE unit of work whenever both
-   * are present: the cursor must never certify a frame whose confirmed commands
-   * are still queued (the user would see their own write twice, then watch it
-   * vanish), and a command must never be retired against a frame that did not
-   * commit (the user is told a write landed when it did not). Two sequential
+   * The retirement and the cache write are ONE unit of work whenever the overlay
+   * says this commit covers something: the cursor must never certify a frame whose
+   * confirmed commands are still queued (the user would see their own write twice,
+   * then watch it vanish), and a command must never be retired against a frame that
+   * did not commit (the user is told a write landed when it did not). Two sequential
    * writes cannot give either guarantee, in EITHER order.
    *
-   * When there is nothing to retire, the cache write is a lone single-region
-   * operation and autocommits — D10 clause 2 permits that explicitly, and opening
-   * a span to enrol one participant would add a unit of work whose commit and
-   * abort are already the store write's own.
+   * Coverage, not provenance, decides (ADR 12). A frame with no provenance at all —
+   * a watermark — still covers an applied command whose receipt it reaches, so it
+   * must open the unit of work; a frame whose provenance names only other writers'
+   * commands covers nothing, so it need not.
+   *
+   * When nothing is covered, the cache write is a lone single-region operation and
+   * autocommits — D10 clause 2 permits that explicitly, and opening a span to enrol
+   * one participant would add a unit of work whose commit and abort are already the
+   * store write's own.
    *
    * Everything the Replica itself observes — the cursor, `exits`, public events —
    * is updated by the CALLER, strictly after this returns, so no observer can see
    * uncommitted state and an abort leaves nothing to undo.
    */
   private commitRegions(
-    retirements: readonly RetirementIntent[],
+    evidence: RetirementEvidence,
     write: (span?: SyncSpan) => void,
     adopt: () => void,
   ): Promise<void> {
@@ -577,12 +582,13 @@ export class Replica {
     // drained buffer frame and a whole install all adopt through this function.
     const adoptBatched = (): void => this.batchEvents(adopt)
     const overlay = this.overlayPort
-    if (overlay === undefined || retirements.length === 0) {
+    if (overlay === undefined || !overlay.covers(evidence)) {
       // ONE REGION. D10 clause 2 permits an autocommit explicitly, and a span here
       // would add a unit of work whose commit and abort are already the store write's
       // own. Named `single-region autocommit` so it is not mistaken for a fallback:
-      // the multi-participant path CANNOT reach it, because reaching it requires
-      // `retirements` to be empty, and an empty batch enrols no second participant.
+      // the multi-participant path CANNOT reach it, because reaching it requires the
+      // overlay to cover nothing, and a commit that retires nothing enrols no second
+      // participant.
       write()
       adoptBatched()
       // Already durable and already adopted. A resolved promise keeps ONE return type
@@ -597,7 +603,7 @@ export class Replica {
       // for: a durable outbox store cannot enrol synchronously, and `transact`'s
       // body is the one place allowed to await. Doing it before the cache write also
       // means a refusal costs nothing — no region has staged yet.
-      await overlay.retire(retirements, span)
+      await overlay.retire(evidence, span)
       write(span)
       // Strictly AFTER durability, through the span's own protocol. Nothing the
       // Replica observes — cursor, exits, public events — escapes before the commit,
@@ -1119,6 +1125,11 @@ export class Replica {
     // retiring a command whose effect never landed would tell the user their write
     // was accepted when it was not. `emissions` is exactly the included set, which
     // is why the batch is derived from it rather than from `buffered`.
+    //
+    // The evidence certifies `running`, the cursor this install lands on, and says
+    // it is an INSTALL: a new truth, so it covers receipts from another epoch too
+    // (a restored backup), which no delta can ever reach again (ADR 12).
+    //
     // The ENTIRE post-commit tail lives in `adopt`, not merely part of it. Splitting
     // it was a real bug while this was being written: `setPosture('live')` ran before
     // the transaction committed, so `D6-INSTALL` was later recorded from a posture the
@@ -1126,7 +1137,11 @@ export class Replica {
     // Everything an observer can see about an install belongs on one side of
     // durability.
     await this.commitRegions(
-      retirementsOf(emissions.map((emission) => emission.changes)),
+      {
+        matches: retirementsOf(emissions.map((emission) => emission.changes)),
+        through: running,
+        install: true,
+      },
       (span) => {
         this.store.installSnapshot(rows, snapshotCursor, mutations, span)
       },

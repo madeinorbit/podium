@@ -137,7 +137,10 @@ export function decodeCursor(c: string): CursorParts | null {
  * it, so every reader and every hop that carries the mapper carries it too.
  * Harnesses that mark `answer` per record (Claude, Codex, Pi, OpenCode) leave
  * it out. */
-export type TranscriptRecordMapper = ((record: unknown, previousRecord?: unknown) => TranscriptItem[]) & {
+export type TranscriptRecordMapper = ((
+  record: unknown,
+  previousRecord?: unknown,
+) => TranscriptItem[]) & {
   readonly endsTurn?: TranscriptTurnEndReader
 }
 
@@ -288,6 +291,7 @@ export type OpencodeMessagePartRow = {
 export interface SqliteTranscriptLocator {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionKey: string
-  homeDir?: string
+  /** The account home whose default store holds the session (POD-6536). */
+  homeDir: string
   databasePath?: string
 }

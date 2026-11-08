@@ -1,23 +1,25 @@
 import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import type { SessionRow } from '../../store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SessionRow } from '../../store'
+import { repositoryWriter } from '../../test-support/session-repository-writer'
+import { disposeOracles, makeOracle } from './oracle-support'
 import { SessionRepository } from './repository'
 import { Session } from './session'
-import { disposeOracles, makeOracle } from './oracle-support'
 
-const makeSession = (index: number) => new Session({
-  ownerUserId: firstAdminMemberId(),
-  sessionId: asSessionId(`dirty-${index}`),
-  durableLabel: `dirty-${index}`,
-  agentKind: 'claude-code',
-  cwd: '/work',
-  title: `session ${index}`,
-  origin: { kind: 'spawn' },
-  createdAt: '2026-10-08T00:00:00.000Z',
-  geometry: { cols: 80, rows: 24 },
-  machineId: asMachineId('dirty-machine'),
-  toDaemon: vi.fn(),
-})
+const makeSession = (index: number) =>
+  new Session({
+    ownerUserId: firstAdminMemberId(),
+    sessionId: asSessionId(`dirty-${index}`),
+    durableLabel: `dirty-${index}`,
+    agentKind: 'claude-code',
+    cwd: '/work',
+    title: `session ${index}`,
+    origin: { kind: 'spawn' },
+    createdAt: '2026-10-08T00:00:00.000Z',
+    geometry: { cols: 80, rows: 24 },
+    machineId: asMachineId('dirty-machine'),
+    toDaemon: vi.fn(),
+  })
 
 function fixture(count: number) {
   const rows = Array.from({ length: count }, (_, i) => makeSession(i))
@@ -27,25 +29,32 @@ function fixture(count: number) {
   const store = {
     transferFenceActive: false,
     sessions: {
-      upsertSession: vi.fn(async (row: SessionRow) => { written.push(row) }),
-      upsertSessions: vi.fn(async (rows: readonly SessionRow[]) => { written.push(...rows) }),
+      upsertSession: vi.fn(async (_scope: unknown, row: SessionRow) => {
+        written.push(row)
+      }),
+      upsertSessions: vi.fn(async (_scope: unknown, rows: readonly SessionRow[]) => {
+        written.push(...rows)
+      }),
     },
   }
   let commits = 0
   const repo = new SessionRepository({
     sessions,
     store,
-    ledger: {
-      commit: async ({ write, changes }: {
+    writers: ((ledger) => ({ live: ledger, boot: ledger }))({
+      commit: async ({
+        write,
+        changes,
+      }: {
         write: () => Promise<void>
         changes: () => Promise<unknown[]>
       }) => {
         commits += 1
         await write()
-        projected.push(...await changes())
+        projected.push(...(await changes()))
         return { changes: [] }
       },
-    },
+    }),
     view: {
       buildProjectionPass: async () => ({}),
       wire: (s: Session, _pass: unknown, draft: Parameters<Session['toRow']>[0]) => s.toRow(draft),
@@ -58,7 +67,7 @@ function fixture(count: number) {
 // The pre-queue algorithm, retained as the same-fixture behavioral oracle.
 async function oldFlush(f: ReturnType<typeof fixture>): Promise<void> {
   for (const session of f.sessions.values()) {
-    if (session.terminal.activityDirty && await f.repo.persistActivityIfWritable(session)) {
+    if (session.terminal.activityDirty && (await f.repo.persistActivityIfWritable(session))) {
       session.terminal.clearActivityDirty()
     }
   }
@@ -71,7 +80,12 @@ const mutations: [string, (s: Session) => void][] = [
   ['input', (s) => s.terminal.recordInputActivity()],
   ['observation', (s) => s.terminal.recordObservationActivity()],
   ['output', (s) => s.terminal.acceptOutput(Buffer.from('hello'), 2)],
-  ['geometry', (s) => { s.terminal.applyDaemonGeometry({ cols: 90, rows: 30 }) }],
+  [
+    'geometry',
+    (s) => {
+      s.terminal.applyDaemonGeometry({ cols: 90, rows: 30 })
+    },
+  ],
 ]
 
 afterEach(async () => {
@@ -95,8 +109,9 @@ describe('changed session activity saving', () => {
       await flushCandidate(candidate.repo)
       expect(candidate.written).toEqual(old.written)
       expect(candidate.projected).toEqual(old.projected)
-      expect(candidate.rows.map((s) => s.terminal.activityDirty))
-        .toEqual(old.rows.map((s) => s.terminal.activityDirty))
+      expect(candidate.rows.map((s) => s.terminal.activityDirty)).toEqual(
+        old.rows.map((s) => s.terminal.activityDirty),
+      )
     }
     await compare()
     expect(candidate.written).toHaveLength(0)
@@ -124,7 +139,11 @@ describe('changed session activity saving', () => {
     expect(f.store.sessions.upsertSessions).toHaveBeenCalledTimes(1)
     expect(f.store.sessions.upsertSession).not.toHaveBeenCalled()
     expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-0', 'dirty-3'])
-    expect(f.projected.map((change) => (change as { id: string }).id)).toEqual(['dirty-2', 'dirty-0', 'dirty-3'])
+    expect(f.projected.map((change) => (change as { id: string }).id)).toEqual([
+      'dirty-2',
+      'dirty-0',
+      'dirty-3',
+    ])
     expect(f.rows.map((s) => s.terminal.activityDirty)).toEqual([false, false, false, false])
   })
 
@@ -132,14 +151,16 @@ describe('changed session activity saving', () => {
     const f = fixture(2)
     f.rows.forEach((s) => s.terminal.recordInputActivity())
     let release!: () => void
-    const blocked = new Promise<void>((resolve) => { release = resolve })
-    f.store.sessions.upsertSession.mockImplementationOnce(async (row) => {
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    f.store.sessions.upsertSession.mockImplementationOnce(async (_scope, row) => {
       f.written.push(row)
       await blocked
     })
-    const earlier = f.repo.persist(f.rows[1]!)
+    const earlier = f.repo.persist(repositoryWriter(f.repo), f.rows[1]!)
     const flush = flushCandidate(f.repo)
-    const later = f.repo.persist(f.rows[0]!)
+    const later = f.repo.persist(repositoryWriter(f.repo), f.rows[0]!)
     for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
     // The flush waits for the write to dirty-1, and the write to dirty-0 waits
     // for the flush, though nothing else holds dirty-0.
@@ -171,15 +192,21 @@ describe('changed session activity saving', () => {
     expect(values).not.toHaveBeenCalled()
   })
 
-  it.each(mutations)('keeps newer %s activity queued through an in-flight write', async (_name, mutate) => {
+  it.each(
+    mutations,
+  )('keeps newer %s activity queued through an in-flight write', async (_name, mutate) => {
     const f = fixture(1)
     const session = f.rows[0]!
     session.terminal.recordResumeActivity()
     let release!: () => void
     let entered!: () => void
-    const started = new Promise<void>((resolve) => { entered = resolve })
-    const blocked = new Promise<void>((resolve) => { release = resolve })
-    f.store.sessions.upsertSession.mockImplementationOnce(async (row) => {
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    f.store.sessions.upsertSession.mockImplementationOnce(async (_scope, row) => {
       f.written.push(row)
       entered()
       await blocked
@@ -204,7 +231,7 @@ describe('changed session activity saving', () => {
   it('defers a newly dirty ID arriving during a write to the next flush', async () => {
     const f = fixture(2)
     f.rows[0]!.terminal.recordResumeActivity()
-    f.store.sessions.upsertSession.mockImplementationOnce(async (row) => {
+    f.store.sessions.upsertSession.mockImplementationOnce(async (_scope, row) => {
       f.written.push(row)
       f.rows[1]!.terminal.recordInputActivity()
     })
@@ -261,11 +288,11 @@ describe('changed session activity saving', () => {
     f.rows.forEach((s) => s.terminal.recordInputActivity())
     // A row the store refuses fails the whole batch, and fails again on its own.
     const poisoned = (rows: readonly SessionRow[]) => rows.some((row) => row.id === 'dirty-1')
-    f.store.sessions.upsertSessions.mockImplementation(async (rows) => {
+    f.store.sessions.upsertSessions.mockImplementation(async (_scope, rows) => {
       if (poisoned(rows)) throw new Error('poisoned row')
       f.written.push(...rows)
     })
-    f.store.sessions.upsertSession.mockImplementation(async (row) => {
+    f.store.sessions.upsertSession.mockImplementation(async (_scope, row) => {
       if (poisoned([row])) throw new Error('poisoned row')
       f.written.push(row)
     })
@@ -275,7 +302,9 @@ describe('changed session activity saving', () => {
     expect(f.sessions.size).toBe(3)
 
     // The next tick writes only the session still dirty, once it can be written.
-    f.store.sessions.upsertSession.mockImplementation(async (row) => { f.written.push(row) })
+    f.store.sessions.upsertSession.mockImplementation(async (_scope, row) => {
+      f.written.push(row)
+    })
     await flushCandidate(f.repo)
     expect(f.written.map((row) => row.id)).toEqual(['dirty-0', 'dirty-2', 'dirty-1'])
     expect(f.rows.every((s) => !s.terminal.activityDirty)).toBe(true)

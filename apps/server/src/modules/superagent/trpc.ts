@@ -1,126 +1,44 @@
 /**
- * THE DERIVED SUPERAGENT SURFACE (POD-383) — every superagent thread mutation,
- * produced from the contract table rather than written out.
+ * THE SUPERAGENT'S WRITE ROUTES (POD-383; on the sync write entry point since
+ * POD-6419).
  *
- * ---------------------------------------------------------------------------
- * WHAT WAS THERE BEFORE
- * ---------------------------------------------------------------------------
+ * The eight thread commands run through `sync.submit` (`sync-write.ts`). Their
+ * per-command routes stay, as thin adapters onto it, because shipped clients call
+ * every one of them: the mobile app (`sendTurn`, `interruptTurn`,
+ * `ensureSession`, `clear`) and the desktop app's bundled web (all eight;
+ * `startBtw` from v0.1.3's "Ask superagent (BTW)" button).
  *
- * Eight procedures in `router.ts`, each restating an input schema beside a call
- * onto `SuperagentService`. SEVEN of them were `.mutation(`, and two of those
- * seven — `send` and `sendTurn` — were the same procedure written twice:
- * identical schemas, identical bodies, one alias. That is a second declaration
- * of a surface that already declares itself, and the duplicate is the fork this
- * issue was opened to end.
+ * `router.ts` spreads these into the `superagent` router beside its reads
+ * (`listThreads`, `history`, `latestTurnFailure`), which carry no contract: a
+ * `visibility` class describes what a command WRITES. `superagent.send`, the
+ * deleted alias of `sendTurn`, stays deleted (POD-383).
  *
- * `scripts/audit-superagent-commands.ts` fails the build if a `.mutation(`
- * reappears inside the `superagent:` router literal, or if the alias grows back
- * — the same gate POD-382 put on the session family and POD-732 on workflows,
- * for the same reason.
- *
- * ---------------------------------------------------------------------------
- * EXPOSURE DRIVES THE WIRE (ADR 3 D3, default-closed)
- * ---------------------------------------------------------------------------
- *
- * A command appears here if and only if its contract declares `trpc`. Nobody
- * maintains a second list saying so, and the check is at MODULE LOAD: a contract
- * that loses `trpc` while still being built here throws before the server serves
- * a request, rather than serving a procedure that refuses everything — the
- * "green gate that stopped looking" failure.
- *
- * ---------------------------------------------------------------------------
- * WHY OUTPUT TYPES SURVIVE THE DERIVATION
- * ---------------------------------------------------------------------------
- *
- * `AppRouter` inference is what makes `trpc.superagent.sendTurn.mutate(…)`
- * checked at all in `apps/web` — and the web reads the ack's `podiumSessionId`
- * off it. A naive generic derivation types every result `unknown` and the damage
- * lands silently on every call site, not here. So the mutation output is read
- * off the JOINED HANDLER's return type (the registry pairs contract with
- * handler, so the handler is in scope) rather than written down a second time.
- *
- * ---------------------------------------------------------------------------
- * THE THREAD LOCK DID NOT MOVE
- * ---------------------------------------------------------------------------
- *
- * Every body below is `handler(ctx.superagent, input)` — the same service
- * method the hand-written procedure called, with no check added, removed or
- * reordered in front of it. The one-writer rule (`sendTurn` / `restart` /
- * `openInTerminal` refuse under the terminal lock and while a turn is in
- * flight; `clear` releases it) lives in `service.ts` and is exercised by
- * `superagent.test.ts` against the service, which is where a liveness rule must
- * be tested from.
+ * OUTPUT TYPES SURVIVE: each route's output is the joined handler's return type
+ * (`MutationProcedures`), so `trpc.superagent.sendTurn.mutate(…)` stays checked
+ * in the apps.
  */
 
-import type { TRPCMutationProcedure } from '@trpc/server'
-import type { z } from 'zod'
-import { asUserId, type UserId } from '@podium/model'
-import { t } from '../../trpc'
-import { SUPERAGENT_COMMANDS, type SuperagentProcName } from './registry'
+import type { MutationProcedures } from '../derived-family'
+import { legacyRouteAdapters } from '../sync-write/family'
+import type { SUPERAGENT_COMMANDS } from './registry'
+import { SUPERAGENT_SYNC_FAMILY } from './sync-write'
 
-type MutationProcedure<N extends SuperagentProcName> = TRPCMutationProcedure<{
-  meta: unknown
-  input: z.input<(typeof SUPERAGENT_COMMANDS)[N]['contract']['input']>
-  // `Awaited`, and it is load-bearing rather than tidy. Four of these handlers
-  // are `async`, and tRPC wraps the declared output in a Promise of its own — so
-  // a bare `ReturnType` gives the CLIENT `Promise<Promise<{…}>>`, which is
-  // structurally incompatible with `PodiumClientApi` and lands as an error in
-  // apps/web rather than here. Vitest is blind to it; the workspace typecheck
-  // is what found it.
-  output: Awaited<ReturnType<(typeof SUPERAGENT_COMMANDS)[N]['handler']>>
-}>
-
-function ownerOf(ctx: {
-  principal?: { kind: string; user?: UserId; onBehalfOf?: UserId }
-  capability: { onBehalfOf?: UserId }
-}): UserId {
-  const owner =
-    ctx.principal?.kind === 'user'
-      ? ctx.principal.user
-      : (ctx.principal?.onBehalfOf ?? ctx.capability.onBehalfOf)
-  if (!owner) throw new Error('superagent caller has no authenticated owner')
-  return asUserId(owner)
-}
+export type SuperagentProcedures = MutationProcedures<typeof SUPERAGENT_COMMANDS>
 
 /**
- * One mutation, built out of its contract: the contract's own schema instance
- * for validation and for the client's input type, and a body that is the joined
- * handler applied to the request's `SuperagentService`.
- */
-function superagentMutation<N extends SuperagentProcName>(name: N): MutationProcedure<N> {
-  const { contract, handler } = SUPERAGENT_COMMANDS[name]
-  if (!contract.exposure.includes('trpc')) {
-    throw new Error(`superagent.${name} does not declare the trpc transport`)
-  }
-  return t.procedure
-    .input(contract.input)
-    .mutation(({ ctx, input }) =>
-      (
-        handler as (
-          s: typeof ctx.superagent,
-          i: unknown,
-          owner: ReturnType<typeof asUserId>,
-        ) => unknown
-      )(ctx.superagent, input, ownerOf(ctx)),
-    ) as MutationProcedure<N>
-}
-
-type SuperagentProcedures = { [N in SuperagentProcName]: MutationProcedure<N> }
-
-/**
- * Every superagent thread mutation, keyed by its bare proc name — spread into
- * the `superagent:` router in `router.ts`, which then contains only its two
- * queries.
- *
- * Built by iterating the TABLE, not a list written here: an eighth contract is
- * served because it was declared, and the only way to remove a procedure is to
- * remove its declaration. That is also what makes the deletion of `send`
- * structural rather than editorial — there is no second key to forget.
+ * LEGACY(remove-after: 2027-03): every superagent write route, as an adapter onto
+ * `sync.submit`. Removing one breaks that write in the shipped mobile app or an
+ * older desktop app's bundled web against this server.
  */
 export function superagentFamilyProcedures(): SuperagentProcedures {
-  const record: Record<string, unknown> = {}
-  for (const name of Object.keys(SUPERAGENT_COMMANDS) as SuperagentProcName[]) {
-    record[name] = superagentMutation(name)
-  }
-  return record as SuperagentProcedures
+  return legacyRouteAdapters(SUPERAGENT_SYNC_FAMILY, [
+    'sendTurn',
+    'interruptTurn',
+    'openInTerminal',
+    'clear',
+    'restart',
+    'ensureSession',
+    'startBtw',
+    'concierge',
+  ])
 }

@@ -1,6 +1,7 @@
 import { actorSystem, type SessionId, type SessionMeta, type UserId } from '@podium/model'
 import { automationPromptMessageId } from '../../message-ids'
 import type { MessageDeliveryService } from '../messages/service'
+import type { MessageWriter } from '../messages/writer'
 
 /** One run's prompt, to the session the run chose. */
 export interface AutomationPrompt {
@@ -40,6 +41,9 @@ export type DeliverAutomationPrompt = (
  */
 export function automationPromptSender(deps: {
   messages: Pick<MessageDeliveryService, 'send'>
+  /** The scheduler's own writer (`automations.schedule`): a run's prompt is
+   *  stored by the run (POD-6602). */
+  writer: MessageWriter
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
 }): DeliverAutomationPrompt {
   return async (prompt) => {
@@ -52,6 +56,7 @@ export function automationPromptSender(deps: {
       }
     }
     const r = await deps.messages.send(
+      deps.writer,
       {
         kind: 'operator',
         attribution: {
@@ -71,6 +76,8 @@ export function automationPromptSender(deps: {
     )
     // Stored is accepted: a push the transport refused leaves the row for the
     // delivery sweep. Only a prompt that ended undelivered is the run's failure.
-    return r.disposition === 'dead_letter' ? { ok: false, ...(r.reason ? { reason: r.reason } : {}) } : { ok: true }
+    return r.disposition === 'dead_letter'
+      ? { ok: false, ...(r.reason ? { reason: r.reason } : {}) }
+      : { ok: true }
   }
 }

@@ -14,6 +14,7 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { startFakeAppServer } from './test-support/fake-app-server'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { manifestFor } from '../../../registry.js'
 import { codexEngineFacts } from './engine-facts.js'
 import { createCodexSessionRuntime } from './session.js'
@@ -71,6 +72,7 @@ function world(options: { sendThrows?: boolean } = {}) {
   const resumed: string[] = []
   let launches = 0
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => ({
       id: 'test-attachment',
       path: '/tmp/test-' + source.filename,

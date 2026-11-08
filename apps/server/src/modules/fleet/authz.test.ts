@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipal } from '../../command-principal'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
@@ -27,8 +28,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import { addSink, createRingBufferSink } from '@podium/logger'
-import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
-import type { MachineVerb } from '@podium/protocol'
+import {
+  asMachineId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  type UserId,
+} from '@podium/model'
+import { type MachineVerb, SyncSubmitReply } from '@podium/protocol'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { describe, expect, it, vi } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -42,6 +50,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
+import { MACHINE_SCAN_KIND } from './discovery-effects'
 
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
@@ -703,12 +712,19 @@ describe('the derived fleet router actually calls the gate', () => {
   it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
     const { call, store } = await caller(firstAdminMemberId())
 
-    await call.machines.share({
-      id: 'm1',
-      grantee: COLLEAGUE,
-      verb: 'use',
-      acknowledgeSharedMachine: true,
-    })
+    // Sharing has no route of its own (POD-6417): `sync.submit` is its door.
+    const submit = async (command: string, input: unknown) =>
+      SyncSubmitReply.parse(
+        await call.sync.submit({
+          mutationId: asMutationId(`mut_${command}_${Math.random()}`),
+          command,
+          version: 1,
+          input,
+        }),
+      )
+    expect(
+      await submit('machines.share', { id: 'm1', grantee: COLLEAGUE, verb: 'use', acknowledgeSharedMachine: true }),
+    ).toMatchObject({ outcome: 'applied' })
     expect(
       (await store.grants.listForResource('machine', 'm1')).filter(
         (edge) => edge.grantee === COLLEAGUE,
@@ -727,7 +743,9 @@ describe('the derived fleet router actually calls the gate', () => {
       }),
     ])
 
-    await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
+    expect(
+      await submit('machines.unshare', { id: 'm1', grantee: COLLEAGUE, verb: 'use' }),
+    ).toMatchObject({ outcome: 'applied' })
     expect(
       (await store.grants.listForResource('machine', 'm1')).filter(
         (edge) => edge.grantee === COLLEAGUE,
@@ -942,6 +960,35 @@ describe('the derived fleet router actually calls the gate', () => {
     await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(
       /do not have access/,
     )
+  })
+
+  it("the machine's last scan is read under the scan's gate: `use`, live (POD-6396)", async () => {
+    const { call, store } = await caller('someone-else')
+    // Somebody's finished scan of m1: a listing of that machine's disk.
+    const id = 'eff_00000000-0000-4000-8000-000000006396'
+    const now = Date.now()
+    await store.effects.insert(
+      fixtureWriteScope(),
+      {
+        id,
+        kind: MACHINE_SCAN_KIND,
+        target: { kind: 'machine', id: 'm1' },
+        input: { deep: true },
+        deadlineAt: now + 60_000,
+        createdBy: null,
+      },
+      now,
+    )
+    await store.effects.claim(fixtureWriteScope(), id, now)
+    const scan = { machineId: 'm1', repos: [{ path: '/home/o/secret', status: 'candidate' }] }
+    await store.effects.settle(fixtureWriteScope(), id, 'succeeded', { result: scan }, now)
+
+    await store.grants.upsert(edge('manage'))
+    await expect(call.discovery.lastMachineScan({ machineId: 'm1' })).rejects.toThrow(
+      /do not have access/,
+    )
+    await store.grants.upsert(edge('use'))
+    expect(await call.discovery.lastMachineScan({ machineId: 'm1' })).toEqual(scan)
   })
 })
 

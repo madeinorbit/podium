@@ -295,9 +295,34 @@ export const sessions = sqliteTable(
      *  gives that arm no id). Decoded through the model's `ActorRef`. */
     createdByActorId: text('created_by_actor_id'),
     createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>(),
+    /**
+     * THE LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356). `desired` and
+     * `desired_force` are spec; `revision` is the spec revision (only spec edits
+     * move it); `observed_revision` and `lifecycle_failure` are the server
+     * controller's acknowledgement. Additive: an existing row gets no intent
+     * (NULL) and revision = observed revision = 1, so nothing is pending.
+     */
+    desired: text('desired'),
+    desiredForce: integer('desired_force', { mode: 'boolean' }).default(sql`0`).notNull(),
+    revision: integer('revision').notNull().default(1),
+    observedRevision: integer('observed_revision').notNull().default(1),
+    // Plain text, decoded by the store: a corrupt blob reads as no failure
+    // rather than throwing the whole row read (the json-column decision).
+    lifecycleFailure: text('lifecycle_failure'),
+    /** Who wrote the current spec revision: the human it was made on behalf
+     *  of, and the agent session when an agent wrote it. The controller
+     *  re-checks that writer's machine `use` before it STARTS anything. */
+    desiredByUser: text('desired_by_user').$type<UserId>(),
+    desiredByAgent: text('desired_by_agent').$type<SessionId>(),
   },
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
+    // Sessions whose desired state the controller has not acknowledged yet
+    // (POD-6356): what a daemon reconnect and the boot sweep reconcile. Partial,
+    // so it holds the few edits in flight, never the history.
+    index('idx_sessions_lifecycle_pending')
+      .on(table.machineId)
+      .where(sql`${table.revision} > ${table.observedRevision} AND ${table.deletedAt} IS NULL`),
     index('idx_sessions_deleted_at').on(table.deletedAt),
     // The second half of POD-1858's per-file resolution: segment identity to the
     // session that owns it. Also the join `conversation_segments` has always
@@ -2849,16 +2874,14 @@ export const workflowEvents = sqliteTable(
   ],
 )
 
-/**
- * A MANAGED PROVIDER CONNECTION BELONGS TO ONE MEMBER (POD-6300; design §2.5).
- *
- * `id` is the physical row key. `ref` is the account id a member selects and a
- * session records (`managed:anthropic`, `managed:claude-oauth`): the same `ref`
- * exists once per owner, so Alice's and Bob's Anthropic keys are two rows.
- * Rows written before owners existed keep their `id` (which was their `ref`)
- * and went to the earliest active admin on upgrade (no row recorded the machine
- * it came from); see the `provider-connection-owners` migration.
- */
+// MANAGED PROVIDER KEYS ARE PER USER (POD-6360, user decision 2026-11-04).
+// `id` is the row's storage key; `account_key` is the public account id a role
+// selects (`managed:anthropic`), unique per owner. Sharing is explicit and
+// never a fallback: `shared_with` is NULL (private) or a JSON array of user ids,
+// where `*` is everyone. The three columns are nullable only because the change
+// is expand-only; the migration backfills every existing row (owned by the first
+// admin, shared with everyone: today's behaviour, recorded). A row without an
+// owner is read as nobody's and is never injected.
 export const accounts = sqliteTable(
   'accounts',
   {
@@ -2870,11 +2893,16 @@ export const accounts = sqliteTable(
     scope: text().default('role').notNull(),
     createdAt: integer('created_at').notNull(),
     ownerUserId: text('owner_user_id').$type<UserId>(),
+    // Legacy integration account selection column; current records use accountKey.
     ref: text().$type<AccountId>(),
+    accountKey: text('account_key').$type<AccountId>(),
+    sharedWith: text('shared_with'),
   },
-  (table) => [uniqueIndex('accounts_owner_ref').on(table.ownerUserId, table.ref)],
+  (table) => [
+    uniqueIndex('accounts_owner_account_key').on(table.ownerUserId, table.accountKey),
+    index('idx_accounts_account_key').on(table.accountKey),
+  ],
 )
-
 /**
  * WHICH MACHINES A MEMBER SENT A CONNECTION TO (POD-6300; design §2.4, Q1).
  *
@@ -3046,6 +3074,70 @@ export const operations = sqliteTable(
   (table) => [
     index('idx_operations_group_state').on(table.exclusionGroup, table.state),
     index('idx_operations_kind_created').on(table.kind, table.createdAt),
+  ],
+)
+
+/**
+ * One-shot effects as data (ADR 12 D5 E2, POD-6357): merge, file write, scans,
+ * clone, interrupt. One row per effect record, created `pending` through
+ * `sync.submit` with a device-minted `eff_<uuid>` id; the executor registered
+ * for `kind` claims it (`pending` → `running`, a guarded UPDATE so a second
+ * trigger claims nothing) and writes its outcome back here.
+ *
+ * `status` is text without a CHECK, for the reason `operations.state` gives: a
+ * successor's new status must not be refused by its predecessor's schema.
+ * `input_json` is the whole input, server-side; the feed carries what the kind
+ * publishes of it. Times are epoch milliseconds.
+ */
+export const effects = sqliteTable(
+  'effects',
+  {
+    id: text().primaryKey(),
+    kind: text().notNull(),
+    targetKind: text('target_kind').notNull(),
+    targetId: text('target_id').notNull(),
+    inputJson: text('input_json').notNull(),
+    resultJson: text('result_json'),
+    cancelRequested: integer('cancel_requested', { mode: 'boolean' }).default(sql`0`).notNull(),
+    status: text().notNull(),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    /** A `pending` row past this expires and never runs. */
+    deadlineAt: integer('deadline_at'),
+    attempts: integer().default(0).notNull(),
+    stage: text(),
+    startedAt: integer('started_at'),
+    finishedAt: integer('finished_at'),
+    createdBy: text('created_by').$type<UserId>(),
+    /** The attribution's actor half (`session:<id>` for an agent, the user id for
+     *  a person); `created_by` is its on-behalf-of half. Server-side only. */
+    actor: text(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    revision: integer().default(1).notNull(),
+    /**
+     * Removed from the feed (dismissed, or pruned past retention). A TOMBSTONE,
+     * for the reason `automations.deletedAt` gives: the feed scopes a `remove`
+     * after the write, and an effect's audience is read off its target, so the
+     * row must outlive its removal. The sweep deletes tombstones later.
+     */
+    deletedAt: integer('deleted_at'),
+  },
+  (table) => [
+    // The sweep: pending by deadline, running, finished rows by age, tombstones.
+    index('idx_effects_status_deadline').on(table.status, table.deadlineAt),
+    index('idx_effects_status_finished').on(table.status, table.finishedAt),
+    index('idx_effects_deleted').on(table.deletedAt),
+    // An issue's, a session's or a machine's effects.
+    index('idx_effects_target').on(table.targetKind, table.targetId, table.createdAt),
+    // One kind's records on one target, newest first: a machine's latest scan,
+    // and the scan already running there (POD-6396).
+    index('idx_effects_kind_target').on(
+      table.kind,
+      table.targetKind,
+      table.targetId,
+      table.createdAt,
+    ),
   ],
 )
 

@@ -3,17 +3,16 @@ import { mkdirSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname } from 'node:path'
 import { promisify } from 'node:util'
+import { scanHostUsageSources, scanQuotaHistory, UsageScanCache } from '@podium/harness/inventory'
 import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { executeBufferedHarnessTurn } from '../buffered-harness.js'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
-import { executeBufferedHarnessTurn } from '../buffered-harness.js'
-import { scanHostUsageSources, scanQuotaHistory, UsageScanCache } from '@podium/harness/inventory'
+import type { HarnessManagementContext } from '../harness-management.js'
+import { resolveManagementAccount } from '../harness-management.js'
 import { repoOpCommand } from '../repo-op'
-import type {
-  HarnessManagementContext,
-} from '../harness-management.js'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
@@ -168,11 +167,17 @@ function rescanUsage(ctx: HarnessManagementContext, sinceMs: number): Promise<vo
       // only the bytes appended since the first one. Transcripts are append-only,
       // which is what makes that exact rather than a guess.
       ctx.usageMemo.cache ??= new UsageScanCache()
-      scan = await scanHostUsageSources({
-        sinceMs,
-        cache: ctx.usageMemo.cache,
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-      })
+      // The ACCOUNT's folders (POD-6534, F08): each harness's roots come from
+      // the credential home and the env its child gets, never the daemon's.
+      const account = await resolveManagementAccount(ctx)
+      scan = account
+        ? await scanHostUsageSources({
+            sinceMs,
+            cache: ctx.usageMemo.cache,
+            homeDir: account.home,
+            env: account.machineEnv,
+          })
+        : { buckets: [], sources: [] }
     } catch {
       scan = { buckets: [], sources: [] }
     }
@@ -239,11 +244,15 @@ async function runQuotaHistoryScan(
 ): Promise<void> {
   let samples: QuotaHistorySampleWire[] = []
   try {
-    samples = await scanQuotaHistory({
-      sinceMs: msg.sinceMs,
-      machineId: ctx.machineId,
-      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-    })
+    const account = await resolveManagementAccount(ctx)
+    samples = account
+      ? await scanQuotaHistory({
+          sinceMs: msg.sinceMs,
+          machineId: ctx.machineId,
+          homeDir: account.home,
+          env: account.machineEnv,
+        })
+      : []
   } catch {
     // A harness we cannot read is a harness with no recoverable history, which
     // is already the answer for Claude. An empty result says exactly that.

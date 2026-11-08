@@ -23,6 +23,7 @@ import {
   checkHistoryFromDisk,
   checkHostEdgeSeparationAll,
   checkManifestFile,
+  checkParallelNestedScope,
   checkPlaneLeakAll,
   checkPrincipalFree,
   checkProjectionSqlIdentifiers,
@@ -2773,5 +2774,78 @@ describe('history from disk (POD-4784)', () => {
     }
     expect(files).toBeGreaterThan(20)
     expect(violations).toEqual([])
+  })
+})
+
+describe('parallel-nested-scope (POD-6625)', () => {
+  const FILE = 'apps/server/src/modules/messages/mailbox.ts'
+  const rules = (source: string, file = FILE) =>
+    checkParallelNestedScope(file, source).map((v) => v.rule)
+
+  it('refuses the shipped inbox read: a commit helper per row under Promise.all', () => {
+    const source = [
+      'export async function readInbox(writer, rows) {',
+      '  return await Promise.all(',
+      '    rows.map(async (m) => {',
+      '      const { firstRead } = await commitMessages(writer, async (scope) => await mark(scope, m))',
+      '      return firstRead',
+      '    }),',
+      '  )',
+      '}',
+    ].join('\n')
+    const [v, ...rest] = checkParallelNestedScope(FILE, source)
+    expect(rest).toEqual([])
+    expect(v?.rule).toBe('parallel-nested-scope')
+    expect(v?.message).toContain(`${FILE}:2:`)
+    expect(v?.message).toContain("'commitMessages'")
+  })
+
+  it('refuses every spelling of a scope opener and every combinator', () => {
+    for (const [combinator, call] of [
+      ['all', 'writer.commit({ write, changes })'],
+      ['allSettled', 'ctx.ledger.commit({ write, changes })'],
+      ['any', 'store.transact(async () => {})'],
+      ['race', 'createOrJoinTransaction(db, async () => {})'],
+      ['all', 'this.deps.unitOfWork(async () => {})'],
+      ['all', 'commitIssues(writer, async () => {})'],
+    ] as const) {
+      const source = `await Promise.${combinator}(xs.map(async (x) => await ${call}))`
+      expect(rules(source), source).toEqual(['parallel-nested-scope'])
+    }
+    // An array literal of opening calls is the same collision.
+    expect(rules('await Promise.all([store.transact(a), store.transact(b)])')).toEqual([
+      'parallel-nested-scope',
+    ])
+  })
+
+  it('stays quiet on the correct forms', () => {
+    for (const source of [
+      // One at a time.
+      'for (const m of rows) await commitMessages(writer, async (s) => await mark(s, m))',
+      // Parallel PLAIN statements share the unit\'s frame.
+      'await Promise.all(rows.map(async (m) => await repo.recordRead(m.id)))',
+      // One scope around parallel statements.
+      'await writer.commit({ write: async () => await Promise.all(rows.map((r) => insert(r))), changes })',
+      // A name that merely contains the word.
+      'await Promise.all(xs.map(async (x) => await x.committedAt()))',
+      // An opener named only in a string.
+      "await Promise.all(xs.map(async (x) => await rpc.repoOp('commit', x)))",
+    ]) {
+      expect(rules(source), source).toEqual([])
+    }
+  })
+
+  it('takes a DECISION marker on the combinator line, and leaves tests and tooling alone', () => {
+    expect(
+      rules('await Promise.all(ids.map((id) => store.transact(() => f(id)))) // DECISION POD-6625'),
+    ).toEqual([])
+    const source = 'await Promise.all(xs.map(async () => await store.transact(f)))'
+    expect(rules(source, 'apps/server/src/store/executor/executor.test.ts')).toEqual([])
+    expect(rules(source, 'scripts/bench.ts')).toEqual([])
+  })
+
+  it('is wired through checkFile so lint:boundaries cannot skip it', () => {
+    const vs = checkFile(FILE, 'await Promise.all(xs.map(async () => await writer.commit(op)))')
+    expect(vs.some((v) => v.rule === 'parallel-nested-scope')).toBe(true)
   })
 })

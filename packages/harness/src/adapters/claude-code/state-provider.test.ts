@@ -4,8 +4,11 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
+import { acceptAgentObservation, initialAgentState, reduceAgentState } from '../../observer.js'
 import { agentStateProviderFor } from '../../registry.js'
-import { acceptAgentObservation } from '../../observer.js'
+import { codexStateProvider } from '../codex/state-provider.js'
+import { grokStateProvider } from '../grok/state-provider.js'
 import {
   ClaudeCausalObserver,
   captureClaudeTranscript,
@@ -17,9 +20,9 @@ import {
   parseClaudeTranscriptSegmentId,
   translateClaudeHookPayload,
 } from './state-provider.js'
-import { codexStateProvider } from '../codex/state-provider.js'
-import { grokStateProvider } from '../grok/state-provider.js'
-import { initialAgentState, reduceAgentState } from '../../observer.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('claude-code', '/nonexistent-podium-home')
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
 
@@ -555,12 +558,15 @@ describe('translateClaudeHookPayload', () => {
   })
 
   it('keeps identity-shaped provider payload fields inert', async () => {
-    const events = await claudeCodeStateProvider.translate({
-      hook_event_name: 'SessionStart',
-      userId: 'user:forged',
-      owner: 'attacker.test',
-      account: { id: 'acct-forged' },
-    })
+    const events = await claudeCodeStateProvider.translate(
+      {
+        hook_event_name: 'SessionStart',
+        userId: 'user:forged',
+        owner: 'attacker.test',
+        account: { id: 'acct-forged' },
+      },
+      NO_ACCOUNT,
+    )
     expect(events).toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
     expect(JSON.stringify(events)).not.toMatch(/forged|attacker|userId|owner|account/)
   })
@@ -2302,7 +2308,7 @@ describe('Stop payload end-to-end with a real transcript file', () => {
 
 describe('bootEvents', () => {
   it('fresh spawn → session_started (idle, no verdict)', async () => {
-    const events = await claudeCodeStateProvider.bootEvents?.({ cwd: '/proj' })
+    const events = await claudeCodeStateProvider.bootEvents?.({ cwd: '/proj', account: NO_ACCOUNT })
     expect(events).toEqual([{ kind: 'session_started', source: 'classifier', confidence: 0.3 }])
   })
 
@@ -2333,7 +2339,7 @@ describe('bootEvents', () => {
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv1',
-      homeDir: home,
+      account: testAccount('claude-code', home),
     })
     expect(events).toEqual([
       {
@@ -2377,7 +2383,7 @@ describe('bootEvents', () => {
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv-ask',
-      homeDir: home,
+      account: testAccount('claude-code', home),
     })
     // Must match the LIVE PreToolUse translation shape (needs_user/question), not a
     // turn_completed 'question' verdict: idle/question after a restart hid the menu
@@ -2437,7 +2443,7 @@ describe('bootEvents', () => {
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv-answered',
-      homeDir: home,
+      account: testAccount('claude-code', home),
     })
     expect(events).toHaveLength(1)
     expect(events?.[0]).toMatchObject({
@@ -2452,7 +2458,7 @@ describe('bootEvents', () => {
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd: '/proj',
       resumeValue: 'nope',
-      homeDir: home,
+      account: testAccount('claude-code', home),
     })
     expect(events).toEqual([{ kind: 'session_started', source: 'classifier', confidence: 0.3 }])
   })
@@ -2482,7 +2488,7 @@ describe('bootEvents', () => {
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv2',
-      homeDir: home,
+      account: testAccount('claude-code', home),
     })
     expect(events).toEqual([
       { kind: 'session_started', at: realActivity, source: 'classifier', confidence: 0.3 },
@@ -2556,7 +2562,11 @@ describe('Claude user interrupt [POD-4633]', () => {
       const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
       const path = join(dir, 'claude.jsonl')
       try {
-        const body = prompt('p-1', 'Write the numbers from 1 to 2000') + thinking + answer('1\n2\n3') + marker('p-1')
+        const body =
+          prompt('p-1', 'Write the numbers from 1 to 2000') +
+          thinking +
+          answer('1\n2\n3') +
+          marker('p-1')
         await writeFile(path, body)
         const capture = await captureClaudeTranscript(path)
         expect(capture.terminalInterrupt).toEqual({
@@ -2570,12 +2580,18 @@ describe('Claude user interrupt [POD-4633]', () => {
           prompt('p-2', 'run it') +
           line({
             type: 'assistant',
-            message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+            message: {
+              role: 'assistant',
+              content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }],
+            },
           }) +
           line({
             type: 'user',
             promptId: 'p-2',
-            message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'rejected' }] },
+            message: {
+              role: 'user',
+              content: [{ type: 'tool_result', tool_use_id: 't1', content: 'rejected' }],
+            },
           }) +
           marker('p-2', '[Request interrupted by user for tool use]')
         await writeFile(path, toolBody)
@@ -2592,7 +2608,10 @@ describe('Claude user interrupt [POD-4633]', () => {
       const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
       const path = join(dir, 'claude.jsonl')
       try {
-        await writeFile(path, prompt('p-1', 'first') + answer('1') + marker('p-1') + prompt('p-2', 'second'))
+        await writeFile(
+          path,
+          prompt('p-1', 'first') + answer('1') + marker('p-1') + prompt('p-2', 'second'),
+        )
         expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
         await appendFile(path, answer('hi'))
         expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
@@ -2613,7 +2632,10 @@ describe('Claude user interrupt [POD-4633]', () => {
       // prompt nor a marker a snapshot had followed.
       const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
       const path = join(dir, 'claude.jsonl')
-      const attachment = line({ type: 'attachment', attachment: { type: 'skill_listing', content: 'x'.repeat(160 * 1024) } })
+      const attachment = line({
+        type: 'attachment',
+        attachment: { type: 'skill_listing', content: 'x'.repeat(160 * 1024) },
+      })
       const before = prompt('p-0', 'earlier') + answer('done')
       const turnStart = Buffer.byteLength(before)
       try {
@@ -2622,11 +2644,15 @@ describe('Claude user interrupt [POD-4633]', () => {
         expect(early.assistantOutputInRange).toBe(false)
         expect(early.terminalInterrupt).toBeNull()
 
-        const body = before + prompt('p-1', 'stopped late') + attachment + answer('1\n2') + marker('p-1')
+        const body =
+          before + prompt('p-1', 'stopped late') + attachment + answer('1\n2') + marker('p-1')
         await writeFile(path, body + attachment)
         expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
         const late = await captureClaudeTranscript(path, { promptScanStart: turnStart })
-        expect(late.terminalInterrupt).toEqual({ promptId: 'p-1', recordBoundary: Buffer.byteLength(body) })
+        expect(late.terminalInterrupt).toEqual({
+          promptId: 'p-1',
+          recordBoundary: Buffer.byteLength(body),
+        })
         expect(late.assistantOutputInRange).toBe(true)
       } finally {
         await rm(dir, { recursive: true, force: true })
@@ -2637,7 +2663,11 @@ describe('Claude user interrupt [POD-4633]', () => {
   describe('interrupt record', () => {
     it('ends the open turn as interrupted, and the durable gate accepts it', async () => {
       const { causal, checkpoint } = await openTurn()
-      const ended = causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })
+      const ended = causal.observeInterrupt({
+        kind: 'marker',
+        promptId: 'p-1',
+        recordBoundary: 400,
+      })
       expect(ended).toMatchObject({
         transitionKind: 'turn_terminal',
         provenance: 'live',
@@ -2651,10 +2681,15 @@ describe('Claude user interrupt [POD-4633]', () => {
       if (!ended) throw new Error('expected a terminal observation')
       const accepted = acceptAgentObservation(checkpoint, lease, ended, at)
       if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
-      expect(accepted.checkpoint.terminalFence).toMatchObject({ turnEpoch: 1, verdict: 'interrupted' })
+      expect(accepted.checkpoint.terminalFence).toMatchObject({
+        turnEpoch: 1,
+        verdict: 'interrupted',
+      })
 
       // Terminal is absorbing: the same record cannot end it twice.
-      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })).toBeNull()
+      expect(
+        causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 }),
+      ).toBeNull()
       // And the next real prompt opens epoch 2 behind it.
       const next = await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p-2' }), 450)
       if (!next) throw new Error('expected the next turn to open')
@@ -2668,17 +2703,27 @@ describe('Claude user interrupt [POD-4633]', () => {
       // A hook captured after Claude had already flushed the record leaves the
       // observer's offset beyond it. The fence still has to advance the cursor.
       await causal.observeHook(hook('PreToolUse', { prompt_id: 'p-1', tool_use_id: 't1' }), 500)
-      const ended = causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })
+      const ended = causal.observeInterrupt({
+        kind: 'marker',
+        promptId: 'p-1',
+        recordBoundary: 400,
+      })
       expect(ended).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
       expect(ended?.providerCursor.components.transcript).toBe(500)
     })
 
     it("does not end a turn on another turn's record, or with no turn open", async () => {
       const { causal } = await openTurn()
-      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-0', recordBoundary: 400 })).toBeNull()
-      expect(causal.observeInterrupt({ kind: 'marker', promptId: null, recordBoundary: 400 })).toBeNull()
+      expect(
+        causal.observeInterrupt({ kind: 'marker', promptId: 'p-0', recordBoundary: 400 }),
+      ).toBeNull()
+      expect(
+        causal.observeInterrupt({ kind: 'marker', promptId: null, recordBoundary: 400 }),
+      ).toBeNull()
       await causal.observeHook(hook('Stop', { prompt_id: 'p-1' }), 420)
-      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 440 })).toBeNull()
+      expect(
+        causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 440 }),
+      ).toBeNull()
     })
   })
 
@@ -2694,7 +2739,9 @@ describe('Claude user interrupt [POD-4633]', () => {
         state: { idle: { kind: 'interrupted' } },
       })
       if (!ended) throw new Error('expected a terminal observation')
-      expect(acceptAgentObservation(checkpoint, lease, ended, at).kind).toBe('live_transition_accepted')
+      expect(acceptAgentObservation(checkpoint, lease, ended, at).kind).toBe(
+        'live_transition_accepted',
+      )
     })
 
     it('never ends a turn that has answered, or any turn but the one Stop was sent in', async () => {

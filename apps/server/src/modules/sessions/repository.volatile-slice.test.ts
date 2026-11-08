@@ -1,5 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import type { EntityChangeSpec } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRepository } from './repository'
@@ -43,7 +42,7 @@ function fixture(count: number) {
   const runScheduledBroadcast = vi.fn()
   const repo = new SessionRepository({
     sessions,
-    ledger: { capture },
+    writers: ((ledger) => ({ live: ledger, boot: ledger }))({ capture }),
     view: { buildProjectionPass: async () => ({}), wire },
     now: () => Date.now(),
     runScheduledBroadcast,

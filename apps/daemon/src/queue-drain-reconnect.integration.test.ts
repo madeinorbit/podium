@@ -188,6 +188,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       )
       await settled()
       const sent = await registry.modules.messages.send(
+        registry.modules.sessions.serverWriter,
         {
           kind: 'superagent',
           attribution: {
@@ -210,7 +211,9 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       // Abandonment goes out on the daemon's own full send (`ctx.send`), never
       // through the driver's narrowed port (POD-4785).
       daemonRuntimeHost(
-        { send: (message: unknown) => connection?.send(message as never) } as unknown as DaemonContext,
+        {
+          send: (message: unknown) => connection?.send(message as never),
+        } as unknown as DaemonContext,
         () => {},
       ).onDrainAbandoned?.({
         sessionId,

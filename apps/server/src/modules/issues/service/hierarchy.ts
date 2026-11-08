@@ -3,6 +3,7 @@ import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import { IssueRefusal } from './refusal'
+import type { IssueWriter } from './types'
 
 /** Hierarchy and dependency capability over the shared issue store. */
 export class IssueHierarchyModule {
@@ -43,7 +44,12 @@ export class IssueHierarchyModule {
     return null
   }
 
-  async addDep(fromRef: string, toRef: string, type = 'blocked-by'): Promise<IssueProjection> {
+  async addDep(
+    writer: IssueWriter,
+    fromRef: string,
+    toRef: string,
+    type = 'blocked-by',
+  ): Promise<IssueProjection> {
     if (type === 'parent-child')
       throw new IssueRefusal('parent-child is managed by reparent, not addDep')
     if (!(ISSUE_DEP_TYPES as readonly string[]).includes(type))
@@ -71,6 +77,7 @@ export class IssueHierarchyModule {
       }
     }
     const wire = await this.store.persistWith(
+      writer,
       row,
       async () => await this.store.deps.store.issues.addIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges([{ fromId, toId, type }], 'upsert') },
@@ -79,7 +86,12 @@ export class IssueHierarchyModule {
     return wire
   }
 
-  async removeDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection> {
+  async removeDep(
+    writer: IssueWriter,
+    fromRef: string,
+    toRef: string,
+    type?: string,
+  ): Promise<IssueProjection> {
     if (type === 'parent-child')
       throw new IssueRefusal('parent-child is managed by reparent, not removeDep')
     const fromId = await this.store.resolveRef(fromRef)
@@ -89,6 +101,7 @@ export class IssueHierarchyModule {
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
       .map((d) => ({ fromId, toId, type: d.type }))
     const wire = await this.store.persistWith(
+      writer,
       row,
       async () => await this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges(removed, 'remove') },
@@ -117,13 +130,17 @@ export class IssueHierarchyModule {
    * existing outside-scope confirmation instead of treating this as a silent
    * structural-only edit.
    */
-  async reparent(id: string, parentId: string | null): Promise<IssueProjection> {
+  async reparent(
+    writer: IssueWriter,
+    id: string,
+    parentId: string | null,
+  ): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     await this.setParentForUpdate(
       row,
       parentId == null ? null : await this.store.resolveRef(parentId),
     )
-    const wire = await this.store.persist(row)
+    const wire = await this.store.persist(writer, row)
 
     return wire
   }
@@ -153,24 +170,28 @@ export class IssueHierarchyModule {
     return [...ancestors.values()].some((ancestor) => ancestor.stage === 'proposed')
   }
 
-  async supersede(oldRef: string, newRef: string): Promise<IssueProjection> {
+  async supersede(writer: IssueWriter, oldRef: string, newRef: string): Promise<IssueProjection> {
     const oldId = await this.store.resolveRef(oldRef)
     const newId = await this.store.resolveRef(newRef)
     await this.store.rowOrThrow(newId)
-    await this.addDep(oldId, newId, 'supersedes')
-    return await this.crud().update(oldId, {
+    await this.addDep(writer, oldId, newId, 'supersedes')
+    return await this.crud().update(writer, oldId, {
       stage: 'done',
       closedReason: 'superseded',
       supersededBy: newId,
     })
   }
 
-  async duplicate(ref: string, canonicalRef: string): Promise<IssueProjection> {
+  async duplicate(
+    writer: IssueWriter,
+    ref: string,
+    canonicalRef: string,
+  ): Promise<IssueProjection> {
     const id = await this.store.resolveRef(ref)
     const canonicalId = await this.store.resolveRef(canonicalRef)
     await this.store.rowOrThrow(canonicalId)
-    await this.addDep(id, canonicalId, 'duplicates')
-    return await this.crud().update(id, {
+    await this.addDep(writer, id, canonicalId, 'duplicates')
+    return await this.crud().update(writer, id, {
       stage: 'done',
       closedReason: 'duplicate',
       duplicateOf: canonicalId,

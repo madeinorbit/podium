@@ -9,13 +9,14 @@ import {
 // `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
 // they were missing (POD-366).
 import type {
+  IssueId,
   SessionId,
   SessionReadResult,
   SessionRecapResult,
   SessionStatusResult,
-  IssueId,
 } from '@podium/model'
 import { canonicalIssueCloseReason } from '@podium/model'
+import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 import { makeOperatorIssueClient } from './operator-client'
@@ -42,7 +43,7 @@ type StopResult = {
   deferredKill?: boolean
 }
 
-export interface SessionControlClient {
+export interface SessionControlClient extends SyncSubmitTransport {
   sessions: {
     sendText: SessionProc
     resumeAndSend: SessionProc
@@ -160,10 +161,7 @@ function renderRead(r: SessionReadResult): string {
     })
     .join('\n')
   const truncationNotice = r.truncated ? '(truncated to the per-call cap)' : null
-  const tail = [
-    r.cursor && r.hasMore ? `(more: --cursor ${r.cursor})` : null,
-    truncationNotice,
-  ]
+  const tail = [r.cursor && r.hasMore ? `(more: --cursor ${r.cursor})` : null, truncationNotice]
     .filter(Boolean)
     .join(' ')
   return [truncationNotice, body || '(no transcript items)', tail].filter(Boolean).join('\n')
@@ -445,7 +443,18 @@ export async function runSessionCli(
     result = await repeatUntilAnswered(() => proc.mutate(request))
     action = wake ? 'resume-and-send' : 'send'
   } else if (command === 'continue') {
-    result = await client.sessions.continue.mutate({ sessionId })
+    // On the sync write entry point (POD-6416), over tRPC or an agent's relay.
+    // LEGACY(remove-after: 2027-03): an older server has no `sync.submit` and
+    // takes the command's own route.
+    result = await submitNow<SessionResult>(
+      client,
+      'sessions.continue',
+      { sessionId },
+      {
+        action: 'continue this session',
+        legacy: async () => await client.sessions.continue.mutate({ sessionId }),
+      },
+    )
     action = 'continue'
   } else {
     throw new SessionCliError(`unknown command: ${command}\n\n${helpText()}`)
@@ -471,10 +480,12 @@ export async function runSessionCli(
     pending && messageId !== undefined
       ? `${outcome} as ${messageId}; ${pendingSendNote(messageId)}`
       : outcome
-  const selectionFlags = args.model !== undefined || args.effort !== undefined || args['force-unknown-model'] === true
-  const warning = selectionFlags && !result.wakeSelection
-    ? 'Warning: the server did not confirm the wake selection; an older server may have ignored --model/--effort. Check session status.'
-    : undefined
+  const selectionFlags =
+    args.model !== undefined || args.effort !== undefined || args['force-unknown-model'] === true
+  const warning =
+    selectionFlags && !result.wakeSelection
+      ? 'Warning: the server did not confirm the wake selection; an older server may have ignored --model/--effort. Check session status.'
+      : undefined
   const selectionNote = result.wakeSelection
     ? `wake selection: model=${result.wakeSelection.model} effort=${result.wakeSelection.effort}`
     : undefined

@@ -124,6 +124,21 @@ export function parentAvailable(): boolean {
 }
 
 /**
+ * The supervisor's own verdict on a coordinator update it was running, with the
+ * reason code it recorded (POD-6618). Thrown instead of a bare `Error(detail)`
+ * so the operation can name what happened: the sentence alone was being read as
+ * a download failure.
+ */
+export class SupervisorUpdateFailure extends Error {
+  readonly reasonCode: string | undefined
+  constructor(detail: string, reasonCode: string | undefined) {
+    super(detail)
+    this.name = 'SupervisorUpdateFailure'
+    this.reasonCode = reasonCode
+  }
+}
+
+/**
  * Ensure the install directory carries the operation's exact target, by asking
  * the parent to do it. Resolves when the bundle on disk IS the target (the
  * parent ran the VERSION re-read fence); rejects with the parent's reason.
@@ -171,7 +186,10 @@ export function createInstalledCoordinatorUpdate(
           committed = ['activating', 'restarting', 'current'].includes(status.phase)
           if (status.phase === 'prepared' || committed) break
           if (['rejected', 'stuck', 'canceled'].includes(status.phase))
-            throw new Error(status.detail ?? 'Supervisor preparation failed.')
+            throw new SupervisorUpdateFailure(
+              status.detail ?? 'Supervisor preparation failed.',
+              status.reasonCode,
+            )
           if (Date.now() >= deadline) throw new Error('Supervisor preparation timed out.')
           await new Promise((resolve) => setTimeout(resolve, 100))
         }

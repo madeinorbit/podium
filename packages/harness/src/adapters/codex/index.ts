@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { hostTools } from '../../host-tools.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -28,7 +28,8 @@ import { codexDescriptor } from './descriptor.js'
 import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
-import { createOwnedCodexRolloutResolver } from './owned-rollout.js'
+import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { codexRoots } from './roots.js'
 import {
   codexStateProvider,
   findCodexRolloutPath,
@@ -50,9 +51,8 @@ interface CodexAuthFile {
   }
 }
 
-function codexAuthPath(homeDir: string, env: HarnessEnvironment = process.env): string {
-  const codexHome = env.CODEX_HOME?.trim() || join(homeDir, '.codex')
-  return join(codexHome, 'auth.json')
+function codexAuthPath(homeDir: string, env: HarnessEnvironment): string {
+  return join(codexRoots(homeDir, env).credentials, 'auth.json')
 }
 
 function codexProfile(idToken: string | undefined): string | undefined {
@@ -162,7 +162,9 @@ export function codexTranscriptPlacement(
   filename: string,
 ): string {
   const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
-  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+  // A handoff places into the TARGET home's default store: the importing
+  // daemon holds no environment for it yet.
+  return join(codexRoots(home, {}).transcripts, ...safeDir, basename(filename))
 }
 
 /**
@@ -214,15 +216,19 @@ export const codexManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'codex-thread',
+  roots: codexRoots,
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
+    // Terminal-protocol compatibility for codex's TUI, in the primary pane and
+    // in an attach client alike. Inert for app-server and exec children.
+    set: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
   },
 
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
-    loginCommand: supported({ cmd: 'codex', args: ['login'] }),
+    loginCommand: supported({ args: ['login'] }),
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       codexCredentials.identity(credentialFileReader(codexCredentials, homeDir, env)),
     ),
@@ -271,7 +277,7 @@ export const codexManifest: AgentManifest = {
       'OPENAI_ORG_ID',
       'OPENAI_BASE_URL',
     ],
-    detectLogin(homeDir, env?: HarnessEnvironment) {
+    detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string
       try {
@@ -317,7 +323,6 @@ export const codexManifest: AgentManifest = {
     // Official hooks bind the stable Podium pane id to Codex's native thread id.
     const instructions = composeAgentInstructions(opts.instructions ?? [])
     return {
-      cmd: 'codex',
       args: [
         ...(opts.resume ? codexResumeArgs(opts.cwd, opts.resume.value) : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
@@ -348,7 +353,6 @@ export const codexManifest: AgentManifest = {
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     const mcp = codexMcpArgs(opts.mcpConfig, 'harness')
     return {
-      cmd: 'codex',
       args: [
         'exec',
         '--skip-git-repo-check',
@@ -428,7 +432,6 @@ export const codexManifest: AgentManifest = {
          */
         parkOnRelease: false,
         launch: ({ cwd, conversation, endpoint }) => ({
-          cmd: 'codex',
           args: [
             ...codexResumeArgs(cwd, conversation),
             // NO PERMISSION OVERRIDES on a `--remote` resume. The terminal
@@ -494,7 +497,6 @@ export const codexManifest: AgentManifest = {
         .join('\n\n')
       const mcp = codexMcpArgs(opts.mcpConfig, 'headless')
       return {
-        cmd: 'codex',
         args: [
           'exec',
           // Turns ≥2 thread onto the existing rollout; `resume` is a subcommand,
@@ -592,6 +594,13 @@ export const codexManifest: AgentManifest = {
         rebindId,
       })
     }
+    // THE SESSION'S FOLDERS (POD-6533, POD-6536): the account's roots, the
+    // ones its child and its hooks use. A survivor whose Codex left the
+    // inventory has no context but still has its account.
+    const { account } = input
+    const sessionsRoot = account.roots.transcripts ?? account.roots.state
+    // pgrep/lsof/ps from the session's command environment (POD-6536).
+    const tools = hostTools(account.env)
     const start = (
       resumeValue: string | undefined,
       startedAtMs: number | undefined,
@@ -609,8 +618,9 @@ export const codexManifest: AgentManifest = {
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(processBindingSessionId ? { podiumSessionId: processBindingSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-        ...(input.harnessHome ? { codexHome: input.harnessHome } : {}),
+        homeDir: account.home,
+        hostTools: tools,
+        codexHome: account.roots.state,
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         ...(lease && input.podiumSessionId
           ? {
@@ -653,12 +663,10 @@ export const codexManifest: AgentManifest = {
     const resolveOwned = input.ownedProcess
       ? createOwnedCodexRolloutResolver({
           ownedProcess: input.ownedProcess,
-          sessionsRoot: join(
-            input.harnessHome ?? join(input.homeDir ?? homedir(), '.codex'),
-            'sessions',
-          ),
+          sessionsRoot,
           startedAtMs: floor,
           resumeValue: input.resumeValue,
+          inspect: hostProcessInspection(tools),
         })
       : undefined
     let inspecting = false
@@ -773,7 +781,7 @@ export const codexManifest: AgentManifest = {
     async transcriptForExport({ homeDir, resumeValue }) {
       const found = await resolvePinnedCodexRollout(resumeValue, homeDir)
       if (!found) throw new Error('Codex transcript not found')
-      const rel = relative(join(homeDir, '.codex', 'sessions'), dirname(found.path))
+      const rel = relative(codexRoots(homeDir, {}).transcripts, dirname(found.path))
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },

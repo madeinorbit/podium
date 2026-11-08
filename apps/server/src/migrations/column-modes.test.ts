@@ -33,6 +33,7 @@ import * as schema from './schema'
 /** The 0/1 integer columns, `<table>.<column>`. */
 const BOOLEAN_COLUMNS = [
   'automations.enabled',
+  'effects.cancel_requested',
   'issues.archived',
   'issues.draft',
   'issues.needs_human',
@@ -40,6 +41,7 @@ const BOOLEAN_COLUMNS = [
   'messages.expects_response',
   'quota_windows.partial',
   'sessions.archived',
+  'sessions.desired_force',
   'sessions.headless',
   'subscriptions.deliver_notify',
   'subscriptions.deliver_nudge',

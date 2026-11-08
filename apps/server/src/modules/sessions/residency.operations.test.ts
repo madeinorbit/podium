@@ -34,7 +34,10 @@ async function plantTranscript(store: SessionStore, sessionId: SessionId) {
     subject: sessionId,
     payload: {
       t: 'item',
-      item: { kind: 'complete', item: { id: `item-${sessionId}`, role: 'assistant', text: 'parked words', ts: at } },
+      item: {
+        kind: 'complete',
+        item: { id: `item-${sessionId}`, role: 'assistant', text: 'parked words', ts: at },
+      },
       at,
       provenance: 'live',
       observerGeneration: 1,
@@ -56,7 +59,10 @@ async function scenario(evict: boolean) {
   const sessions = reg.modules.sessions
   const machine = store.hostMachineId
   const admin = firstAdminMemberId()
-  const issue = await reg.modules.issues.crud.create({ repoPath: '/r', title: 'T', startNow: false })
+  const issue = await reg.modules.issues.crud.create(
+    reg.modules.issues.reports.store.serverWriter,
+    { repoPath: '/r', title: 'T', startNow: false },
+  )
 
   const ids: SessionId[] = []
   for (let i = 0; i < 9; i++) {
@@ -77,8 +83,10 @@ async function scenario(evict: boolean) {
     })
     ids.push(sessionId)
   }
-  for (const id of ids.slice(0, 7)) await reg.gateway.routeDaemonFrame(machine, { type: 'agentExit', sessionId: id, code: 0 })
-  for (const id of ids.slice(7)) expect((await sessions.hibernateSession({ sessionId: id })).ok).toBe(true)
+  for (const id of ids.slice(0, 7))
+    await reg.gateway.routeDaemonFrame(machine, { type: 'agentExit', sessionId: id, code: 0 })
+  for (const id of ids.slice(7))
+    expect((await sessions.hibernateSession({ sessionId: id })).ok).toBe(true)
   await plantTranscript(store, ids[0]!)
   await sessions.flushActivity()
 
@@ -89,38 +97,65 @@ async function scenario(evict: boolean) {
       sessions.residency.sweep()
       for (const id of ids) {
         const resident = sessions.sessions.get(id)
-        if (resident) expect({ name, id, why: sessions.residency.residentBecause(id) }).toMatchObject({ why: 'running' })
+        if (resident)
+          expect({ name, id, why: sessions.residency.residentBecause(id) }).toMatchObject({
+            why: 'running',
+          })
       }
     }
     answers.push([name, await op()])
   }
   const [s0, s1, s2, s3, s4, s5, s6, s7, s8] = ids as [SessionId, ...SessionId[]] as SessionId[]
 
-  await step('rename', () => sessions.renameSession({ sessionId: s0!, name: 'Renamed' }))
-  await step('agentName', () => sessions.setAgentName({ sessionId: s1!, name: 'Agent named' }))
-  await step('archive', () => sessions.setArchived({ sessionId: s2!, archived: true }))
-  await step('workState', () => sessions.setWorkState({ sessionId: s3!, workState: 'done' } as never))
-  await step('issue', () => sessions.setSessionIssueId(s4!, issue.id))
-  await step('read', () => sessions.markSessionRead(admin, s5!))
-  await step('unread', () => sessions.markSessionUnread(admin, s5!))
-  await step('snooze', () => sessions.setSnooze({ userId: admin, sessionId: s5!, until: '2099-01-01T00:00:00.000Z' }))
+  await step('rename', () =>
+    sessions.renameSession(sessions.serverWriter, { sessionId: s0!, name: 'Renamed' }),
+  )
+  await step('agentName', () =>
+    sessions.setAgentName(sessions.serverWriter, { sessionId: s1!, name: 'Agent named' }),
+  )
+  await step('archive', () =>
+    sessions.setArchived(sessions.serverWriter, { sessionId: s2!, archived: true }),
+  )
+  await step('workState', () =>
+    sessions.setWorkState(sessions.serverWriter, { sessionId: s3!, workState: 'done' } as never),
+  )
+  await step('issue', () => sessions.setSessionIssueId(sessions.serverWriter, s4!, issue.id))
+  await step('read', () => sessions.markSessionRead(sessions.serverWriter, admin, s5!))
+  await step('unread', () => sessions.markSessionUnread(sessions.serverWriter, admin, s5!))
+  await step('snooze', () =>
+    sessions.setSnooze(sessions.serverWriter, {
+      userId: admin,
+      sessionId: s5!,
+      until: '2099-01-01T00:00:00.000Z',
+    }),
+  )
   await step('offer', () =>
-    sessions.setOffer({ sessionId: s6!, message: 'next', actions: [{ label: 'Go', prompt: 'go' }] } as never),
+    sessions.setOffer(sessions.serverWriter, {
+      sessionId: s6!,
+      message: 'next',
+      actions: [{ label: 'Go', prompt: 'go' }],
+    } as never),
   )
   await step('dismissOffer', async () => {
     const offer = (await sessions.records.read([s6!])).get(s6!)?.offer
-    return await sessions.dismissOffer(s6!, offer!.createdAt)
+    return await sessions.dismissOffer(sessions.serverWriter, s6!, offer!.createdAt)
   })
   await step('transcript', async () =>
-    (await reg.modules.rpc.readTranscript({ sessionId: s0!, direction: 'before', limit: 10 }, { kind: 'user', id: admin }))
-      .items.map((item) => item.text),
+    (
+      await reg.modules.rpc.readTranscript(
+        { sessionId: s0!, direction: 'before', limit: 10 },
+        { kind: 'user', id: admin },
+      )
+    ).items.map((item) => item.text),
   )
   await step('resurrect', async () => {
     const result = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId: s7! })
     return { ok: result.ok }
   })
-  await step('lateExit', () => reg.gateway.routeDaemonFrame(machine, { type: 'agentExit', sessionId: s8!, code: 3 }))
-  await step('kill', () => sessions.killSession({ sessionId: s1! }))
+  await step('lateExit', () =>
+    reg.gateway.routeDaemonFrame(machine, { type: 'agentExit', sessionId: s8!, code: 3 }),
+  )
+  await step('kill', () => sessions.killSession(sessions.serverWriter, { sessionId: s1! }))
   await sessions.flushActivity()
 
   // The durable outcome, with the ids and clocks of this arm named generically.
@@ -133,18 +168,24 @@ async function scenario(evict: boolean) {
       JSON.stringify(value, (key, v) => {
         if (typeof v === 'string' && names.has(v)) return names.get(v)
         if (typeof v === 'string' && key === 'conversationPodiumId') return 'conversation'
-        if (typeof v === 'string' && (/At$/.test(key) || key === 'since' || key === 'ts')) return 'time'
+        if (typeof v === 'string' && (/At$/.test(key) || key === 'since' || key === 'ts'))
+          return 'time'
         if (typeof v === 'number' && /Ms(Total)?$/.test(key)) return 'ms'
         return v
       }),
     )
   return {
     answers: normalize(answers),
-    records: ids.map((id) => [names.get(id), normalize(records.has(id) ? durableView(records.get(id)!) : null)]),
-    running: ids.filter((id) => {
-      const s = sessions.sessions.get(id)
-      return s && isRunningStatus(s.status)
-    }).map((id) => names.get(id)),
+    records: ids.map((id) => [
+      names.get(id),
+      normalize(records.has(id) ? durableView(records.get(id)!) : null),
+    ]),
+    running: ids
+      .filter((id) => {
+        const s = sessions.sessions.get(id)
+        return s && isRunningStatus(s.status)
+      })
+      .map((id) => names.get(id)),
   }
 }
 
@@ -156,7 +197,9 @@ describe('operations on a parked session (POD-6160 D2f)', () => {
     expect(evicted.records).toEqual(resident.records)
     expect(evicted.running).toEqual(resident.running)
     // The scenario did what it says.
-    const byName = new Map(resident.records as [string, { meta?: Record<string, unknown> } | null][])
+    const byName = new Map(
+      resident.records as [string, { meta?: Record<string, unknown> } | null][],
+    )
     expect(byName.get('s0')?.meta).toMatchObject({ name: 'Renamed' })
     expect(byName.get('s1')).toBeNull()
     expect(byName.get('s2')?.meta).toMatchObject({ archived: true })

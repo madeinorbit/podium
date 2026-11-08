@@ -24,6 +24,7 @@
 import type { FeedCursorField, ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { EdgePeer } from './wire-feed-edge'
@@ -48,7 +49,7 @@ class Peer implements EdgePeer {
 }
 
 const commit = (p: Awaited<ReturnType<typeof feedTestPlumbing>>, id: string) =>
-  p.ledger.commit({
+  testLedgerWriter(p.ledger).commit({
     write: async () => {},
     changes: () => [{ entity: 'session', id, op: 'upsert', value: { sessionId: id } }],
   })
@@ -197,7 +198,12 @@ describe('HTTP bootstrap capability', () => {
     const ctx = await servedOnce()
     for (let i = 0; i < 4; i++) {
       const peer = new Peer(`http-${i}`, CLIENT_WIRE_VERSION, true, true)
-      ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), i === 0 ? undefined : ctx.held)
+      ctx.p.serving.renegotiate(
+        peer,
+        DEVICE_GRADE_PRINCIPAL,
+        ctx.p.routingPrincipal(peer.id),
+        i === 0 ? undefined : ctx.held,
+      )
       await ctx.p.serving.admissionSettled()
       expect(peer.types()).toEqual(['feedResume'])
       expect(peer.of('feedResume')[0]?.seq).toBe(ctx.held.seq)
@@ -219,7 +225,12 @@ describe('HTTP bootstrap capability', () => {
   it('keeps live delivery after epoch demotion without another socket or world', async () => {
     const ctx = await servedOnce()
     const peer = new Peer('http-epoch', CLIENT_WIRE_VERSION, true, true)
-    ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), ctx.held)
+    ctx.p.serving.renegotiate(
+      peer,
+      DEVICE_GRADE_PRINCIPAL,
+      ctx.p.routingPrincipal(peer.id),
+      ctx.held,
+    )
     await ctx.p.serving.admissionSettled()
     await ctx.p.serving.bumpEpoch('restore')
     expect(peer.types()).toEqual(['feedResume', 'feedResyncRequired'])
@@ -228,10 +239,15 @@ describe('HTTP bootstrap capability', () => {
     if (delivery === null) throw new Error('missing range')
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     expect(peer.of('feedDelta')[0]?.seq).toBe(ctx.held.seq + 1)
-    expect(peer.types().filter(type => type === 'feedBootstrap')).toHaveLength(0)
+    expect(peer.types().filter((type) => type === 'feedBootstrap')).toHaveLength(0)
   })
 
-  it.each(['feed', 'epoch', 'future', 'retention'])('refuses a %s cursor with resync and retains live delivery', async (reason) => {
+  it.each([
+    'feed',
+    'epoch',
+    'future',
+    'retention',
+  ])('refuses a %s cursor with resync and retains live delivery', async (reason) => {
     const ctx = await servedOnce({ retention: { minAvailableSeq: async () => 2 } })
     const cursor = { ...ctx.held }
     if (reason === 'feed') cursor.feedId = 'foreign'
@@ -247,6 +263,6 @@ describe('HTTP bootstrap capability', () => {
     if (delivery === null) throw new Error('missing range')
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     expect(peer.of('feedDelta')[0]?.fromSeq).toBe(ctx.held.seq)
-    expect(peer.types().filter(type => type === 'feedBootstrap')).toHaveLength(0)
+    expect(peer.types().filter((type) => type === 'feedBootstrap')).toHaveLength(0)
   })
 })

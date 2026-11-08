@@ -69,10 +69,9 @@ export const DEV_WEB_BUILD_STEPS = [
     label: 'apps/web',
     // One build script per client, and it is a Turbo task (POD-3053): an unchanged
     // client is restored from the shared cache instead of rebuilt. The bundle
-    // placement check (scripts/web-bundle-budget.ts) is part of `build`, so a red
-    // check is a red build here too — the dest-rebuild exemption `build:dist` used
-    // to grant is gone, and a dest that trips it is telling the truth about what it
-    // would land.
+    // correctness check (scripts/web-bundle-correctness.ts) is part of `build`, so
+    // a red check is a red build here too: a dest that trips it is telling the
+    // truth about a bundle that would break in a browser. It sets no size limit.
     args: ['run', '--filter', '@podium/web', 'build'],
   },
   {

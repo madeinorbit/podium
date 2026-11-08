@@ -70,8 +70,8 @@ const pinKind = PinKind
  *
  * The two constants below are the two classes this table writes, named once so a
  * reader sees the SPLIT the file header describes as data rather than as prose.
- * They are declarations and not derivations from `policy.resource`: the audit
- * (`scripts/audit-session-commands.ts`) checks the two AGREE, which is what makes
+ * They are declarations and not derivations from `policy.resource`:
+ * `framework-facet-rules.test.ts` checks the two AGREE, which is what makes
  * a disagreement a build failure instead of an invisible re-classification.
  *
  * `PERSONAL` — private to the session's owner, shareable by grant (§3.1.1).

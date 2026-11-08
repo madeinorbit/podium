@@ -1,22 +1,32 @@
 /**
  * Replicated layout command port owned by Actions.
  *
- * POD-403 owns key routing, bootstrap hydration, and legacy migration. This port
- * owns the write half: synchronous reducer optimism over the durable Outbox,
- * terminal rollback when queue membership disappears, and an explicit
- * reconciliation seam for authoritative snapshots.
+ * POD-403 owns key routing and legacy migration. This port owns the write half:
+ * synchronous paint over the durable Outbox.
+ *
+ * A key's value is the replica's base, then every layout entry still in the
+ * outbox (pending and applied, in `queuedAt` order), then temporary paint for an
+ * enqueue that has not reached the outbox yet. A layout entry is a generic
+ * record write of one key (`records.userLayout.edit` / `.remove`, ADR 12 D3,
+ * POD-6404): the edit's value is the paint. Nothing here holds, ignores or
+ * refetches. An applied entry stays in the outbox until the replica commits the
+ * truth that covers it, and leaves in that same commit (ADR 12, POD-6277), so
+ * its paint ends exactly when that truth is installed. A refused entry leaves
+ * the outbox, and its paint goes with it.
  */
 
 import {
   isLayoutKey,
   type LayoutSnapshot,
   layoutKeyFromLegacy,
-  type MutationId,
+  layoutRowId,
+  parseLayoutRowId,
+  type UserId,
 } from '@podium/model'
-import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
+import type { RecordEditEntry, RecordRemoveEntry } from '../records'
 import type { StoreNotices } from './types'
-import type { EngineOutbox, OutboxKinds } from './wiring'
+import type { EngineOutbox } from './wiring'
 
 type LayoutOperation =
   | { readonly kind: 'set'; readonly values: Readonly<Record<string, unknown>> }
@@ -25,22 +35,6 @@ type LayoutOperation =
 interface TemporaryOperation {
   readonly token: number
   readonly operation: LayoutOperation
-}
-
-/**
- * A successful layout command has a short hand-off window between the command
- * response and the feed/read that proves it. Keep its per-key value painted
- * across that window. A late bootstrap or feed snapshot can otherwise replace
- * the just-confirmed value with the older snapshot it was already carrying.
- */
-interface AcceptedLayoutValue {
-  readonly mutationId: MutationId
-  readonly present: boolean
-  readonly value?: unknown
-  /** The command's covering read/feed has observed this value. Keep the hold
-   * until a later feed snapshot also observes it, so an older bootstrap cannot
-   * repaint over a successful local write. */
-  feedConfirmed: boolean
 }
 
 function onlyLayoutKeys(snapshot: LayoutSnapshot): LayoutSnapshot {
@@ -54,14 +48,35 @@ function canonicalLayoutKey(key: string): string {
   throw new Error(`'${key}' is not a replicated layout key`)
 }
 
+function layoutKeyOf(id: string): string | null {
+  try {
+    return parseLayoutRowId(id).key
+  } catch {
+    return null
+  }
+}
+
 function operationForEntry(entry: Pick<OutboxEntry, 'kind' | 'input'>): LayoutOperation | null {
+  const record = entry.input as Partial<RecordEditEntry & RecordRemoveEntry> | undefined
+  if (
+    (entry.kind === 'recordEdit' || entry.kind === 'recordRemove') &&
+    record?.kind === 'userLayout' &&
+    typeof record.id === 'string'
+  ) {
+    const key = layoutKeyOf(record.id)
+    if (key === null) return null
+    if (entry.kind === 'recordRemove' || (record.unset ?? []).includes('value')) {
+      return { kind: 'clear', keys: [key] }
+    }
+    return { kind: 'set', values: { [key]: record.patch?.value } }
+  }
+  // LEGACY(remove-after: 2027-03): `layoutSet` / `layoutClear` entries an older
+  // build queued still paint until they retire (POD-6404).
   if (entry.kind === 'layoutSet') {
-    const input = entry.input as OutboxKinds['layoutSet']
-    return { kind: 'set', values: input.values }
+    return { kind: 'set', values: (entry.input as { values: Record<string, unknown> }).values }
   }
   if (entry.kind === 'layoutClear') {
-    const input = entry.input as OutboxKinds['layoutClear']
-    return { kind: 'clear', keys: input.keys }
+    return { kind: 'clear', keys: (entry.input as { keys: string[] }).keys }
   }
   return null
 }
@@ -93,57 +108,42 @@ export interface ReplicatedLayoutPort {
   set(key: string, value: unknown): void
   clear(key: string): void
   subscribe(listener: (keys: ReadonlySet<string>) => void): () => void
-  /** Fetch and install this principal's authoritative snapshot. Queued
-   * optimism stays painted over it. */
+  /** Resolves at once. The base is the replica's rows, seeded at construction
+   * and replaced as the replica commits, so there is nothing to fetch. On a
+   * cold device the shell does not mount until the first bootstrap installs. */
   hydrate(): Promise<void>
-  /** Install already-delivered same-principal truth without a second fetch. */
+  /** Install the replica's committed rows as the base. */
   replace(snapshot: LayoutSnapshot): void
-  /** Install a newly scoped slice and stop every old-scope overlay painting.
-   * The durable commands remain recoverable, but no longer fabricate visibility. */
-  rescope(snapshot: LayoutSnapshot): void
 }
 
 /** Engine-only lifecycle hooks kept off POD-403's routing surface. */
 export interface ReplicatedLayoutController extends ReplicatedLayoutPort {
+  /** The outbox changed: an entry was queued, applied, retired or refused. */
   outboxChanged(): void
-  commandApplied(entry: OutboxEntry): boolean
-  commandDropped(entry: OutboxEntry): void
-  reconcile(snapshot: LayoutSnapshot, mutationIds: readonly string[]): void
 }
 
 export function createReplicatedLayoutController(init: {
-  api: PodiumClientApi
   outbox: EngineOutbox
   notices: StoreNotices
+  /** Whose layout rows these are: a key's record id names its user. */
+  userId: UserId
   /**
    * The persisted base this client last installed, read from the replica at
    * construction (POD-571).
    *
-   * Without it `base` starts empty and stays empty until the network answers, so
+   * Without it `base` starts empty and stays empty until the replica commits, so
    * the shell mounts its DEFAULT branch first — an expanded sidebar, an open
-   * Flight Deck — and swaps once the snapshot lands. This is the same
+   * Flight Deck — and swaps once the rows land. This is the same
    * hydrate-first rule the runtime already applies to the entity slices; layout
    * is the one slice that never got it, and it is the slice that decides what
    * mounts.
    */
   seed?: LayoutSnapshot
-  /**
-   * Called with every AUTHORITATIVE base this controller installs, so the caller
-   * can write it back to durable storage. Optimistic and queued values are
-   * deliberately NOT reported: a value that has not been accepted yet must not
-   * survive a reload as though it had.
-   */
-  onBaseInstalled?: (snapshot: LayoutSnapshot) => void
 }): ReplicatedLayoutController {
-  const { api, outbox, notices, onBaseInstalled } = init
-  // The seed is installed WITHOUT `onBaseInstalled` — it came out of durable
-  // storage, so reporting it would only ask the caller to write back what it
-  // just read.
+  const { outbox, notices } = init
   let base: LayoutSnapshot = onlyLayoutKeys(init.seed ?? {})
   let nextToken = 1
   let temporary: TemporaryOperation[] = []
-  const ignoredAwaiting = new Set<MutationId>()
-  const accepted = new Map<string, AcceptedLayoutValue>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   let notified: LayoutSnapshot = { ...base }
 
@@ -170,11 +170,6 @@ export function createReplicatedLayoutController(init: {
     for (const listener of listeners) listener(changed)
   }
 
-  const installBase = (snapshot: LayoutSnapshot): void => {
-    base = onlyLayoutKeys(snapshot)
-    onBaseInstalled?.(base)
-  }
-
   const layoutEntries = (): OutboxEntry[] =>
     [...outbox.awaiting(), ...outbox.pending()].filter((entry) => operationForEntry(entry) !== null)
 
@@ -186,95 +181,25 @@ export function createReplicatedLayoutController(init: {
 
   const durableOperations = (): LayoutOperation[] =>
     layoutEntries()
-      .filter((entry) => !ignoredAwaiting.has(entry.mutationId))
       .sort((a, b) => a.queuedAt - b.queuedAt)
       .flatMap((entry) => {
         const operation = operationForEntry(entry)
         return operation === null ? [] : [operation]
       })
 
-  const acceptedOperations = (): LayoutOperation[] => {
-    const values: Record<string, unknown> = {}
-    const keys: string[] = []
-    for (const [key, entry] of accepted) {
-      if (entry.present) values[key] = entry.value
-      else keys.push(key)
-    }
-    return [
-      ...(Object.keys(values).length > 0 ? [{ kind: 'set' as const, values }] : []),
-      ...(keys.length > 0 ? [{ kind: 'clear' as const, keys }] : []),
-    ]
-  }
-
-  const projection = (): LayoutSnapshot =>
-    reduceLayoutSnapshot(base, [
-      ...acceptedOperations(),
-      ...durableOperations(),
-      ...temporary.map((entry) => entry.operation),
-    ])
-
   const currentOperations = (): readonly LayoutOperation[] => [
     ...durableOperations(),
     ...temporary.map((entry) => entry.operation),
   ]
+  const projection = (): LayoutSnapshot => reduceLayoutSnapshot(base, currentOperations())
   const valueAt = (key: string, operations = currentOperations()): unknown => {
-    const held = accepted.get(key)
-    let value = held ? (held.present ? held.value : undefined) : base[key]
+    let value = base[key]
     for (const operation of operations) {
       if (operation.kind === 'set') {
         if (Object.hasOwn(operation.values, key)) value = operation.values[key]
       } else if (operation.keys.includes(key)) value = undefined
     }
     return value
-  }
-
-  const snapshotMatches = (
-    snapshot: LayoutSnapshot,
-    key: string,
-    value: AcceptedLayoutValue,
-  ): boolean =>
-    value.present ? Object.is(snapshot[key], value.value) : snapshot[key] === undefined
-
-  const rememberAccepted = (entry: OutboxEntry): boolean => {
-    const operation = operationForEntry(entry)
-    if (operation === null) return false
-    if (operation.kind === 'set') {
-      for (const [key, value] of Object.entries(operation.values)) {
-        if (isLayoutKey(key)) {
-          accepted.set(key, {
-            mutationId: entry.mutationId,
-            present: true,
-            value,
-            feedConfirmed: false,
-          })
-        }
-      }
-    } else {
-      for (const key of operation.keys) {
-        if (isLayoutKey(key))
-          accepted.set(key, { mutationId: entry.mutationId, present: false, feedConfirmed: false })
-      }
-    }
-    return true
-  }
-
-  /** Install feed truth without letting a confirmed local write move backwards. */
-  const installFeedBase = (snapshot: LayoutSnapshot): void => {
-    const guarded = { ...snapshot }
-    for (const [key, value] of accepted) {
-      if (snapshotMatches(snapshot, key, value)) {
-        // A command that is still awaiting its covering read must remain held
-        // until reconcile retires it. Once retired, this matching feed is the
-        // point at which the hold can disappear.
-        if (value.feedConfirmed) accepted.delete(key)
-        else value.feedConfirmed = true
-        continue
-      }
-      if (!value.feedConfirmed) continue
-      if (value.present) guarded[key] = value.value
-      else delete guarded[key]
-    }
-    installBase(guarded)
   }
 
   const removeTemporary = (token: number): void => {
@@ -286,19 +211,30 @@ export function createReplicatedLayoutController(init: {
   }
 
   const enqueue = (operation: LayoutOperation): void => {
-    // Layout is non-optimistic for pool rows. This runtime controller owns its
-    // temporary paint and covering-truth/refusal reconciliation; the ordinary
-    // durable outbox remains the only queue (POD-5426 §5).
+    // Layout is non-optimistic for pool rows. This controller owns only the
+    // temporary paint until the entry is durable; from then on the entry itself
+    // paints, and the ordinary durable outbox is the only queue (POD-5426 §5).
     const token = nextToken++
     temporary = [...temporary, { token, operation }]
     emit(keysOf(operation))
 
+    // One key per operation (`set` and `clear` below), one record write each.
     let queued: OutboxEntry | Promise<OutboxEntry>
     try {
+      const [key] = keysOf(operation)
+      if (key === undefined) {
+        removeTemporary(token)
+        return
+      }
+      const id = layoutRowId(init.userId, key)
       queued =
         operation.kind === 'set'
-          ? outbox.enqueue('layoutSet', { values: operation.values })
-          : outbox.enqueue('layoutClear', { keys: [...operation.keys] })
+          ? outbox.enqueue('recordEdit', {
+              kind: 'userLayout',
+              id,
+              patch: { value: operation.values[key] },
+            })
+          : outbox.enqueue('recordRemove', { kind: 'userLayout', id })
     } catch (error) {
       removeTemporary(token)
       throw error
@@ -333,60 +269,15 @@ export function createReplicatedLayoutController(init: {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    hydrate: async () => {
-      installFeedBase(await api.layout.get.query())
-      emit()
-    },
+    hydrate: async () => {},
     replace: (snapshot) => {
-      installFeedBase(snapshot)
-      emit()
-    },
-    rescope: (snapshot) => {
-      installBase(snapshot)
-      temporary = []
-      accepted.clear()
-      for (const entry of layoutEntries()) ignoredAwaiting.add(entry.mutationId)
-      for (const entry of outbox.awaiting()) {
-        if (operationForEntry(entry) !== null) outbox.retireAwaiting(entry.mutationId)
-      }
+      base = onlyLayoutKeys(snapshot)
       emit()
     },
     outboxChanged: () => {
-      const live = new Set(layoutEntries().map((entry) => entry.mutationId))
-      for (const mutationId of ignoredAwaiting) {
-        if (!live.has(mutationId)) ignoredAwaiting.delete(mutationId)
-      }
       const nextKeys = outboxKeys()
       emit(new Set([...previousOutboxKeys, ...nextKeys]))
       previousOutboxKeys = nextKeys
-    },
-    commandApplied: (entry) => {
-      const applied = rememberAccepted(entry)
-      if (applied) emit(keysOf(operationForEntry(entry)!))
-      return applied
-    },
-    commandDropped: (entry) => {
-      const operation = operationForEntry(entry)
-      if (operation === null) return
-      const keys = operation.kind === 'set' ? Object.keys(operation.values) : operation.keys
-      for (const key of keys) {
-        if (accepted.get(key)?.mutationId !== entry.mutationId) continue
-        accepted.delete(key)
-      }
-      emit(keys)
-    },
-    reconcile: (snapshot, mutationIds) => {
-      installBase(snapshot)
-      for (const mutationId of mutationIds) {
-        ignoredAwaiting.add(mutationId as MutationId)
-        outbox.retireAwaiting(mutationId as MutationId)
-      }
-      for (const [key, value] of accepted) {
-        if (!mutationIds.includes(value.mutationId)) continue
-        if (snapshotMatches(snapshot, key, value)) value.feedConfirmed = true
-        else accepted.delete(key)
-      }
-      emit()
     },
   }
 }

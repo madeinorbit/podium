@@ -10,7 +10,7 @@
  */
 
 import type { MutationId } from '@podium/model'
-import { asMutationId } from '@podium/model'
+import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import { InMemoryOutboxStore, Outbox as KernelOutbox } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -59,6 +59,13 @@ async function openOffline(extra: Partial<EngineOutboxCallbacks>): Promise<Engin
   })
 }
 
+/** A mark-read of issue i1: my read state's record edit (POD-6404). */
+const markRead = () => ({
+  kind: 'issueUserState' as const,
+  id: issueUserStateRowId(asUserId('u-1'), asIssueId('i1')),
+  patch: { readAt: '2026-11-05T00:00:00.000Z' },
+})
+
 /**
  * `pending()` reads that happen BEFORE the adapter hands the entry to
  * `kernel.enqueue`, for a second mark-read on the same issue (one to collapse).
@@ -66,7 +73,7 @@ async function openOffline(extra: Partial<EngineOutboxCallbacks>): Promise<Engin
  * size publication each event triggers) are the kernel's own and unchanged.
  */
 async function scansBeforeEnqueue(outbox: EngineOutbox): Promise<number> {
-  await outbox.enqueue('issueMarkRead', { id: 'i1' }, { mutationId: tx(1) })
+  await outbox.enqueue('recordEdit', markRead(), { mutationId: tx(1) })
   const log: string[] = []
   const pending = KernelOutbox.prototype.pending
   const enqueue = KernelOutbox.prototype.enqueue
@@ -81,7 +88,7 @@ async function scansBeforeEnqueue(outbox: EngineOutbox): Promise<number> {
     log.push('enqueue')
     return enqueue.call(this, request)
   })
-  await outbox.enqueue('issueMarkRead', { id: 'i1' }, { mutationId: tx(2) })
+  await outbox.enqueue('recordEdit', markRead(), { mutationId: tx(2) })
   vi.restoreAllMocks()
   expect(log).toContain('enqueue')
   return log.indexOf('enqueue')
@@ -117,7 +124,7 @@ describe('the supersede scan is gated on an observer', () => {
     })
     expect(await scansBeforeEnqueue(outbox)).toBe(1)
     expect(reported).toEqual([
-      [tx(1), { mutationId: tx(1), kind: 'issueMarkRead', input: { id: 'i1' }, queuedAt: 1_000 }],
+      [tx(1), { mutationId: tx(1), kind: 'recordEdit', input: markRead(), queuedAt: 1_000 }],
     ])
   })
 })

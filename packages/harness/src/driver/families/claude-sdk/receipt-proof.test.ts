@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import records from './__fixtures__/transcript-receipts.json' with { type: 'json' }
 import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
@@ -76,6 +77,7 @@ async function world(initialHistory = '') {
     { kind: 'claude-session', value: NATIVE },
     {
       harness: 'claude-code',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
       selection: {
         auth: 'subscription',
         platform: 'linux',

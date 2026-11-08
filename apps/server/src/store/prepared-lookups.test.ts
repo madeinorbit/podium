@@ -38,12 +38,13 @@
  * `prepare` per connection however many times it runs.
  */
 
-import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { asc, eq, sql } from 'drizzle-orm'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { asc, eq, sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
@@ -133,8 +134,14 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
           .all()
       )[0]
 
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    await sessions.upsertSession(sessionRow('sess-b', BOB, '2026-09-02T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-b', BOB, '2026-09-02T10:00:00.000Z'),
+    )
 
     for (const id of ['sess-a', 'sess-b']) {
       const prepared = await sessions.getSession(asSessionId(id))
@@ -154,7 +161,12 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
 
     // A TOMBSTONE IS INCLUDED — the property the method's own comment names,
     // and the one a `deleted_at IS NULL` slip would break.
-    await sessions.softDeleteSessions(['sess-a'], '2026-09-05T00:00:00.000Z', 'standalone')
+    await sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      ['sess-a'],
+      '2026-09-05T00:00:00.000Z',
+      'standalone',
+    )
     expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     expect(await fluent('sess-a')).toBeDefined()
   })
@@ -166,7 +178,10 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
     await db
       .insert(users)
-      .values({ ...account(BOB, '2026-09-02T10:00:00.000Z'), disabledAt: '2026-09-03T00:00:00.000Z' })
+      .values({
+        ...account(BOB, '2026-09-02T10:00:00.000Z'),
+        disabledAt: '2026-09-03T00:00:00.000Z',
+      })
       .run()
     await db
       .insert(users)
@@ -193,7 +208,10 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
     await db
       .insert(users)
-      .values({ ...account(BOB, '2026-09-02T10:00:00.000Z'), disabledAt: '2026-09-03T00:00:00.000Z' })
+      .values({
+        ...account(BOB, '2026-09-02T10:00:00.000Z'),
+        disabledAt: '2026-09-03T00:00:00.000Z',
+      })
       .run()
     await db
       .insert(users)
@@ -204,9 +222,7 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     // stays truthy. Guarding on the raw row therefore let a credential write
     // land on a suspended account and republish it through the commit funnel.
     // The same hole swallowed the unreadable-role refusal.
-    await expect(
-      repo.setPasswordHash(BOB, 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
+    await expect(repo.setPasswordHash(BOB, 'hash', '2026-09-04T00:00:00.000Z')).rejects.toThrow()
     await expect(
       repo.setPasswordHash(asUserId('user:future'), 'hash', '2026-09-04T00:00:00.000Z'),
     ).rejects.toThrow()
@@ -248,7 +264,12 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
         .toSQL().sql,
     )
     expect(
-      db.select().from(users).where(eq(users.id, sql.placeholder('id'))).prepare().getQuery().sql,
+      db
+        .select()
+        .from(users)
+        .where(eq(users.id, sql.placeholder('id')))
+        .prepare()
+        .getQuery().sql,
     ).toBe(db.select().from(users).where(eq(users.id, ALICE)).toSQL().sql)
   })
 
@@ -257,7 +278,10 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     const sessions = new SessionsRepository(queries)
     const repo = new UsersRepository(queries)
     const db = queries.rootDb
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
 
     const seen: StatementObservation[] = []
@@ -308,7 +332,10 @@ describe('POD-3854 — a prepared read follows the transaction it runs in', () =
 
     await expect(
       queries.createOrJoinTransaction(async () => {
-        await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+        await sessions.upsertSession(
+          fixtureWriteScope(),
+          sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+        )
         await queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
         // Only the transaction's own connection, inside its BEGIN, can see these.
         expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
@@ -323,7 +350,10 @@ describe('POD-3854 — a prepared read follows the transaction it runs in', () =
   it('serves the root again after a transaction closed, with the same query', async () => {
     const { queries } = migratedStore()
     const sessions = new SessionsRepository(queries)
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     await queries.createOrJoinTransaction(async () => {
       expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
@@ -383,8 +413,14 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     const { driver, prepares } = walStore()
     const owner = await driver.open('write')
     const writer = overSession(owner)
-    await writer.sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    await writer.queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
+    await writer.sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
+    await writer.queries.rootDb
+      .insert(users)
+      .values(account(ALICE, '2026-09-01T10:00:00.000Z'))
+      .run()
 
     // THE WRITE LANE — the owner session, which is also the only role that may
     // have written the rows above.
@@ -409,8 +445,7 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     // ONE PREPARE PER CONNECTION PER TEXT, not one per execution and not one
     // for the whole store: the shared reader reuses the owner's, the detached
     // reader has to make its own.
-    const countOf = (fragment: string) =>
-      prepares.filter((text) => text.includes(fragment)).length
+    const countOf = (fragment: string) => prepares.filter((text) => text.includes(fragment)).length
     expect(countOf('from "sessions" where "sessions"."id" = ?')).toBe(2)
     expect(countOf('from "users" where "users"."id" = ?')).toBe(2)
   })
@@ -419,7 +454,10 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     const { driver } = walStore()
     const detached = overSession((await driver.openReader?.()) as DriverSession)
     await expect(
-      detached.queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run(),
+      detached.queries.rootDb
+        .insert(users)
+        .values(account(ALICE, '2026-09-01T10:00:00.000Z'))
+        .run(),
     ).rejects.toThrow()
   })
 })

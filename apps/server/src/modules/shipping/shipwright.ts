@@ -29,6 +29,7 @@ import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { jsonSchema } from '../../llm-roles'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 import type { HeadlessService } from '../superagent/headless'
+import type { ShippingWriter } from './service'
 import { routeShipwright, shipwrightModelFamily } from './shipwright-router'
 
 export interface ShipwrightFailure {
@@ -550,7 +551,10 @@ export class ShipwrightService {
    * repair port once that moving contract lands:
    * deterministic code applies the returned patch to the attempt ref, and the
    * shipping lifecycle owns the mandatory exact validation that follows. */
-  async consider(input: ShipwrightRepairInput): Promise<ShipwrightRepairRecommendation> {
+  async consider(
+    input: ShipwrightRepairInput,
+    writer: ShippingWriter,
+  ): Promise<ShipwrightRepairRecommendation> {
     const kind =
       input.failure.operation === 'prepare-merge-group' &&
       input.failure.classification === 'merge-conflict'
@@ -656,7 +660,7 @@ export class ShipwrightService {
     ]
     for (const [rung, level] of levels.entries()) {
       if (turns >= this.budget.maxTurns) break
-      const proposed = await this.run({
+      const proposed = await this.run(writer, {
         order: input.order,
         attempt: input.attempt,
         issue: input.issue,
@@ -696,7 +700,7 @@ export class ShipwrightService {
         let approved = false
         let inspectorTurns = 0
         while (inspectorTurns < this.budget.maxInspectorTurns && turns < this.budget.maxTurns) {
-          const inspected = await this.run({
+          const inspected = await this.run(writer, {
             order: input.order,
             attempt: input.attempt,
             issue: input.issue,
@@ -826,17 +830,21 @@ export class ShipwrightService {
     }
   }
 
-  async run(input: {
-    order: ShipOrder
-    attempt: ShipAttempt
-    issue: IssueReport
-    failure: ShipwrightFailure
-    level: ShipwrightLevel
-    rung: number
-    priorFamilies?: string[]
-    proposedPatch?: ShipwrightPatch
-    contextDigest: string
-  }): Promise<ShipwrightOutcome> {
+  /** One rung. Its headless session commits through `writer` (POD-6606). */
+  async run(
+    writer: ShippingWriter,
+    input: {
+      order: ShipOrder
+      attempt: ShipAttempt
+      issue: IssueReport
+      failure: ShipwrightFailure
+      level: ShipwrightLevel
+      rung: number
+      priorFamilies?: string[]
+      proposedPatch?: ShipwrightPatch
+      contextDigest: string
+    },
+  ): Promise<ShipwrightOutcome> {
     const owner = input.order.requestedBy.onBehalfOf
     if (!owner) {
       return {
@@ -894,7 +902,7 @@ export class ShipwrightService {
         evidence: [],
       }
     }
-    await this.deps.headless.createHeadlessSession({
+    await this.deps.headless.createHeadlessSession(writer, {
       sessionId,
       agentKind: route.agent,
       cwd: input.issue.repoPath,

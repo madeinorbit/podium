@@ -30,15 +30,7 @@ CREATE TABLE `account_machine_sends` (
 	CONSTRAINT `fk_account_machine_sends_account_id_accounts_id_fk` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
-ALTER TABLE `accounts` ADD `owner_user_id` text;--> statement-breakpoint
 ALTER TABLE `accounts` ADD `ref` text;--> statement-breakpoint
-CREATE UNIQUE INDEX `accounts_owner_ref` ON `accounts` (`owner_user_id`,`ref`);--> statement-breakpoint
-UPDATE `accounts`
-SET `ref` = `id`,
-    `owner_user_id` = (
-      SELECT `id` FROM `users`
-      WHERE `role` = 'admin' AND `disabled_at` IS NULL
-      ORDER BY `created_at`, `id`
-      LIMIT 1
-    )
-WHERE `owner_user_id` IS NULL;
+-- Ownership and account_key/shared_with are supplied by the published
+-- accounts-per-user-owner migration. Do not add owner_user_id twice.
+UPDATE `accounts` SET `ref` = `id` WHERE `ref` IS NULL;

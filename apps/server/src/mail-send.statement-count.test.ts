@@ -77,8 +77,8 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     { repos: ['/repo'] },
   )
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Mail', startNow: false })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/.worktrees/mail' })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -203,12 +203,19 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // 25 -> 24 (-2 grants, +2 live human reads, and no read marker written: mail
   // delivered to no session marks nobody's read state, POD-6291 9dd00e1e43,
   // #347b6290). The users and issues reads gained columns, not statements.
+  // POD-6525: a send is a write on the sync write entry point. Every pin below
+  // gains the same fixed cost: the ledger's lookup and its record, the role
+  // floor's read of the sender's account, the receipt's head, and the
+  // undeliverable-address check in the write, before the hand-on after the
+  // commit. tRPC to a session 62 -> 71, its issue holding mail 70 -> 79, to an
+  // issue 15 -> 18; relayed (the agent's principal is resolved for the target
+  // check and for the handler) 53 -> 66, 61 -> 74, 19 -> 26; mailSend 25 -> 26.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 61)
+    await expectConstantStatements(trpcToSession, 71)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 61, plantPerSession)
+    await expectArmed(trpcToSession, 71, plantPerSession)
   })
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -229,7 +236,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      68,
+      79,
     )
   })
 
@@ -237,7 +244,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
         await relay(f, 'send', { to: f.target, body: 'counted' })),
-      59,
+      74,
     )
   })
 
@@ -272,7 +279,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
       pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      14,
+      18,
     )
   })
 
@@ -283,27 +290,28 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 52)
+    await expectConstantStatements(relayToSession, 66)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 52, plantPerSession)
+    await expectArmed(relayToSession, 66, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      19,
+      26,
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      24,
+      26,
     )
   })
 })
 
-// Measured on the polaris VM (POD-6218).
-const HELD_PASS_USERS_READS = 1
+// Measured on the polaris VM (POD-6218). POD-6525: the counted send's target
+// check reads the sender's account for its role floor, once: 1 -> 2.
+const HELD_PASS_USERS_READS = 2

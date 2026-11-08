@@ -163,10 +163,12 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
 // ---------------------------------------------------------------------------
 
 /**
- * THE RUNNING-OBJECT HALF of `scripts/audit-mail-commands.ts`'s `wake-needs-use`
- * check, and the pairing is the point: that script reads source TEXT and resolves
- * no modules, so it would be satisfied by a contract table that no longer loads.
- * This reads the CONTRACT OBJECTS the server actually dispatches through.
+ * Read off the CONTRACT OBJECTS the server actually dispatches through
+ * (`apps/server/src/modules/messages/registry.ts`), so a contract table that no
+ * longer loads cannot satisfy it (the source-text half of this check was deleted
+ * with the mail audit, POD-6595). That path literal also keeps this file in the
+ * broad `boundary` shard: the delivery-caller walk below reads the whole server
+ * tree, which the import graph cannot see (`scripts/server-test-shards.ts`).
  *
  * The claim: a mail command that can deliver at `lifecycle: 'wake'` reaches
  * `MessageDeliveryService.trySpawn` — it resumes or spawns a session, which is
@@ -671,8 +673,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     })
     // The issue is placed under a machine that REPORTED its repo (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'Target', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/t' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Target', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/t',
@@ -816,8 +818,8 @@ describe('late proof of an unconfirmed message (POD-4840)', () => {
   const setup = async () => {
     const o = await makeOracle()
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'Target', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/t' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Target', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/t',

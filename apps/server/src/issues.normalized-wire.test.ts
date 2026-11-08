@@ -1,6 +1,7 @@
 import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
@@ -121,7 +122,7 @@ async function seedSession(
   issueId: string | null = `iss_${i % ISSUE_COUNT}`,
 ): Promise<string> {
   const id = `sess_${i}`
-  await store.sessions.upsertSession({
+  await store.sessions.upsertSession(fixtureWriteScope(), {
     id: asSessionId(id),
     ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
@@ -152,7 +153,8 @@ async function seedSession(
 
 async function world(opts: { issues?: number; sessions?: number } = {}) {
   const store = await openTestStore(':memory:')
-  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) await store.issues.upsertIssue(issueRow(i))
+  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++)
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++)
     sessionIds.push(await seedSession(store, i))
@@ -234,7 +236,7 @@ async function issueWorkForOneFieldSessionChange(
 ): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
   const before = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
-  await registry.modules.sessions.setWorkState({
+  await registry.modules.sessions.setWorkState(registry.modules.sessions.serverWriter, {
     sessionId: asSessionId(sessionId),
     workState: 'testing',
   })
@@ -257,7 +259,11 @@ describe('issueProjection is the only issue record', () => {
 
   it('only normalized issue rows are appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
-    await registry.modules.issues.crud.update('iss_1', { title: 'edited' })
+    await registry.modules.issues.crud.update(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_1',
+      { title: 'edited' },
+    )
     await registry.modules.sessions.flushBroadcasts()
 
     const projections = await changesOf(registry, 'issueProjection')
@@ -282,7 +288,11 @@ describe('issueProjection is the only issue record', () => {
     const { registry, store } = await world({ issues: 2, sessions: 0 })
     await store.repos.addRepo('/repo', store.hostMachineId)
     await registry.modules.issues.reports.store.publishRepos()
-    await registry.modules.issues.hierarchy.addDep('iss_0', 'iss_1')
+    await registry.modules.issues.hierarchy.addDep(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_0',
+      'iss_1',
+    )
 
     const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
     expect(snapshot.kind).toBe('snapshot')
@@ -294,7 +304,7 @@ describe('issueProjection is the only issue record', () => {
 
   it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', async () => {
     const store = await openTestStore(':memory:')
-    await store.issues.upsertIssue(issueRow(0))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(0))
     const sessionId = await seedSession(store, 0, null)
 
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -344,6 +354,7 @@ describe('issueProjection is the only issue record', () => {
     const before = (await registry.modules.issues.reports.get('iss_0'))?.updatedAt
 
     await registry.modules.issues.commentsMail.addComment(
+      registry.modules.issues.reports.store.serverWriter,
       'iss_0',
       'agent',
       'projection revision premise',
@@ -423,7 +434,11 @@ describe('normalized dep emission [POD-797]', () => {
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
         : 0
-    await registry.modules.issues.hierarchy.addDep('iss_1', 'iss_2')
+    await registry.modules.issues.hierarchy.addDep(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_1',
+      'iss_2',
+    )
     await registry.modules.sessions.flushBroadcasts()
     const after = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
     const edges =

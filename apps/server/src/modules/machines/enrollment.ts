@@ -4,6 +4,7 @@ import { parseWirePublicKey } from '@podium/runtime/signing'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
 import type { MachinesDeps, PairingGrant } from './service'
 import type { SettingsAuditRow } from '../../store/settings-audit'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 
 /** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
@@ -57,6 +58,54 @@ export async function withMachineTransition<T>(host: EnrollmentHost, id: Machine
     release()
     if (pending.get(id) === tail) pending.delete(id)
   }
+}
+
+/**
+ * A custody transition: its database write, then the steps outside the database
+ * (retiring a daemon's transports, the clients' `machinesChanged`).
+ *
+ * Outside a unit of work, both run under the machine's transition lock, as they
+ * always did. INSIDE one (the sync write entry point, POD-6417) the lock cannot
+ * be held: a daemon hello holds it while it waits for the write lane, which the
+ * open unit holds, and each would wait on the other. The write is serialized by
+ * the unit itself (one writer at a time), and the outside steps run after the
+ * commit, under the lock, and never on a rollback (ADR 2 D10). A hello that read
+ * the row before the commit has attached by the time the lock is free, so the
+ * retirement after it still reaches its transports.
+ */
+export async function machineTransition(
+  host: EnrollmentHost,
+  ids: readonly MachineId[],
+  write: () => Promise<void>,
+  outside: () => Promise<void>,
+  label: string,
+): Promise<void> {
+  // Stable ordering prevents opposing A→B/B→A requests from deadlocking.
+  const sorted = [...new Set(ids)].sort()
+  const locked = (run: () => Promise<void>): Promise<void> =>
+    sorted.reduceRight<() => Promise<void>>(
+      (inner, id) => () => withMachineTransition(host, id, inner),
+      run,
+    )()
+  if (spanOpen()) {
+    await write()
+    afterCommit(async () => await locked(outside), label)
+    return
+  }
+  await locked(async () => {
+    await write()
+    await outside()
+  })
+}
+
+/** The clients' `machinesChanged` after a write they can see: after the commit
+ *  inside a unit of work, at once outside one. */
+export async function broadcastAfterWrite(host: EnrollmentHost, label: string): Promise<void> {
+  if (spanOpen()) {
+    afterCommit(async () => await host.broadcastMachines(), label)
+    return
+  }
+  await host.broadcastMachines()
 }
 
 export async function authenticateDaemon(host: EnrollmentHost, frame: MachineAuthenticationFrame, options: DaemonAuthenticationOptions = {}) {
@@ -219,7 +268,7 @@ export async function transferMachineOwnership(
 ): Promise<void> {
   if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
   const scopeAllowed = context.manage?.(id) !== false
-  await withMachineTransition(host, id, async () => {
+  await machineTransition(host, [id], async () => {
     await host.deps.store.transact(async () => {
       const machine = await host.deps.store.machines.getMachine(id)
       if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
@@ -240,8 +289,8 @@ export async function transferMachineOwnership(
         createdAt: new Date().toISOString(),
       })
     })
-  })
-  await host.broadcastMachines()
+  }, async () => {}, 'machines:transfer')
+  await broadcastAfterWrite(host, 'machines:transfer:broadcast')
 }
 
 export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
@@ -255,7 +304,7 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
     throw new Error('only an admin may adopt a machine')
   }
   if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
-  await withMachineTransition(host, id, async () => {
+  await machineTransition(host, [id], async () => {
     await host.deps.store.transact(async () => {
       const machine = await host.deps.store.machines.getMachine(id)
       if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
@@ -268,8 +317,8 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
         detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId }, redactedPaths: [], createdAt: new Date().toISOString(),
       })
     })
-  })
-  await host.broadcastMachines()
+  }, async () => {}, 'machines:adopt')
+  await broadcastAfterWrite(host, 'machines:adopt:broadcast')
 }
 
 /** One admin-authorized decision for client enrollment and retained revoked identity.

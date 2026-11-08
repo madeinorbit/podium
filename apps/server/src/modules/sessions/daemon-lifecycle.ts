@@ -3,8 +3,8 @@ import { createLogger } from '@podium/logger'
 import {
   type AgentRuntimeState,
   idleVerdictNeedsHuman,
-  type SessionId,
   type MachineId,
+  type SessionId,
 } from '@podium/model'
 import type {
   DaemonPtyOutputBatch,
@@ -15,20 +15,27 @@ import type {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
-import type { SessionRecordReads } from './records'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessObservationProvider } from '../../harness-manifest'
-import type { ObservationLeaseRecord, DaemonObservationStore, TerminalCandidateFacts } from '../../hot-path-ports'
+import type {
+  DaemonObservationStore,
+  ObservationLeaseRecord,
+  TerminalCandidateFacts,
+} from '../../hot-path-ports'
 import type { EventBus } from '../bus'
 import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
+import type { SessionRecordReads } from './records'
 import type { Session, SessionDurableState } from './session'
+import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionStateService } from './session-state/service'
 
 const log = createLogger('server:sessions')
 
 export interface SessionDaemonLifecyclePorts {
+  /** Its writes are the daemon's reports (`sessions.daemon`, POD-6601). */
+  writer: SessionWriter
   sessions: Map<SessionId, Session>
   /** Sessions read by a durable key, parked ones from the database (POD-6160). */
   records?: Pick<SessionRecordReads, 'withResume'>
@@ -491,12 +498,21 @@ export class SessionDaemonLifecycle {
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
         if (msg.driverId !== undefined) {
-          void this.ports.initializeRuntimeMetadata?.(msg.sessionId, machineId)
-            .catch((error: unknown) => log.warn('runtime metadata bootstrap failed', { sessionId: msg.sessionId, err: error }))
+          void this.ports
+            .initializeRuntimeMetadata?.(msg.sessionId, machineId)
+            .catch((error: unknown) =>
+              log.warn('runtime metadata bootstrap failed', {
+                sessionId: msg.sessionId,
+                err: error,
+              }),
+            )
         }
         if (msg.driverId !== undefined || msg.draftSyncEngine) {
-          void this.state.initializeRuntimeDraft(msg.sessionId, machineId)
-            .catch((error: unknown) => log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }))
+          void this.state
+            .initializeRuntimeDraft(msg.sessionId, machineId)
+            .catch((error: unknown) =>
+              log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }),
+            )
         }
         break
       }
@@ -611,7 +627,9 @@ export class SessionDaemonLifecycle {
         const target = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
         const others = this.ports.records
           ? await this.ports.records.withResume(target, 'observationRebind')
-          : [...this.sessions.values()].filter((s) => s.resume?.kind === target.kind && s.resume.value === target.value)
+          : [...this.sessions.values()].filter(
+              (s) => s.resume?.kind === target.kind && s.resume.value === target.value,
+            )
         const targetOwnedByAnotherSession =
           !explicitlyExpectedTarget && others.some((other) => other.sessionId !== session.sessionId)
         if (
@@ -862,13 +880,9 @@ export class SessionDaemonLifecycle {
           observation,
         })
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
-          await this.state.clearAllSnoozes(session.sessionId)
+          await this.state.clearAllSnoozes(this.ports.writer, session.sessionId)
         }
-        if (
-          !this.runtimeOwnsState(session) &&
-          !isAttentionPhase(prev) &&
-          isAttentionPhase(next)
-        ) {
+        if (!this.runtimeOwnsState(session) && !isAttentionPhase(prev) && isAttentionPhase(next)) {
           this.ports.onSessionAttention(session.sessionId)
         }
         // A NEW turn opened after the offer means the conversation moved past
@@ -957,15 +971,11 @@ export class SessionDaemonLifecycle {
         // as the old direct notifyAttention call.
         await this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
-          await this.state.clearAllSnoozes(msg.sessionId)
+          await this.state.clearAllSnoozes(this.ports.writer, msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (
-          !this.runtimeOwnsState(session) &&
-          !isAttentionPhase(prev) &&
-          isAttentionPhase(next)
-        ) {
+        if (!this.runtimeOwnsState(session) && !isAttentionPhase(prev) && isAttentionPhase(next)) {
           this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
@@ -1046,11 +1056,16 @@ export class SessionDaemonLifecycle {
           break
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
-        const identityLease = msg.event.t === 'binding'
-          ? await this.store.observationCheckpoints.get(msg.sessionId) : null
-        if (msg.event.t === 'binding' && identityLease &&
-            (identityLease.observationGeneration !== msg.event.observerGeneration ||
-             identityLease.bindingVersion !== msg.event.bindingVersion)) {
+        const identityLease =
+          msg.event.t === 'binding'
+            ? await this.store.observationCheckpoints.get(msg.sessionId)
+            : null
+        if (
+          msg.event.t === 'binding' &&
+          identityLease &&
+          (identityLease.observationGeneration !== msg.event.observerGeneration ||
+            identityLease.bindingVersion !== msg.event.bindingVersion)
+        ) {
           result = { kind: 'rejected', reason: 'stale-observer-generation' }
         } else if (owner?.machineId === machineId) {
           if (runtimeEvents) {

@@ -43,8 +43,9 @@ import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
 import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
-  opencodeVersionProbeForExecutable,
+  opencodeVersionProbe,
 } from '../runtime/version-probe.js'
+import { rigCommandEnv, stubHarnessContext } from './stub-harness-context.js'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -61,6 +62,15 @@ const ready = (engine: string, binding: unknown): void => {
   process.stdout.write(`READY ${engine} ${JSON.stringify(binding)}\n`)
 }
 
+// Each session's pinned installation is the rig's stub (POD-6546): engines
+// launch the context's executable, never a name looked up on PATH.
+const contexts = {
+  codex: stubHarnessContext('codex', `${root}/bin/codex`),
+  opencode: stubHarnessContext('opencode', `${root}/bin/opencode`),
+  grok: stubHarnessContext('grok', `${root}/bin/grok`),
+  'claude-code': stubHarnessContext('claude-code', `${root}/bin/claude`),
+}
+
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
 const claudeFacts = claudeEngineFacts(manifestFor('claude-code')!)
@@ -74,12 +84,15 @@ const codexHost = createCodexEngineHost({
   resources: noResources,
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-  checkVersion: () => codexAppServerVersionProbe(),
+  checkVersion: (installation) =>
+    codexAppServerVersionProbe(installation, { env: rigCommandEnv() }),
+  harnessContextFor: async () => contexts.codex,
   dialSocket: sessionEngines.dialerFor(dialEngineSocket),
 })
 const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
 const codexHandle = await codexRuntime.driver.create({
   harness: 'codex',
+  harnessContext: contexts.codex,
   selection: {
     auth: 'subscription',
     platform: 'linux',
@@ -104,12 +117,16 @@ const opencodeHost = createOpencodeEngineHost({
   resources: noResources,
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-  checkVersion: ({ executable }) =>
-    opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
+  checkVersion: (installation) =>
+    opencodeVersionProbe(installation, { env: rigCommandEnv() }).then((v) =>
+      v.drivable ? null : v.diagnostic,
+    ),
+  harnessContextFor: async () => contexts.opencode,
 })
 const opencodeRuntime = createOpencodeRuntime(opencodeHost, driverSlotsOver(testSessions()))
 const opencodeHandle = await opencodeRuntime.driver.create({
   harness: 'opencode',
+  harnessContext: contexts.opencode,
   selection: {
     auth: 'api-key',
     platform: 'linux',
@@ -130,11 +147,13 @@ const grokHost = createGrokEngineHost({
   resources: noResources,
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-  checkVersion: () => grokAcpVersionProbe(),
+  checkVersion: (installation) => grokAcpVersionProbe(installation, { env: rigCommandEnv() }),
+  harnessContextFor: async () => contexts.grok,
 })
 const grokRuntime = createGrokAcpRuntime({ ...grokHost, stageAttachment: stageRuntimeAttachment }, driverSlotsOver(testSessions()))
 const grokHandle = await grokRuntime.driver.create({
   harness: 'grok',
+  harnessContext: contexts.grok,
   selection: {
     auth: 'subscription',
     platform: 'linux',
@@ -158,6 +177,7 @@ const claudeEngine = createClaudeEngineHost({
   supervision: sessionEngines,
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+  harnessContextFor: async () => contexts['claude-code'],
 })
 const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRuntimeAttachment, driverSlots: driverSlotsOver(testSessions()),
   send: () => {},
@@ -177,6 +197,8 @@ const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRunt
 })
 const claudeHandle = await claudeRuntime.launch(
   serverFamilyLaunch({
+    harness: 'claude-code',
+    harnessContext: contexts['claude-code'],
     sessionId: 'claude-surv-1' as SessionId,
     cwd: workdir,
     initialPrompt: 'survive this',

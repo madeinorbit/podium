@@ -1,0 +1,202 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionValues, SessionView } from '@podium/client-core/session-values'
+import {
+  type AgentKind,
+  actorUser,
+  DRAFT_ISSUE_TITLE,
+  type IssueBoardStage,
+  type IssueId,
+  isSortKey,
+  type MachineId,
+  machinePathBasename,
+  type RepoId,
+  type SessionId,
+  type SessionUserStateWire,
+  sortKeyBetween,
+  spawnedByTag,
+  type UserId,
+} from '@podium/model'
+
+/**
+ * THE ROWS A START PAINTS while its launch record waits (POD-6408, POD-6410).
+ *
+ * A start's ids are minted on the device and its effect record (`session.launch`
+ * or `issue.start`) carries where it starts, so the device paints the starting
+ * session, and its task, from that record until the real rows land under the
+ * same ids. These build those rows. They mirror the server's construction
+ * (`sessions.create` and `issues.create`), so the painted row and the real row
+ * have the same shape and nothing flickers at the handover. They are tested
+ * against the protocol schemas, so a new required field fails a test, not the UI.
+ */
+
+export interface LaunchRowArgs {
+  sessionId: SessionId
+  issueId: IssueId
+  agentKind: AgentKind
+  cwd: string
+  machineId?: MachineId
+  /** ISO timestamp; injected so the builders stay pure/testable. */
+  nowIso: string
+}
+
+/** The placeholder session's own facts. Its per-user cells are not among them:
+ *  they are {@link starterUserState}, joined in by the reader
+ *  (POD-4974 S3c). */
+export type StartingSessionRow = Omit<SessionView, keyof Pick<SessionValues, 'readAt' | 'unread'>>
+
+/** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
+export function startingSessionRow(args: LaunchRowArgs): StartingSessionRow {
+  return {
+    sessionId: args.sessionId,
+    agentKind: args.agentKind,
+    title: machinePathBasename(args.cwd) || args.cwd,
+    cwd: args.cwd,
+    ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
+    status: 'starting',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: args.nowIso,
+    lastActiveAt: args.nowIso,
+    origin: { kind: 'spawn' },
+    archived: false,
+    issueId: args.issueId,
+    spawnedBy: spawnedByTag({ kind: 'user' }),
+  }
+}
+
+/** The spawning user's own row for the placeholder session: just spawned by
+ *  them, so they are looking at it — read at its first activity, not unread. */
+export function starterUserState(args: {
+  userId: UserId
+  sessionId: SessionId
+  nowIso: string
+}): SessionUserStateWire {
+  return { userId: args.userId, sessionId: args.sessionId, readAt: args.nowIso }
+}
+
+/** The draft-issue vessel the server auto-creates for a low-friction start —
+ *  mirrors `issues.createDraftFor` → `issues.create` defaults. */
+export function draftSortKey(
+  issues: readonly IssueViewModel[],
+  repoPath: string,
+  repoId?: RepoId,
+): string {
+  let min: string | null = null
+  for (const issue of issues) {
+    if (issue.deletedAt || issue.parentId || issue.pinned) continue
+    const sameRepo = issue.repoId ? issue.repoId === repoId : issue.repoPath === repoPath
+    if (!sameRepo || !isSortKey(issue.sortKey)) continue
+    if (min === null || issue.sortKey < min) min = issue.sortKey
+  }
+  return sortKeyBetween(null, min)
+}
+
+export function draftIssueRow(
+  args: Pick<LaunchRowArgs, 'issueId' | 'machineId' | 'agentKind' | 'nowIso'> & {
+    userId: UserId
+    repoPath: string
+    repoId?: RepoId
+    sortKey: string
+  },
+): IssueViewModel {
+  return {
+    id: args.issueId,
+    owner: args.userId,
+    visibility: 'personal',
+    createdBy: { actor: actorUser(args.userId), onBehalfOf: args.userId },
+    repoPath: args.repoPath,
+    ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
+    // Placeholders reconciled by the broadcast: the real row carries a server seq
+    // (>= 1) and server-clock timestamps. Invisible today — the draft-agent row
+    // labels from the session title and sorts to the top regardless — but a future
+    // view that renders issue.seq for drafts would see a 0 -> N jump on reconcile.
+    seq: 0,
+    title: DRAFT_ISSUE_TITLE,
+    description: '',
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: args.agentKind,
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    blockedByNotes: [],
+    priority: 2,
+    type: 'task',
+    pinned: false,
+    sortKey: args.sortKey,
+    needsHuman: false,
+    labels: [],
+    deps: [],
+    dependents: [],
+    ready: false,
+    blocked: false,
+    deferred: false,
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
+    displayRef: args.issueId,
+    childCount: 0,
+    childDoneCount: 0,
+    createdAt: args.nowIso,
+    updatedAt: args.nowIso,
+    archived: false,
+    // Just created by this user → read. `unread` is NOT set: it left the wire
+    // with the session embed (POD-797) and the reader derives it from `readAt`
+    // against the sessions it holds.
+    readAt: args.nowIso,
+    intentOrigin: 'human',
+    audience: 'human',
+    isDraftVessel: true,
+    // No `sessions` / `sessionSummary`: the embed left the wire (POD-797). The
+    // sidebar already read membership from the global session list by issueId,
+    // which is why nothing here needs a replacement.
+  }
+}
+
+/** A named task whose first session is starting. The server will replace the
+ * provisional sequence, sort key, worktree and timestamps with the same-id row;
+ * everything the operator is reading is already final. */
+export function startedIssueRow(args: {
+  userId: UserId
+  issueId: IssueId
+  repoPath: string
+  repoId?: RepoId
+  machineId?: MachineId
+  sortKey: string
+  title: string
+  description: string
+  brief?: string
+  parentBranch?: string
+  agentKind: AgentKind
+  model?: string
+  effort?: string
+  priority?: number
+  /** Where it is moved once started; absent, In progress. */
+  stage?: IssueBoardStage
+  nowIso: string
+}): IssueViewModel {
+  return {
+    ...draftIssueRow({
+      userId: args.userId,
+      issueId: args.issueId,
+      repoPath: args.repoPath,
+      repoId: args.repoId,
+      sortKey: args.sortKey,
+      agentKind: args.agentKind,
+      nowIso: args.nowIso,
+    }),
+    ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
+    title: args.title,
+    description: args.description,
+    ...(args.brief ? { brief: args.brief } : {}),
+    parentBranch: args.parentBranch ?? 'main',
+    defaultModel: args.model ?? 'auto',
+    defaultEffort: args.effort ?? 'auto',
+    ...(args.priority !== undefined ? { priority: args.priority } : {}),
+    stage: args.stage ?? 'in_progress',
+    isDraftVessel: false,
+  }
+}

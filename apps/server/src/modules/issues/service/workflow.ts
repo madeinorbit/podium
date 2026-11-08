@@ -17,7 +17,11 @@ import {
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
+import {
+  type CommandAttribution,
+  type CommandPrincipal,
+  systemPrincipal,
+} from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
@@ -39,7 +43,7 @@ import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
 import { missingParentBranchRefusal } from './parent-branch'
 import { IssueRefusal } from './refusal'
-import type { CreateIssueInput } from './types'
+import type { CreateIssueInput, IssueWriter } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
 
@@ -218,7 +222,11 @@ export class IssueGitWorkflowModule {
    * POD-779. Refuses a target repo whose identity differs, which would silently
    * renumber the issue into another repo.
    */
-  async rehome(id: string, to: IssueRehomeTarget): Promise<IssueProjection | null> {
+  async rehome(
+    writer: IssueWriter,
+    id: string,
+    to: IssueRehomeTarget,
+  ): Promise<IssueProjection | null> {
     const row = await this.store.row(await this.store.resolveRef(id))
     if (!row) return null
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -229,6 +237,7 @@ export class IssueGitWorkflowModule {
     // assigned onto the map's row here, which left the new repoPath standing on
     // the shared object whether or not the update below committed.
     return await this.crud().update(
+      writer,
       id,
       {
         machineId: asMachineId(to.machineId),
@@ -388,6 +397,77 @@ export class IssueGitWorkflowModule {
     }
   }
 
+  /**
+   * Starting a started issue (a worktree and any session, live or not) is a
+   * deliberate no-op: its projection. But a caller who passed an explicit
+   * --model/--effort asked for something this no-op will not do, and accepting
+   * it in silence is the same failure one level up: the operator sees `started
+   * #n` and believes the choice landed. Refuse, and name what does work.
+   * Undefined when the start has work to do. Reads only.
+   */
+  private async startedNoOp(
+    row: IssueRow,
+    opts?: IssueStartOptions,
+  ): Promise<IssueStartResult | undefined> {
+    if (!row.worktreePath || (await this.store.factsFor(row)).length === 0) return undefined
+    if (opts?.model || opts?.effort || opts?.agentProfile) {
+      throw new IssueRefusal(
+        `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
+          `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
+          `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
+      )
+    }
+    return await this.store.projection(row)
+  }
+
+  /**
+   * What a command answers with no machine to act on, when that is its whole
+   * answer today (POD-6603): its own refusals and its no-ops, before any
+   * machine is asked. The old command answers this when no daemon can run its
+   * effect record now, rather than a machine refusal. Undefined when the
+   * command has work for a machine. Reads only: nothing is written.
+   */
+  async answerWithoutMachine(
+    command: 'start' | 'addSession' | 'addShell' | 'cleanup',
+    id: string,
+    opts?: IssueStartOptions,
+  ): Promise<unknown> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    switch (command) {
+      case 'start':
+        this.refuseSystemOwned(row, 'start issue work')
+        return await this.startedNoOp(row, opts)
+      case 'addSession':
+      case 'addShell':
+        this.refuseSystemOwned(row, 'add a session')
+        if (!row.worktreePath && !row.branch) throw new IssueRefusal('issue not started')
+        return undefined
+      case 'cleanup': {
+        const refusal = this.cleanupRefusal(row)
+        if (refusal === undefined) return undefined
+        return { ok: false, output: refusal, issue: await this.store.projection(row) }
+      }
+    }
+  }
+
+  private refuseSystemOwned(row: IssueRow, what: string): void {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
+      throw new IssueRefusal(`shipping stage is system-owned and cannot ${what}`)
+    }
+  }
+
+  /** Cleanup's own refusals, before any machine: (a) only a closed issue is
+   *  cleanable; (b) nothing recorded is nothing to do. */
+  private cleanupRefusal(at: IssueRow): string | undefined {
+    if (!this.store.isClosed(at)) {
+      return `refusing cleanup: issue #${at.seq} is still open (close it first)`
+    }
+    if (!at.worktreePath && !at.branch) {
+      return 'nothing to clean up: no worktree/branch recorded on this issue'
+    }
+    return undefined
+  }
+
   private async startOnce(
     id: string,
     agentKind?: string,
@@ -396,9 +476,7 @@ export class IssueGitWorkflowModule {
     // `let`, because this draft does NOT survive the worktree phase below — see the
     // re-draft after it (POD-3373).
     let row = await this.store.draftOrThrow(id)
-    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new IssueRefusal('shipping stage is system-owned and cannot start issue work')
-    }
+    this.refuseSystemOwned(row, 'start issue work')
     /**
      * A WORKTREE AND NO SESSION AT ALL is a start that cut the worktree and then
      * failed to spawn (POD-6119). Reporting that as "already started" told a retry
@@ -406,22 +484,9 @@ export class IssueGitWorkflowModule {
      * the worktree phase is skipped and the spawn below runs. Any session on the
      * issue, live or not, keeps the deliberate no-op.
      */
-    const resumePath =
-      row.worktreePath && (await this.store.factsFor(row)).length === 0 ? row.worktreePath : null
-    if (row.worktreePath && !resumePath) {
-      // Starting a started issue is a deliberate no-op. But a caller who passed an
-      // explicit --model/--effort asked for something this no-op will not do, and
-      // accepting it in silence is the same failure one level up: the operator sees
-      // `started #n` and believes the choice landed. Refuse, and name what does work.
-      if (opts?.model || opts?.effort || opts?.agentProfile) {
-        throw new IssueRefusal(
-          `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
-            `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
-            `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
-        )
-      }
-      return await this.store.projection(row)
-    }
+    const started = await this.startedNoOp(row, opts)
+    if (started !== undefined) return started
+    const resumePath = row.worktreePath ?? null
     // A --profile named here persists like --model, and (as in update) hands the
     // profile the agent pick: stored fields not named in this call become `auto`.
     // Resolved before any mutation, so an unknown name changes nothing.
@@ -637,7 +702,7 @@ export class IssueGitWorkflowModule {
       // work picked back up must not carry a stale fold into its next close.
       // EVERY member's fold (POD-6291): the start is about the task, so another
       // member's tuck must not survive it either.
-      await this.store.clearIssueMarkerForAll(row.id, 'tuckedAt')
+      await this.store.clearIssueMarkerForAll(this.store.serverWriter, row.id, 'tuckedAt')
     }
     /** What a failed spawn puts back (POD-6119), read off the draft this start writes. */
     const before = { stage: row.stage }
@@ -645,7 +710,7 @@ export class IssueGitWorkflowModule {
     // A start no longer stamps `agent:<kind>` into `assignee` (POD-6287): the
     // assignee is the task's accountable human, and an agent starting work
     // never changes who that is.
-    const wire = await this.store.persistRow(row)
+    const wire = await this.store.persistRow(this.store.serverWriter, row)
     if (wasClosed) {
       await this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
@@ -665,7 +730,9 @@ export class IssueGitWorkflowModule {
     )
     if (existing.length > 0) {
       for (const session of existing) {
-        if (session.cwd !== path) await this.store.d.setSessionCwd?.(session.sessionId, path)
+        if (session.cwd !== path) {
+          await this.store.d.setSessionCwd?.(this.store.serverWriter, session.sessionId, path)
+        }
       }
       const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
         (dep) => dep.type === 'discovered-from',
@@ -745,7 +812,7 @@ export class IssueGitWorkflowModule {
       const row = await this.store.draftOrThrow(id)
       if (row.stage !== 'in_progress' || (await this.store.factsFor(row)).length > 0) return
       row.stage = 'proposed'
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
     } catch (err) {
       log.warn('could not return a proposal to proposed after its start failed', {
         err,
@@ -755,10 +822,11 @@ export class IssueGitWorkflowModule {
   }
 
   async createAndMaybeStart(
+    writer: IssueWriter,
     input: CreateIssueInput,
     opts?: { spawnedBy?: string },
   ): Promise<IssueProjection> {
-    const created = await this.crud().create(input)
+    const created = await this.crud().create(writer, input)
     return input.startNow
       ? await this.start(created.id, undefined, {
           ...opts,
@@ -770,7 +838,12 @@ export class IssueGitWorkflowModule {
   async action(
     ref: string,
     kind: 'rebase' | 'pr' | 'merge',
+    opts: { onStage?: (stage: string) => Promise<void> } = {},
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
+    // Progress for the effect record that runs this (POD-6394); a no-op otherwise.
+    const stage = async (name: string): Promise<void> => {
+      await opts.onStage?.(name)
+    }
     /**
      * NO DRAFT SPANS A GIT OP HERE [POD-3375].
      *
@@ -809,20 +882,23 @@ export class IssueGitWorkflowModule {
       await this.store.projection(await this.store.rowOrThrow(id))
     const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
+      await stage('rebasing')
       const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
       return { ...r, issue: await issueNow() }
     }
     if (kind === 'pr') {
+      await stage('creating')
       const r = await this.store.d.repoOp('prCreate', worktreePath, { branch, parentBranch })
       const row = await this.store.draftOrThrow(id)
       if (r.ok) {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
       }
-      return { ...r, issue: await this.store.persistRow(row) }
+      return { ...r, issue: await this.store.persistRow(this.store.serverWriter, row) }
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
+      await stage('rebasing')
       const rb = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
       if (!rb.ok) return { ...rb, issue: await issueNow() }
     }
@@ -832,6 +908,7 @@ export class IssueGitWorkflowModule {
     // repo root is the LIVE deployment-source checkout and switching its branch can
     // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
     // parent branch; otherwise fail clearly without merging.
+    await stage('checking')
     const st = await this.store.d.repoOp('status', repoPath)
     const current = this.parseCurrentBranch(st.output)
     if (current !== parentBranch) {
@@ -849,46 +926,91 @@ export class IssueGitWorkflowModule {
     const tip = await this.store.d
       .repoOp('revParseVerify', repoPath, { ref: branch }, machineId)
       .catch(() => ({ ok: false, output: '' }))
+    await stage('merging')
     const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch })
     if (r.ok) {
-      const row = await this.store.draftOrThrow(id)
-      // Landing stamp [POD-1085]. Record that WE landed this, before anything
-      // else can rewrite history under it. `merge-base --is-ancestor` answers
-      // "is this sha reachable from main", which a later rebase of main makes
-      // false for work that unquestionably landed; this row does not lie later.
-      row.landedAt = new Date().toISOString()
-      if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
-      await this.store.persistRow(row)
-      // The merge axis is a fact we just produced [POD-2151], not one to infer:
-      // write it before close() frees the worktree, so the close broadcast
-      // carries it and no later probe is needed to clear "ready to merge".
-      // After the stamp, not before: a probe finishing mid-commit still sees no
-      // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
-      // freed worktree has none, and one close keeps is re-probed below.
-      const cached = this.store.gitStates.get(id)
-      this.store.gitStates.set(id, {
-        branch: row.branch,
-        ...cached,
-        updatedAt: this.store.now(),
-        shared: false,
-        dirtyFiles: 0,
-        merged: true,
-        ahead: 0,
-      })
-      const issue = await this.crud().close(id, 'done')
-      // This branch just landed [POD-384]: settle its merge axis now, so the
-      // operator who pressed merge sees the "ready to merge" chip go rather than
-      // watching it outlive the merge until the next watch tick. Siblings whose
-      // own counts moved are the watch's job, not this action's.
-      // After the commit, not inside the span: the probe opens with a 10ms
-      // timer whose callback inherits this scope, and a span that has closed by
-      // then refuses every read the probe makes [POD-3806].
-      afterCommit(() => {
-        void this.refreshGitState(id).catch(() => {})
-      }, 'issue-git-state-landed')
-      return { ...r, issue }
+      await stage('closing')
+      const sha = tip.ok && tip.output.trim() !== '' ? tip.output.trim() : undefined
+      return { ...r, issue: await this.finishLanding(id, sha) }
     }
     return { ...r, issue: await issueNow() }
+  }
+
+  /**
+   * RECORD A LANDING THAT HAS HAPPENED, and close the issue: what a successful
+   * fast-forward is followed by. Public so a merge effect interrupted between the
+   * merge and its stamp can be finished by its recovery (POD-6394). Idempotent: a
+   * row already stamped keeps its stamp, and an issue already done is not closed
+   * again.
+   */
+  async finishLanding(id: string, sha?: string): Promise<IssueProjection> {
+    const now = await this.store.rowOrThrow(id)
+    if (now.landedAt && now.closedAt) return await this.store.projection(now)
+    // Landing stamp [POD-1085]. Record that WE landed this, before anything
+    // else can rewrite history under it. `merge-base --is-ancestor` answers
+    // "is this sha reachable from main", which a later rebase of main makes
+    // false for work that unquestionably landed; this row does not lie later.
+    if (!now.landedAt) {
+      const row = await this.store.draftOrThrow(id)
+      row.landedAt = new Date().toISOString()
+      if (sha !== undefined) row.landedSha = sha
+      await this.store.persistRow(this.store.serverWriter, row)
+    }
+    // The merge axis is a fact we just produced [POD-2151], not one to infer:
+    // write it before close() frees the worktree, so the close broadcast
+    // carries it and no later probe is needed to clear "ready to merge".
+    // After the stamp, not before: a probe finishing mid-commit still sees no
+    // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
+    // freed worktree has none, and one close keeps is re-probed below.
+    const cached = this.store.gitStates.get(id)
+    this.store.gitStates.set(id, {
+      branch: now.branch,
+      ...cached,
+      updatedAt: this.store.now(),
+      shared: false,
+      dirtyFiles: 0,
+      merged: true,
+      ahead: 0,
+    })
+    const issue = await this.crud().close(this.store.serverWriter, id, 'done')
+    // This branch just landed [POD-384]: settle its merge axis now, so the
+    // operator who pressed merge sees the "ready to merge" chip go rather than
+    // watching it outlive the merge until the next watch tick. Siblings whose
+    // own counts moved are the watch's job, not this action's.
+    // After the commit, not inside the span: the probe opens with a 10ms
+    // timer whose callback inherits this scope, and a span that has closed by
+    // then refuses every read the probe makes [POD-3806].
+    afterCommit(() => {
+      void this.refreshGitState(id).catch(() => {})
+    }, 'issue-git-state-landed')
+    return issue
+  }
+
+  /** The issue as committed now, for a git effect's adapter answer (POD-6394). */
+  async projectionNow(id: string): Promise<IssueProjection> {
+    return await this.store.projection(await this.store.rowOrThrow(id))
+  }
+
+  /**
+   * Is this started issue's branch already in its parent branch, on the machine
+   * that holds the repo? `undefined` when the machine cannot say (offline, git
+   * failed in a way that is not "not merged"). For a merge effect's recovery.
+   */
+  async branchLanded(id: string): Promise<boolean | undefined> {
+    const row = await this.store.rowOrThrow(id)
+    if (row.landedAt) return true
+    if (!row.branch) return false
+    try {
+      const r = await this.store.d.repoOp(
+        'isMergedInto',
+        row.repoPath,
+        { branch: row.branch, parentBranch: row.parentBranch },
+        row.machineId ?? undefined,
+      )
+      return r.ok
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -981,7 +1103,7 @@ export class IssueGitWorkflowModule {
     if (!recorded && registered.branch) {
       const row = await this.store.draftOrThrow(id)
       row.branch = registered.branch
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       return { ok: true, branch: registered.branch, head: registered.head }
     }
     if (recorded) return { ok: true, branch: recorded, head: registered.head }
@@ -1081,7 +1203,7 @@ export class IssueGitWorkflowModule {
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       await this.releaseDockShells(worktreePath)
       return {
@@ -1121,9 +1243,10 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const row = await this.store.draftOrThrow(id)
     row.worktreePath = null
-    await this.store.persistRow(row)
+    await this.store.persistRow(this.store.serverWriter, row)
     this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
     const issue = await this.commentsMail().addComment(
+      this.store.serverWriter,
       row.id,
       `system:${job}`,
       `${job}: freed worktree ${worktreePath}; ${kept}`,
@@ -1349,7 +1472,7 @@ export class IssueGitWorkflowModule {
         const confirmed = await this.store.draftOrThrow(id)
         if (confirmed.machineId === null) {
           confirmed.machineId = statusMachineId
-          await this.store.persistRow(confirmed)
+          await this.store.persistRow(this.store.serverWriter, confirmed)
         }
         return {
           ok: true,
@@ -1412,7 +1535,7 @@ export class IssueGitWorkflowModule {
     row.repoPath = repoPath
     row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
-    await this.store.persistRow(row)
+    await this.store.persistRow(this.store.serverWriter, row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
@@ -1493,16 +1616,12 @@ export class IssueGitWorkflowModule {
       output,
       issue: await this.store.projection(await this.store.rowOrThrow(id)),
     })
-    // (a) only closed issues are cleanable.
-    if (!this.store.isClosed(at)) {
-      return await refuse(`refusing cleanup: issue #${seq} is still open (close it first)`)
-    }
-    // (b) nothing recorded → nothing to do. Branch-only state (worktree already
-    //     removed, branch delete previously refused — the partial-failure retry)
-    //     is VALID: fall through to the worktree-less delete path below.
-    if (!at.worktreePath && !at.branch) {
-      return await refuse('nothing to clean up: no worktree/branch recorded on this issue')
-    }
+    // (a) only closed issues are cleanable; (b) nothing recorded → nothing to
+    //     do. Branch-only state (worktree already removed, branch delete
+    //     previously refused — the partial-failure retry) is VALID: fall through
+    //     to the worktree-less delete path below.
+    const refusal = this.cleanupRefusal(at)
+    if (refusal !== undefined) return await refuse(refusal)
     if (!at.worktreePath && at.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
       const branch = at.branch
@@ -1521,8 +1640,9 @@ export class IssueGitWorkflowModule {
       if (!bd.ok) return await refuse(this.branchDeleteRefusal(branch, parentBranch, bd.output))
       const row = await this.store.draftOrThrow(id)
       row.branch = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
@@ -1546,9 +1666,10 @@ export class IssueGitWorkflowModule {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
       row.branch = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       this.store.d.onWorktreesChanged?.(repoPath, machineId)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${recordedBranch ?? 'none'})`,
@@ -1605,10 +1726,11 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const removed = await this.store.draftOrThrow(id)
     removed.worktreePath = null
-    await this.store.persistRow(removed) // columns reflect reality even if branch delete refuses below
+    await this.store.persistRow(this.store.serverWriter, removed) // columns reflect reality even if branch delete refuses below
     this.store.d.onWorktreesChanged?.(repoPath, machineId)
     if (!branch) {
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: removed detached worktree ${worktreePath}; HEAD ${authority.head} remains reachable from another ref`,
@@ -1631,6 +1753,7 @@ export class IssueGitWorkflowModule {
     if (!bd.ok) {
       const why = this.branchDeleteRefusal(branch, parentBranch, bd.output)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
@@ -1647,8 +1770,9 @@ export class IssueGitWorkflowModule {
     // window this issue is about [POD-3375].
     const deleted = await this.store.draftOrThrow(id)
     deleted.branch = null
-    await this.store.persistRow(deleted)
+    await this.store.persistRow(this.store.serverWriter, deleted)
     const issue = await this.commentsMail().addComment(
+      this.store.serverWriter,
       rowId,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
@@ -1664,7 +1788,7 @@ export class IssueGitWorkflowModule {
    *  the same object. */
   async integrate(
     id: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     return await this.integration.integrate(id, principal)
   }
@@ -1731,7 +1855,7 @@ export class IssueGitWorkflowModule {
   async addSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId; sessionId?: SessionId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1753,7 +1877,7 @@ export class IssueGitWorkflowModule {
   private async spawnAddedSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId; sessionId?: SessionId },
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1804,6 +1928,7 @@ export class IssueGitWorkflowModule {
       )
     }
     await this.store.d.spawnSession({
+      ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
       cwd: row.worktreePath,
       issueId: row.id,
       agentKind: kind,
@@ -1820,7 +1945,7 @@ export class IssueGitWorkflowModule {
 
   async addShell(
     id: string,
-    opts?: { spawnedBy?: string; onBehalfOf?: UserId },
+    opts?: { spawnedBy?: string; onBehalfOf?: UserId; sessionId?: SessionId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     return await this.addSession(id, 'shell', opts)
   }
@@ -1850,7 +1975,7 @@ export class IssueGitWorkflowModule {
     for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
       if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0)
-        await this.crud().defer(row.id, null)
+        await this.crud().defer(this.store.serverWriter, row.id, null)
     }
   }
 
@@ -2037,7 +2162,8 @@ export class IssueGitWorkflowModule {
       } while (refresh.rerun)
       if (changed) {
         const current = await this.store.row(id)
-        if (current && !current.deletedAt) await this.store.broadcastIssue(current)
+        if (current && !current.deletedAt)
+          await this.store.broadcastIssue(this.store.serverWriter, current)
       }
     })().finally(() => {
       if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)

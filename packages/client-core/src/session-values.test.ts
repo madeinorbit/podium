@@ -28,7 +28,7 @@ it('preserves joined labels when an explicit personal cursor replaces the read c
   const painted = sessionView(view, { userState: { readAt: null, snoozedUntil: active } })
   expect(sessionValues(painted)).toMatchObject({ readAt: null, unread: true, snoozedUntil: active,
     displayRef: 'POD-42-B', machineName: 'Host', handoffTarget: 'Target' })
-  const patch = { key: 'rename', entity: 'sessions', id: raw.sessionId, op: 'patch', patch: { name: 'Pending' }, coveredBy: () => false } as const
+  const patch = { key: 'rename', entity: 'sessions', id: raw.sessionId, op: 'patch', patch: { name: 'Pending' } } as const
   const copy = foldRowOverlays(view, [patch])!
   expect(sessionValues(copy)).toEqual(sessionValues(view))
   expect(sessionValues(JSON.parse(JSON.stringify(copy)))).toEqual(sessionValues(view))

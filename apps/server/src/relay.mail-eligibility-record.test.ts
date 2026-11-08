@@ -8,6 +8,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 
 const WORKTREE = '/repo/.worktrees/target'
 const registries: SessionRegistry[] = []
@@ -28,11 +29,14 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
   registries.push(reg)
   const daemon: ControlMessage[] = []
   await attachHostDaemon(reg, (message) => daemon.push(message), { repos: ['/repo'] })
-  const issue = await reg.modules.issues.crud.create({
-    repoPath: '/repo',
-    title: 'Mail target',
-    startNow: false,
-  })
+  const issue = await reg.modules.issues.crud.create(
+    reg.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: '/repo',
+      title: 'Mail target',
+      startNow: false,
+    },
+  )
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd: WORKTREE,
@@ -46,6 +50,7 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
     geometry: { cols: 80, rows: 24 },
   })
   const sent = await reg.modules.messages.send(
+    reg.modules.sessions.serverWriter,
     { kind: 'operator' },
     { to: { kind: 'issue', id: issue.id }, body: 'held until the issue owns the worktree' },
   )
@@ -72,7 +77,9 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
     await recompute(ids)
   })
 
-  await reg.modules.issues.crud.update(issue.id, { worktreePath: WORKTREE })
+  await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: WORKTREE,
+  })
   return { reg, daemon, sessionId, sent, issue, seen, examined }
 }
 

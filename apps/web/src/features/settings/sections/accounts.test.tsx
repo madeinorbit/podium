@@ -13,7 +13,28 @@ const trpc = {
     login: { mutate: vi.fn() },
     send: { mutate: vi.fn() },
     useOnMyMachines: { mutate: vi.fn() },
+    share: { mutate: vi.fn() },
+    keys: { mutate: vi.fn() },
   },
+}
+
+/** The member directory read: refused by default (a member), answered for an admin. */
+const memberRequest = vi.fn(async (_origin: string, _action: string): Promise<unknown> => {
+  throw new Error('The server refused this request (403).')
+})
+vi.mock('@/features/setup/member-api', () => ({ memberRequest }))
+const ADMIN_DIRECTORY = {
+  currentMemberId: 'user:admin',
+  mailAvailable: false,
+  invites: [],
+  members: [
+    { id: 'user:admin', displayName: 'Robin', email: 'robin@example.com', role: 'admin' },
+    { id: 'user:ana', displayName: 'Ana', email: 'ana@example.com', role: 'member' },
+    { id: 'user:ben', displayName: 'Ben', email: 'ben@example.com', role: 'member' },
+  ],
+}
+function asAdmin(): void {
+  memberRequest.mockImplementation(async () => ADMIN_DIRECTORY)
 }
 const navigateToSession = vi.fn()
 let publication = 0
@@ -112,6 +133,9 @@ function serveList(first: AccountView[], then: AccountView[] = first): void {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  memberRequest.mockImplementation(async () => {
+    throw new Error('The server refused this request (403).')
+  })
   publication = 0
   storeSnapshot = {
     trpc,
@@ -379,5 +403,167 @@ describe('AccountsSection', () => {
     expect(await screen.findByText(/Server AI uses Desk/)).toBeTruthy()
     expect(screen.getByText(/Server AI last failed: /)).toBeTruthy()
     expect(screen.getByText(/not supported/)).toBeTruthy()
+  })
+
+  describe('key sharing (POD-6390)', () => {
+    const OWN: AccountView = {
+      ...API_KEY_ROW,
+      identity: 'sk-a…f9x2',
+      status: 'connected',
+      credentialSource: 'stored',
+      sharing: { everyone: false, users: [] },
+    }
+
+    it("shows the owner's sharing and shares their key with everyone", async () => {
+      serveList([OWN], [{ ...OWN, sharing: { everyone: true, users: [] } }])
+      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+      render(<AccountsSection />)
+
+      expect(await screen.findByText('Only you')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Change who can use Anthropic API key' }))
+      fireEvent.click(screen.getByLabelText('Everyone on this server'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+          id: 'managed:anthropic',
+          everyone: true,
+          users: [],
+        }),
+      )
+      // Refetched: the editor closes and the line shows the server's answer.
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
+      expect(await screen.findByText('Everyone on this server')).toBeTruthy()
+    })
+
+    it('a member without the member list cannot add people, but can revoke one already named', async () => {
+      serveList([{ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }], [OWN])
+      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+      render(<AccountsSection />)
+
+      expect(await screen.findByText('1 person')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Change who can use Anthropic API key' }))
+      // The named person is still listed (by id, since no directory names them).
+      expect((screen.getByLabelText('user:ana') as HTMLInputElement).checked).toBe(true)
+      fireEvent.click(screen.getByLabelText('Only you'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+          id: 'managed:anthropic',
+          everyone: false,
+          users: [],
+        }),
+      )
+      expect(await screen.findByText('Only you')).toBeTruthy()
+      // No admin list for a member, and the admin read is never sent.
+      expect(screen.queryByText("Members' keys")).toBeNull()
+      expect(trpc.accounts.keys.mutate).not.toHaveBeenCalled()
+    })
+
+    it('a member with nobody named is told only an admin can pick people', async () => {
+      serveList([OWN])
+      render(<AccountsSection />)
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
+      )
+      expect((screen.getByLabelText('Specific people') as HTMLInputElement).disabled).toBe(true)
+      expect(screen.getByText(/Only an admin can see the member list/)).toBeTruthy()
+    })
+
+    it('an admin shares their own key with named people, by name', async () => {
+      asAdmin()
+      trpc.accounts.keys.mutate.mockResolvedValue([])
+      serveList([OWN], [{ ...OWN, sharing: { everyone: false, users: ['user:ana', 'user:ben'] } }])
+      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+      render(<AccountsSection />)
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
+      )
+      fireEvent.click(screen.getByLabelText('Specific people'))
+      // The viewer is the owner: not offered as a grantee.
+      expect(screen.queryByLabelText('Robin')).toBeNull()
+      const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
+      expect(save.disabled).toBe(true)
+      fireEvent.click(screen.getByLabelText('Ana'))
+      fireEvent.click(screen.getByLabelText('Ben'))
+      fireEvent.click(save)
+
+      await waitFor(() =>
+        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+          id: 'managed:anthropic',
+          everyone: false,
+          users: ['user:ana', 'user:ben'],
+        }),
+      )
+      expect(await screen.findByText('Ana and Ben')).toBeTruthy()
+    })
+
+    it("an admin manages another member's key from the members' keys list", async () => {
+      asAdmin()
+      const anas = {
+        owner: 'user:ana',
+        id: 'managed:openai',
+        provider: 'openai',
+        kind: 'api-key',
+        identity: 'sk-p…1234',
+        sharing: { everyone: false, users: [] },
+      }
+      trpc.accounts.keys.mutate
+        .mockResolvedValueOnce([{ ...anas, owner: 'user:admin', id: 'managed:anthropic' }, anas])
+        .mockResolvedValue([{ ...anas, sharing: { everyone: true, users: [] } }])
+      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+      serveList([OWN])
+      render(<AccountsSection />)
+
+      expect(await screen.findByText("Members' keys")).toBeTruthy()
+      expect(await screen.findByText('sk-p…1234')).toBeTruthy()
+      // Ana's key is private: it is hers, not the viewing admin's.
+      expect(screen.getByText('Only its owner')).toBeTruthy()
+      // The admin's own key is not repeated in the list: one control for it, above.
+      expect(
+        screen
+          .getAllByRole('button', { name: /^Change who can use / })
+          .map((b) => b.getAttribute('aria-label')),
+      ).toEqual(['Change who can use Anthropic API key', "Change who can use Ana's OpenAI API key"])
+      fireEvent.click(
+        screen.getByRole('button', { name: "Change who can use Ana's OpenAI API key" }),
+      )
+      fireEvent.click(screen.getByLabelText('Everyone on this server'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+          id: 'managed:openai',
+          owner: 'user:ana',
+          everyone: true,
+          users: [],
+        }),
+      )
+      await waitFor(() => expect(trpc.accounts.keys.mutate).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
+      expect(await screen.findByText('Everyone on this server')).toBeTruthy()
+    })
+
+    it('names who shared a key with the viewer when the directory knows them', async () => {
+      asAdmin()
+      trpc.accounts.keys.mutate.mockResolvedValue([])
+      serveList([
+        {
+          ...API_KEY_ROW,
+          identity: 'sk-a…0000',
+          status: 'connected',
+          credentialSource: 'shared',
+          sharedBy: 'user:ana',
+        },
+      ])
+      render(<AccountsSection />)
+
+      expect(await screen.findByText(/Shared with you by Ana/)).toBeTruthy()
+      // Not the viewer's key: no sharing control on it.
+      expect(screen.queryByRole('button', { name: /^Change who can use Anthropic/ })).toBeNull()
+    })
   })
 })

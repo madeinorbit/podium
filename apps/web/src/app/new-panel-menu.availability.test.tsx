@@ -31,8 +31,6 @@ it.each(['/home/mgw/nulldisk', '/home/mgw/nulldisk/topic'])(
       ] },
     }))
     fixture.api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories, machines: machines(), diagnostics: [] })) as never
-    const create = vi.fn(async () => ({ sessionId: 'new-pi' }))
-    Object.assign(fixture.api.sessions, { create: { mutate: create } })
     let pool: MobxPool | null = null
     let owner!: ReturnType<typeof useStoreHandle<Trpc>>
     const opened = vi.fn()
@@ -62,10 +60,14 @@ it.each(['/home/mgw/nulldisk', '/home/mgw/nulldisk/topic'])(
     await act(async () => { await owner.access.refreshRepos() })
     await waitFor(() => expect(pi().getAttribute('data-refused')).toBeNull())
     fireEvent.click(pi())
-    await waitFor(() => expect(create).toHaveBeenCalledWith({
-      agentKind: 'pi', cwd: path, machineId: 'ludovico', issueId: 'task',
+    // A `session.launch` record (POD-6523): the panel opens on the session id
+    // minted here, and the starting session paints at once from the queued
+    // launch, in this checkout on Ludovico, joining the panel's task.
+    await waitFor(() => expect(opened).toHaveBeenCalledTimes(1))
+    const sessionId = opened.mock.calls[0]![0] as string
+    await waitFor(() => expect(pool!.row('session', sessionId)).toMatchObject({
+      agentKind: 'pi', cwd: path, machineId: 'ludovico', issueId: 'task', status: 'starting',
     }))
-    await waitFor(() => expect(opened).toHaveBeenCalledWith('new-pi'))
     expect(fatal).not.toHaveBeenCalled()
   },
 )

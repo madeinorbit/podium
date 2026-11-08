@@ -222,6 +222,7 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
         canInterrupt={chat.view.canInterrupt}
         onInterrupt={interrupt}
         interruptError={chat.view.interruptError}
+        {...(superThread ? {} : { stop: chat.view.session })}
         offer={chat.view.offer}
         onOfferAction={chat.sendOfferPrompt}
         onOfferDismiss={chat.dismissOffer}

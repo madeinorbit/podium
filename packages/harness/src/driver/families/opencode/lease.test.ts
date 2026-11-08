@@ -49,10 +49,12 @@ import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
+  harnessContext: testHarnessContext({ kind: 'opencode' }),
   selection: { auth: 'api-key', platform: 'linux', available: ['opencode-server'] },
   workdir: '/tmp/lease-test',
   model: {},

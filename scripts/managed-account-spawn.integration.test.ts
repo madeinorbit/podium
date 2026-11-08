@@ -42,6 +42,9 @@ import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-e
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 import { createBunStoreExecutor } from '../apps/server/src/store/executor'
 
+/** Whose key it is: the session owner (POD-6360, managed keys are per user). */
+const OWNER = asUserId('user:spawn-probe-owner')
+
 const CREDENTIAL = 'sk-test-xyz'
 
 function openAccountsDatabase() {
@@ -58,14 +61,16 @@ function openAccountsDatabase() {
     scope TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     owner_user_id TEXT,
-    ref TEXT
+    ref TEXT,
+    account_key TEXT,
+    shared_with TEXT
   )`)
   db.exec('CREATE UNIQUE INDEX accounts_owner_ref ON accounts (owner_user_id, ref)')
+  db.exec('CREATE UNIQUE INDEX accounts_owner_account_key ON accounts (owner_user_id, account_key)')
   return db
 }
 
-/** The one member who connects the account and runs on their own machine. */
-const OWNER = asUserId('mem_owner')
+/** The owner runs on their own machine. */
 const ownMachine = asMachineId('machine-owner')
 /** Resolution ports: the member looks after the machine that spawns (POD-6300). */
 const portsFor = (accounts: AccountsRepository) => ({
@@ -80,9 +85,9 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
   const accounts = new AccountsRepository(queries)
-  await accounts.upsert({
-    id: asAccountId('managed:anthropic'),
+  await accounts.connect({
     ownerUserId: OWNER,
+    accountKey: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
     credential: CREDENTIAL,
@@ -315,9 +320,9 @@ describe('managed account -> real spawned process env (#216)', () => {
     const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
     const accounts = new AccountsRepository(queries)
-    await accounts.upsert({
-      id: asAccountId('managed:claude-oauth'),
+    await accounts.connect({
       ownerUserId: OWNER,
+      accountKey: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
       credential: 'oat-test-1',

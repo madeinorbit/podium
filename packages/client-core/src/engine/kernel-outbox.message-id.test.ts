@@ -73,9 +73,9 @@ describe('chat sends get message ids from the outbox', () => {
   it('mints a message id for a chat send and a plain UUID for anything else', async () => {
     const outbox = await open(refusingAuthority().api)
     const chat = await outbox.enqueue('resumeAndSend', { sessionId: asSessionId('s1'), text: 'hi' })
-    const other = await outbox.enqueue('setArchived', {
+    const other = await outbox.enqueue('dismissOffer', {
       sessionId: asSessionId('s1'),
-      archived: true,
+      offerCreatedAt: '2026-11-05T00:00:00.000Z',
     })
 
     expect(MessageId.safeParse(chat.mutationId).success).toBe(true)

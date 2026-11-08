@@ -116,14 +116,21 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  layoutRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/contract'
-import type { StoreNotices } from './types'
 import { openKernelEngineOutbox } from './kernel-outbox'
+import type { StoreNotices } from './types'
 import { createEngineOutbox, type OutboxKinds } from './wiring'
 
 const MUST_NOT_CHANGE = 'must-not-change'
@@ -223,26 +230,71 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
   }
 }
 
+/** A read mark, snooze or tuck: a generic edit of my own row (POD-6404). On a
+ *  server without `sync.submit` (this API has none) it goes out as the old
+ *  procedure it replaced, so the paths below are unchanged. */
+const READER = asUserId('user-1')
+const AT = '2026-11-05T00:00:00.000Z'
+/** An instant certainly before now: a past `deferUntil` is an unsnooze. */
+const PAST = '2000-01-01T00:00:00.000Z'
+const mySession = (id: string, patch: object, unset?: string[]) => ({
+  kind: 'sessionUserState',
+  id: sessionUserStateRowId(READER, asSessionId(id)),
+  patch,
+  ...(unset === undefined ? {} : { unset }),
+})
+const sessionEdit = (id: string, patch: object): OutboxKinds['recordEdit'] => ({
+  kind: 'session',
+  id,
+  patch: patch as Record<string, unknown>,
+})
+const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
+  kind: 'issueProjection',
+  id,
+  patch: patch as Record<string, unknown>,
+  ...(unset === undefined ? {} : { unset }),
+})
+const myIssue = (id: string, patch: object) => ({
+  kind: 'issueUserState',
+  id: issueUserStateRowId(READER, asIssueId(id)),
+  patch,
+})
+
 /** The covered set, as the engine enqueues it (engine.ts session/issue actions). */
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
   { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
-  { kind: 'layoutSet', input: { values: { superOpen: '0' } }, path: 'layout.set' },
-  { kind: 'layoutClear', input: { keys: ['superOpen'] }, path: 'layout.clear' },
+  // One layout key: a record edit or remove of my layout row (POD-6404).
+  {
+    kind: 'recordEdit',
+    input: { kind: 'userLayout', id: layoutRowId(READER, 'superOpen'), patch: { value: '0' } },
+    path: 'layout.set',
+  },
+  {
+    kind: 'recordRemove',
+    input: { kind: 'userLayout', id: layoutRowId(READER, 'superOpen') },
+    path: 'layout.clear',
+  },
   {
     kind: 'settingsUpdatePersonal',
     input: { values: { 'sidebar.repoSort': 'name' } },
     path: 'settings.updatePersonal',
   },
-  { kind: 'rename', input: { sessionId: 's1', name: 'n' }, path: 'sessions.rename' },
-  { kind: 'setArchived', input: { sessionId: 's1', archived: true }, path: 'sessions.setArchived' },
+  { kind: 'recordEdit', input: mySession('s1', { readAt: AT }), path: 'sessions.markRead' },
+  { kind: 'recordEdit', input: mySession('s1', { readAt: null }), path: 'sessions.markUnread' },
+  // A session's labels: a generic edit of its record (POD-6406), the old
+  // procedures on a server without sync.submit.
+  { kind: 'recordEdit', input: sessionEdit('s1', { name: 'n' }), path: 'sessions.rename' },
   {
-    kind: 'setWorkState',
-    input: { sessionId: 's1', workState: 'done' },
+    kind: 'recordEdit',
+    input: sessionEdit('s1', { archived: true }),
+    path: 'sessions.setArchived',
+  },
+  {
+    kind: 'recordEdit',
+    input: sessionEdit('s1', { workState: 'done' }),
     path: 'sessions.setWorkState',
   },
-  { kind: 'sessionMarkRead', input: { sessionId: 's1' }, path: 'sessions.markRead' },
-  { kind: 'sessionMarkUnread', input: { sessionId: 's1' }, path: 'sessions.markUnread' },
   // POD-1110 — the offer bar's "none of these"; see the header for why the
   // session half grew. The ACTION buttons are `sessions.sendText`, a chat send
   // (POD-4762).
@@ -251,8 +303,12 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { sessionId: 's1', offerCreatedAt: '2026-08-16T09:00:00.000Z' },
     path: 'sessions.dismissOffer',
   },
-  { kind: 'snoozeSet', input: { sessionId: 's1', until: null }, path: 'snoozes.set' },
-  { kind: 'snoozeClear', input: { sessionId: 's1' }, path: 'snoozes.clear' },
+  { kind: 'recordEdit', input: mySession('s1', { snoozedUntil: null }), path: 'snoozes.set' },
+  {
+    kind: 'recordEdit',
+    input: mySession('s1', {}, ['snoozedUntil']),
+    path: 'snoozes.clear',
+  },
   {
     kind: 'resumeAndSend',
     input: { sessionId: 's1', text: 'hi' },
@@ -260,9 +316,9 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   },
   // POD-4762 — every chat send; see the header's third extension.
   { kind: 'sendText', input: { sessionId: 's1', text: 'hi' }, path: 'sessions.sendText' },
-  { kind: 'issueMarkRead', input: { id: 'i1' }, path: 'issues.markRead' },
-  { kind: 'issueMarkUnread', input: { id: 'i1' }, path: 'issues.markUnread' },
-  { kind: 'issueSetTucked', input: { id: 'i1', tucked: true }, path: 'issues.setTucked' },
+  { kind: 'recordEdit', input: myIssue('i1', { readAt: AT }), path: 'issues.markRead' },
+  { kind: 'recordEdit', input: myIssue('i1', { readAt: null }), path: 'issues.markUnread' },
+  { kind: 'recordEdit', input: myIssue('i1', { tuckedAt: AT }), path: 'issues.setTucked' },
   // POD-781 — the curation writes. One generic patch kind plus the five commands
   // that are not `issues.update`; see the header for why the set grew.
   {
@@ -270,12 +326,14 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { id: 'i1', patch: { title: 'renamed offline' } },
     path: 'issues.update',
   },
-  { kind: 'issueArchive', input: { id: 'i1' }, path: 'issues.archive' },
+  // Archive is a plain field (POD-6405): on a server without sync.submit it
+  // rides `issues.update`, which is what `issues.archive` ran.
+  { kind: 'recordEdit', input: issueEdit('i1', { archived: true }), path: 'issues.update' },
   { kind: 'issueDelete', input: { id: 'i1' }, path: 'issues.delete' },
   { kind: 'issueClose', input: { id: 'i1', reason: 'done' }, path: 'issues.close' },
-  { kind: 'issueDefer', input: { id: 'i1', until: null }, path: 'issues.defer' },
-  { kind: 'issueUndefer', input: { id: 'i1' }, path: 'issues.undefer' },
-  { kind: 'issueSetLabels', input: { id: 'i1', labels: ['bug'] }, path: 'issues.setLabels' },
+  { kind: 'recordEdit', input: issueEdit('i1', {}, ['deferUntil']), path: 'issues.defer' },
+  { kind: 'recordEdit', input: issueEdit('i1', { deferUntil: PAST }), path: 'issues.undefer' },
+  { kind: 'recordEdit', input: issueEdit('i1', { labels: ['bug'] }), path: 'issues.setLabels' },
   {
     kind: 'issueSetPlacement',
     input: { id: 'i1', placement: 'mission', originId: 'i2' },
@@ -384,9 +442,11 @@ describe('oracle: the offline-queued write set', () => {
     // None of the three carried one before POD-781, and `undefer` is the sharp
     // case: it backdates `deferUntil` against the clock at APPLY time, so a
     // second unguarded pass moves the "Unsnoozed" marker and re-emits the event.
-    const defer = outbox.enqueue('issueDefer', { id: 'i1', until: '2099-01-01' })
-    const undefer = outbox.enqueue('issueUndefer', { id: 'i1' })
-    const labels = outbox.enqueue('issueSetLabels', { id: 'i1', labels: ['bug'] })
+    // Plain fields of the issue record now (POD-6405); this server has no
+    // sync.submit, so each still reaches its own procedure.
+    const defer = outbox.enqueue('recordEdit', issueEdit('i1', { deferUntil: '2099-01-01' }))
+    const undefer = outbox.enqueue('recordEdit', issueEdit('i1', { deferUntil: PAST }))
+    const labels = outbox.enqueue('recordEdit', issueEdit('i1', { labels: ['bug'] }))
     await drainFully(outbox)
 
     expect(calls).toEqual([
@@ -436,7 +496,7 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: each replay carries the entry's STABLE mutationId, which is what the server dedupes on`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    const entry = outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'queued offline' })
+    const entry = outbox.enqueue('recordEdit', sessionEdit('s1', { name: 'queued offline' }))
     await outbox.drain()
 
     expect(calls).toEqual([
@@ -542,8 +602,8 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: queued writes drain in FIFO order, so two edits to one row compose in the order they were made`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'first' })
-    outbox.enqueue('setArchived', { sessionId: asSessionId('s1'), archived: true })
+    outbox.enqueue('recordEdit', sessionEdit('s1', { name: 'first' }))
+    outbox.enqueue('recordEdit', sessionEdit('s1', { archived: true }))
     await outbox.drain()
 
     expect(calls.map((c) => c.path)).toEqual(['sessions.rename', 'sessions.setArchived'])

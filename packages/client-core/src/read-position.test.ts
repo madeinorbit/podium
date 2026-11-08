@@ -133,10 +133,44 @@ describe('the client cursor port', () => {
     const port = createReadPositionClient({ api: api as never, local: localStore(), onError })
     await port.hydrate()
     port.advance('issueEvents', { lastEventId: 9, seenAt: null })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining('offline'))
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining('offline')))
     expect(port.get('issueEvents').lastEventId).toBe(9)
+  })
+
+  it('advances on the sync write entry point when the server has it (POD-6412)', async () => {
+    const submitted: { command: string; input: unknown }[] = []
+    const route = vi.fn()
+    const api = {
+      sync: {
+        submit: {
+          mutate: (envelope: { command: string; input: unknown }) => {
+            submitted.push({ command: envelope.command, input: envelope.input })
+            return Promise.resolve({
+              outcome: 'applied',
+              result: { issueEvents: { lastEventId: 12, seenAt: null } },
+              receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+              replayed: false,
+            })
+          },
+        },
+      },
+      readPosition: {
+        get: { query: () => Promise.resolve({}) },
+        advance: { mutate: route },
+      },
+    }
+    const port = createReadPositionClient({ api: api as never, local: localStore() })
+    await port.hydrate()
+    port.advance('issueEvents', { lastEventId: 12, seenAt: null })
+    await vi.waitFor(() =>
+      expect(submitted).toEqual([
+        {
+          command: 'readPosition.advance',
+          input: { streamId: 'issueEvents', lastEventId: 12, seenAt: null },
+        },
+      ]),
+    )
+    expect(route).not.toHaveBeenCalled()
   })
 
   it('notifies subscribers when the position moves and not when it does not', async () => {

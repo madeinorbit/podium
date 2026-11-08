@@ -50,7 +50,6 @@ import {
   asMutationId,
   asSessionId,
   authorize,
-  type Capability,
   type IssueId,
   type SessionId,
 } from '@podium/model'
@@ -58,6 +57,7 @@ import {
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { SessionLifecycle } from '../lifecycle'
+import type { SessionWriter } from '../session-lifecycle-types'
 import type { SessionStatePrincipal, SessionStateService } from './service'
 
 export type { SessionStatePrincipal } from './service'
@@ -121,10 +121,7 @@ export interface SessionStateResult {
 }
 
 export interface SessionStateDeps {
-  sessions: Pick<
-    SessionLifecycle,
-    'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'
-  > &
+  sessions: Pick<SessionLifecycle, 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'> &
     Partial<Pick<SessionLifecycle, 'residency'>>
   state: SessionStateService
   /**
@@ -148,6 +145,8 @@ type SessionStateHandler = (
   input: Record<string, unknown>,
   principal: SessionStatePrincipal,
   deps: SessionStateDeps,
+  /** The writer of the command that asked (ADR 12 D9, POD-6601). */
+  writer: SessionWriter,
 ) => unknown
 
 /**
@@ -214,8 +213,9 @@ const ownPerUserTabOrder: TargetResolver = async (input, principal, deps) => {
   // promise is truthy but `!promise` is not — so this is spelled as an explicit
   // await of every verdict [POD-3507].
   const readable = await Promise.all(
-    input.sessionIds.map(async (id) =>
-      typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
+    input.sessionIds.map(
+      async (id) =>
+        typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
     ),
   )
   if (readable.some((ok) => ok !== true)) {
@@ -245,48 +245,43 @@ const sessionIdOf = (v: unknown): SessionId => asSessionId(str(v))
 const issueIdOrNull = (v: unknown): IssueId | null => (typeof v === 'string' ? asIssueId(v) : null)
 
 const REGISTRATIONS: Record<string, Registration> = {
-  'sessions.rename': {
-    target: ownedSession,
-    handler: (input, principal, deps) => {
-      const name = str(input.name)
-      // §3.1.3 A3: "a human set this name" is decided from the ON-BEHALF-OF human
-      // of the transport principal, not from which transport was used. An agent
-      // acting for a human still writes an agent-sourced name — [spec:SP-eb60]'s
-      // precedence rule protects the HUMAN's choice, and an agent's pick is not
-      // the human's just because it was delegated.
-      if (principal.humanDirect) {
-        return deps.sessions.renameSession({ sessionId: sessionIdOf(input.sessionId), name })
-      }
-      // Non-human actor: route through the agent-naming path, which enforces the
-      // precedence rule and REFUSES a user-set name instead of overwriting it.
-      return deps.sessions.setAgentName({ sessionId: sessionIdOf(input.sessionId), name })
-    },
-  },
   'sessions.setArchived': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
-      return deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
+    handler: (input, _principal, deps, writer) => {
+      return deps.state.setArchived(writer, sessionIdOf(input.sessionId), input.archived === true)
     },
   },
   'sessions.setWorkState': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
-      return deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
+    handler: (input, _principal, deps, writer) => {
+      return deps.state.setWorkState(
+        writer,
+        sessionIdOf(input.sessionId),
+        (input.workState ?? null) as never,
+      )
     },
   },
   'sessions.setIssueId': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
-      return deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
+    handler: (input, _principal, deps, writer) => {
+      return deps.sessions.setSessionIssueId(
+        writer,
+        sessionIdOf(input.sessionId),
+        issueIdOrNull(input.issueId),
+      )
     },
   },
   'sessions.dismissOffer': {
     target: ownedSession,
-    handler: async (input, _principal, deps) => {
+    handler: async (input, _principal, deps, writer) => {
       // The stale-stamp case returns false and writes nothing — see the contract:
       // a dismissal names ONE offer, so a click aimed at a replaced offer must not
       // clear the one that replaced it.
-      await deps.sessions.dismissOffer(sessionIdOf(input.sessionId), str(input.offerCreatedAt))
+      await deps.sessions.dismissOffer(
+        writer,
+        sessionIdOf(input.sessionId),
+        str(input.offerCreatedAt),
+      )
     },
   },
   'sessions.markRead': {
@@ -296,8 +291,9 @@ const REGISTRATIONS: Record<string, Registration> = {
     // POD-1077's scoped feed) — but the POLICY is already self-scoped, so the
     // move is storage-only and needs no contract or wire change.
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
+    handler: async (input, principal, deps, writer) => {
       await deps.state.markRead(
+        writer,
         principal,
         sessionIdOf(input.sessionId),
         input.readAt as string | undefined,
@@ -306,14 +302,15 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.markUnread': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
-      await deps.state.markUnread(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps, writer) => {
+      await deps.state.markUnread(writer, principal, sessionIdOf(input.sessionId))
     },
   },
   'snoozes.set': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
+    handler: async (input, principal, deps, writer) => {
       await deps.state.setSnooze(
+        writer,
         principal,
         sessionIdOf(input.sessionId),
         typeof input.until === 'string' ? input.until : null,
@@ -323,15 +320,20 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'snoozes.clear': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
-      await deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps, writer) => {
+      await deps.state.clearSnooze(writer, principal, sessionIdOf(input.sessionId))
       return await deps.state.listSnoozes(principal)
     },
   },
   'pins.set': {
     target: ownPerUserRow,
     handler: async (input, principal, deps) => {
-      return await deps.state.setPin(principal, input.kind as never, str(input.id), input.pinned === true)
+      return await deps.state.setPin(
+        principal,
+        input.kind as never,
+        str(input.id),
+        input.pinned === true,
+      )
     },
   },
   'tabs.setOrder': {
@@ -374,7 +376,15 @@ const REGISTRATIONS: Record<string, Registration> = {
 // ---------------------------------------------------------------------------
 
 export class SessionStateRegistry {
-  constructor(private readonly deps: SessionStateDeps) {}
+  /**
+   * `writer` is what the envelope's handlers write with: it serves the
+   * composer's draft over the live stream (POD-6601), so it is the session
+   * service's live writer.
+   */
+  constructor(
+    private readonly deps: SessionStateDeps,
+    private readonly writer: SessionWriter,
+  ) {}
 
   /** Every migrated command name — what a cutover audit reads. */
   static names(): string[] {
@@ -420,7 +430,9 @@ export class SessionStateRegistry {
     const mutationId =
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
     const run = async () =>
-      await this.deps.mutations.apply(mutationId, name, () => registration.handler(input, principal, this.deps))
+      await this.deps.mutations.apply(mutationId, name, () =>
+        registration.handler(input, principal, this.deps, this.writer),
+      )
     // The command's session is resident while it runs (POD-6160 D2f): a parked
     // one is restored from its row and may leave memory once the command settles.
     const residency = this.deps.sessions.residency
@@ -437,25 +449,88 @@ export class SessionStateRegistry {
     input: Record<string, unknown>,
     principal: SessionStatePrincipal,
   ): Promise<typeof DENIED | 'allow'> {
-    if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
-      return DENIED
+    const target = await targetFor(contract, registration, input, principal, this.deps)
+    if (!target || !contract.policy) return DENIED
+    return authorize(principal.capability, contract.policy.action, target) === 'allow'
+      ? 'allow'
+      : DENIED
+  }
+}
+
+/**
+ * Everything this envelope checks before `authorize`, answering the target it
+ * would authorize, or `undefined` to deny. One function for both callers: this
+ * envelope, and the sync write entry point's resolver (POD-6350), which runs
+ * `authorize` itself.
+ */
+async function targetFor(
+  contract: CommandDef,
+  registration: Registration,
+  input: Record<string, unknown>,
+  principal: SessionStatePrincipal,
+  deps: SessionStateDeps,
+): Promise<AuthTarget | undefined> {
+  if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
+    return undefined
+  }
+  const policy = contract.policy
+  // A contract with no declared policy is refused, not waved through: the
+  // default-closed rule applies to policy exactly as it does to exposure.
+  if (!policy) return undefined
+  const target = await registration.target(input, principal, deps)
+  // Target absent = does not exist. Same answer as denied, one code path.
+  if (!target) return undefined
+  // The self-scoping check, stated positively rather than relying on the target
+  // resolver having built the row from the principal: a resolver that ever reads
+  // a userId out of the payload would be caught here.
+  if (
+    policy.scope === 'self' &&
+    (target.kind !== 'per-user-row' || target.userId !== principal.userId)
+  ) {
+    return undefined
+  }
+  return target
+}
+
+/**
+ * A SESSION-STATE COMMAND AS THE SYNC WRITE ENTRY POINT RUNS IT (POD-6350).
+ *
+ * The entry point owns exposure, parsing, `authorize`, dedup and the unit of
+ * work; this hands it the two halves that are this family's: the target (every
+ * check above except `authorize` itself) and the handler, with the command's
+ * session held resident as the envelope holds it. The handler runs WITHOUT this
+ * envelope's dedup: the entry point has already deduplicated by the envelope's
+ * mutationId, and a second `apply` under the same id would wait on itself.
+ */
+export function sessionStateCommandForSync(name: string):
+  | {
+      readonly def: CommandDef
+      target(
+        input: Record<string, unknown>,
+        principal: SessionStatePrincipal,
+        deps: SessionStateDeps,
+      ): Promise<AuthTarget | undefined>
+      handle(
+        input: Record<string, unknown>,
+        principal: SessionStatePrincipal,
+        deps: SessionStateDeps,
+        writer: SessionWriter,
+      ): Promise<unknown>
     }
-    const policy = contract.policy
-    // A contract with no declared policy is refused, not waved through: the
-    // default-closed rule applies to policy exactly as it does to exposure.
-    if (!policy) return DENIED
-    const target = await registration.target(input, principal, this.deps)
-    // Target absent = does not exist. Same answer as denied, one code path.
-    if (!target) return DENIED
-    // The self-scoping check, stated positively rather than relying on the target
-    // resolver having built the row from the principal: a resolver that ever reads
-    // a userId out of the payload would be caught here.
-    if (
-      policy.scope === 'self' &&
-      (target.kind !== 'per-user-row' || target.userId !== principal.userId)
-    ) {
-      return DENIED
-    }
-    return authorize(principal.capability, policy.action, target) === 'allow' ? 'allow' : DENIED
+  | undefined {
+  const def = sessionStateCommand(name)
+  const registration = Object.hasOwn(REGISTRATIONS, name) ? REGISTRATIONS[name] : undefined
+  if (!def || !registration) return undefined
+  return {
+    def,
+    target: async (input, principal, deps) =>
+      await targetFor(def, registration, input, principal, deps),
+    handle: async (input, principal, deps, writer) => {
+      const run = async () => await registration.handler(input, principal, deps, writer)
+      const residency = deps.sessions.residency
+      return typeof input.sessionId === 'string' && residency
+        ? await residency.withSession(asSessionId(input.sessionId), name, run)
+        : await run()
+    },
   }
 }

@@ -29,6 +29,7 @@
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { WAKE_COOLDOWN_MS } from './brakes'
 import { mailHarness, phaseState } from './characterization-support'
 import { INLINE_BODY_MAX, TURN_CLOSE_RULE } from './render'
@@ -109,6 +110,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
     // The target session vanishes between the send surface's resolution and
     // delivery — resolution is deliberately TOCTOU-safe, so it is decided here.
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 'sVanished' }, body: 'x' },
     )
@@ -120,6 +122,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
     // holding would be a black hole.
     await h.archive(iss.id)
     const r2 = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'issue', id: iss.id }, body: 'y' },
     )
@@ -146,6 +149,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     // run as raw keystrokes in another agent's session.
     const body = 'line1\n\u001b[201~rm -rf /\tTAB\u0000NUL'
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body, urgency: 'next-turn' },
     )
@@ -176,7 +180,11 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     // everything). POD-728 dissolves that class into named people and must
     // decide what unwrapped means then.
     const body = 'raw \u001b[201~ bytes \u0007 kept'
-    await h.svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body })
+    await h.svc.send(
+      messageTestWriter(),
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body },
+    )
     expect(h.pushes.map((p) => p.text)).toEqual([body])
   })
 
@@ -186,6 +194,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'why \u001b[201~ this?'
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body, kind: 'question' },
     )
@@ -208,6 +217,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const to = await h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
@@ -235,7 +245,11 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
-    const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    const r = await h.svc.send(
+      messageTestWriter(),
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: iss.id }, body },
+    )
     // The id lets the chat open the body the agent was not typed [POD-2143].
     expect(h.pushes[0]!.text).toBe(
       `[podium] 1 message(s) from operator (${r.message.id}) — run 'podium issue mail inbox' to read them, ` +
@@ -258,14 +272,17 @@ describe('characterization: urgency x target state (D3)', () => {
     h.put({ sessionId: asSessionId('sBusy'), issueId: iss.id, phase: 'working' })
 
     const fyi = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 'sBusy' }, body: 'a', urgency: 'fyi' },
     )
     const next = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 'sBusy' }, body: 'b', urgency: 'next-turn' },
     )
     const int = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 'sBusy' }, body: 'c', urgency: 'interrupt' },
     )
@@ -309,6 +326,7 @@ describe('characterization: urgency x target state (D3)', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
       await h.svc.send(
+        messageTestWriter(),
         { kind: 'operator' },
         { to: { kind: 'session', id: 's1' }, body: urgency, urgency },
       )
@@ -326,6 +344,7 @@ describe('characterization: urgency x target state (D3)', () => {
       draftUpdatedAt: '2026-07-20T11:59:00.000Z',
     })
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt' },
     )
@@ -340,6 +359,7 @@ describe('characterization: urgency x target state (D3)', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
 
     const wait = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'later', lifecycle: 'wait' },
     )
@@ -347,6 +367,7 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(h.pushes).toEqual([])
 
     const wake = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'now', lifecycle: 'wake' },
     )
@@ -382,6 +403,7 @@ describe('characterization: urgency x target state (D3)', () => {
     h.transport.failSessions = ['s1']
 
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'wake up', lifecycle: 'wake' },
     )
@@ -410,6 +432,7 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
 
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
     )
@@ -437,6 +460,7 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
       spawnedBy: 'session:sParent',
     })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: parentIssue.id, sessionId: asSessionId('sParent') },
       { to: { kind: 'session', id: 'sChild' }, body: 'stop', urgency: 'interrupt' },
     )
@@ -452,6 +476,7 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'system', name: 'steward' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
     )
@@ -472,14 +497,14 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, status: 'hibernated' })
     const sender = { kind: 'agent' as const, issueId: from.id, sessionId: asSessionId('sFrom') }
 
-    const first = await h.svc.send(sender, {
+    const first = await h.svc.send(messageTestWriter(), sender, {
       to: { kind: 'session', id: 'sTo' },
       body: '1',
       lifecycle: 'wake',
     })
     expect(first.message.lifecycle).toBe('wake')
 
-    const second = await h.svc.send(sender, {
+    const second = await h.svc.send(messageTestWriter(), sender, {
       to: { kind: 'session', id: 'sTo' },
       body: '2',
       lifecycle: 'wake',
@@ -490,7 +515,7 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     ])
 
     h.advance(WAKE_COOLDOWN_MS + 1)
-    const third = await h.svc.send(sender, {
+    const third = await h.svc.send(messageTestWriter(), sender, {
       to: { kind: 'session', id: 'sTo' },
       body: '3',
       lifecycle: 'wake',
@@ -510,7 +535,11 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     // The operator's kick carries hop 0; delivering it stamps sA's turn hop, so
     // what sA sends inside that turn chains at hop 1 — and so on down the
     // ping-pong. This is exactly the loop brake 3 exists to kill.
-    await h.svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 'sA' }, body: 'kick' })
+    await h.svc.send(
+      messageTestWriter(),
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 'sA' }, body: 'kick' },
+    )
     const hops: number[] = []
     let last = ''
     for (let i = 1; i <= HOP_LIMIT + 1; i++) {
@@ -519,7 +548,7 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
       // The cooldown is a SEPARATE brake keyed on sender+issue; step the clock
       // past its window so this test observes the hop brake alone.
       h.advance(WAKE_COOLDOWN_MS + 1)
-      const out = await h.svc.send(outbound, {
+      const out = await h.svc.send(messageTestWriter(), outbound, {
         to: { kind: 'session', id: target },
         body: `hop${i}`,
         urgency: 'next-turn',
@@ -554,6 +583,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sOther'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
@@ -590,13 +620,14 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'issue', id: iss.id }, body: 'x' },
     )
     const id = r.message.id
     expect((await h.svc.message(id))!.deliveryStatus).toBe('stored')
 
-    const rows = await h.svc.readInbox([{ kind: 'issue', id: iss.id }], {
+    const rows = await h.svc.readInbox(messageTestWriter(), [{ kind: 'issue', id: iss.id }], {
       consume: asSessionId('sReader'),
     })
     expect(rows.map((m) => m.deliveryStatus)).toEqual(['confirmed'])
@@ -618,6 +649,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     // next-turn to a busy session: handed to its daemon at once [POD-4661].
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
@@ -649,6 +681,7 @@ describe('characterization: duplicate delivery is impossible by timer (D7)', () 
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
@@ -673,6 +706,7 @@ describe('characterization: duplicate delivery is impossible by timer (D7)', () 
     // A pointer is an issue body too long to type inline [POD-4845].
     for (const body of ['one', 'two'].map((b) => b + 'x'.repeat(INLINE_BODY_MAX))) {
       await h.svc.send(
+        messageTestWriter(),
         { kind: 'operator' },
         { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' },
       )
@@ -699,6 +733,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
@@ -746,6 +781,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
@@ -760,6 +796,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // must never stamp acked_by (that would report the request answered and
     // release awaitAck by the nag itself).
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'system', name: 'steward' },
       { to: { kind: 'session', id: 'sFrom' }, kind: 'notification', inReplyTo: oid, body: 'nag' },
     )
@@ -770,6 +807,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // from releasing awaitAck by itself, tested here on the one sender for whom
     // the other guards do not already decide it).
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: to.id, sessionId: asSessionId('sTo') },
       {
         to: { kind: 'session', id: 'sFrom' },
@@ -783,6 +821,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // Nor does a reply from a THIRD party.
     const third = await h.createIssue({ title: 'bystander' })
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: third.id, sessionId: asSessionId('sThird') },
       { to: { kind: 'session', id: 'sFrom' }, kind: 'message', inReplyTo: oid, body: 'me too' },
     )
@@ -792,6 +831,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // reply ends the thread, not only a kind:'ack' (POD-835 — treating such a
     // reply as "no ack" produced 36 false "finished without acking" notices).
     const substantive = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: to.id, sessionId: asSessionId('sTo') },
       { to: { kind: 'session', id: 'sFrom' }, kind: 'message', inReplyTo: oid, body: 'handled it' },
     )
@@ -812,21 +852,33 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     const to = { kind: 'session' as const, id: 's1' }
 
     expect(
-      (await h.svc.send({ kind: 'operator' }, { to, body: 'plain' })).message.expectsResponse,
+      (await h.svc.send(messageTestWriter(), { kind: 'operator' }, { to, body: 'plain' })).message
+        .expectsResponse,
     ).toBe(false)
-    expect(
-      (await h.svc.send({ kind: 'operator' }, { to, body: 'asked', expectsResponse: true })).message
-        .expectsResponse,
-    ).toBe(true)
-    expect(
-      (await h.svc.send({ kind: 'operator' }, { to, body: 'q', kind: 'question' })).message
-        .expectsResponse,
-    ).toBe(true)
-    // An ack is never itself ackable (this is what killed the #243 ack-of-acks).
-    const original = await h.svc.send({ kind: 'operator' }, { to, body: 'o' })
     expect(
       (
         await h.svc.send(
+          messageTestWriter(),
+          { kind: 'operator' },
+          { to, body: 'asked', expectsResponse: true },
+        )
+      ).message.expectsResponse,
+    ).toBe(true)
+    expect(
+      (
+        await h.svc.send(
+          messageTestWriter(),
+          { kind: 'operator' },
+          { to, body: 'q', kind: 'question' },
+        )
+      ).message.expectsResponse,
+    ).toBe(true)
+    // An ack is never itself ackable (this is what killed the #243 ack-of-acks).
+    const original = await h.svc.send(messageTestWriter(), { kind: 'operator' }, { to, body: 'o' })
+    expect(
+      (
+        await h.svc.send(
+          messageTestWriter(),
           { kind: 'operator' },
           { to, body: 'a', kind: 'ack', inReplyTo: original.message.id, expectsResponse: true },
         )
@@ -835,6 +887,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     expect(
       (
         await h.svc.send(
+          messageTestWriter(),
           { kind: 'operator' },
           { to, body: 'n', kind: 'notification', expectsResponse: true },
         )
@@ -849,24 +902,30 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     const to = { kind: 'session' as const, id: 's1' }
     // Both are handed to an idle session; once its daemon takes them they are
     // delivered — the state pendingReminders reads.
-    const plain = await h.svc.send({ kind: 'operator' }, { to, body: 'plain, no reply owed' })
+    const plain = await h.svc.send(
+      messageTestWriter(),
+      { kind: 'operator' },
+      { to, body: 'plain, no reply owed' },
+    )
     const asked = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to, body: 'reply please', expectsResponse: true },
     )
     for (const r of [plain, asked])
       await h.svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
 
-    const first = await h.svc.pendingReminders(asSessionId('s1'))
+    const first = await h.svc.pendingReminders(messageTestWriter(), asSessionId('s1'))
     expect(first).toEqual([{ id: asked.message.id, from: 'operator', body: 'reply please' }])
     // Each message earns exactly ONE reminder, persisted — then the steward
     // fallback owns it. Unreplied mail does not nag forever.
-    expect(await h.svc.pendingReminders(asSessionId('s1'))).toEqual([])
+    expect(await h.svc.pendingReminders(messageTestWriter(), asSessionId('s1'))).toEqual([])
     // Still outstanding for the settle path until a reply lands.
     expect((await h.svc.settleNotifiable(asSessionId('s1'))).map((m) => m.id)).toEqual([
       asked.message.id,
     ])
     await h.svc.sendReply(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: asked.message.id,
@@ -884,6 +943,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     for (const body of ['q1', 'q2']) {
       const sent = await h.svc.send(
+        messageTestWriter(),
         { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
         {
           to: { kind: 'session', id: 'sTo' },
@@ -903,7 +963,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       ])
     }
     h.pushes.length = 0
-    await h.svc.systemAckFallback(asSessionId('sTo'), {
+    await h.svc.systemAckFallback(messageTestWriter(), asSessionId('sTo'), {
       outcome: 'finished',
       issueSeq: to.seq,
       issueStage: 'review',
@@ -918,7 +978,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     expect(notices[0]!.body).toContain('finished without responding to your message')
     expect(notices[0]!.body).toContain(`issue #${to.seq} stage=review`)
     // Idempotent: a second settle produces nothing new.
-    await h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished' })
+    await h.svc.systemAckFallback(messageTestWriter(), asSessionId('sTo'), { outcome: 'finished' })
     expect(
       (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter(
         (m) => m.kind === 'notification',
@@ -937,6 +997,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     const iss = await h.createIssue({ title: 'solo' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: 's1' }, body: 'note to self' },
     )
@@ -955,6 +1016,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     const iss = await h.createIssue({ title: 'solo issue' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: iss.id }, body: 'my own note' },
     )
@@ -971,6 +1033,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     h.put({ sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'idle' })
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: iss.id }, body: 'for whoever is up' },
     )
@@ -985,6 +1048,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
       { sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'working' },
     )
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: iss.id }, body: 'sent while both busy' },
     )
@@ -1042,6 +1106,7 @@ describe('characterization: sender-queryable status (D12)', () => {
     const from = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sTo'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'next-turn' },
     )
@@ -1083,6 +1148,7 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604, POD-2070]
     const to = await h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'rebased your branch', urgency: 'next-turn' },
     )
@@ -1104,6 +1170,7 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604, POD-2070]
     const iss = await h.createIssue({ title: 'escalating' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'operator' }, body: 'human, please look' },
     )
@@ -1117,6 +1184,7 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604, POD-2070]
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'why this?', kind: 'question' },
     )

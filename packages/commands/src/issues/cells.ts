@@ -47,8 +47,8 @@ import type {
  * `linearSearch` and `subscriptionSetEnabled`. Declaring `cli`/`mcp` on those would
  * not open them — nothing dispatches them there — but it would make the field a
  * decoration, and ADR 3 D3's whole content is that a transport is served because a
- * contract NAMES it. So the field says what ships, and `audit-issue-commands.ts`
- * checks the declaration against the CLI table's actual reach in BOTH directions:
+ * contract NAMES it. So the field says what ships, and
+ * `packages/issue-client/src/commands.drift.test.ts` checks the declaration against the CLI table's actual reach in BOTH directions:
  * a proc the table reaches without the tag, and a tag without a reaching proc, are
  * both findings.
  */
@@ -134,8 +134,8 @@ export const REAUTHORIZATION =
  * dispatch a command (`trpc`, `relay`, `cli`, `mcp`); the client queue reaches the
  * authority THROUGH `trpc`, which is already declared. The queued per-user issue
  * commands (`markRead`/`markUnread`/`setTucked`) have been outboxed since POD-1076
- * without the tag, and `audit-issue-commands.ts` checks declarations against what each
- * arm actually reaches — a tag with no dispatching arm behind it is the decoration D3
+ * without the tag, and `packages/issue-client/src/commands.drift.test.ts` checks the
+ * `cli` declarations against what the CLI table actually reaches — a tag with no dispatching arm behind it is the decoration D3
  * exists to forbid.
  *
  * THE DURABILITY THAT USED TO EXIST WAS A DIFFERENT OBJECT, and confusing the two is
@@ -162,6 +162,26 @@ export const WRITE_DELIVERY: DeliveryPolicy = {
     'earlier one. Not reconciled with the `{ queued: true }` the viaHub forwarder could return: that ' +
     'was ADR 3 D4 rule 4’s server-held delivery queue for an ALREADY AUTHORIZED online command, a ' +
     'different durability, and POD-309 retired it.',
+  applyTimeReauthorization: REAUTHORIZATION,
+}
+
+/**
+ * THE COMMANDS THAT ACT ON MACHINES OR GIT ARE NEVER QUEUED BY THE OLD NAME
+ * (POD-6603). Start, add a session or a shell, stop, cleanup, the git actions,
+ * integrate, the assistant and the Tray's answer each run as an effect record
+ * (`effects.create`, POD-6394/6414/6415): THAT record is what survives being
+ * offline (it shows pending on every device until a daemon takes it). The
+ * command under its own name is an online adapter that creates the record and
+ * waits for it; a client outbox that replayed it later would start an agent, or
+ * merge a branch, long after the person asked.
+ */
+export const MACHINE_WORK_DELIVERY: DeliveryPolicy = {
+  class: 'online-sensitive',
+  outboxReconciliation:
+    'Never queued in the client Outbox under this name. The work is an effect record, which a ' +
+    'client may create (and queue) through `effects.create`; the record is idempotent by its id, ' +
+    'shows pending while no daemon can take it, and expires past its deadline. This command is the ' +
+    'online adapter onto that record: a delayed replay would do the work long after it was asked for.',
   applyTimeReauthorization: REAUTHORIZATION,
 }
 

@@ -106,6 +106,7 @@ const store = {
     mutationId: 'mutation-task-harness',
     settled: Promise.resolve(true),
     outcome: Promise.resolve('started' as const),
+    proposed: Promise.resolve(false),
   }),
   setSelectedIssueId: () => {},
   setSelectedWorktree: () => {},

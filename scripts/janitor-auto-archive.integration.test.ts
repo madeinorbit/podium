@@ -18,11 +18,13 @@
  * are the ones that fail if anybody re-reads it as "read by ANY user" — which is
  * the cheaper query, and the reason it is written down here.
  */
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
@@ -91,7 +93,7 @@ async function seedSession(
   id: string,
   over: Partial<SessionRow> = {},
 ): Promise<void> {
-  await store.sessions.upsertSession({
+  await store.sessions.upsertSession(fixtureWriteScope(), {
     id: asSessionId(id),
     ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
@@ -146,27 +148,50 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('resolves both readers again after the original administrator is removed', async () => {
     const original = await firstAdminMemberId(store)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
-    await store.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
-      createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
-    await store.issues.upsertIssue(issueRow('iss_changed_owner'))
+    await store.users.create(
+      {
+        id: replacement,
+        displayName: 'Next admin',
+        role: 'admin',
+        createdAt: '2099-01-01T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_changed_owner'))
     await seedSession(store, 'ses_changed_owner')
-    await store.issues.setIssueUserState(replacement, asIssueId('iss_changed_owner'), { readAt: READ_OLD })
-    await store.sessions.markSessionRead(replacement, asSessionId('ses_changed_owner'), READ_OLD)
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      replacement,
+      asIssueId('iss_changed_owner'),
+      { readAt: READ_OLD },
+    )
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      replacement,
+      asSessionId('ses_changed_owner'),
+      READ_OLD,
+    )
     const issues = new IssueAutoArchiveReader(db)
     const sessions = new SessionAutoArchiveReader(db)
     const input = { cutoffReadAt: CUTOFF, limit: 100 }
     expect(await issues.read(input)).toEqual([])
     expect(await sessions.read(input)).toEqual([])
     await store.users.removeMember(original, replacement)
-    expect((await issues.read(input)).map(row => row.readerUserId)).toEqual([replacement])
-    expect((await sessions.read(input)).map(row => row.readerUserId)).toEqual([replacement])
+    expect((await issues.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
+    expect((await sessions.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
   })
 
   it('proposes an issue the broadcast viewer read before the cutoff', async () => {
-    await store.issues.upsertIssue(issueRow('iss_read'))
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
-      readAt: READ_OLD,
-    })
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_read'))
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_read'),
+      {
+        readAt: READ_OLD,
+      },
+    )
 
     const candidates = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
@@ -189,8 +214,10 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   })
 
   it('does NOT propose an issue only a DIFFERENT user has read', async () => {
-    await store.issues.upsertIssue(issueRow('iss_theirs'))
-    await store.issues.setIssueUserState(OTHER_USER, asIssueId('iss_theirs'), { readAt: READ_OLD })
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_theirs'))
+    await store.issues.setIssueUserState(fixtureWriteScope(), OTHER_USER, asIssueId('iss_theirs'), {
+      readAt: READ_OLD,
+    })
 
     const candidates = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
@@ -217,11 +244,16 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   })
 
   it('does NOT propose an unread issue or one read after the cutoff', async () => {
-    await store.issues.upsertIssue(issueRow('iss_unread'))
-    await store.issues.upsertIssue(issueRow('iss_recent'))
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_recent'), {
-      readAt: READ_RECENT,
-    })
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_unread'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_recent'))
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_recent'),
+      {
+        readAt: READ_RECENT,
+      },
+    )
 
     const candidates = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
@@ -232,13 +264,30 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   })
 
   it('does NOT propose an open, archived, deleted or child issue the viewer read', async () => {
-    await store.issues.upsertIssue(issueRow('iss_open', { stage: 'in_progress' }))
-    await store.issues.upsertIssue(issueRow('iss_archived', { archived: true }))
-    await store.issues.upsertIssue(issueRow('iss_deleted', { deletedAt: STOPPED }))
-    await store.issues.upsertIssue(issueRow('iss_parent'))
-    await store.issues.upsertIssue(issueRow('iss_child', { parentId: asIssueId('iss_parent') }))
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_open', { stage: 'in_progress' }),
+    )
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_archived', { archived: true }),
+    )
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_deleted', { deletedAt: STOPPED }),
+    )
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_parent'))
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_child', { parentId: asIssueId('iss_parent') }),
+    )
     for (const id of ['iss_open', 'iss_archived', 'iss_deleted', 'iss_child']) {
-      await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId(id), { readAt: READ_OLD })
+      await store.issues.setIssueUserState(
+        fixtureWriteScope(),
+        firstAdminMemberId(),
+        asIssueId(id),
+        { readAt: READ_OLD },
+      )
     }
 
     const candidates = await new IssueAutoArchiveReader(db).read({
@@ -257,8 +306,13 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     for (let i = 0; i < 60; i++) {
       const id = `iss_p${String(i).padStart(3, '0')}`
       ids.push(id)
-      await store.issues.upsertIssue(issueRow(id, { seq: i }))
-      await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId(id), { readAt: READ_OLD })
+      await store.issues.upsertIssue(fixtureWriteScope(), issueRow(id, { seq: i }))
+      await store.issues.setIssueUserState(
+        fixtureWriteScope(),
+        firstAdminMemberId(),
+        asIssueId(id),
+        { readAt: READ_OLD },
+      )
     }
 
     const candidates = await new IssueAutoArchiveReader(db).read({
@@ -274,8 +328,18 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('proposes a stopped session the broadcast viewer read, and not another user’s', async () => {
     await seedSession(store, 'ses_mine')
     await seedSession(store, 'ses_theirs')
-    await store.sessions.markSessionRead(firstAdminMemberId(), asSessionId('ses_mine'), READ_OLD)
-    await store.sessions.markSessionRead(OTHER_USER, asSessionId('ses_theirs'), READ_OLD)
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('ses_mine'),
+      READ_OLD,
+    )
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      OTHER_USER,
+      asSessionId('ses_theirs'),
+      READ_OLD,
+    )
 
     const candidates = await new SessionAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,

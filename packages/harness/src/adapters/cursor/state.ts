@@ -11,7 +11,12 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
 import {
   type CursorSessionPaths,
   cursorProjectSlug,
@@ -19,9 +24,9 @@ import {
   cursorSessionPaths,
 } from '../../cursor/paths.js'
 import { LineDecoder } from '../../jsonl-stream.js'
-import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -99,7 +104,7 @@ export function classifyCursorIdleTranscript(
 
 export async function findLatestCursorSessionPaths(opts: {
   cwd: string
-  homeDir?: string
+  homeDir: string
   sinceMs?: number
 }): Promise<CursorSessionPaths | undefined> {
   const transcriptsRoot = join(
@@ -121,7 +126,7 @@ export async function findLatestCursorSessionPaths(opts: {
     const paths = cursorSessionPaths({
       cwd: opts.cwd,
       chatId: entry.name,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.homeDir,
     })
     try {
       const info = await stat(paths.transcriptPath)
@@ -141,7 +146,7 @@ export async function findLatestCursorSessionPaths(opts: {
 export function observeCursorState(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  homeDir: string
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
@@ -166,7 +171,7 @@ export function observeCursorState(opts: {
     if (stopped || attached) return
     const paths = await findLatestCursorSessionPaths({
       cwd: opts.cwd,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.homeDir,
       sinceMs: startedAtMs,
     })
     if (paths && !stopped) attach(paths)
@@ -178,7 +183,7 @@ export function observeCursorState(opts: {
       cursorSessionPaths({
         cwd: opts.cwd,
         chatId: opts.resumeValue,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.homeDir,
       }),
     )
   } else {
@@ -204,13 +209,13 @@ export function observeCursorState(opts: {
 async function cursorBootEvents(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     const paths = cursorSessionPaths({
       cwd: opts.cwd,
       chatId: opts.resumeValue,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.account.home,
     })
     try {
       const verdict = classifyCursorIdleTranscript(

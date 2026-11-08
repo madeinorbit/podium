@@ -35,12 +35,12 @@ export type AuthorityRefusal =
   /** No such id. Collapses into the same stored code as `unauthorized`. */
   | { readonly kind: 'target-not-found' }
   /** D13: stale `expectedRevision` — precondition failed. */
-  | { readonly kind: 'conflict' }
+  | { readonly kind: 'conflict'; readonly message?: string }
   /** Validation poison (D10). `details` are paths in the caller's OWN input, so
    *  they disclose nothing about the target. */
-  | { readonly kind: 'invalid'; readonly details?: readonly string[] }
+  | { readonly kind: 'invalid'; readonly details?: readonly string[]; readonly message?: string }
   /** D8 outcome 3: an out-of-scope write arrived without a durable confirmation. */
-  | { readonly kind: 'confirmation-required' }
+  | { readonly kind: 'confirmation-required'; readonly message?: string }
 
 /**
  * The reason codes a durable record may carry. Closed set: POD-316 renders these
@@ -65,6 +65,9 @@ export type OutboxRejectionCode = (typeof OUTBOX_REJECTION_CODES)[number]
 /** The durable, renderable reason. `details` exist for exactly one code. */
 export interface OutboxRejectionReason {
   readonly code: OutboxRejectionCode
+  /** The handler's explanation after authorization. Never kept for an
+   * unauthorized or missing target, whose failures must remain identical. */
+  readonly message?: string
   /** Paths in the author's own input. Present only for `invalid` — see
    *  `normalizeRefusal`: for every other code they are dropped, because any
    *  free-form detail is a channel through which an existence fact could
@@ -77,7 +80,8 @@ export interface OutboxRejectionReason {
  * where the no-oracle rule is enforced:
  *
  * - `unauthorized` and `target-not-found` produce a BYTE-IDENTICAL reason;
- * - no code but `invalid` keeps any accompanying detail.
+ * - no code but `invalid` keeps input paths;
+ * - only post-authorization refusals keep the handler's explanation.
  */
 export const normalizeRefusal = (refusal: AuthorityRefusal): OutboxRejectionReason => {
   switch (refusal.kind) {
@@ -85,14 +89,20 @@ export const normalizeRefusal = (refusal: AuthorityRefusal): OutboxRejectionReas
     case 'target-not-found':
       return { code: 'unauthorized' }
     case 'conflict':
-      return { code: 'conflict' }
+      return { code: 'conflict', ...refusalMessage(refusal) }
     case 'confirmation-required':
-      return { code: 'confirmation-required' }
+      return { code: 'confirmation-required', ...refusalMessage(refusal) }
     case 'invalid':
-      return refusal.details === undefined
-        ? { code: 'invalid' }
-        : { code: 'invalid', details: [...refusal.details] }
+      return {
+        code: 'invalid',
+        ...(refusal.details === undefined ? {} : { details: [...refusal.details] }),
+        ...refusalMessage(refusal),
+      }
   }
+}
+
+function refusalMessage(refusal: { readonly message?: string }): { message?: string } {
+  return refusal.message?.trim() ? { message: refusal.message } : {}
 }
 
 /** The reason an entry that aged out carries (D10: "Age exceeded … `expired` →

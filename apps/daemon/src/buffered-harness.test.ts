@@ -1,12 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { ResolvedHarnessInventory } from '@podium/harness'
+import { testBoundCommand } from '@podium/harness/driver/testing'
 import { HarnessExecRequestMessage } from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
 import {
   BUFFERED_HARNESS_DEFAULT_TIMEOUT_MS,
   BUFFERED_HARNESS_MAX_BUFFER_BYTES,
+  type BufferedHarnessRequest,
   defaultRunChild,
   executeBufferedHarnessTurn,
-  type BufferedHarnessRequest,
 } from './buffered-harness.js'
 import { execHandlers } from './control/exec.js'
 
@@ -70,7 +71,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
       }),
       {
         snapshot: async () => fakeSnapshot('claude-code', '/usr/bin/claude'),
-        runChild: async (cmd, args, _opts, stdin) => {
+        runChild: async ({ cmd, args }, _opts, stdin) => {
           seen.push({ cmd, args, stdin })
           return { stdout: '  hello world\n' }
         },
@@ -125,7 +126,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
       }),
       {
         snapshot: async () => fakeSnapshot('codex', '/usr/bin/codex'),
-        runChild: async (_cmd, args, _opts, stdin) => {
+        runChild: async ({ args }, _opts, stdin) => {
           seen.push({ args, stdin })
           return { stdout: 'done' }
         },
@@ -147,7 +148,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
       req({ agent: 'grok', prompt: 'p' }),
       {
         snapshot: async () => snapshot,
-        runChild: async (_c, _a, o, _s) => {
+        runChild: async (_command, o, _s) => {
           opts.push({ timeout: o.timeout, maxBuffer: o.maxBuffer })
           return { stdout: 'ok' }
         },
@@ -164,7 +165,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
       req({ agent: 'grok', prompt: 'p', timeoutMs: 5_000 }),
       {
         snapshot: async () => snapshot,
-        runChild: async (_c, _a, o, _s) => {
+        runChild: async (_command, o, _s) => {
           opts.push({ timeout: o.timeout, maxBuffer: o.maxBuffer })
           return { stdout: 'ok' }
         },
@@ -239,7 +240,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
       { homeDir: undefined, harnessRuntime: { current, isCurrent } },
       req({ agent: 'claude-code', prompt: 'p' }),
       {
-        runChild: async (cmd) => {
+        runChild: async ({ cmd }) => {
           seen.push(cmd)
           return { stdout: 'ok' }
         },
@@ -284,11 +285,10 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
     // Real child, no harness binary: node echoes stdin only after EOF, so a
     // missing .end() would hang until the kill budget instead of answering.
     const echo = await defaultRunChild(
-      process.execPath,
-      [
+      testBoundCommand(process.execPath, [
         '-e',
         `let d='';process.stdin.on('data',c=>{d+=c}).on('end',()=>process.stdout.write('got:'+d))`,
-      ],
+      ]),
       { timeout: 10_000, maxBuffer: 1024 * 1024, env: process.env },
       'hello-stdin',
     )
@@ -296,8 +296,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
     // Kill budget is enforced: a child that outlives it fails, never hangs.
     await expect(
       defaultRunChild(
-        process.execPath,
-        ['-e', 'setTimeout(()=>{},5000)'],
+        testBoundCommand(process.execPath, ['-e', 'setTimeout(()=>{},5000)']),
         { timeout: 200, maxBuffer: 1024 * 1024, env: process.env },
         '',
       ),
@@ -305,8 +304,7 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
     // Output cap is enforced: 5MiB through a 1KiB cap fails, never truncates.
     await expect(
       defaultRunChild(
-        process.execPath,
-        ['-e', `process.stdout.write('x'.repeat(5*1024*1024))`],
+        testBoundCommand(process.execPath, ['-e', `process.stdout.write('x'.repeat(5*1024*1024))`]),
         { timeout: 10_000, maxBuffer: 1024, env: process.env },
         '',
       ),

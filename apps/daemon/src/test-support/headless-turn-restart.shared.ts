@@ -6,15 +6,15 @@
  * the daemon's own env composition.
  */
 import { fixtureManifest } from '@podium/harness/adapters/fixture'
-import { registerTestManifest, type ResolvedHarnessInventory } from '@podium/harness'
+import { harnessContext, registerTestManifest, type ResolvedHarnessInventory } from '@podium/harness'
 import {
   type HeadlessTurnSpec,
   type HostedTurnIdentity,
   runHostedHeadlessTurn,
 } from '@podium/harness/driver/host'
 import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
-import type { HeadlessTurnEvent } from '@podium/protocol'
-import { headlessTurnEnv } from '../control/session-env.js'
+import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
+import { headlessTurnChildEnv } from '../control/session-env.js'
 import type { SessionEngineScope } from '../session/engines.js'
 import { testHarnessSnapshot } from './harness-snapshot.js'
 
@@ -59,7 +59,7 @@ export function restartTurn(input: {
   agentHome: string
   files: RestartTurnFiles
   snapshot: ResolvedHarnessInventory
-}): { spec: HeadlessTurnSpec; identity: HostedTurnIdentity; label: string } {
+}): { spec: HeadlessTurnSpec; identity: HostedTurnIdentity; label: string; agentHome: string } {
   const sessionId = asSessionId(input.sessionId)
   const identity: HostedTurnIdentity = {
     sessionId,
@@ -71,6 +71,7 @@ export function restartTurn(input: {
   return {
     identity,
     label,
+    agentHome: input.agentHome,
     spec: {
       agent: FIXTURE_AGENT,
       accountId: identity.accountId,
@@ -80,11 +81,10 @@ export function restartTurn(input: {
       sessionUuid: `uuid-${input.sessionId}`,
       timeoutMs: 120_000,
       durableLabel: label,
-      // The instance-owned env, built on the command environment as the
-      // headless driver's `sessionEnv` port builds it.
+      // The instance-owned env, as the headless driver's `sessionEnv` port
+      // builds it: what the instance decided, never the command env or HOME
+      // (those are the context's, POD-6535).
       env: {
-        ...input.snapshot.commandEnvironment.env,
-        HOME: input.agentHome,
         FIXTURE_INCARNATIONS: input.files.incarnations,
         FIXTURE_HOME_RECEIPT: input.files.homeReceipt,
         FIXTURE_RELEASE: input.files.release,
@@ -96,20 +96,21 @@ export function restartTurn(input: {
 
 export function runRestartTurn(
   engines: SessionEngineScope,
-  turn: { spec: HeadlessTurnSpec; identity: HostedTurnIdentity },
+  turn: { spec: HeadlessTurnSpec; identity: HostedTurnIdentity; agentHome: string },
   snapshot: ResolvedHarnessInventory,
   events: HeadlessTurnEvent[] = [],
 ) {
   return runHostedHeadlessTurn(
     {
       owner: engines,
-      childEnv: (invocation) =>
-        headlessTurnEnv({
-          agent: turn.spec.agent,
-          ...(turn.spec.env ? { specEnv: turn.spec.env } : {}),
+      childEnv: (invocation) => {
+        const { env, strip } = headlessTurnChildEnv({
+          context: harnessContext(snapshot, turn.spec.agent as BuiltinHarnessKind, turn.agentHome),
+          ...(turn.spec.env ? { instanceEnv: turn.spec.env } : {}),
           ...invocation,
-          commandEnv: snapshot.commandEnvironment.env,
-        }),
+        })
+        return { env, stripEnv: strip }
+      },
     },
     { spec: turn.spec, identity: turn.identity, snapshot, emit: (event) => events.push(event) },
   )

@@ -1,3 +1,4 @@
+import type { WriteScope } from '@podium/sync'
 import { CommittedRows } from './committed-rows'
 /**
  * Issues aggregate — owns the `issues` table and its child tables:
@@ -1477,6 +1478,7 @@ export class IssuesRepository {
   }
 
   async upsertIssue(
+    _scope: WriteScope,
     row: IssueRow,
     /**
      * THE DURABLE HALF OF THE DRAFT MODEL [POD-3259, spec §3.6 model (b)].
@@ -2919,6 +2921,7 @@ export class IssuesRepository {
    * issues a person has actually touched and "absent" keeps its single meaning.
    */
   async setIssueUserState(
+    _scope: WriteScope,
     userId: UserId,
     issueId: IssueId,
     patch: Partial<StoredIssueUserState>,

@@ -21,12 +21,13 @@
  * runner hosts the thread the way production does.
  */
 
+import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'bun:test'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
@@ -107,7 +108,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
 
     try {
       const seed = await openTestStore(dbPath)
-      await seed.messages.addMessage(dueMessage())
+      await seed.messages.addMessage(fixtureWriteScope(), dueMessage())
       await seed.close()
 
       // No `janitorWorkerForTests`, no injection, no env: exactly what a plain
@@ -131,9 +132,9 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
             dbPath,
             (db) =>
               (
-                db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_due'").get() as
-                  | { status: string }
-                  | undefined
+                db
+                  .prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_due'")
+                  .get() as { status: string } | undefined
               )?.status,
           ) === 'expired'
             ? 'expired'

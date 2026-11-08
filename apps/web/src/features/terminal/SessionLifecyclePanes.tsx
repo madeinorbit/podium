@@ -15,9 +15,14 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import { exitedRecovery, type SessionIssueOutcome } from '@podium/client-core/values'
+import {
+  exitedRecovery,
+  type SessionIssueOutcome,
+  sessionTransition,
+  sessionTransitionLabel,
+} from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
-import { Check, Minus, Moon, RotateCcw, WifiOff } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, Minus, Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -370,6 +375,88 @@ export function MachineOfflineBanner({
           Open Chat
         </Button>
       )}
+    </div>
+  )
+}
+
+/**
+ * WHAT THE SESSION IS ON ITS WAY TO, OR WHY THE SERVER REFUSED IT
+ * (ADR 12 D5 E1, POD-6399). Stop, hibernate and resume are edits of what the
+ * session should be; the server's controller makes them true. Until it has,
+ * this bar says so ("Stopping…", also while the machine is offline). A
+ * refusal shows its reason with the one move that answers it: a stop the
+ * working tree refused offers to end anyway (discarding unsaved changes, the
+ * branch kept); a refused resume or hibernate offers to try again.
+ */
+export function LifecycleTransitionBar({
+  session,
+}: {
+  session: Pick<
+    SessionView,
+    'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
+  >
+}): JSX.Element | null {
+  const { endSession, resurrectSession, hibernateSession } = useRuntimeSelector(
+    (s) => ({
+      endSession: s.endSession,
+      resurrectSession: s.resurrectSession,
+      hibernateSession: s.hibernateSession,
+    }),
+    shallowEqual,
+  )
+  const transition = sessionTransition(session)
+  if (transition === undefined) return null
+  const label = sessionTransitionLabel(transition)
+  if (transition.kind !== 'refused') {
+    return (
+      <div
+        className="pane-state-bar pane-state-bar-waking"
+        data-tone="parked"
+        role="status"
+        aria-live="polite"
+        data-testid="lifecycle-transition"
+      >
+        <span className="pane-state-bar-mark" aria-hidden="true">
+          <Loader2 size={13} strokeWidth={1.7} className="animate-spin" />
+        </span>
+        <span className="pane-state-bar-copy">
+          <span className="pane-state-bar-word">{label}</span>
+        </span>
+      </div>
+    )
+  }
+  const retry =
+    transition.desired === 'stopped'
+      ? { label: 'End anyway', run: () => endSession(session.sessionId, true) }
+      : transition.desired === 'running'
+        ? { label: 'Try again', run: () => resurrectSession(session.sessionId) }
+        : { label: 'Try again', run: () => hibernateSession(session.sessionId) }
+  return (
+    <div
+      className="pane-state-bar"
+      data-tone="fault"
+      role="status"
+      data-testid="lifecycle-refused"
+    >
+      <span className="pane-state-bar-mark" aria-hidden="true">
+        <AlertTriangle size={13} strokeWidth={1.7} />
+      </span>
+      <span className="pane-state-bar-copy">
+        <span className="pane-state-bar-word">{label}</span>
+        {transition.desired === 'stopped'
+          ? ' Ending anyway frees the worktree; the branch and its commits are kept.'
+          : ''}
+      </span>
+      <Button
+        type="button"
+        size="xs"
+        variant="outline"
+        className="shrink-0"
+        data-testid="lifecycle-retry"
+        onClick={() => void retry.run()}
+      >
+        {retry.label}
+      </Button>
     </div>
   )
 }

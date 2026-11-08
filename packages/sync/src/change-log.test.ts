@@ -1,13 +1,14 @@
+import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { ChangeRangeBootstrapRequired, readChangesRange, type ChangeLogStore } from './change-log'
-import type { ChangeLogReadRow } from './authority/change-lifecycle'
 import { Authority } from './authority/authority'
+import type { ChangeLogReadRow } from './authority/change-lifecycle'
+import { type ChangeLogStore, ChangeRangeBootstrapRequired, readChangesRange } from './change-log'
+import { installedWorldOver } from './conformance/installed-reads'
 import {
   DEVICE_GRADE_PRINCIPAL,
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
-import { installedWorldOver } from './conformance/installed-reads'
 
 const row = (seq: number): ChangeLogReadRow => ({
   seq,
@@ -66,6 +67,27 @@ function fixture(count = 3) {
 }
 
 describe('bounded change-log ranges', () => {
+  it('yields kernel rows: entityId, the value, and the provenance as stored', async () => {
+    const f = fixture(2)
+    f.rows[0] = { ...row(1), mutationId: asMutationId('m-1'), causationId: 'm-1', originId: 'peer' }
+    f.rows[1] = { ...row(2), op: 'remove', payload: null }
+    expect(await collect(readChangesRange(f.store, 0, 2, 10))).toEqual([
+      [
+        {
+          seq: 1,
+          entity: 'session',
+          entityId: 's1',
+          op: 'upsert',
+          value: { n: 1 },
+          mutationId: 'm-1',
+          causationId: 'm-1',
+          originId: 'peer',
+        },
+        { seq: 2, entity: 'session', entityId: 's2', op: 'remove' },
+      ],
+    ])
+  })
+
   it('legacy changesSince never certifies a write appended after reading rows', async () => {
     const f = fixture()
     f.appendDuringRead()

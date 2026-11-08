@@ -10,34 +10,36 @@
  * flavor facts, no edits.
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { EngineBindUnrecoverable } from '../engine-supervision.js'
-import { isDriverRefusal } from '../../errors.js'
-import { asSessionId } from '@podium/model'
-import {
-  type OpencodeEngineHostDeps,
-  createOpencodeEngineHost,
-  evaluateOpencode2VersionProbe,
-  evaluateOpencodeVersionProbe,
-  OpencodeEngineLeaseRefused,
-  opencodeScopeLabel,
-  probeHealth,
-} from './engine-host.js'
-import { opencode2Flavor, opencodeFlavor } from './engine-facts.js'
-import { createOpencodeClient } from './client.js'
 import { manifestFor } from '../../../registry.js'
+import { isDriverRefusal } from '../../errors.js'
+import type { TestEngineSpawn } from '../../testing/binding-records.js'
+import { createMemoryBindingRecords, createTestEngineOwner } from '../../testing/binding-records.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
   SessionEngineOwner,
 } from '../engine-supervision.js'
-import { createMemoryBindingRecords, createTestEngineOwner } from '../../testing/binding-records.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { createOpencodeClient } from './client.js'
+import { opencode2Flavor, opencodeFlavor } from './engine-facts.js'
+import {
+  createOpencodeEngineHost,
+  evaluateOpencode2VersionProbe,
+  evaluateOpencodeVersionProbe,
+  type OpencodeEngineHostDeps,
+  OpencodeEngineLeaseRefused,
+  opencodeScopeLabel,
+  probeHealth,
+} from './engine-host.js'
 import type { OpencodeJournalEntry } from './runtime.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
@@ -63,15 +65,34 @@ it('passes the isolated store to the v2 pending-admission reader', () => {
   expect(configs).toMatchObject([{ databasePath: '/instance/state/opencode2.db' }])
 })
 
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'opencode', executable: '/opt/rig/bin/opencode' })
+const OPENCODE2_CONTEXT = testHarnessContext({
+  kind: 'opencode',
+  executable: '/opt/rig/bin/opencode2',
+})
+
 function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({
     flavor: FLAVOR,
-    stageAttachment: async () => { throw new Error('attachments are not under test') },
+    stageAttachment: async () => {
+      throw new Error('attachments are not under test')
+    },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
     freePort: async () => 41234,
+    // The session's context names the account home its database lives under
+    // (POD-6536): a host built over `homeDir` pins a context for that home.
+    harnessContextFor: async () =>
+      extra.homeDir
+        ? testHarnessContext({
+            kind: CONTEXT.installation.kind,
+            executable: CONTEXT.installation.executable,
+            home: extra.homeDir,
+          })
+        : CONTEXT,
     ...extra,
   })
 }
@@ -132,7 +153,10 @@ function fakePorts(hooks: {
     {
       ...(hooks.startEngine ? { startEngine: hooks.startEngine } : {}),
       ...(hooks.reattachEngine
-        ? { reattachEngine: (input) => hooks.reattachEngine!({ label: input.label, fromSeq: 'tail' }) }
+        ? {
+            reattachEngine: (input) =>
+              hooks.reattachEngine!({ label: input.label, fromSeq: 'tail' }),
+          }
         : {}),
       destroyEngine: async (label) => {
         hooks.destroyed?.(label)
@@ -152,287 +176,293 @@ function fakePorts(hooks: {
   }
 }
 
-  it('admits only the OpenCode 2 betas whose API boundary is exercised', async () => {
-    expect(evaluateOpencode2VersionProbe('0.0.0-beta-18743', true)).toEqual({ drivable: true })
-    expect(evaluateOpencode2VersionProbe('0.0.0-beta-18866', true)).toEqual({ drivable: true })
-    const future = evaluateOpencode2VersionProbe('0.0.0-beta-18867', true)
-    expect(future.drivable).toBe(false)
-    if (!future.drivable) expect(future.reason).toBe('unsupported')
+it('admits only the OpenCode 2 betas whose API boundary is exercised', async () => {
+  expect(evaluateOpencode2VersionProbe('0.0.0-beta-18743', true)).toEqual({ drivable: true })
+  expect(evaluateOpencode2VersionProbe('0.0.0-beta-18866', true)).toEqual({ drivable: true })
+  const future = evaluateOpencode2VersionProbe('0.0.0-beta-18867', true)
+  expect(future.drivable).toBe(false)
+  if (!future.drivable) expect(future.reason).toBe('unsupported')
+})
+
+it('probes the OpenCode 2 health route with its configured username', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+  try {
+    await expect(
+      probeHealth('http://127.0.0.1:41427', 'secret', 'opencode', '/api/health'),
+    ).resolves.toBe(true)
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:41427/api/health',
+      expect.objectContaining({
+        headers: { authorization: 'Basic b3BlbmNvZGU6c2VjcmV0' },
+      }),
+    )
+  } finally {
+    fetch.mockRestore()
+  }
+})
+
+it('spawns the resolved executable headless under the session label', async () => {
+  const executable = '/home/rig/.opencode/bin/opencode'
+  const launched: TestEngineSpawn[] = []
+  const stopped = new Error('stop after argv capture')
+  const host = engineHost({
+    checkVersion: async () => null,
+    ...fakePorts({
+      startEngine: async (opts) => {
+        launched.push(opts)
+        throw stopped
+      },
+    }),
   })
 
-  it('probes the OpenCode 2 health route with its configured username', async () => {
+  await expect(
+    host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      secret: 'secret',
+      username: 'podium',
+      harnessContext: testHarnessContext({ kind: 'opencode', executable }),
+    }),
+  ).rejects.toBe(stopped)
+
+  // ONE engine per session, headless under podium-host: the label names the
+  // session (so a restart re-adopts it), the argv is bare `serve`, and the
+  // systemd scope the old spawn wrapped here is the host's own discipline now.
+  expect(launched).toHaveLength(1)
+  expect(launched[0]).toMatchObject({
+    label: opencodeScopeLabel(FLAVOR, SESSION),
+    cmd: executable,
+    args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
+    cwd: '/tmp',
+  })
+  // RULE 2, pinned: the secret rides the env, never argv — and provider keys
+  // are stripped by the host after the merge, exactly as the old delete loop.
+  expect(launched[0]?.env).toMatchObject({
+    OPENCODE_SERVER_USERNAME: 'podium',
+    OPENCODE_SERVER_PASSWORD: 'secret',
+  })
+  expect(JSON.stringify(launched[0]?.args)).not.toContain('secret')
+  expect(launched[0]?.stripEnv).toContain('ANTHROPIC_API_KEY')
+})
+
+it('passes the isolated database path to the OpenCode 2 server process', async () => {
+  const stopped = new Error('stop after env capture')
+  const launched: TestEngineSpawn[] = []
+  const host = engineHost({
+    flavor: FLAVOR2,
+    flavorEnv: { OPENCODE_DB: '/instance/state/opencode2.db' },
+    checkVersion: async () => null,
+    ...fakePorts({
+      startEngine: async (opts) => {
+        launched.push(opts)
+        throw stopped
+      },
+    }),
+  })
+
+  await expect(
+    host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      secret: 'secret',
+      username: 'opencode',
+      harnessContext: OPENCODE2_CONTEXT,
+    }),
+  ).rejects.toBe(stopped)
+  expect(host.driverId).toBe('opencode2-server')
+  expect(launched).toHaveLength(1)
+  expect(launched[0]).toMatchObject({
+    label: 'podium-oc2-11111111-1111-4111-8111-111111111111',
+    cmd: OPENCODE2_CONTEXT.installation.executable,
+    args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
+  })
+  expect(launched[0]?.env).toMatchObject({
+    OPENCODE_DB: '/instance/state/opencode2.db',
+    OPENCODE_DISABLE_AUTOUPDATE: '1',
+  })
+})
+
+it('builds serve argv from the resolved executable without changing PATH installs', () => {
+  // The stem is the adapter's `runtime.server.spawn` section, with the
+  // resolved executable and the supervisor-picked port substituted.
+  expect(FLAVOR.serveArgs('/opt/resolved/opencode', 41234)).toEqual([
+    '/opt/resolved/opencode',
+    'serve',
+    '--port',
+    '41234',
+    '--hostname',
+    '127.0.0.1',
+  ])
+  expect(FLAVOR.serveArgs('/usr/bin/opencode', 41234)[0]).toBe('/usr/bin/opencode')
+  expect(FLAVOR.serveArgs('opencode', 41234)[0]).toBe('opencode')
+})
+
+describe('headless adopt (POD-4433)', () => {
+  const journalled = {
+    sessionId: SESSION,
+    opencodeSessionId: 'ses_adoptme',
+    baseUrl: 'http://127.0.0.1:41234',
+    username: 'podium',
+    secret: 'journalled-secret',
+    workdir: '/tmp',
+    databasePath: '/original-home/opencode.db',
+    process: { key: opencodeScopeLabel(FLAVOR, SESSION), pid: 4242 },
+    seq: 7,
+    turnEpoch: 2,
+    bindingVersion: 1,
+  }
+  const binding = {
+    sessionId: SESSION,
+    driver: 'opencode-server',
+    family: 'server',
+    harness: 'opencode',
+    workdir: '/tmp',
+    resume: null,
+    process: { key: opencodeScopeLabel(FLAVOR, SESSION) },
+    bindingVersion: 1,
+  } as never
+
+  function adoptHost(hooks: {
+    reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
+  }) {
+    return engineHost({
+      ...fakePorts({ ...hooks, recorded: journalled }),
+    })
+  }
+
+  it('adopts a surviving server in place: same port and secret, no second spawn', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+    const spawned: TestEngineSpawn[] = []
+    const { session } = fakeEngineSession({ childPid: 4242 })
+    const host = engineHost({
+      checkVersion: async () => null,
+      freePort: async () => 49999,
+      ...fakePorts({
+        recorded: journalled,
+        startEngine: async (opts) => {
+          spawned.push(opts)
+          throw new Error('a live server must be adopted, never re-spawned')
+        },
+        reattachEngine: async () => session,
+      }),
+    })
     try {
-      await expect(
-        probeHealth('http://127.0.0.1:41427', 'secret', 'opencode', '/api/health'),
-      ).resolves.toBe(true)
-      expect(fetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:41427/api/health',
-        expect.objectContaining({
-          headers: { authorization: 'Basic b3BlbmNvZGU6c2VjcmV0' },
-        }),
-      )
+      const endpoint = await host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        secret: 'fresh-secret',
+        username: 'podium',
+        harnessContext: CONTEXT,
+      })
+      expect(endpoint.baseUrl).toBe(journalled.baseUrl)
+      expect(endpoint.password).toBe(journalled.secret)
+      expect(endpoint.databasePath).toBe(journalled.databasePath)
+      expect(spawned).toHaveLength(0)
     } finally {
       fetch.mockRestore()
     }
   })
 
-  it('spawns the resolved executable headless under the session label', async () => {
-    const executable = '/home/rig/.opencode/bin/opencode'
-    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
-    const stopped = new Error('stop after argv capture')
-    const host = engineHost({
-      executablePath: executable,
-      checkVersion: async () => null,
-      ...fakePorts({
-        startEngine: async (opts) => {
-          launched.push(opts)
-          throw stopped
-        },
-      }),
-    })
-
-    await expect(
-      host.launch({
-        sessionId: SESSION,
-        workdir: '/tmp',
-        secret: 'secret',
-        username: 'podium',
-      }),
-    ).rejects.toBe(stopped)
-
-    // ONE engine per session, headless under podium-host: the label names the
-    // session (so a restart re-adopts it), the argv is bare `serve`, and the
-    // systemd scope the old spawn wrapped here is the host's own discipline now.
-    expect(launched).toHaveLength(1)
-    expect(launched[0]).toMatchObject({
-      label: opencodeScopeLabel(FLAVOR, SESSION),
-      cmd: executable,
-      args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
-      cwd: '/tmp',
-    })
-    // RULE 2, pinned: the secret rides the env, never argv — and provider keys
-    // are stripped by the host after the merge, exactly as the old delete loop.
-    expect(launched[0]?.env).toMatchObject({
-      OPENCODE_SERVER_USERNAME: 'podium',
-      OPENCODE_SERVER_PASSWORD: 'secret',
-    })
-    expect(JSON.stringify(launched[0]?.args)).not.toContain('secret')
-    expect(launched[0]?.stripEnv).toContain('ANTHROPIC_API_KEY')
-  })
-
-  it('passes the isolated database path to the OpenCode 2 server process', async () => {
-    const stopped = new Error('stop after env capture')
-    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
-    const host = engineHost({
-      flavor: FLAVOR2,
-      flavorEnv: { OPENCODE_DB: '/instance/state/opencode2.db' },
-      checkVersion: async () => null,
-      ...fakePorts({
-        startEngine: async (opts) => {
-          launched.push(opts)
-          throw stopped
-        },
-      }),
-    })
-
-    await expect(
-      host.launch({
-        sessionId: SESSION,
-        workdir: '/tmp',
-        secret: 'secret',
-        username: 'opencode',
-      }),
-    ).rejects.toBe(stopped)
-    expect(host.driverId).toBe('opencode2-server')
-    expect(launched).toHaveLength(1)
-    expect(launched[0]).toMatchObject({
-      label: 'podium-oc2-11111111-1111-4111-8111-111111111111',
-      cmd: 'opencode2',
-      args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
-    })
-    expect(launched[0]?.env).toMatchObject({
-      OPENCODE_DB: '/instance/state/opencode2.db',
-      OPENCODE_DISABLE_AUTOUPDATE: '1',
-    })
-  })
-
-  it('builds serve argv from the resolved executable without changing PATH installs', () => {
-    // The stem is the adapter's `runtime.server.spawn` section, with the
-    // resolved executable and the supervisor-picked port substituted.
-    expect(FLAVOR.serveArgs('/opt/resolved/opencode', 41234)).toEqual([
-      '/opt/resolved/opencode',
-      'serve',
-      '--port',
-      '41234',
-      '--hostname',
-      '127.0.0.1',
-    ])
-    expect(FLAVOR.serveArgs('/usr/bin/opencode', 41234)[0]).toBe('/usr/bin/opencode')
-    expect(FLAVOR.serveArgs('opencode', 41234)[0]).toBe('opencode')
-  })
-
-  describe('headless adopt (POD-4433)', () => {
-    const journalled = {
-      sessionId: SESSION,
-      opencodeSessionId: 'ses_adoptme',
-      baseUrl: 'http://127.0.0.1:41234',
-      username: 'podium',
-      secret: 'journalled-secret',
-      workdir: '/tmp',
-      databasePath: '/original-home/opencode.db',
-      process: { key: opencodeScopeLabel(FLAVOR, SESSION), pid: 4242 },
-      seq: 7,
-      turnEpoch: 2,
-      bindingVersion: 1,
+  it('host.adopt rebinds the survivor for the driver', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+    const { session } = fakeEngineSession({ childPid: 4242 })
+    const host = adoptHost({ reattachEngine: async () => session })
+    try {
+      const endpoint = await host.adopt(binding)
+      expect(endpoint?.baseUrl).toBe(journalled.baseUrl)
+      expect(endpoint?.password).toBe(journalled.secret)
+      expect(endpoint?.process.key).toBe(opencodeScopeLabel(FLAVOR, SESSION))
+      expect(endpoint?.databasePath).toBe(journalled.databasePath)
+    } finally {
+      fetch.mockRestore()
     }
-    const binding = {
-      sessionId: SESSION,
-      driver: 'opencode-server',
-      family: 'server',
-      harness: 'opencode',
-      workdir: '/tmp',
-      resume: null,
-      process: { key: opencodeScopeLabel(FLAVOR, SESSION) },
-      bindingVersion: 1,
-    } as never
+  })
 
-    function adoptHost(hooks: {
-      reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
-    }) {
-      return engineHost({
-        ...fakePorts({ ...hooks, recorded: journalled }),
-      })
-    }
-
-    it('adopts a surviving server in place: same port and secret, no second spawn', async () => {
-      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
-      const { session } = fakeEngineSession({ childPid: 4242 })
-      const host = engineHost({
-        checkVersion: async () => null,
-        freePort: async () => 49999,
-        ...fakePorts({
-          recorded: journalled,
-          startEngine: async (opts) => {
-            spawned.push(opts)
-            throw new Error('a live server must be adopted, never re-spawned')
-          },
-          reattachEngine: async () => session,
-        }),
-      })
-      try {
-        const endpoint = await host.launch({
+  it('a writer lease held elsewhere refuses loudly instead of spawning beside it', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+    const spawned: TestEngineSpawn[] = []
+    const { session } = fakeEngineSession({ childPid: 4242, lease: false })
+    const host = engineHost({
+      checkVersion: async () => null,
+      freePort: async () => 49999,
+      ...fakePorts({
+        recorded: journalled,
+        startEngine: async (opts) => {
+          spawned.push(opts)
+          throw new Error('must not spawn beside a leased engine')
+        },
+        reattachEngine: async () => session,
+      }),
+    })
+    try {
+      await expect(
+        host.launch({
           sessionId: SESSION,
           workdir: '/tmp',
           secret: 'fresh-secret',
           username: 'podium',
-        })
-        expect(endpoint.baseUrl).toBe(journalled.baseUrl)
-        expect(endpoint.password).toBe(journalled.secret)
-        expect(endpoint.databasePath).toBe(journalled.databasePath)
-        expect(spawned).toHaveLength(0)
-      } finally {
-        fetch.mockRestore()
-      }
-    })
-
-    it('host.adopt rebinds the survivor for the driver', async () => {
-      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const { session } = fakeEngineSession({ childPid: 4242 })
-      const host = adoptHost({ reattachEngine: async () => session })
-      try {
-        const endpoint = await host.adopt(binding)
-        expect(endpoint?.baseUrl).toBe(journalled.baseUrl)
-        expect(endpoint?.password).toBe(journalled.secret)
-        expect(endpoint?.process.key).toBe(opencodeScopeLabel(FLAVOR, SESSION))
-        expect(endpoint?.databasePath).toBe(journalled.databasePath)
-      } finally {
-        fetch.mockRestore()
-      }
-    })
-
-    it('a writer lease held elsewhere refuses loudly instead of spawning beside it', async () => {
-      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
-      const { session } = fakeEngineSession({ childPid: 4242, lease: false })
-      const host = engineHost({
-        checkVersion: async () => null,
-        freePort: async () => 49999,
-        ...fakePorts({
-          recorded: journalled,
-          startEngine: async (opts) => {
-            spawned.push(opts)
-            throw new Error('must not spawn beside a leased engine')
-          },
-          reattachEngine: async () => session,
+          harnessContext: CONTEXT,
         }),
-      })
-      try {
-        await expect(
-          host.launch({
-            sessionId: SESSION,
-            workdir: '/tmp',
-            secret: 'fresh-secret',
-            username: 'podium',
-          }),
-        ).rejects.toBeInstanceOf(OpencodeEngineLeaseRefused)
-        expect(spawned).toHaveLength(0)
-      } finally {
-        fetch.mockRestore()
-      }
+      ).rejects.toBeInstanceOf(OpencodeEngineLeaseRefused)
+      expect(spawned).toHaveLength(0)
+    } finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it('the host EXITED frame records the real status for the daemon', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'opencode-host-exit-'))
+    const databasePath = join(directory, 'history.db')
+    const db = openDatabase(databasePath)
+    db.exec('CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, time_updated INTEGER)')
+    db.exec(
+      'CREATE TABLE part (id TEXT, session_id TEXT, message_id TEXT, data TEXT, time_created INTEGER, time_updated INTEGER)',
+    )
+    db.close()
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+    const { session, exits } = fakeEngineSession({ childPid: 4242 })
+    const host = engineHost({
+      checkVersion: async () => null,
+      freePort: async () => 41234,
+      buildEnv: () => ({ OPENCODE_DB: 'history.db' }),
+      ...fakePorts({ startEngine: async () => session }),
     })
-
-    it('the host EXITED frame records the real status for the daemon', async () => {
-      const directory = mkdtempSync(join(tmpdir(), 'opencode-host-exit-'))
-      const databasePath = join(directory, 'history.db')
-      const db = openDatabase(databasePath)
-      db.exec('CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, time_updated INTEGER)')
-      db.exec('CREATE TABLE part (id TEXT, session_id TEXT, message_id TEXT, data TEXT, time_created INTEGER, time_updated INTEGER)')
-      db.close()
-      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const { session, exits } = fakeEngineSession({ childPid: 4242 })
-      const host = engineHost({
-        checkVersion: async () => null,
-        freePort: async () => 41234,
-        buildEnv: () => ({ OPENCODE_DB: 'history.db' }),
-        ...fakePorts({ startEngine: async () => session }),
+    try {
+      const endpoint = await host.launch({
+        sessionId: SESSION,
+        workdir: directory,
+        secret: 'secret',
+        username: 'podium',
+        harnessContext: CONTEXT,
       })
-      try {
-        const endpoint = await host.launch({
-          sessionId: SESSION,
-          workdir: directory,
-          secret: 'secret',
-          username: 'podium',
-        })
-        expect(endpoint.engineExit?.()).toBeUndefined()
-        expect(endpoint.databasePath).toBe(databasePath)
-        expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toBeUndefined()
-        for (const fire of exits) fire(3, 0)
-        expect(endpoint.engineExit?.()).toEqual({ code: 3, signal: 0 })
-        expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toEqual([])
-      } finally {
-        fetch.mockRestore()
-        rmSync(directory, { recursive: true, force: true })
-      }
-    })
+      expect(endpoint.engineExit?.()).toBeUndefined()
+      expect(endpoint.databasePath).toBe(databasePath)
+      expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toBeUndefined()
+      for (const fire of exits) fire(3, 0)
+      expect(endpoint.engineExit?.()).toEqual({ code: 3, signal: 0 })
+      expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toEqual([])
+    } finally {
+      fetch.mockRestore()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
+})
 
-  it('admits recorded and newer versions', async () => {
-    expect(evaluateOpencodeVersionProbe('1.18.16', true)).toEqual({ drivable: true })
-    const verdict = evaluateOpencodeVersionProbe('2.0.0', true)
-    expect(verdict.drivable).toBe(true)
-    expect(verdict.diagnostic?.body).toContain('session runs normally')
-  })
+it('admits recorded and newer versions', async () => {
+  expect(evaluateOpencodeVersionProbe('1.18.16', true)).toEqual({ drivable: true })
+  const verdict = evaluateOpencodeVersionProbe('2.0.0', true)
+  expect(verdict.drivable).toBe(true)
+  expect(verdict.diagnostic?.body).toContain('session runs normally')
+})
 
-  it('refuses too old but admits an unknown version', async () => {
-    const unsupported = evaluateOpencodeVersionProbe('1.17.99', true)
-    expect(unsupported.drivable).toBe(false)
-    expect(unsupported.diagnostic?.body).toContain('Install opencode 1.18 or newer')
-    const unprobeable = evaluateOpencodeVersionProbe('opencode ETIMEDOUT', false)
-    expect(unprobeable).toMatchObject({ drivable: true, reason: 'unprobeable' })
-    expect(unprobeable.diagnostic?.body).toContain('session runs normally')
-  })
+it('refuses too old but admits an unknown version', async () => {
+  const unsupported = evaluateOpencodeVersionProbe('1.17.99', true)
+  expect(unsupported.drivable).toBe(false)
+  expect(unsupported.diagnostic?.body).toContain('Install opencode 1.18 or newer')
+  const unprobeable = evaluateOpencodeVersionProbe('opencode ETIMEDOUT', false)
+  expect(unprobeable).toMatchObject({ drivable: true, reason: 'unprobeable' })
+  expect(unprobeable.diagnostic?.body).toContain('session runs normally')
+})
 
 describe('the scope label', () => {
   it('is per-session and stable, which is what `adopt()` matches on', () => {
@@ -484,7 +514,13 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
       }),
     })
     const error = await host
-      .launch({ sessionId: SESSION, workdir: '/tmp', secret: 's3cret', username: 'podium' })
+      .launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        secret: 's3cret',
+        username: 'podium',
+        harnessContext: CONTEXT,
+      })
       .then(
         () => null,
         (err: unknown) => err,
@@ -586,9 +622,22 @@ describe('readHistory — the Store read over the sqlite database', () => {
     for (const p of parts) {
       if (!seenMessages.has(p.messageId)) {
         seenMessages.add(p.messageId)
-        insMsg.run(p.messageId, sessionId, p.timeUpdated, p.timeUpdated, JSON.stringify({ role: p.role }))
+        insMsg.run(
+          p.messageId,
+          sessionId,
+          p.timeUpdated,
+          p.timeUpdated,
+          JSON.stringify({ role: p.role }),
+        )
       }
-      insPart.run(p.partId, p.messageId, sessionId, p.timeUpdated, p.timeUpdated, JSON.stringify(p.part))
+      insPart.run(
+        p.partId,
+        p.messageId,
+        sessionId,
+        p.timeUpdated,
+        p.timeUpdated,
+        JSON.stringify(p.part),
+      )
     }
     db.close()
     return { homeDir }
@@ -706,7 +755,9 @@ describe('readHistory — the Store read over the sqlite database', () => {
           from: { segmentId: 'history:someone-else:ses-other', pathHint: 'x', components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
       // Same segment but no anchor is equally foreign: cursors are opaque.
       const own = await host.readHistory(session, { limit: 50 })
       expect(own.head).toBeDefined()
@@ -715,7 +766,9 @@ describe('readHistory — the Store read over the sqlite database', () => {
           from: { segmentId: own.head!.segmentId, components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
     } finally {
       await rm(homeDir, { recursive: true, force: true })
     }

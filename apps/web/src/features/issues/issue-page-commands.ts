@@ -12,8 +12,10 @@
  * so the model hook has no raw call sites.
  */
 
+import { issueWrites } from '@podium/commands/issues-synced'
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
@@ -38,6 +40,9 @@ export interface IssuePageDeps {
   undeferIssue: (id: string) => Promise<unknown>
   setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
   restoreIssue: (id: string) => Promise<unknown>
+  /** The issue's own work as effect records (POD-6526). */
+  startIssueSession: StartIssueSession
+  issueAction: (issueId: IssueId, action: IssueWorkAction) => Promise<string>
 }
 
 export type IssuePageCommands = ReturnType<typeof issuePageCommands>
@@ -55,8 +60,11 @@ export function issuePageCommands({
   undeferIssue,
   setIssueLabels,
   restoreIssue,
+  startIssueSession,
+  issueAction,
 }: IssuePageDeps) {
   const id = issue.id
+  const issueId = id as IssueId
 
   /** Generic field patch — the single `issues.update` call site. This page's
    *  established clear-value surface is intentionally broader than the
@@ -75,13 +83,13 @@ export function issuePageCommands({
 
     // ---- banners ----
     applySuggestion: (): void => {
-      void run(() => trpc.issues.applySuggestion.mutate({ id }))
+      void run(() => issueWrites(trpc).applySuggestion.mutate({ id }))
     },
     dismissSuggestion: (): void => {
-      void run(() => trpc.issues.dismissSuggestion.mutate({ id }))
+      void run(() => issueWrites(trpc).dismissSuggestion.mutate({ id }))
     },
     resolveNeedsHuman: (): void => {
-      void run(() => trpc.issues.clearNeedsHuman.mutate({ id }))
+      void run(() => issueWrites(trpc).clearNeedsHuman.mutate({ id }))
     },
 
     // ---- title / description (inline editors) ----
@@ -136,7 +144,7 @@ export function issuePageCommands({
     // ---- sub-issues ----
     createSubIssue: (title: string): void => {
       void run(() =>
-        trpc.issues.create.mutate({
+        issueWrites(trpc).create.mutate({
           repoPath: issue.repoPath,
           title,
           parentId: id,
@@ -150,7 +158,7 @@ export function issuePageCommands({
      *  appends the local optimistic copy + clears the composer there). */
     postComment: (body: string, onPosted: (body: string) => void): void => {
       void run(async () => {
-        await trpc.issues.addComment.mutate({ id, body })
+        await issueWrites(trpc).addComment.mutate({ id, body })
         onPosted(body)
       })
     },
@@ -162,13 +170,15 @@ export function issuePageCommands({
         onDone()
       })
     },
+    /** An `issue.assistant` record: resolves once queued; the page shows it
+     *  running from the record and the ending is told once (POD-6526). */
     refreshAssistant: (): void => {
-      void run(() => trpc.issues.refreshAssistant.mutate({ id }))
+      void run(() => issueAction(issueId, 'assistant'))
     },
 
     // ---- overflow menu ----
     flagForHuman: (question: string | undefined): void => {
-      void run(() => trpc.issues.setNeedsHuman.mutate({ id, question }))
+      void run(() => issueWrites(trpc).setNeedsHuman.mutate({ id, question }))
     },
     togglePinned: (): void => {
       update({ pinned: !issue.pinned })
@@ -189,10 +199,10 @@ export function issuePageCommands({
       })
     },
     supersedeWith: (newId: string): void => {
-      void run(() => trpc.issues.supersede.mutate({ oldId: id, newId }))
+      void run(() => issueWrites(trpc).supersede.mutate({ oldId: id, newId }))
     },
     duplicateOf: (canonicalId: string): void => {
-      void run(() => trpc.issues.duplicate.mutate({ id, canonicalId }))
+      void run(() => issueWrites(trpc).duplicate.mutate({ id, canonicalId }))
     },
 
     // ---- properties ----
@@ -233,15 +243,15 @@ export function issuePageCommands({
       void run(() => undeferIssue(id))
     },
     setParent: (parentId: string | null): void => {
-      void run(() => trpc.issues.reparent.mutate({ id, parentId }))
+      void run(() => issueWrites(trpc).reparent.mutate({ id, parentId }))
     },
     // ---- relations ----
     addRelation: (type: StoredIssueDepType, toId: string): void => {
-      void run(() => trpc.issues.depAdd.mutate({ fromId: id, toId, type }))
+      void run(() => issueWrites(trpc).depAdd.mutate({ fromId: id, toId, type }))
     },
     removeRelation: (entry: RelationEntry): void => {
       void run(() =>
-        trpc.issues.depRemove.mutate(
+        issueWrites(trpc).depRemove.mutate(
           entry.direction === 'dep'
             ? { fromId: id, toId: entry.id, type: entry.type }
             : { fromId: entry.id, toId: id, type: entry.type },
@@ -250,8 +260,14 @@ export function issuePageCommands({
     },
 
     // ---- sessions / agent start ----
+    /** An `issue.begin` record: the starting session paints on the press and
+     *  a failure is told once (POD-6526). */
     startWork: (agentKind?: IssueAgentKind): void => {
-      void run(() => trpc.issues.start.mutate(agentKind ? { id, agentKind } : { id }))
+      void run(
+        () =>
+          startIssueSession({ issueId, mode: 'begin', ...(agentKind ? { agentKind } : {}) })
+            .settled,
+      )
     },
 
     // ---- git workflow ----

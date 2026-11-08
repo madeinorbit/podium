@@ -14,7 +14,16 @@
  * end by counting the member read, and through the real registry (whose
  * member read is the issue's session projection).
  */
-import { asIssueId, asSessionId, asThreadId, firstAdminMemberId, type IssueId, type SessionMeta } from '@podium/model'
+
+import {
+  asIssueId,
+  asSessionId,
+  asThreadId,
+  firstAdminMemberId,
+  type IssueId,
+  type SessionMeta,
+} from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -36,7 +45,12 @@ const SENDER = asSessionId('sFrom')
  *  answer (design §4.1; a30edff62f, POD-6283). */
 const PASS_STATEMENTS = 12
 
-const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
+const row = (
+  id: string,
+  toId: IssueId,
+  lifecycle: MessageRow['lifecycle'],
+  createdAt: string,
+): MessageRow => ({
   id,
   threadId: asThreadId(id),
   inReplyTo: null,
@@ -75,7 +89,7 @@ async function heldMail(size: number, lifecycle: MessageRow['lifecycle']): Promi
     const { id } = await h.createIssue({ title: `target ${i}` })
     issueIds.push(id)
     const at = new Date(Date.parse('2026-07-20T11:00:00.000Z') + i).toISOString()
-    await h.store.messages.addMessage(row(`m-${i}`, id, lifecycle, at))
+    await h.store.messages.addMessage(fixtureWriteScope(), row(`m-${i}`, id, lifecycle, at))
     // Woken a minute ago: the cooldown is hot, and only the durable row knows
     // it — this service's brake has never seen the key, as after a restart.
     if (lifecycle === 'wake') {
@@ -143,15 +157,25 @@ describe('onWakeUnavailable', () => {
     try {
       const issue = asIssueId((await h.createIssue({ title: 'target' })).id)
       const woken = asSessionId('sWoken')
-      await h.store.messages.addMessage({ ...row('handed', issue, 'wake', '2026-07-20T11:00:00.000Z'), deliveredTo: woken })
-      await h.store.messages.addMessage({
+      await h.store.messages.addMessage(fixtureWriteScope(), {
+        ...row('handed', issue, 'wake', '2026-07-20T11:00:00.000Z'),
+        deliveredTo: woken,
+      })
+      await h.store.messages.addMessage(fixtureWriteScope(), {
         ...row('elsewhere', issue, 'wake', '2026-07-20T11:00:01.000Z'),
         deliveredTo: asSessionId('sOther'),
       })
-      await h.store.messages.addMessage(row('unhanded', issue, 'wake', '2026-07-20T11:00:02.000Z'))
-      expect((await h.store.messages.pendingDeliveredToPage(woken)).map((m) => m.id)).toEqual(['handed'])
+      await h.store.messages.addMessage(
+        fixtureWriteScope(),
+        row('unhanded', issue, 'wake', '2026-07-20T11:00:02.000Z'),
+      )
+      expect((await h.store.messages.pendingDeliveredToPage(woken)).map((m) => m.id)).toEqual([
+        'handed',
+      ])
       await h.svc.onWakeUnavailable(woken, 'machine offline')
-      const flagged = (await h.events(['message.needs_attention'])).map((e) => (e.payload as { messageId?: string }).messageId)
+      const flagged = (await h.events(['message.needs_attention'])).map(
+        (e) => (e.payload as { messageId?: string }).messageId,
+      )
       expect(flagged).toEqual(['handed'])
     } finally {
       h.svc.dispose()
@@ -175,10 +199,12 @@ async function changedSessions(size: number): Promise<ChangedSessions> {
     ...Array.from({ length: size }, (_, i) => ({
       sessionId: asSessionId(`s${i}`),
       phase: 'idle' as const,
-      ...(i % 2 === 0 ? { issueId: id, cwd: '/repo/.worktrees/workspace' } : { cwd: `/repo/.worktrees/workspace/pkg${i}` }),
+      ...(i % 2 === 0
+        ? { issueId: id, cwd: '/repo/.worktrees/workspace' }
+        : { cwd: `/repo/.worktrees/workspace/pkg${i}` }),
     })),
   )
-  await h.store.messages.addMessage({
+  await h.store.messages.addMessage(fixtureWriteScope(), {
     ...row('m-session', id, 'wait', '2026-07-20T11:00:00.000Z'),
     toKind: 'session',
     toId: sessions[0]!.sessionId,
@@ -201,7 +227,8 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
         setup: changedSessions,
         target: ({ h }) => h.store,
         run: async ({ h, sessions }) => {
-          for (const session of sessions) await h.svc.onSessionEligibilityChanged(session.sessionId, session)
+          for (const session of sessions)
+            await h.svc.onSessionEligibilityChanged(session.sessionId, session)
           await h.svc.flushDeliveryTriggers()
           return h.pushes.map((push) => push.sessionId)
         },
@@ -242,10 +269,20 @@ async function heldIssueMail(size: number): Promise<HeldIssueMail> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Mail',
+    startNow: false,
+  })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: '/repo/.worktrees/mail',
+  })
   const cwd = '/repo/.worktrees/mail'
-  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd, issueId: issue.id })
+  const { sessionId } = await reg.modules.sessions.createSession({
+    agentKind: 'shell',
+    cwd,
+    issueId: issue.id,
+  })
   await reg.gateway.routeDaemonFrame(store.hostMachineId, {
     type: 'bind',
     sessionId,
@@ -310,7 +347,10 @@ describe('a pass over held issue mail: pinned statement counts at 5 and 150 held
 
 /** The member read the delivery service was given, to count its calls. */
 const memberReads = (h: MailHarness) =>
-  vi.spyOn((h.svc as unknown as { deps: MessageDeliveryDeps }).deps.sessions, 'listSessionsForIssue')
+  vi.spyOn(
+    (h.svc as unknown as { deps: MessageDeliveryDeps }).deps.sessions,
+    'listSessionsForIssue',
+  )
 
 describe("a pass's member lists [POD-6229]", () => {
   it('reads the members of an issue once for all of its held rows', async () => {
@@ -319,7 +359,15 @@ describe("a pass's member lists [POD-6229]", () => {
       const { id } = await h.createIssue({ title: 'held' })
       h.put({ sessionId: asSessionId('shell'), issueId: id, agentKind: 'shell' })
       for (let i = 0; i < 20; i++) {
-        await h.store.messages.addMessage(row(`m-${i}`, id, 'wait', new Date(Date.parse('2026-07-20T11:00:00.000Z') + i).toISOString()))
+        await h.store.messages.addMessage(
+          fixtureWriteScope(),
+          row(
+            `m-${i}`,
+            id,
+            'wait',
+            new Date(Date.parse('2026-07-20T11:00:00.000Z') + i).toISOString(),
+          ),
+        )
       }
       const reads = memberReads(h)
       await h.svc.onIssueEligibilityChanged(id)
@@ -347,17 +395,29 @@ describe("a pass's member lists [POD-6229]", () => {
       const queueText = deps.queueText.bind(deps)
       vi.spyOn(deps, 'queueText').mockImplementation(async (input) => {
         const at = h.sessions.findIndex((s) => s.sessionId === input.sessionId)
-        if (at >= 0 && h.sessions[at]!.status === 'hibernated') h.sessions[at] = { ...h.sessions[at]!, status: 'live' }
+        if (at >= 0 && h.sessions[at]!.status === 'hibernated')
+          h.sessions[at] = { ...h.sessions[at]!, status: 'live' }
         return await queueText(input)
       })
-      await h.store.messages.addMessage(row('wake', id, 'wake', '2026-07-20T11:00:00.000Z'))
-      await h.store.messages.addMessage(row('after', id, 'wait', '2026-07-20T11:00:01.000Z'))
+      await h.store.messages.addMessage(
+        fixtureWriteScope(),
+        row('wake', id, 'wake', '2026-07-20T11:00:00.000Z'),
+      )
+      await h.store.messages.addMessage(
+        fixtureWriteScope(),
+        row('after', id, 'wait', '2026-07-20T11:00:01.000Z'),
+      )
       const reads = memberReads(h)
       await h.svc.onIssueEligibilityChanged(id)
       await h.svc.flushDeliveryTriggers()
       // The wait row went to the running session; with the list read before
       // the wake it would have been held for a session still parked.
-      expect(h.pushes.map((push) => [(push as { sourceMessageId?: string }).sourceMessageId, push.sessionId])).toEqual([
+      expect(
+        h.pushes.map((push) => [
+          (push as { sourceMessageId?: string }).sourceMessageId,
+          push.sessionId,
+        ]),
+      ).toEqual([
         ['wake', parked!.sessionId],
         ['after', parked!.sessionId],
       ])

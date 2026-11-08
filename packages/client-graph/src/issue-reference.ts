@@ -7,7 +7,7 @@ import {
   type IssueReferenceSource,
   issueReferenceModel,
 } from '@podium/client-core/values'
-import { parseAnyRef } from '@podium/protocol'
+import { issueRefText, parseAnyRef } from '@podium/protocol'
 import {
   compareStructural,
   createAtom,
@@ -119,7 +119,7 @@ export class IssueReferences implements IssueReferenceReader {
       // The repo relation owns canonical identity after normalization. A
       // temporary pre-projection input can still carry a real displayRef.
       displayRef:
-        repoId !== null ? (prefix ? `${prefix}-${issue.seq}` : `#${issue.seq}`) : issue.displayRef,
+        repoId !== null ? issueRefText(issue.seq, prefix) : issue.displayRef,
     }
   }
 

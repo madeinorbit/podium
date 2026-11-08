@@ -252,11 +252,13 @@ export function ColdStartComposer({
     focusIssueSession,
     spawnDraftAgent,
     spawnIssueAgent,
+    startIssueSession,
     setSelectedIssueId,
     setSelectedWorktree,
     setPane,
     setPanelMode,
     setView,
+    setOpenIssueId,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -792,9 +794,16 @@ export function ColdStartComposer({
         const pendingIssueId = draft.pendingIssueId
         const startMutationId = draft.startMutationId || asMutationId(randomUUID())
         setDraft({ ...draft, startMutationId, launchError: '' })
-        void trpc.issues.start
-          .mutate({ id: pendingIssueId, mutationId: startMutationId })
-          .then(async () => {
+        // An `issue.begin` record under the draft's mutation id (POD-6526): a
+        // retry writes the same record. Queued is launched; a later failure is
+        // told once, from the record.
+        void startIssueSession({
+          issueId: asIssueId(pendingIssueId),
+          mode: 'begin',
+          mutationId: startMutationId,
+        })
+          .settled.then(async (queued) => {
+            if (!queued) throw new Error("Couldn't start the task")
             clearFirstTaskDraft(uiState)
             attachments.clear()
             const opened = await focusIssueSession(pendingIssueId)
@@ -853,18 +862,8 @@ export function ColdStartComposer({
             clearFirstTaskDraft(uiState)
             return
           }
-          if (outcome === 'issue-only') {
-            setDraft({
-              ...launchDraft,
-              pendingIssueId: started.issueId,
-              createIssueId: '',
-              createSessionId: '',
-              createMutationId: '',
-              launchError: "The task was saved, but its agent couldn't start.",
-            })
-          } else {
-            setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
-          }
+          // Not queued at all (a start that fails later shows on its task).
+          setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
           setBusy(false)
         })
         if (first) noteFirstSend(uiState, started.issueId)
@@ -873,6 +872,14 @@ export function ColdStartComposer({
         setPanelMode(started.sessionId, 'chat')
         setPane('A', started.sessionId)
         setView('workspace')
+        // Filed as a proposal: no agent comes, so show the task rather than
+        // the pane of a session that will never exist.
+        void started.proposed.then((proposed) => {
+          if (!proposed) return
+          setPane('A', null)
+          setOpenIssueId(started.issueId)
+          setView('issues')
+        })
         return
       }
 

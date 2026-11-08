@@ -84,6 +84,32 @@ export type ResumeRef = z.infer<typeof ResumeRef>
 export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
+/**
+ * WHAT A SESSION SHOULD BE: the spec half of its lifecycle (ADR 12 D5 E1,
+ * POD-6356). People and agents write it; `status` is what the daemon observes.
+ * The server's lifecycle controller acts until they agree.
+ *
+ *  - `running`: the agent process runs (resume or resurrect it).
+ *  - `hibernated`: parked; process gone, row, transcript and worktree kept.
+ *  - `stopped`: a clean end; process gone and the worktree freed, branch kept.
+ *
+ * Absent on a row means no intent was ever recorded (a session from before
+ * this field, or one nobody has edited since): `status` alone describes it.
+ */
+export const SessionDesired = z.enum(['running', 'hibernated', 'stopped'])
+export type SessionDesired = z.infer<typeof SessionDesired>
+
+/**
+ * The controller's definitive refusal of the action for one revision: a dirty
+ * worktree stopped without `force`, no resume ref to wake from, a machine the
+ * session may no longer use. Cleared by the next edit of the desired state.
+ */
+export const SessionLifecycleFailure = z.object({
+  revision: z.number().int().positive(),
+  reason: z.string(),
+})
+export type SessionLifecycleFailure = z.infer<typeof SessionLifecycleFailure>
+
 /** A known harness condition that should be visible on the started session. */
 export const SessionCondition = z.enum(['logged-out'])
 export type SessionCondition = z.infer<typeof SessionCondition>
@@ -295,8 +321,88 @@ export const AgentRuntimeState = z.object({
   stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
   stateConfidence: z.number().min(0).max(1).optional(),
   stateObservedAt: z.string().optional(),
+  /**
+   * THE TURN MARKER (POD-6397, ADR 12 D5 E2): which turn this state belongs
+   * to, so a client can NAME the turn it asks to interrupt. It is the time the
+   * turn opened (the `since` of the first state of the turn, from the daemon's
+   * report) and stays after the turn ends, until the next one opens. The server
+   * stamps it ({@link withTurnMarker}); the daemon never sends it. Absent on
+   * rows from before it, and on states no turn ever opened in.
+   */
+  turnStartedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+
+/** The effect kind of a Stop that names its turn (POD-6397). */
+export const SESSION_INTERRUPT_KIND = 'session.interrupt'
+
+/**
+ * IS A TURN OPEN in this state (POD-6397)? Working, waiting on the user inside
+ * a turn (a permission prompt, a question), or compacting in the middle of one.
+ * `unknown` is not an answer either way and reads as open, so a lost channel
+ * never ends a turn nobody saw end.
+ */
+export function isTurnOpen(state: AgentRuntimeState | null | undefined): boolean {
+  if (!state) return false
+  switch (state.phase) {
+    case 'working':
+    case 'needs_user':
+    case 'unknown':
+      return true
+    case 'compacting':
+      return (
+        state.compactingFrom === undefined ||
+        state.compactingFrom.phase === 'working' ||
+        state.compactingFrom.phase === 'needs_user'
+      )
+    case 'idle':
+    case 'errored':
+    case 'ended':
+      return false
+  }
+}
+
+/**
+ * A turn starts on the edge from no open turn into working or a wait. From
+ * `unknown` it starts only when no turn was ever seen (a fresh session): after
+ * a lost channel nobody can say whether a new turn began, so the marker stays.
+ */
+function opensTurn(prev: AgentRuntimeState | undefined, next: AgentRuntimeState): boolean {
+  if (next.phase === 'unknown' || !isTurnOpen(next)) return false
+  if (prev === undefined || !isTurnOpen(prev)) return true
+  return prev.phase === 'unknown' && prev.turnStartedAt === undefined
+}
+
+/**
+ * STAMP THE TURN MARKER on a state the daemon reported (POD-6397). A state
+ * that opens a turn gets its own `since`; every other state keeps the marker of
+ * the turn before it, so "turn T, now idle" stays nameable. Returns `next`
+ * itself when the marker is already right.
+ */
+export function withTurnMarker(
+  prev: AgentRuntimeState | undefined,
+  next: AgentRuntimeState,
+): AgentRuntimeState {
+  const marker = opensTurn(prev, next) ? next.since : prev?.turnStartedAt
+  if (marker === next.turnStartedAt) return next
+  if (marker === undefined) {
+    const { turnStartedAt: _dropped, ...rest } = next
+    return rest
+  }
+  return { ...next, turnStartedAt: marker }
+}
+
+/**
+ * HAS THE NAMED TURN ENDED (POD-6397)? Yes when a later turn has opened since,
+ * or when no turn is open now. `turn` absent names whatever turn runs now.
+ */
+export function hasTurnEnded(
+  state: AgentRuntimeState | null | undefined,
+  turn: string | undefined,
+): boolean {
+  if (!isTurnOpen(state)) return true
+  return turn !== undefined && state?.turnStartedAt !== undefined && state.turnStartedAt !== turn
+}
 
 /**
  * IS A LIVE NATIVE MENU ON SCREEN, right now, for this session?
@@ -427,6 +533,22 @@ export const SessionMetaEntity = z.object({
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
   stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
+  /**
+   * THE LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356).
+   *
+   * `desired` and `force` are spec (written by people and agents through
+   * `records.session.edit`); `force` qualifies a `stopped` edit: discard unsaved
+   * work in the worktree. `revision` is the SPEC revision (Kubernetes'
+   * `generation`): only spec edits move it, never a daemon report, so an edit is
+   * stale only against another edit. `observedRevision` is the controller's
+   * acknowledgement; the session is still changing while `revision` is ahead of
+   * it. Both are 1 when absent.
+   */
+  desired: SessionDesired.optional(),
+  force: z.boolean().optional(),
+  revision: z.number().int().positive().optional(),
+  observedRevision: z.number().int().positive().optional(),
+  lifecycleFailure: SessionLifecycleFailure.optional(),
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),

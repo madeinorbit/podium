@@ -7,6 +7,7 @@ import {
   type SettingsRepository,
   type SettingsWorktree,
 } from '@podium/client-graph/settings-repositories'
+import { repoWrites } from '@podium/commands/fleet-synced'
 import { isValidPrefix } from '@podium/protocol'
 import { ChevronDown, ChevronRight, FolderGit2, GitBranch, Pencil, Plus } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
@@ -235,7 +236,7 @@ function usePrefixEdit(row: SettingsRepository): PrefixEdit {
       setSaving(true)
       setError(null)
       try {
-        await trpc.repos.setPrefix.mutate({
+        await repoWrites(trpc).setPrefix.mutate({
           path: target.path,
           prefix: draft,
           ...(target.machineId ? { machineId: target.machineId } : {}),

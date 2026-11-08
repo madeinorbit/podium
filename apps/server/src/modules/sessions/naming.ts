@@ -28,6 +28,7 @@
 import type { SessionId } from '@podium/model'
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import type { Session, SessionDurableState } from './session'
+import type { SessionWriter } from './session-lifecycle-types'
 
 export type AgentNameResult = { ok: true; name: string } | { ok: false; reason: string }
 
@@ -60,7 +61,11 @@ export interface SessionNamingPorts {
    * The write is handed a DRAFT of the durable half [POD-3330]; what it assigns
    * becomes visible on the live session when the commit returns.
    */
-  mutate(sessionId: SessionId, write: (draft: SessionDurableState) => void | (() => void)): Promise<void>
+  mutate(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    write: (draft: SessionDurableState) => void | (() => void),
+  ): Promise<void>
 }
 
 export class SessionNaming {
@@ -71,8 +76,11 @@ export class SessionNaming {
    * curated slot, stamped `nameSource = 'user'`. That stamp is sovereign:
    * {@link setAgentName} refuses against it forever after.
    */
-  rename({ sessionId, name }: { sessionId: SessionId; name: string }): Promise<void> {
-    return this.ports.mutate(sessionId, (draft) => {
+  rename(
+    writer: SessionWriter,
+    { sessionId, name }: { sessionId: SessionId; name: string },
+  ): Promise<void> {
+    return this.ports.mutate(writer, sessionId, (draft) => {
       const clean = name.trim()
       draft.name = clean
       draft.nameSource = clean ? 'user' : undefined
@@ -87,7 +95,10 @@ export class SessionNaming {
    * over the derived `title` — but stamped 'agent', and REFUSED when the user
    * already named it.
    */
-  async setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): Promise<{
+  async setAgentName(
+    writer: SessionWriter,
+    { sessionId, name }: { sessionId: SessionId; name: string },
+  ): Promise<{
     ok: boolean
     name?: string
     reason?: string
@@ -104,7 +115,7 @@ export class SessionNaming {
         reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
       }
     }
-    await this.ports.mutate(sessionId, (draft) => {
+    await this.ports.mutate(writer, sessionId, (draft) => {
       draft.name = norm.name
       draft.nameSource = 'agent'
     })

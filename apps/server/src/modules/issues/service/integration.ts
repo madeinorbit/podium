@@ -6,7 +6,7 @@ import {
   integrationReceiptMatchesOrder,
   joinMachinePath,
 } from '@podium/model'
-import type { CommandPrincipal } from '../../../command-principal'
+import type { CommandAttribution, CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
 import type { RootIntegrationReceiptStore } from '../../../store/shipping'
 import type { IssueAttentionModule } from './attention'
@@ -80,7 +80,7 @@ export class IssueEpicIntegrationModule {
    */
   async integrate(
     id: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     const row = await this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
@@ -102,7 +102,7 @@ export class IssueEpicIntegrationModule {
 
   private async integrateRun(
     row: IssueRow,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     const refuse = async (
       output: string,
@@ -298,9 +298,16 @@ export class IssueEpicIntegrationModule {
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
-      await this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
+      await this.commentsMail().addComment(
+        this.store.serverWriter,
+        row.id,
+        'system:integrate',
+        summary,
+        principal,
+      )
     if (blockedAt != null) {
       await this.attention().setNeedsHuman(
+        this.store.serverWriter,
         row.id,
         `integration blocked at #${blockedAt}: ${blockedWhy}`,
       )

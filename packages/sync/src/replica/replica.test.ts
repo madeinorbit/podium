@@ -15,8 +15,8 @@
 import { asMutationId, type MutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
-import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
-import type { CacheOperation, KnownKindValidatorPort } from './ports'
+import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
+import type { CacheOperation, KnownKindValidatorPort, SyncSpan } from './ports'
 import { Replica } from './replica'
 import {
   bootstrapChunk,
@@ -1068,8 +1068,11 @@ describe('the optimistic-overlay reducer seam', () => {
         (command as { readonly kind?: string }).kind === 'unreducible'
           ? { kind: 'no-reducer' }
           : { kind: 'value', value: { ...(base as object | undefined), ...(command as object) } },
+      // Covers whatever the commit names by provenance, the rule this block was
+      // written against; coverage by cursor has its own double below.
+      covers: (evidence) => evidence.matches.length > 0,
       // The Replica passes the span; the outbox stages into it and publishes with it.
-      retire: (matches, span) => outbox.retireBatch(matches, span),
+      retire: (evidence, span) => outbox.retireBatch(evidence.matches, span),
     }
   }
 
@@ -1347,6 +1350,99 @@ describe('the optimistic-overlay reducer seam', () => {
     // The bootstrap replay used to be a second emission path that retired nothing.
     expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-buffered'])
     expect(h.outbox.list()).toHaveLength(0)
+  })
+
+  // ── Coverage by cursor (ADR 12): a write that changed nothing has no row ────
+
+  /**
+   * An overlay that covers by CURSOR alone, the way the outbox covers an applied
+   * command whose reply carried a receipt (POD-6275). The authority suppresses a
+   * write that changes nothing, so no row will ever name that command: only a
+   * certified cursor at or past its receipt proves the replica holds the truth.
+   *
+   * `retired` flips in `onCommit`, so it reports the EFFECT, and `handed` reports
+   * the calls. The two together tell "asked inside a unit of work" from "took effect".
+   */
+  function receiptOverlay(receiptSeq: number): {
+    readonly overlay: OptimisticOverlayPort
+    readonly handed: RetirementEvidence[]
+    readonly spans: (SyncSpan | undefined)[]
+    isRetired(): boolean
+  } {
+    const handed: RetirementEvidence[] = []
+    const spans: (SyncSpan | undefined)[] = []
+    let retired = false
+    return {
+      handed,
+      spans,
+      isRetired: () => retired,
+      overlay: {
+        pending: () => [],
+        reduce: (base) => ({ kind: 'value', value: base }),
+        covers: (evidence) => !retired && evidence.through.seq >= receiptSeq,
+        retire: (evidence, span) => {
+          handed.push(evidence)
+          spans.push(span)
+          span?.onCommit(() => {
+            retired = true
+          })
+        },
+      },
+    }
+  }
+
+  it('commitRegions opens a unit of work when the overlay covers the cursor, with no provenance in the frame', async () => {
+    const r = receiptOverlay(3)
+    const h = harness({ overlay: () => r.overlay })
+    await bootstrapped(h, 0, [])
+    const transact = vi.spyOn(h.store.unitOfWork, 'transact')
+
+    // Below the receipt: nothing is covered, so the frame autocommits alone.
+    await h.replica.receive(watermark(0, 2))
+    await h.replica.settled()
+    expect(transact).not.toHaveBeenCalled()
+    expect(r.handed).toEqual([])
+
+    // A watermark at the receipt carries no change at all, and still confirms.
+    await h.replica.receive(watermark(2, 3))
+    await h.replica.settled()
+
+    expect(transact).toHaveBeenCalledTimes(1)
+    expect(r.handed).toEqual([{ matches: [], through: cursorAt(3), install: false }])
+    // Handed the span of THAT unit of work, and adopted only once it committed.
+    expect(r.spans[0]).toBeDefined()
+    expect(r.isRetired()).toBe(true)
+    expect(h.replica.cursor).toEqual(cursorAt(3))
+  })
+
+  it('commitRegions stays single-region when nothing is covered', async () => {
+    const r = receiptOverlay(100)
+    const h = harness({ overlay: () => r.overlay })
+    await bootstrapped(h, 0, [])
+    const transact = vi.spyOn(h.store.unitOfWork, 'transact')
+
+    // Provenance is PRESENT, but names a command this overlay does not cover — another
+    // writer's, say. Provenance alone no longer opens a unit of work; coverage does.
+    await h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 's1', 'theirs', { causationId: 'cmd-x', mutationId: asMutationId('m-x') }),
+        session(2, 's2', 'plain'),
+      ]),
+    )
+    await h.replica.settled()
+
+    expect(transact).not.toHaveBeenCalled()
+    expect(r.handed).toEqual([])
+    expect(h.replica.cursor).toEqual(cursorAt(2))
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'theirs' })
+
+    // POSITIVE CONTROL, same replica: the install path asks too, and says so when the
+    // overlay covers. A re-bootstrap past the receipt is a covered install.
+    const covering = receiptOverlay(2)
+    const h2 = harness({ overlay: () => covering.overlay })
+    await bootstrapped(h2, 5, [session(5, 's1', 'installed')])
+    expect(covering.handed).toEqual([{ matches: [], through: cursorAt(5), install: true }])
+    expect(covering.isRetired()).toBe(true)
   })
 
   it('an install inside a SPAN still REPLACES the cache, dropping the excluded row', async () => {
@@ -2272,10 +2368,11 @@ describe('incremental range healing', () => {
       overlay: (store) => ({
         pending: () => [],
         reduce: () => ({ kind: 'no-reducer' }),
-        retire: async (matches, span) => {
+        covers: (evidence) => evidence.matches.length > 0,
+        retire: async (evidence, span) => {
           entered.release()
           await commit.promise
-          store.outbox.retireBatch(matches, span)
+          store.outbox.retireBatch(evidence.matches, span)
         },
       }),
     })

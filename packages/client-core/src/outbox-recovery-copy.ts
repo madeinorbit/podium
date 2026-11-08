@@ -43,7 +43,7 @@
 
 import type { ConfirmationRule } from '@podium/commands'
 import type { IssueStage } from '@podium/model'
-import type { OutboxRejectionCode } from '@podium/sync/outbox'
+import type { OutboxRejectionCode, OutboxRejectionReason } from '@podium/sync/outbox'
 import { ISSUE_STAGE_LABELS } from './values/issue-reference'
 
 /** One clause naming what happened, for a toast. */
@@ -141,6 +141,8 @@ export function kindLabel(kind: string): string {
     rename: 'Session rename',
     setArchived: 'Session archive',
     setWorkState: 'Session work state',
+    // LEGACY(remove-after: 2027-03): kinds an older build may still have queued;
+    // a record edit of the same cells is named alike (`describeRecordEdit`).
     snoozeSet: 'Session snooze',
     snoozeClear: 'Clear session snooze',
     sessionMarkRead: 'Session read status',
@@ -168,8 +170,61 @@ export function kindLabel(kind: string): string {
     issueRestore: 'Issue restored',
     sendText: 'Message to agent',
     resumeAndSend: 'Message to agent',
+    recordCreate: 'New record',
+    recordEdit: 'Change',
+    recordRemove: 'Removal',
+    effectCreate: 'Action',
+    effectDismiss: 'Dismiss the result',
   }
   return labels[kind] ?? kind
+}
+
+/**
+ * A generic record edit (ADR 12 D3), named from the cells it sets, in the words
+ * the per-command kinds it replaced used (POD-6404). Read off the author's input
+ * only: the record kind and the patch, never the target.
+ */
+function describeRecordEdit(input: unknown): QueuedChangeView {
+  const edit = record(input)
+  const patch = record(edit?.patch) ?? {}
+  const unset = Array.isArray(edit?.unset) ? (edit.unset as unknown[]) : []
+  const has = (name: string) => patch[name] !== undefined
+  switch (edit?.kind) {
+    case 'sessionUserState':
+      if (has('snoozedUntil')) {
+        return { label: 'Session snooze', summary: formatWhen(patch.snoozedUntil) }
+      }
+      if (unset.includes('snoozedUntil')) return { label: 'Clear session snooze', summary: null }
+      if (has('readAt')) {
+        return {
+          label: patch.readAt === null ? 'Session unread status' : 'Session read status',
+          summary: null,
+        }
+      }
+      break
+    case 'session':
+      if (has('name')) return { label: 'Session rename', summary: null }
+      if (has('archived')) return { label: 'Session archive', summary: null }
+      if (has('workState') || unset.includes('workState')) {
+        return { label: 'Session work state', summary: null }
+      }
+      break
+    case 'issueUserState':
+      if (has('tuckedAt')) {
+        return {
+          label: 'Issue visibility',
+          summary: patch.tuckedAt === null ? 'Shown in the list' : 'Hidden from the list',
+        }
+      }
+      if (has('readAt')) {
+        return {
+          label: patch.readAt === null ? 'Issue unread status' : 'Issue read status',
+          summary: null,
+        }
+      }
+      break
+  }
+  return { label: kindLabel('recordEdit'), summary: null }
 }
 
 /** What the author tried to send, named from THEIR input only. Never a target
@@ -205,10 +260,66 @@ const PATCH_FIELD_NOUNS: Record<string, string> = {
   estimateMin: 'estimate',
 }
 
+/** Names the author's requested action without reading its target or payload. */
+const EFFECT_LABELS: Readonly<Record<string, string>> = {
+  'session.launch': 'Start the agent',
+  'session.interrupt': 'Interrupt',
+  'session.configure': 'Change the model or effort',
+  'session.handoff': 'Hand off the session',
+  'session.answer': 'Answer the question',
+  'issue.start': 'Start a new task',
+  'issue.begin': 'Start the task',
+  'issue.stop': 'Stop the task',
+  'issue.addSession': 'Add a session',
+  'issue.cleanup': 'Clean up the task',
+  'issue.ship': 'Ship the task',
+  'issue.assistant': 'Refresh the assistant',
+  'issue.merge': 'Merge the task',
+  'issue.rebase': 'Rebase the task',
+  'issue.pr': 'Create a pull request',
+  'issue.integrate': 'Integrate the task',
+  'issue.artifactAdd': 'Add an artifact',
+  'issue.artifactPublish': 'Publish an artifact',
+  'issue.artifactRemove': 'Remove an artifact',
+  'file.write': 'Save the file',
+  'folder.scan': 'Scan the folder',
+  'folder.create': 'Create the folder',
+  'folder.rename': 'Rename the folder',
+  'machine.scan': 'Scan the machine',
+  'machine.update': 'Update the machine',
+  'repo.clone': 'Clone the repository',
+  'repo.create': 'Create the repository',
+  'approval.execute': 'Run the approved action',
+  'server.update': 'Update the server',
+  'server.move': 'Move the server',
+}
+
+function describeEffect(input: unknown): QueuedChangeView {
+  const effect = record(input)
+  if (effect?.kind === 'session.configure') {
+    const patch = record(effect.input)
+    if (patch?.model !== undefined && patch.effort === undefined) {
+      return { label: 'Change the model', summary: null }
+    }
+    if (patch?.effort !== undefined && patch.model === undefined) {
+      return { label: 'Change the effort', summary: null }
+    }
+  }
+  const label =
+    typeof effect?.kind === 'string' && Object.hasOwn(EFFECT_LABELS, effect.kind)
+      ? EFFECT_LABELS[effect.kind]
+      : undefined
+  return { label: label ?? kindLabel('effectCreate'), summary: null }
+}
+
 export function describeQueuedChange(kind: string, input: unknown): QueuedChangeView {
   switch (kind) {
+    case 'effectCreate':
+      return describeEffect(input)
     case 'issueUpdate':
       return describeIssueUpdate(input)
+    case 'recordEdit':
+      return describeRecordEdit(input)
     case 'issueSetTucked':
       return {
         label: kindLabel(kind),
@@ -264,11 +375,21 @@ export function deadLetterNotice(kind: string, input: unknown, code: OutboxRejec
   return `${describeQueuedChange(kind, input).label} didn’t sync — ${reasonSummary(code)}`
 }
 
-/** Short toast, Linear-shaped: what failed, not why in protocol terms. */
-export function couldNotSaveNotice(kind: string, input: unknown): string {
+/** What failed, with the normalized server explanation when available. */
+export function couldNotSaveNotice(
+  kind: string,
+  input: unknown,
+  reason?: OutboxRejectionReason,
+): string {
   const label = describeQueuedChange(kind, input).label
-  const named = label.length === 0 ? 'this change' : label[0]!.toLowerCase() + label.slice(1)
-  return `Couldn’t save ${named}`
+  const named = label.length === 0 ? 'this change' : label.charAt(0).toLowerCase() + label.slice(1)
+  const action =
+    kind === 'effectDismiss' || (kind === 'effectCreate' && label !== kindLabel(kind))
+      ? named
+      : `save ${named}`
+  const message = reason?.message?.trim()
+  const explanation = message || (reason === undefined ? undefined : reasonSummary(reason.code))
+  return `Couldn’t ${action}${explanation ? ` — ${explanation}` : ''}`
 }
 
 /** Toast line for a queued message whose session was deleted before it

@@ -36,7 +36,6 @@ import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
 import { APPROVAL_QUERIES } from './approvals/queries'
 import { APPROVAL_COMMANDS_TRPC } from './approvals/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
-import { CONVERSATION_COMMANDS_TRPC } from './conversations/registry'
 import { FILE_COMMANDS_TRPC } from './files/registry'
 import { HOST_COMMANDS_TRPC } from './hosts/registry'
 import {
@@ -64,7 +63,6 @@ const FAMILIES = [
   // be true is that the RUNNING router serves it, since the headless answering
   // path §4 promises is a tRPC call and nothing else.
   { router: 'interactions', table: INTERACTION_COMMANDS_TRPC },
-  { router: 'conversations', table: CONVERSATION_COMMANDS_TRPC },
   { router: 'perf', table: PERF_COMMANDS_TRPC },
   { router: 'models', table: MODEL_COMMANDS_TRPC },
   { router: 'files', table: FILE_COMMANDS_TRPC },
@@ -97,11 +95,26 @@ describe('the derived families, against the RUNNING appRouter', () => {
    *
    * 33 -> 34: `accounts.useOnMyMachines` (POD-6301). The 31 -> 33 before it was
    * drift on the multi-user integration branch (`accounts.send`, POD-6300, among it).
+   *
+   * 31 -> 32: `auth.setEmail` (aafde95f11, "Member email sign-in and
+   * profile", 2026-09-11), which added the command without moving this pin.
+   * Re-pinned in POD-6360.
+   *
+   * 32 -> 33: `accounts.share` (POD-6360): managed keys are per user, and a key
+   * reaches another user's agents only when its owner or an admin shares it.
+   *
+   * 33 -> 34: `accounts.keys` (POD-6390): the admin's read of every user's
+   * stored keys (owner and sharing, never the credential), so Settings can
+   * manage any key's sharing.
+   *
+   * 34 -> 33, thirteen -> twelve families: `conversations.setMeta` (POD-6412) is
+   * on the sync write entry point and has no route (no client ever called one);
+   * `modules/sync-write/family.test.ts` pins that.
    */
-  it('governs thirteen families and thirty-four derived writes', () => {
-    expect(FAMILIES).toHaveLength(13)
+  it('governs twelve families and thirty-six derived writes', () => {
+    expect(FAMILIES).toHaveLength(12)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(34)
+    expect(total).toBe(36)
   })
 
   it.each(

@@ -20,9 +20,9 @@ import { NewPanelMenu } from './NewPanelMenu'
 
 // Hoisted: `vi.mock`'s factory runs before module-level bindings exist, so the
 // spy the assertions read has to be created in the hoisted scope too.
-const { conversationSearch, createSession, feature, machine, opened, setPanelMode } = vi.hoisted(
+const { conversationSearch, launchSession, feature, machine, opened, setPanelMode } = vi.hoisted(
   () => ({
-    createSession: vi.fn(async () => ({ sessionId: 'new' })),
+    launchSession: vi.fn(() => ({ sessionId: 'new', settled: Promise.resolve(true) })),
     feature: { enabled: false },
     conversationSearch: vi.fn(async () => []),
     opened: vi.fn(),
@@ -55,7 +55,6 @@ vi.mock('@/app/store', () => {
   const state = {
     trpc: {
       conversations: { search: { query: conversationSearch } },
-      sessions: { create: { mutate: createSession } },
     },
     repos: [
       {
@@ -93,7 +92,7 @@ vi.mock('./command-launch-data', () => ({
   })),
   useCommandTargetMachines: () => ({}),
   useCommandLaunchActions: () => ({
-    trpc: { sessions: { create: { mutate: createSession } } },
+    launchSession,
     setPanelMode,
   }),
   useCommandRecentFiles: () => [],
@@ -110,7 +109,7 @@ const worktree = {
 afterEach(() => {
   cleanup()
   conversationSearch.mockClear()
-  createSession.mockClear()
+  launchSession.mockClear()
   feature.enabled = false
   opened.mockClear()
   setPanelMode.mockClear()
@@ -195,9 +194,15 @@ describe('the new-panel menu', () => {
     open()
 
     fireEvent.click(await screen.findByRole('menuitem', { name: /^New Claude$/ }))
-    expect(createSession).toHaveBeenLastCalledWith(
+    expect(launchSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )
+    // A `session.launch` record (POD-6523): in this checkout, on its machine,
+    // joining no task (the menu was opened outside one).
+    expect(launchSession).toHaveBeenLastCalledWith({
+      agentKind: 'claude-code',
+      target: { path: '/home/mine/podium', repoPath: '/home/mine/podium', machineId: 'mine' },
+    })
 
     await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('new'))
     // No descriptor states a headed panel intent for Claude (POD-4541):
@@ -207,7 +212,7 @@ describe('the new-panel menu', () => {
     setPanelMode.mockClear()
     fireEvent.click(screen.getByRole('menuitem', { name: /^New OpenCode$/ }))
     await vi.waitFor(() =>
-      expect(createSession).toHaveBeenLastCalledWith(
+      expect(launchSession).toHaveBeenLastCalledWith(
         expect.objectContaining({
           agentKind: 'opencode',
         }),
@@ -215,10 +220,10 @@ describe('the new-panel menu', () => {
     )
     // The headed opencode default is the descriptor default (POD-4541):
     // no override key, and the descriptor-stated native intent materializes.
-    expect(createSession).toHaveBeenLastCalledWith(
+    expect(launchSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )
-    expect(createSession).toHaveBeenLastCalledWith(
+    expect(launchSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ accountId: expect.anything() }),
     )
     expect(setPanelMode).toHaveBeenCalledWith('new', 'native')
@@ -230,20 +235,20 @@ describe('the new-panel menu', () => {
       screen.getByRole('menuitem', { name: /New OpenCode — OpenCode 1 \(headless\)/ }),
     )
     await vi.waitFor(() =>
-      expect(createSession).toHaveBeenLastCalledWith(
+      expect(launchSession).toHaveBeenLastCalledWith(
         expect.objectContaining({
           agentKind: 'opencode',
           requestedDriverId: 'opencode-server',
         }),
       ),
     )
-    expect(createSession).toHaveBeenLastCalledWith(
+    expect(launchSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ accountId: expect.anything() }),
     )
     expect(setPanelMode).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('menuitem', { name: /New Claude — claude-sdk/ }))
-    expect(createSession).toHaveBeenLastCalledWith(
+    expect(launchSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ requestedDriverId: 'claude-sdk' }),
     )
     expect(screen.queryByText('codex-app-server')).toBeNull()

@@ -1,27 +1,31 @@
 import {
-  type MachineHarnessInventory,
   buildServedDescriptors,
   declaredValue,
   gateHarnessVersion,
   HARNESS_KINDS,
+  type HarnessContext,
   harnessServerAlternatives,
   harnessTerminalDriverId,
   harnessVersionPolicyFor,
+  type MachineHarnessInventory,
   manifestFor,
-  probeAllModels,
   PROBEABLE_AGENTS,
   type ProbeableAgent,
+  probeAllModels,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { sendHarnessVersion } from '../harness-version-reporting'
 import {
-  managementInventoryCacheKey,
-  resolveManagementCredentialHome,
   type HarnessManagementContext,
+  managementAccountFor,
+  managementContextFor,
+  managementInventoryCacheKey,
+  resolveManagementAccount,
 } from '../harness-management.js'
-import { opencode2VersionProbeForExecutable } from '../runtime/version-probe'
+import { sendHarnessVersion } from '../harness-version-reporting'
+import { opencode2VersionProbe } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -173,12 +177,15 @@ export async function reportInventory(
       const drivableAlternatives: string[] = []
       for (const alternative of harnessServerAlternatives()) {
         const executable = snapshot.commandEnvironment.resolve(alternative.executable)
-        if (
+        // That executable, in this generation, under the machine command env
+        // (POD-6546): the verdict is cached for this installation only.
+        const verdict =
           executable &&
-          (await opencode2VersionProbeForExecutable(executable)).drivable
-        ) {
-          drivableAlternatives.push(alternative.driverId)
-        }
+          (await opencode2VersionProbe(
+            { executable, version: '', generation: snapshot.commandEnvironment.generation },
+            { env: snapshot.commandEnvironment.env },
+          ))
+        if (verdict && verdict.drivable) drivableAlternatives.push(alternative.driverId)
       }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({
@@ -308,6 +315,13 @@ export function startInventoryRefresh(
  * ANTHROPIC_API_KEY, else this host's Claude Code login. The server's
  * `apiKeys.anthropic` secret is deliberately NOT shipped down — a server-side
  * secret does not cross to a machine just to shorten a model list.
+ *
+ * ACCOUNT CONTEXT (POD-6534, F06): each CLI probe runs the installation's
+ * verified executable under the ACCOUNT environment — account HOME, instance
+ * selectors, foreign credentials stripped — the env the session child gets.
+ * It used to run under the machine command env, so a probe named the
+ * operator's HOME (and an ambient CODEX_HOME) while sessions ran as the
+ * account. The Claude OAuth token comes from the account's credential folder.
  */
 async function runModelProbe(
   ctx: HarnessManagementContext,
@@ -315,32 +329,35 @@ async function runModelProbe(
 ): Promise<void> {
   let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
   try {
-    const snapshot = await ctx.harnessRuntime?.current()
     // MANAGEMENT CREDENTIAL HOME (POD-4305 F12): the probe must name the account
     // the child will run as — the provisioned native-account HOME when present —
     // never the operator's ambient HOME and never a server-side secret.
-    const credentialHome = resolveManagementCredentialHome(ctx)
-    // Executables for the CLI-probed harnesses, picked by the probeable set
-    // itself (POD-4737) — Claude probes through its OAuth token below, never a
-    // CLI, so it takes no executable. No harness named here.
-    const executables: Partial<Record<ProbeableAgent, string>> = {}
-    if (snapshot) {
+    const account = await resolveManagementAccount(ctx)
+    // Contexts for the CLI-probed harnesses, picked by the probeable set
+    // itself (POD-4737) — Claude probes through its OAuth token, never a CLI,
+    // so it takes an account (asked for by its own kind), not a context. A
+    // harness this generation did not install gets no context and no probe.
+    // No harness named here.
+    const contexts: Partial<Record<ProbeableAgent, HarnessContext>> = {}
+    if (account) {
       for (const kind of PROBEABLE_AGENTS) {
-        const path = snapshot.executables.get(kind)?.path
-        if (path !== undefined) executables[kind] = path
+        const context = managementContextFor(account, kind as BuiltinHarnessKind)
+        if (context) contexts[kind] = context
       }
     }
     byAgent = await probeAllModels({
-      ...(snapshot
-        ? {
-            executables,
-            env: snapshot.commandEnvironment.env,
-          }
-        : {}),
-      ...(credentialHome ? { homeDir: credentialHome } : {}),
+      contexts,
+      ...(account ? { accountFor: (kind: string) => managementAccountFor(account, kind) } : {}),
       claude: {
+        // DECISION (POD-6534), kept exactly as before: the Claude API key is
+        // the DAEMON's own ANTHROPIC_API_KEY, not the account env's. The
+        // account env strips that key (it is a foreignCredentialEnv for
+        // Claude), so reading it there would silently switch every
+        // API-key-billed machine to its OAuth login's model list. Whether the
+        // list should follow the account's billing instead is a product
+        // question for POD-6520; until it is answered, this read is pinned by
+        // a test (account-scoped-operations.test.ts).
         ...(process.env.ANTHROPIC_API_KEY ? { apiKey: process.env.ANTHROPIC_API_KEY } : {}),
-        ...(credentialHome ? { homeDir: credentialHome } : {}),
       },
     })
   } catch (err) {

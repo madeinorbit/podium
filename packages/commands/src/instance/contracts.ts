@@ -399,7 +399,10 @@ export const authSetPasswordContract = {
   visibility: SECRET,
   input: authSetPasswordInput,
   policy: {
-    action: 'manage',
+    // `write`, not `manage`: `manage` is admin-only (the role-action table), and a
+    // member may change their own password. The front door asks both questions
+    // (ADR 12 D8, POD-6360), so `manage` here would lock every member out.
+    action: 'write',
     roleFloor: 'member',
     resource: 'secret',
     confirmation: 'none',

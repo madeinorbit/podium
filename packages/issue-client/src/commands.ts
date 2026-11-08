@@ -56,8 +56,8 @@ import { newMessageId, repeatUntilAnswered } from './send-once.js'
  * `@podium/commands`'s `ISSUE_COMMAND_NAMES`, which is now `Object.keys(
  * ISSUE_CONTRACTS)` rather than a hand-typed array in `@podium/protocol`. A verb
  * cannot call a proc that has no contract, and the check runs in both directions:
- * `scripts/audit-issue-commands.ts` fails if this table reaches a proc whose contract
- * does not declare `cli`, AND if a contract declares `cli` that no verb reaches.
+ * `commands.drift.test.ts` fails if this table reaches a proc whose contract does
+ * not declare `cli`, AND if a contract declares `cli` that no verb reaches.
  * `apps/server/src/modules/issues/cli-surface.runtime.test.ts` then drives this table
  * against a REAL dispatcher, because a source scan cannot tell a wired surface from a
  * dead one.

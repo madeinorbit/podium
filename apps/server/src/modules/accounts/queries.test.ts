@@ -46,7 +46,8 @@ function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState
   const machines = [codexMachine()]
   return {
     accounts: {
-      listFor: async () => [],
+      ownedBy: async () => [],
+      sharedWithUser: async () => [],
       sentTo: async () => [],
       optInsFor: async () => [],
       transfersFor: async () => [],
@@ -72,7 +73,8 @@ function stateWithMachines(
 ): AccountState {
   return {
     accounts: {
-      listFor: async () => [],
+      ownedBy: async () => [],
+      sharedWithUser: async () => [],
       sentTo: async () => [],
       optInsFor: async () => [],
       transfersFor: async () => [],

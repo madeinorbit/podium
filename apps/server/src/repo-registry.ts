@@ -4,6 +4,8 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
 import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathKey } from '@podium/model'
+import type { IssueWriter } from './modules/issues/service/types'
+import { asSystemWrite } from './plain-command-scope'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
@@ -104,6 +106,9 @@ export function isBranchName(name: string): boolean {
  *  install attributes the repo to its one machine. `scanReposAll()` fans out one
  *  `scanReposRequest` per online machine and stamps each returned `GitRepositoryWire`
  *  with the responding machine's id. */
+/** What a repo write commits on (ADR 12 D9). */
+export type RepoWriter = IssueWriter
+
 export class RepoRegistry {
   constructor(
     private readonly sessionReg: SessionRegistry,
@@ -121,11 +126,16 @@ export class RepoRegistry {
     return inferRepoFromRoots(await this.list(machineId), path)
   }
 
-  async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
+  async add(
+    writer: RepoWriter,
+    path: string,
+    machineId?: MachineId,
+    prefix?: string,
+  ): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
     // whatever is written next — funnels through here, which is why the check
@@ -136,10 +146,18 @@ export class RepoRegistry {
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
-    await this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
     // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
     // new 'repo' entity on the feed [POD-822].
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      writer,
+      async () =>
+        await this.store.repos.addRepo(
+          p,
+          mid,
+          readLocalOriginUrl(p) ?? undefined,
+          prefix?.toUpperCase(),
+        ),
+    )
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
@@ -150,16 +168,26 @@ export class RepoRegistry {
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
     await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
-    await this.store.repos.addRepo(p, machineId, originUrl)
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      this.serverWriter,
+      async () => await this.store.repos.addRepo(p, machineId, originUrl),
+    )
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
-  async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
-    await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
-    await this.publishRepos()
+  async setPrefix(
+    writer: RepoWriter,
+    path: string,
+    prefix: string,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
+    await this.commitRepoWrite(
+      writer,
+      async () =>
+        await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase()),
+    )
   }
 
   /**
@@ -169,6 +197,22 @@ export class RepoRegistry {
    * issues keep their parent; only issues created afterwards pick this up.
    */
   async setDefaultParentBranch(
+    writer: RepoWriter,
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
+    await this.verifyDefaultParentBranch(path, branch, machineId)
+    await this.storeDefaultParentBranch(writer, path, branch, machineId)
+  }
+
+  /**
+   * The check half of {@link setDefaultParentBranch}: the name is a branch name
+   * and the branch exists in the checkout, asked of the machine that holds it.
+   * Throws the refusal. A daemon round trip, so it runs before any unit of work
+   * (the sync write path asks it at the target check, POD-6417).
+   */
+  async verifyDefaultParentBranch(
     path: string,
     branch: string | null,
     machineId?: MachineId,
@@ -191,30 +235,67 @@ export class RepoRegistry {
         throw new Error(`branch '${name}' does not exist in ${p}`)
       }
     }
-    await this.store.repos.setRepoDefaultParentBranch(mid, p, name)
-    await this.publishRepos()
+  }
+
+  /** The write half of {@link setDefaultParentBranch}, database only. */
+  async storeDefaultParentBranch(
+    writer: RepoWriter,
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
+    await this.commitRepoWrite(
+      writer,
+      async () =>
+        await this.store.repos.setRepoDefaultParentBranch(
+          mid,
+          normalizeRepoPath(path),
+          branch?.trim() || null,
+        ),
+    )
   }
 
   /**
-   * Publish the repo truth onto the feed [POD-822].
+   * A registry write and the repo truth it moves, in one ledger commit
+   * [POD-822, POD-6524].
    *
    * The prefix is the join input for every `displayRef` a replica derives, and
-   * this registry is the ONLY thing that writes it. Without this call the write
-   * would land in sqlite and stop there: no ledger commit, no change row, and the
-   * replica keeps rendering `POD-13` under the old prefix until some unrelated
-   * issue write happened to trigger a full reconcile. That is a bug that presents
-   * as a caching problem and is really a missing emitter, so it is a call at the
-   * write, not a periodic sweep.
+   * this registry is the ONLY thing that writes it. Without a change row the
+   * write would land in sqlite and stop there: the replica keeps rendering
+   * `POD-13` under the old prefix until some unrelated issue write happened to
+   * trigger a full reconcile. That is a bug that presents as a caching problem
+   * and is really a missing emitter, so the change rides the write.
    *
-   * The whole cost is a reconcile over the LOGICAL repos — a handful of rows,
-   * deduped to no-op by the ledger when nothing changed. It is deliberately NOT
-   * O(the repo's issues): keeping the prefix on its own entity rather than
-   * materializing `displayRef` onto every issue is what buys that, and is the
-   * D7.2 decision POD-822 recorded (see model's `repo/fields.ts`).
-   *
-   * Best-effort by construction: the store write already succeeded, and a feed
-   * that missed one publish self-heals on the next boot reconcile. Never let it
-   * fail the mutation that triggered it.
+   * A declared commit rather than a reconcile after the write: the change rows
+   * carry the causing command's provenance (a `repos.*` write through
+   * `sync.submit` confirms by its `mutationId`, POD-6272), and the store write
+   * and its rows commit or roll back together. The declaration covers the
+   * LOGICAL repos, a handful of rows deduped to no-op when nothing changed;
+   * deliberately NOT O(the repo's issues), which is what keeping the prefix on
+   * its own entity buys (the D7.2 decision POD-822 recorded, see model's
+   * `repo/fields.ts`).
+   */
+  /**
+   * One repo write, on `writer` (ADR 12 D9): a fleet command's own writer, or the
+   * issues service's server writer for the server's own repo facts (a clone's
+   * origin, a scan).
+   */
+  private async commitRepoWrite<T>(writer: RepoWriter, write: () => Promise<T>): Promise<T> {
+    return await this.sessionReg.modules.issues.reports.store.commitRepoWrite(writer, write)
+  }
+
+  /** The server's own repo writer: the issues service's (`issues.server`), for
+   *  the repo facts the server records on its own account (a clone's register). */
+  get serverWriter(): RepoWriter {
+    return this.sessionReg.modules.issues.reports.store.serverWriter
+  }
+
+  /**
+   * Publish the repo truth after writes made outside {@link commitRepoWrite}
+   * (scan-reported origins): a reconcile, with no provenance, which is right for
+   * the server's own write. Best-effort: the store writes already succeeded, and
+   * a feed that missed one publish self-heals on the next boot reconcile.
    */
   private async publishRepos(): Promise<void> {
     try {
@@ -224,12 +305,14 @@ export class RepoRegistry {
     }
   }
 
-  async remove(path: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
-    await this.store.repos.removeRepo(normalizeRepoPath(path), mid)
+  async remove(writer: RepoWriter, path: string, machineId?: MachineId): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // The removed checkout may have been the repo's chosen root or the source
     // of its name (POD-6246): the logical repo row is a function of the rest.
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      writer,
+      async () => await this.store.repos.removeRepo(normalizeRepoPath(path), mid),
+    )
   }
 
   /**
@@ -258,9 +341,9 @@ export class RepoRegistry {
     // roots are machine facts and require only `see`. Keeping those predicates
     // separate is what lets a reload restore a visible surviving session even
     // while its daemon is reconnecting or its execution grant is unavailable.
-    const registeredRows = (await this.store.repos
-      .listRepos())
-      .filter((row) => maySee(row.machineId))
+    const registeredRows = (await this.store.repos.listRepos()).filter((row) =>
+      maySee(row.machineId),
+    )
     const fallbackFor = (rows: typeof registeredRows) =>
       rows.map((row) => ({
         path: normalizeRepoPath(row.path),
@@ -310,7 +393,9 @@ export class RepoRegistry {
         const repoIdByPath = new Map(
           storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.repoId]),
         )
-        const seenPaths = new Set(result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))))
+        const seenPaths = new Set(
+          result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))),
+        )
         // Stamp each repo with the machine that returned it (+ its stable repoId).
         const scanned = result.repositories.map((r) => {
           const repoId = repoIdByPath.get(machinePathKey(normalizeRepoPath(r.path)))
@@ -340,7 +425,9 @@ export class RepoRegistry {
       }),
     )
 
-    if (originsMoved) await this.publishRepos()
+    // The origins are what the machines reported: the server's own write, also
+    // from inside `discovery.refreshRepos`, a plain command (POD-6417).
+    if (originsMoved) await asSystemWrite(async () => await this.publishRepos())
     const online = new Set(machineIds)
     return {
       repositories: [

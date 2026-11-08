@@ -10,16 +10,15 @@
  * cutover that has to be graded behaviour-preserving.
  *
  * It is deliberately NOT folded into the `settings` contract table either: that
- * table is POD-352's guard (`scripts/audit-router-mutations.ts` fails on an added
- * OR removed settings key, in both directions), and quietly absorbing a fifth
- * command into it would trip the guard for a real reason.
+ * table is POD-352's guard (`packages/commands/src/settings/contracts.test.ts`
+ * pins its names and exposure exactly), and quietly absorbing a fifth command
+ * into it would trip the guard for a real reason.
  *
  * `ModelState` names settings PLUS `defaultMachine` because the catalog is now
  * machine-keyed (POD-1123): a call with no `machineId` resolves to the server's
  * default machine rather than an instance-global singleton.
  */
 
-import type { MachineId } from '@podium/model'
 import {
   type AnyCommandContract,
   MODEL_CONTRACT_NAMES,
@@ -28,6 +27,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import type { MachineId } from '@podium/model'
 import type { z } from 'zod'
 import type { RegistryModules } from '../../relay'
 import type { SettingsService } from '../settings/service'

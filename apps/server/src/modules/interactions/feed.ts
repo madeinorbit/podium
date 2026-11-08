@@ -39,14 +39,14 @@
 import { createLogger } from '@podium/logger'
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { InteractionRow } from '../../store/interactions'
 
 const log = createLogger('server:interactions:feed')
 
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
-  readonly ledger: Pick<Ledger, 'capture'>
+  readonly ledger: Pick<LedgerWriter, 'capture'>
   /** What the Authority already holds for this kind when async boot resolves it —
    *  the same seeding argument `IssueEventFeedPublisher` makes: seeding from the
    *  TABLE would re-publish rows a restart had not lost, and disagree with the

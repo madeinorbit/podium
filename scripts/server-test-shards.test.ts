@@ -114,16 +114,11 @@ describe('server test cache shards', () => {
 
   it('declares the inputs no import graph can see', () => {
     // Regression test for the class the old single key handled by hand: oracle-tags.test.ts
-    // READS the client-core oracle with readFileSync, and the two cutover audits SPAWN
-    // their scripts as subprocesses. None of the three is an import, so a purely
-    // import-derived key would drop them and cache straight past a change to any of them.
+    // READS the client-core oracle with readFileSync. That is not an import, so a purely
+    // import-derived key would drop it and cache straight past a change to it.
     const boundary = manifest.shards.find((shard) => shard.id === 'boundary')
     expect(boundary?.inputs).toEqual(
-      expect.arrayContaining([
-        '$TURBO_ROOT$/packages/client-core/src/**',
-        '$TURBO_ROOT$/scripts/audit-automation-commands.ts',
-        '$TURBO_ROOT$/scripts/audit-workflow-commands.ts',
-      ]),
+      expect.arrayContaining(['$TURBO_ROOT$/packages/client-core/src/**']),
     )
     // The broad shard owns every source-scanning audit, so it declares the server tree
     // whole — a scanner that walks a directory at runtime depends on files nothing can name.

@@ -12,11 +12,7 @@ import type {
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type {
-  EntityChangeSpec,
-  LedgerCommitOp,
-  LedgerCommitResult,
-} from '@podium/sync'
+import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
@@ -43,6 +39,16 @@ export interface IssueFunnel {
  *  diffs the full wire truth (including removes) for the derived-ripple and
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
+/**
+ * What an issue write commits on (ADR 12 D9, POD-6594): the writer of the command
+ * that asked, or a named server origin's for the server's own issue writes. The
+ * service's write methods take it per call; it never lives in the service.
+ */
+export type IssueWriter = Pick<IssueLedger, 'commit' | 'capture'>
+
+/** The parameters of a writer-first method, after its writer. */
+export type WriterRest<F> = F extends (writer: IssueWriter, ...rest: infer A) => unknown ? A : never
+
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   /** Reconcile normalized issues, their companions and repository facts. */
@@ -86,6 +92,9 @@ export type IssuePanelOp =
       chatUploadOwner?: UserId
     }
   | { op: 'artifact-remove'; index: number }
+  /** An artifact effect's removal (POD-6420): the entry under this path (and
+   *  snapshot, when given); already gone is no change. */
+  | { op: 'artifact-remove'; path: string; artifactId?: ArtifactId }
   | { op: 'deferred-add'; text: string }
   | { op: 'deferred-remove'; index: number }
 
@@ -160,7 +169,10 @@ export interface IssueDeps {
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
   /** The member sessions of ONE issue, from the database (`sessionsForIssue`'s
    *  membership: its id, or a cwd in its worktree for an unattached session). */
-  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
+  readSessionFactsByIssue(
+    worktreePath: string | null,
+    issueId: IssueId | undefined,
+  ): Promise<SessionFacts[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
@@ -293,7 +305,14 @@ export interface IssueDeps {
   funnel: IssueFunnel
   /** The write-seam change log ([spec:SP-3fe2] #255): issue writes commit their
    *  change rows atomically with the row write; derived ripples reconcile. */
+  /**
+   * The issues service's OWN writer, a `server` origin (`issues.server`): the
+   * boot reconciles and the server's own issue writes. A command's write never
+   * uses it; it passes its writer per call.
+   */
   ledger: IssueLedger
+  /** Wrap a writer in the issue revision arbitration (`IssueAuthorityArbitration.wrap`). */
+  arbitrate?: (writer: IssueWriter) => IssueWriter
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace), read from
@@ -301,19 +320,27 @@ export interface IssueDeps {
    *  deps literals stay valid. */
   readSessionIssueId?(sessionId: SessionId): Promise<IssueId | null>
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
-  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void | Promise<void>
+  setSessionIssueId?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    issueId: IssueId | null,
+  ): void | Promise<void>
   /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */
-  setSessionCwd?(sessionId: SessionId, cwd: string): void | Promise<void>
+  setSessionCwd?(writer: IssueWriter, sessionId: SessionId, cwd: string): void | Promise<void>
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
-  setSessionArchived?(sessionId: SessionId, archived: boolean): void | Promise<void>
+  setSessionArchived?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    archived: boolean,
+  ): void | Promise<void>
   /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
-  clearSessionOffer?(sessionId: SessionId): Promise<void>
+  clearSessionOffer?(writer: IssueWriter, sessionId: SessionId): Promise<void>
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
@@ -369,7 +396,11 @@ export interface IssueDeps {
    * the outermost commit, never for a write that rolled back (POD-6158, for
    * POD-6160's message routing).
    */
-  onIssueWorktreeMoved?(event: { issueId: IssueId; previousWorktreePath: string | null; worktreePath: string | null }): void
+  onIssueWorktreeMoved?(event: {
+    issueId: IssueId
+    previousWorktreePath: string | null
+    worktreePath: string | null
+  }): void
   /** Shell lifetime verbs for the worktree-free trigger (POD-4525). The free
    *  removes the dock mapping, then parks/kills each freed shell per the same
    *  rule the stop path uses (teardown inputs with worktreeFreed true). Live
@@ -398,12 +429,16 @@ export interface IssueDeps {
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
     transfer?: import('../artifact-store').IssueArtifactStore['transfer']
+    /** Publish a staged CLI upload under a given id (POD-6420). */
+    publishUpload?: import('../artifact-store').IssueArtifactStore['publishUpload']
     snapshot(o: {
       issueId: IssueId
       root: string
       machineId?: MachineId
       sourcePath: string
       extraPaths?: string[]
+      /** Snapshot under this id, replacing what is there (POD-6420). */
+      artifactId?: ArtifactId
     }): Promise<{
       artifactId: ArtifactId
       entry: string

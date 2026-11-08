@@ -2,35 +2,21 @@
  * THE RUNTIME HALF of the 3.10 workflow cutover gate (POD-732; POD-424's
  * criterion for this router).
  *
- * `scripts/audit-workflow-commands.ts` is the other half, and the two are
- * instruments of DIFFERENT KINDS rather than two of the same kind agreeing:
- *
- *  - THE SCRIPT reads source TEXT and resolves no modules. It runs in a fresh
- *    checkout before anything is built, and it catches the textual regressions a
- *    runtime check cannot see — a `.mutation(` written back into the router
- *    literal, `workflowInputs` regrowing, a transport reaching
- *    `dispatchWorkflowCommand` directly and so gaining a second ledger.
- *  - THIS FILE reads the RUNNING router. It is the only thing that can prove the
- *    derived surface actually EXISTS with the right verbs — a script that saw an
- *    empty router literal would report a serene zero hand-written mutations.
- *
- * THE SCRIPT HALF MOVED TO `scripts` (POD-521). It used to run from here as a
- * `spawnSync` of the real binary, twice per run. That was the right call when the
- * alternative was `apps/server` (L4) importing UP into `scripts` (L5), which
- * `check-boundaries` refuses — but it put a scanner whose source and whose
- * repository-wide inputs both belong to `scripts` inside the SERVER's cache key,
- * so every server edit replayed it and paid two Bun process starts for it. It now
- * lives at `scripts/audit-workflow-commands.test.ts`, in the package that owns it,
- * with no layer inversion and no subprocess. Nothing about the gate weakened: the
- * scanner still runs in `bun run test`, and its own `probe()` — every check
- * against a planted fixture — is asserted there as a whole rather than through an
- * exit code.
+ * This file reads the RUNNING router. It is the only thing that can prove the
+ * derived surface actually EXISTS with the right verbs. The source-text half it
+ * used to pair with is deleted (POD-6595): a module cannot build a write route by
+ * type (`modules/write-routes/write-routes.typecheck.ts`), every served mutation
+ * names its registration (`write-routes.test.ts`), and a synced write needs a scope
+ * only the entry point mints (`write-contexts.test.ts`).
  */
 
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
+import { registerSyncFamily } from './modules/sync-write/family'
+import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { WORKFLOW_QUERIES } from './modules/workflows/queries'
 import { WORKFLOW_COMMANDS } from './modules/workflows/registry'
+import { WORKFLOW_SYNC_FAMILY } from './modules/workflows/sync-write'
 import { appRouter } from './router'
 
 /** The tRPC internals the router exposes for introspection. */
@@ -91,21 +77,31 @@ describe('POD-732 workflow cutover gate', () => {
   /**
    * DERIVED, not merely EQUIVALENT — asserted by object IDENTITY (`toBe`).
    *
-   * A router that restated each schema beside the contract would satisfy every
-   * check above and would pass a deep-equality assertion too, right up until
-   * someone edited one copy. `toBe` can only pass if the procedure validates
-   * with the CONTRACT'S OWN INSTANCE, which is the property that makes a
-   * second declaration impossible rather than merely discouraged.
-   *
-   * This is also the whole of criterion "WorkflowsView writes dispatch
-   * contracts": the web client is typed off `AppRouter`, so the input type at
-   * every `trpc.workflows.*.mutate(…)` call site IS the contract's schema.
+   * Since POD-6418 every workflow write goes through the sync write entry
+   * point, and the old route is a thin adapter that does NOT parse: the entry
+   * point parses, after its coarse check, with the schema of the command it
+   * looked up. So the identity that makes a second declaration impossible is
+   * the REGISTERED command's schema, and the route must carry no schema of its
+   * own (a restated copy there would be the second declaration).
    */
-  it("each mutation validates with its CONTRACT's own schema instance, not a copy", () => {
+  it("each write validates with its CONTRACT's own schema instance, on the entry point", () => {
+    const registry = new SyncWriteRegistry()
+    registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, {
+      modules: () => {
+        throw new Error('not called while registering')
+      },
+      roleOf: async () => undefined,
+    })
     const served = procedures()
-    for (const [name, command] of Object.entries(WORKFLOW_CONTRACTS)) {
-      expect(served[name]?._def.inputs, `workflows.${name} input schema`).toEqual([command.input])
-      expect(served[name]?._def.inputs[0], `workflows.${name} input identity`).toBe(command.input)
+    for (const [name, contract] of Object.entries(WORKFLOW_CONTRACTS)) {
+      const registered = registry.lookup(`workflows.${name}`)
+      expect(registered?.input, `workflows.${name} input identity`).toBe(contract.input)
+      const inputs = served[name]?._def.inputs ?? []
+      expect(inputs, `workflows.${name} route`).toHaveLength(1)
+      expect(
+        typeof (inputs[0] as { safeParse?: unknown }).safeParse,
+        `workflows.${name} route restates no schema`,
+      ).toBe('undefined')
     }
   })
 

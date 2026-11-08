@@ -9,6 +9,7 @@
  * query), a machine row, and a target's pending-mail count; at the backstop
  * also the retired session's grant edges and its machine and mail reads.
  */
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -177,7 +178,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           for (let i = 0; i < size; i++) {
             // Worktrees outside every shell's folder. The folder-owner query's
             // own cost is pinned in folder-owner-parity.test.ts.
-            await f.store.issues.upsertIssue({
+            await f.store.issues.upsertIssue(fixtureWriteScope(), {
               ...issueRowFixture({ id: asIssueId(`iss_sample_${i}`), repoPath: '/w', seq: i + 1 }),
               repoId: undefined, machineId: f.store.hostMachineId, parentId: null,
               worktreePath: `/elsewhere/${i}`,

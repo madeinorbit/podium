@@ -80,6 +80,13 @@
  * owner/grant check (POD-1079) is what refuses a member who is neither owner nor
  * admin. So machine `manage` and the repo/discovery family are `member`.
  *
+ * THE ACTION FOLLOWS THE FLOOR (POD-6417). `policy.action` is ADR 3 D2's
+ * issue-role vocabulary, and the sync write entry point's coarse check reads it
+ * that way: `manage` is admin-only. So a `member`-floor machine command declares
+ * `write`, or the owning member would be refused before the machine verb is
+ * asked; the verb (`machineVerb: 'manage'`) and the owner/grant check decide
+ * the row. The admin-floor commands keep `manage`.
+ *
  * `machines.pairingCode` is the exception, and the asymmetry is the argument
  * rather than an inconsistency: it mints a credential for a machine that does
  * not exist yet, so there is NO row to own and no ownership check that could
@@ -439,7 +446,7 @@ export const machineRenameContract = {
   visibility: 'owned-compute',
   input: machineRenameInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -505,7 +512,7 @@ export const machineSetUpdateChannelContract = {
   visibility: 'owned-compute',
   input: machineSetUpdateChannelInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -547,7 +554,7 @@ export const machineApplyUpdateContract = {
   visibility: 'owned-compute',
   input: machineApplyUpdateInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -583,7 +590,7 @@ export const machineShareContract = {
   visibility: 'owned-compute',
   input: machineShareInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -623,7 +630,7 @@ export const machineUnshareContract = {
   visibility: 'owned-compute',
   input: machineUnshareInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -658,7 +665,7 @@ export const machineTransferOwnershipContract = {
   visibility: 'owned-compute',
   input: machineTransferOwnershipInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -769,7 +776,7 @@ export const machineRevokeContract = {
   visibility: 'owned-compute',
   input: machineRevokeInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -863,7 +870,10 @@ export const machinePairingCodeContract = {
   visibility: 'secret',
   input: machinePairingCodeInput,
   policy: {
-    action: 'manage',
+    // `write`, not `manage`: the coarse check reads `manage` as admin-only, and a
+    // retained machine's member grantee may mint its replacement code. Who may
+    // mint which code is the fleet gate's (POD-6593), as the rationale says.
+    action: 'write',
     roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',

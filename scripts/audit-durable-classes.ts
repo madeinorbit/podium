@@ -276,6 +276,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'pending_interactions', kind: 'drizzle-table', row: 'pending-interactions' },
   { store: 'automations', kind: 'drizzle-table', row: 'automations-and-runs' },
   { store: 'automation_runs', kind: 'drizzle-table', row: 'automations-and-runs' },
+  { store: 'effects', kind: 'drizzle-table', row: 'effect-records' },
   { store: 'maintenance_leases', kind: 'drizzle-table', row: 'maintenance-lease' },
   { store: 'maintenance_commands', kind: 'drizzle-table', row: 'maintenance-command-receipts' },
   { store: 'steward_state', kind: 'drizzle-table', row: 'steward-state' },

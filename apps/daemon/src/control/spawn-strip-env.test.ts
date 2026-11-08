@@ -1,7 +1,7 @@
 // WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296, widened by
 // POD-2117).
 //
-// WHY THE LIST IS SIX AND NOT TWO. `harnessChildStripEnv` unions TWO manifest
+// WHY THE LIST IS SIX AND NOT TWO. `harnessChildEnv`'s strip unions TWO manifest
 // declarations, and they answer different questions:
 //
 //   inventory.foreignCredentialEnv  — credentials for this CLI that, if
@@ -120,7 +120,9 @@ beforeEach(() => {
   captured = undefined
 })
 
-/** The full resolved list for a claude spawn: credentials, then parent controls. */
+/** The full resolved list for a claude spawn: credentials, then parent
+ *  controls, then the operator folder selectors the child does not carry
+ *  (POD-6604: the PTY spreads the daemon's env, whose copy must not return). */
 const CLAUDE_STRIP = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -128,6 +130,13 @@ const CLAUDE_STRIP = [
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+  // POD-6613: Claude's update, URL handler, locks and profile follow XDG too.
+  'XDG_DATA_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
 ]
 
 it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {
@@ -146,6 +155,19 @@ it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () =
     loginHarness: 'claude-code',
   })
   expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
+})
+
+it('runs a NATIVE LOGIN pane on the login harness context’s executable', async () => {
+  // The manifest declares the login argv only (POD-6536); argv[0] is bound here,
+  // at the spawn site, to the context built for the login harness, never a
+  // basename looked up on the daemon's PATH.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-login-cmd',
+    agentKind: 'shell',
+    loginHarness: 'claude-code',
+  })
+  expect(opts.cmd).toBe('launch-seam:claude-code')
+  expect(opts.args).toEqual(['auth', 'login'])
 })
 
 it('leaves a plain operator shell alone', async () => {
@@ -187,7 +209,7 @@ it('still deletes a parent CONTROL on the frame — the exemption is credential-
   // never resolves one for a child — nothing in the daemon writes a
   // `CLAUDE_CODE_*` control onto a spawn frame, and if something ever starts,
   // the value it would be passing on is the parent conversation's identity,
-  // which is the exact leak POD-2117 closed. So `harnessChildStripEnv` filters
+  // which is the exact leak POD-2117 closed. So `harnessChildEnv` filters
   // `sessionEnv` out of the credential half only.
   const opts = await spawnOptionsFor({
     sessionId: 'strip-control-on-frame',

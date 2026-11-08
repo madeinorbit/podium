@@ -32,8 +32,8 @@ afterAll(async () => {
 /** origin + the work an agent filed under it, as a sub-issue. */
 async function discovered() {
   const registry = await fresh()
-  const origin = await registry.issues.crud.create({ repoPath: '/r', title: 'Origin', startNow: false })
-  const found = await registry.issues.crud.create({
+  const origin = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Origin', startNow: false })
+  const found = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Found while working',
     parentId: origin.id,
@@ -84,12 +84,12 @@ describe('issues.setPlacement', () => {
 
   it('leaves an unrelated provenance edge alone', async () => {
     const { registry, origin, found, client } = await discovered()
-    const elsewhere = await registry.issues.crud.create({
+    const elsewhere = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Somewhere else',
       startNow: false,
     })
-    await registry.issues.hierarchy.addDep(found.id, elsewhere.id, 'discovered-from')
+    await registry.issues.hierarchy.addDep(registry.issues.reports.store.serverWriter, found.id, elsewhere.id, 'discovered-from')
 
     await client.issues.setPlacement.mutate({
       id: found.id,

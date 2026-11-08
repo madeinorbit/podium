@@ -21,7 +21,7 @@
  *     credential the session never chose        → `inventory.foreignCredentialEnv`
  *
  * The last one was already declared, per harness, and already applied by
- * `harnessChildStripEnv` — the branch had been redundant since POD-2296, and
+ * the shared child-env strip — the branch had been redundant since POD-2296, and
  * the union it was folded into had been hiding a real drift in codex's two
  * copies of the list. That is the shape of this defect: not a decision made in
  * the wrong place, but a decision made TWICE, in a place where nobody would
@@ -111,24 +111,20 @@
 import {
   CLIENT_TERMINAL_HARNESSES,
   type ClientTerminalEndpoint,
-  type HarnessEnvironment,
   clientTerminalFor,
+  type HarnessContext,
+  harnessChildEnv,
+  harnessCommand,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
+import type { AgentPicture } from '@podium/process/screen'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
-import type { AgentPicture } from '@podium/process/screen'
 import type { ClientProcessOwner } from '../session/clients.js'
-import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
+import type { SessionRegistry } from '../session/registry.js'
 import { Terminal } from '../terminal/terminal.js'
-import {
-  harnessChildStripEnv,
-  harnessCompatEnv,
-  harnessInstanceEnv,
-  spawnEnv,
-} from '../control/session-env'
 import { driverTiming } from './driver-timing'
 
 const log = createLogger('daemon:opencode-attach')
@@ -340,8 +336,14 @@ export interface OpencodeClientTerminalPorts {
   homeDir?: string
   /** Immutable daemon ownership stamp for orphan attribution. */
   instanceUuid?: string
-  /** Current machine command environment used to resolve the client executable. */
-  commandEnvironment?: () => Promise<HarnessEnvironment>
+  /**
+   * THE SESSION'S PINNED HARNESS CONTEXT (POD-6546): the client runs the
+   * session's installation, over the session's environment. The daemon
+   * answers with the context the session holds (rebuilt from the inventory
+   * after a restart). REQUIRED: a client terminal never looks its harness up
+   * by name on the daemon's PATH.
+   */
+  harnessContext(sessionId: SessionId, target: ClientTerminalTarget): Promise<HarnessContext>
   /**
    * THE SESSION LAYER'S CLIENT HOLD (spec §5). Spawn, reclaim and the master
    * probe all go through IT — the relay never names a process verb itself, so
@@ -458,28 +460,36 @@ export function createOpencodeClientTerminals(
      * the first case and withheld for the second, so which one just happened is
      * the whole question — see the spawn call for where it is answered.
      */
-    const launch = client.launch({
+    const harnessContext = await ports.harnessContext(sessionId, target)
+    const declared = client.launch({
       cwd: target.workdir,
       conversation: target.conversation,
       endpoint: target.endpoint,
-      // The client terminal does not pass through the generation binder used by
-      // ordinary launches. Give its manifest the current machine command
-      // environment so it can resolve the installed CLI; the child overlay below
-      // still receives the isolated instance HOME for credentials.
-      env: await ports.commandEnvironment?.(),
+      harnessContext,
     })
-    const podiumEnv = {
-      // Whatever the harness's own declaration put there — for opencode that is
-      // the per-session server credentials, which stay in the ENV and out of
-      // argv exactly as its server half requires.
-      ...(launch.env ?? {}),
-      ...(target.env ?? {}),
-      ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
-      PODIUM_SESSION_ID: sessionId,
-      ...harnessCompatEnv(kind),
-      ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
-      ...harnessInstanceEnv(kind, ports.homeDir),
-    }
+    // THE SESSION'S INSTALLATION RUNS, NOT THE DECLARATION'S NAME (POD-6546).
+    // The manifest says how its stock TUI is pointed at a session (args, env);
+    // which binary is the session's pinned executable, never `codex`/`grok`
+    // looked up on a GUI-launched daemon's PATH.
+    const launch = harnessCommand(harnessContext, declared)
+    // THE ONE RECIPE (POD-6535), over the session's context (POD-6546): the
+    // recovered command env for this account, so the client gets the same
+    // PATH, HOME and instance selector as its engine rather than the daemon's
+    // own. An attach client carries no spawn-frame env, so every credential
+    // the command env holds is inherited and stripped.
+    const child = harnessChildEnv(harnessContext, {
+      wiringEnv: {
+        // Whatever the harness's own declaration put there — for opencode that
+        // is the per-session server credentials, which stay in the ENV and out
+        // of argv exactly as its server half requires.
+        ...(launch.env ?? {}),
+        ...(target.env ?? {}),
+      },
+      podiumEnv: {
+        ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
+        PODIUM_SESSION_ID: sessionId,
+      },
+    })
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_spawn_requested', {
       command: launch.cmd,
     })
@@ -494,8 +504,7 @@ export function createOpencodeClientTerminals(
       // under another writer and it reads silently. Demand the lease (POD-4434).
       requireLease: true,
       label: policy.label,
-      cmd: launch.cmd,
-      args: launch.args,
+      command: launch,
       cwd: launch.cwd,
       cols: birth.cols,
       rows: birth.rows,
@@ -520,19 +529,17 @@ export function createOpencodeClientTerminals(
        *
        * THE BRANCH THAT WAS HERE WAS ALREADY REDUNDANT (POD-2823). It picked
        * between three constants by harness name and then UNIONED the result with
-       * `harnessChildStripEnv(kind)` — which reads exactly the same fact off the
-       * manifest. For opencode and grok the two sides were the identical array;
-       * for codex they were not, and the difference was a real drift the union
-       * had been quietly papering over (see the codex manifest). The property
-       * this branch wanted has been declared per harness since POD-2296; the
-       * helper is how you ask for it.
+       * the manifest's own strip declaration — exactly the same fact. For
+       * opencode and grok the two sides were the identical array; for codex
+       * they were not, and the difference was a real drift the union had been
+       * quietly papering over (see the codex manifest). The property this
+       * branch wanted has been declared per harness since POD-2296;
+       * `harnessChildEnv` is how you ask for it.
        */
-      stripEnv: harnessChildStripEnv(kind),
-      // The overlay the host layers over the daemon env — composed through the
-      // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
-      // (and prepends its bin roots to PATH) here exactly as it does for the
-      // serve half (POD-2247).
-      env: spawnEnv({ podiumEnv }),
+      stripEnv: child.strip,
+      // The host layers this over the daemon env; `stripEnv` removes what the
+      // daemon's copy would bring back.
+      env: child.env,
     })
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_process_started', {
       adopted: session.adopted,
@@ -541,11 +548,11 @@ export function createOpencodeClientTerminals(
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
      *
-      * This was `hasMaster(record.label)`, read before `await spawn`, and that
-      * was wrong twice over. It asked under the WRONG ENVIRONMENT, because the
-      * default probe reads the daemon's `HOME` while the master lives under the
-      * agent home (see `SessionClientScope.hasClientMaster`, which owns that
-      * environment) — one-sided toward "cold", so the reset
+     * This was `hasMaster(record.label)`, read before `await spawn`, and that
+     * was wrong twice over. It asked under the WRONG ENVIRONMENT, because the
+     * default probe reads the daemon's `HOME` while the master lives under the
+     * agent home (see `SessionClientScope.hasClientMaster`, which owns that
+     * environment) — one-sided toward "cold", so the reset
      * fired on an adopted live TUI and `[3J` deleted the very history it was
      * reattaching to. And it asked TOO EARLY: a master exiting inside the spawn
      * window left `reattaching` true while spawn created a new generation, which
@@ -576,29 +583,33 @@ export function createOpencodeClientTerminals(
     // hard repaint — TUIs repaint on resize and would mishandle a stray ^L.
     const owned = sessions.ensure(sessionId)
     owned.clientLabel = policy.label
-    const terminal = Terminal.attach(session, owned, {
-      // The host states the size — WELCOME now, RESIZED later — and the daemon
-      // reports it (POD-4723). A created client is born at `birth`; an adopted
-      // one is at a size of its own, which WELCOME reads back.
-      onSize: (size, birth) =>
-        ports.sizeEvent?.(sessionId, size, birth, session.keepsScreen?.() === true),
-      onPicture: (picture, seed) => ports.picture?.(sessionId, picture, seed),
-      onFrame: (data) => {
-        driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
-          bytes: data.byteLength,
-        })
-        ports.frames(sessionId, data)
+    const terminal = Terminal.attach(
+      session,
+      owned,
+      {
+        // The host states the size — WELCOME now, RESIZED later — and the daemon
+        // reports it (POD-4723). A created client is born at `birth`; an adopted
+        // one is at a size of its own, which WELCOME reads back.
+        onSize: (size, birth) =>
+          ports.sizeEvent?.(sessionId, size, birth, session.keepsScreen?.() === true),
+        onPicture: (picture, seed) => ports.picture?.(sessionId, picture, seed),
+        onFrame: (data) => {
+          driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
+            bytes: data.byteLength,
+          })
+          ports.frames(sessionId, data)
+        },
+        onExit: () => {
+          // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. The host's master (and the
+          // TUI inside it) survives a client that was disposed, crashed or was killed
+          // by a redeploy — that survival is what "warm" means. Park the Terminal
+          // (unwire + detach) and let the next attach reconnect; the reaper still
+          // owns the deadline.
+          owned.dropTerminal(terminal)
+        },
       },
-      onExit: () => {
-        // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. The host's master (and the
-        // TUI inside it) survives a client that was disposed, crashed or was killed
-        // by a redeploy — that survival is what "warm" means. Park the Terminal
-        // (unwire + detach) and let the next attach reconnect; the reaper still
-        // owns the deadline.
-        owned.dropTerminal(terminal)
-      },
-    },
-    { kind: 'client' })
+      { kind: 'client' },
+    )
     // Client terminals are born without a bind (H3): request the reset here.
     // A C host on a new server gets live bytes only (H6). Ring replay remains
     // solely for an old server that cannot serve pictures.
@@ -607,9 +618,9 @@ export function createOpencodeClientTerminals(
       policy.replayRequired = false
     } else if (session.adopted && policy.replayRequired) {
       policy.replayRequired = false
-      void terminal.replay(CLIENT_REPLAY_TAIL_BYTES).catch((err) =>
-        log.warn('client terminal replay failed', { err, sessionId }),
-      )
+      void terminal
+        .replay(CLIENT_REPLAY_TAIL_BYTES)
+        .catch((err) => log.warn('client terminal replay failed', { err, sessionId }))
     }
     return terminal
   }
@@ -671,8 +682,7 @@ export function createOpencodeClientTerminals(
     const policy = sessions.get(sessionId)?.client
     if (!policy) {
       const label = clientTerminalLabel(sessionId, kind)
-      if (label !== undefined && clients.hasClientMaster(label))
-        await clients.reclaimClient(label)
+      if (label !== undefined && clients.hasClientMaster(label)) await clients.reclaimClient(label)
       return
     }
     if (policy.generation) {

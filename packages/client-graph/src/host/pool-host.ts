@@ -36,6 +36,8 @@ export interface PoolHost {
   ): () => void
   /** null while the graph loads; a rebuild wakes existing readers. */
   usePool(): MobxPool | null
+  /** The pool when called, for an action: subscribes the caller to nothing. */
+  usePoolNow(): () => MobxPool | null
   /** A scalar reader over the pool for components outside observer trees. */
   usePoolProjection<T>(
     read: (pool: MobxPool) => T,
@@ -169,6 +171,19 @@ export function createPoolHost({
     )
   }
 
+  /**
+   * The pool as it is at the moment of an action (POD-6415), read when called:
+   * no subscription, so a screen that only ACTS on the pool (waits for an
+   * answer's record) is not re-rendered when the pool attaches.
+   */
+  function usePoolNow(): () => MobxPool | null {
+    const runtime = useStoreHandle()
+    return useCallback(() => {
+      const slot = slotFor(runtime)
+      return slot.error === null ? (slot.handle?.pool ?? null) : null
+    }, [runtime])
+  }
+
   /** Keeps one projection per hook. Mount and each observed change read once;
    * readers borrow memoized identities, compared by reference. A new closure
    * adopts changed captures in render. Hidden owners keep their last paint;
@@ -209,7 +224,7 @@ export function createPoolHost({
     return useSyncExternalStore(active && view ? view.subscribe : emptySubscription, snapshot)
   }
 
-  return { attach, usePool, usePoolProjection, survivors }
+  return { attach, usePool, usePoolNow, usePoolProjection, survivors }
 }
 
 const emptySubscription = () => () => {}

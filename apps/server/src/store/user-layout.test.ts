@@ -4,6 +4,7 @@
 
 import { layoutSetInput } from '@podium/commands'
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -29,15 +30,20 @@ describe('UserLayoutRepository', () => {
       'tips.enabled': 'false',
     }
     expect(layoutSetInput.parse({ values })).toEqual({ values })
-    await layout.setMany(ALICE, values, AT)
-    await layout.setMany(ALICE, { 'tips.seen.first-send': AT }, AT)
+    await layout.setMany(fixtureWriteScope(), ALICE, values, AT)
+    await layout.setMany(fixtureWriteScope(), ALICE, { 'tips.seen.first-send': AT }, AT)
     expect(await layout.getSnapshot(ALICE)).toEqual({ ...values, 'tips.seen.first-send': AT })
     expect(await layout.getSnapshot(BOB)).toEqual({})
   })
 
   it('reads every account row for the boot reconcile, a page at a time through the key', async () => {
-    await layout.setMany(ALICE, { dockTab: 'files', superOpen: true, 'tips.enabled': 'false' }, AT)
-    await layout.setMany(BOB, { dockTab: 'shell', superOpen: false }, AT)
+    await layout.setMany(
+      fixtureWriteScope(),
+      ALICE,
+      { dockTab: 'files', superOpen: true, 'tips.enabled': 'false' },
+      AT,
+    )
+    await layout.setMany(fixtureWriteScope(), BOB, { dockTab: 'shell', superOpen: false }, AT)
 
     const whole = await layout.allForBootReconcile()
     expect(whole.filter((row) => row.userId === ALICE || row.userId === BOB)).toHaveLength(5)
@@ -47,9 +53,9 @@ describe('UserLayoutRepository', () => {
   })
 
   it('writes and reads a snapshot for one user only', async () => {
-    await layout.set(ALICE, 'dockTab', 'files', AT)
-    await layout.set(ALICE, 'superOpen', true, AT)
-    await layout.set(BOB, 'dockTab', 'shell', AT)
+    await layout.set(fixtureWriteScope(), ALICE, 'dockTab', 'files', AT)
+    await layout.set(fixtureWriteScope(), ALICE, 'superOpen', true, AT)
+    await layout.set(fixtureWriteScope(), BOB, 'dockTab', 'shell', AT)
 
     expect(await layout.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
     expect(await layout.getSnapshot(BOB)).toEqual({ dockTab: 'shell' })
@@ -58,12 +64,17 @@ describe('UserLayoutRepository', () => {
   })
 
   it('setMany is atomic on the closed set and refuses a free-form key', async () => {
-    await expect(layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT)).rejects.toThrow(
-      /not a replicated layout key/,
-    )
+    await expect(
+      layout.setMany(fixtureWriteScope(), ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT),
+    ).rejects.toThrow(/not a replicated layout key/)
     expect(await layout.getSnapshot(ALICE)).toEqual({})
 
-    await layout.setMany(ALICE, { dockTab: 'mail', 'sidebar.section.closed': true }, AT)
+    await layout.setMany(
+      fixtureWriteScope(),
+      ALICE,
+      { dockTab: 'mail', 'sidebar.section.closed': true },
+      AT,
+    )
     expect(await layout.getSnapshot(ALICE)).toEqual({
       dockTab: 'mail',
       'sidebar.section.closed': true,
@@ -71,16 +82,18 @@ describe('UserLayoutRepository', () => {
   })
 
   it('clear deletes the row so absence means never set', async () => {
-    await layout.set(firstAdminMemberId(), 'panelMode', { s1: 'chat' }, AT)
-    await layout.clear(firstAdminMemberId(), 'panelMode')
+    await layout.set(fixtureWriteScope(), firstAdminMemberId(), 'panelMode', { s1: 'chat' }, AT)
+    await layout.clear(fixtureWriteScope(), firstAdminMemberId(), 'panelMode')
     expect(await layout.get(firstAdminMemberId(), 'panelMode')).toBeUndefined()
     expect(await layout.keysFor(firstAdminMemberId())).toEqual([])
   })
 
   it('refuses device-local keys that must stay on the client', async () => {
-    await expect(layout.set(ALICE, 'view', 'workspace', AT)).rejects.toThrow(/not a replicated/)
-    await expect(layout.set(ALICE, 'podium.view', 'workspace', AT)).rejects.toThrow(
+    await expect(layout.set(fixtureWriteScope(), ALICE, 'view', 'workspace', AT)).rejects.toThrow(
       /not a replicated/,
     )
+    await expect(
+      layout.set(fixtureWriteScope(), ALICE, 'podium.view', 'workspace', AT),
+    ).rejects.toThrow(/not a replicated/)
   })
 })

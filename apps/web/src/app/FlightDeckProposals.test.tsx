@@ -28,10 +28,18 @@ vi.mock('./store', () => ({
       trpc: {
         issues: {
           promote: { mutate: commands.promote },
-          start: { mutate: commands.start },
           close: { mutate: commands.close },
         },
       },
+      // Start is an `issue.begin` effect record (POD-6526): settled once queued.
+      startIssueSession: (args: { issueId: string; mutationId?: string }) => ({
+        sessionId: 'session',
+        effectId: 'effect',
+        mode: 'begin',
+        settled: Promise.resolve(
+          commands.start({ id: args.issueId, mutationId: args.mutationId }),
+        ).then(() => true),
+      }),
     }),
 }))
 vi.mock('@/lib/use-harness-descriptors', () => ({
@@ -250,7 +258,7 @@ it.each([
 it.each([
   undefined,
   'proposal-profile',
-])('hands profile resolution to issues.start with profile %s', async (agentProfileId) => {
+])('hands profile resolution to the issue.begin record with profile %s', async (agentProfileId) => {
   const f = await open([], { agentProfileId })
   fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Start' }))
   await waitFor(() => expect(commands.start).toHaveBeenCalledTimes(1))

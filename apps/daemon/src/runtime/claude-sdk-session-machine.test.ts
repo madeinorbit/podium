@@ -14,6 +14,7 @@ import {
   claudeEngineProcessKey,
   pageHistory,
 } from '@podium/harness/driver/host'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -115,6 +116,9 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
       },
       stopEngine: async () => {},
       releaseEngines: () => {},
+      // The engine host's port for a journal adopt with no spec in hand
+      // (POD-6546): the context the rebuilt spec carries.
+      harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     },
     transcript: {
       readHistory: host([]).readHistory,
@@ -159,6 +163,7 @@ describe('Claude SDK sessions through the machine root', () => {
       RESUME,
       {
         harness: 'claude-code',
+        harnessContext: testHarnessContext({ kind: 'claude-code' }),
         selection: {
           auth: 'unknown',
           platform: 'linux',

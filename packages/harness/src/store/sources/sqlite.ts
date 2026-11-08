@@ -1,13 +1,14 @@
 import type { TranscriptItem } from '@podium/model'
 import {
-  loadOpencodeTranscriptTail,
-  openOpencodeDb,
-} from '../../opencode/db.js'
-import {
+  type OpencodeMessagePartRow,
   opencodeFileId,
   opencodePartToItems,
-  type OpencodeMessagePartRow,
 } from '../../adapters/opencode/transcript.js'
+import {
+  loadOpencodeTranscriptTail,
+  openOpencodeDb,
+  openOpencodeDbFile,
+} from '../../opencode/db.js'
 import type { SqliteTranscriptLocator } from '../../transcript-types.js'
 import { encodeCursor } from '../cursor-codec.js'
 import { sliceItemsByAnchor, type TranscriptSource } from '../source.js'
@@ -71,12 +72,18 @@ export function stampOpencodeItems(
 /** Complete v1 history for an exit proof. The display source below intentionally
  * caps its tail and hides read failures; neither behavior can prove absence.
  * Keep raw message/part ids so a caller can match both ids before stamping. */
-export function readOpencodePromptHistory(input: {
-  sessionId: string
-  homeDir?: string
-  databasePath?: string
-}): OpencodeMessagePartRow[] | undefined {
-  const db = openOpencodeDb(input.homeDir, input.databasePath)
+export function readOpencodePromptHistory(
+  input: { sessionId: string } & (
+    | { databasePath: string }
+    | { homeDir: string; databasePath?: string }
+  ),
+): OpencodeMessagePartRow[] | undefined {
+  // An exact database path, or the account home's default store; never one
+  // under the daemon's HOME (POD-6536).
+  const db =
+    'homeDir' in input
+      ? openOpencodeDb(input.homeDir, input.databasePath)
+      : openOpencodeDbFile(input.databasePath)
   if (!db) return undefined
   try {
     // SQLite LIMIT -1 removes the normal 8000-part display cap.
@@ -84,8 +91,7 @@ export function readOpencodePromptHistory(input: {
     for (const row of rows) {
       for (const raw of [row.messageData, row.partData]) {
         const record: unknown = JSON.parse(raw)
-        if (typeof record !== 'object' || record === null || Array.isArray(record))
-          return undefined
+        if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined
       }
     }
     return rows
@@ -107,7 +113,7 @@ export function readOpencodePromptHistory(input: {
 /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 export function opencodeDbSource(input: {
   sessionId: string
-  homeDir?: string
+  homeDir: string
   databasePath?: string
 }): TranscriptSource {
   return {
@@ -140,7 +146,7 @@ export function opencodeDbSource(input: {
 export function sqliteTranscriptSource(locator: SqliteTranscriptLocator): TranscriptSource {
   return opencodeDbSource({
     sessionId: locator.sessionKey,
-    ...(locator.homeDir !== undefined ? { homeDir: locator.homeDir } : {}),
+    homeDir: locator.homeDir,
     ...(locator.databasePath ? { databasePath: locator.databasePath } : {}),
   })
 }

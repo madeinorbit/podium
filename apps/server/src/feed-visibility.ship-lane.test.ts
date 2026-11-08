@@ -25,6 +25,7 @@ import {
   NoDelegationsGranted,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
@@ -146,10 +147,10 @@ const principal = (user: string): Principal => ({
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  await store.issues.upsertIssue(issueRow('iss_shared', 1))
-  await store.issues.upsertIssue(issueRow('iss_private', 2))
-  await store.shipping.createOrder(order('order-shared', 'iss_shared', 1))
-  await store.shipping.createOrder(order('order-private', 'iss_private', 2))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_shared', 1))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_private', 2))
+  await store.shipping.createOrder(fixtureWriteScope(), order('order-shared', 'iss_shared', 1))
+  await store.shipping.createOrder(fixtureWriteScope(), order('order-private', 'iss_private', 2))
   const grant = async (issueId: string, grantee: string) =>
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -237,6 +238,7 @@ describe('POD-4974 O2 lane visibility', () => {
 
     const cursor = await authority.cursor()
     await store.shipping.transitionOrder(
+      fixtureWriteScope(),
       'order-shared',
       'queued',
       'cancelled',

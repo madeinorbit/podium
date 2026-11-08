@@ -74,6 +74,46 @@ function fakeFs(files: Record<string, string>) {
 }
 
 describe('podium profile', () => {
+  it('writes through sync.submit when the server has it, with the handler message on a refusal', async () => {
+    const { client, calls } = fakeClient()
+    const submitted: Array<{ command: string; input: unknown }> = []
+    const withSubmit: ProfileClient = {
+      ...client,
+      sync: {
+        submit: {
+          mutate: async (envelope) => {
+            submitted.push({ command: envelope.command, input: envelope.input })
+            if (envelope.command === 'agentProfiles.delete') {
+              return {
+                outcome: 'rejected',
+                refusal: { kind: 'invalid', message: 'build is used by an open issue' },
+              }
+            }
+            return {
+              outcome: 'applied',
+              result: { ...BUILD, ...(envelope.input as object) },
+              receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+              replayed: false,
+            }
+          },
+        },
+      },
+    }
+
+    const text = await runProfileCli(['create', 'review', '--candidate', 'codex'], {
+      client: withSubmit,
+      cwd: '/repo',
+    })
+    expect(text).toContain('created profile review')
+    expect(submitted[0]?.command).toBe('agentProfiles.create')
+    // The old route is not called when sync.submit answers.
+    expect(calls.filter(([name]) => name === 'create')).toEqual([])
+
+    await expect(
+      runProfileCli(['delete', 'build'], { client: withSubmit, cwd: '/repo' }),
+    ).rejects.toThrow('build is used by an open issue')
+  })
+
   it('lists profiles with their candidates', async () => {
     const { client } = fakeClient()
     const text = await runProfileCli(['list'], { client, cwd: '/repo' })

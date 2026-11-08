@@ -38,7 +38,7 @@ function callerFor(registry: SessionRegistry) {
 async function seed(registry: SessionRegistry, title = 'subject') {
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
   await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
-  return await registry.issues.crud.create({ repoPath: '/repo', title, startNow: false })
+  return await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/repo', title, startNow: false })
 }
 
 /** The revision the authority currently holds for `id`. */

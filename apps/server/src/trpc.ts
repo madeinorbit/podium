@@ -5,6 +5,16 @@ import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import { attribute } from '@podium/runtime/loop-accounting'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
+import type {
+  inferParser,
+  MiddlewareBuilder,
+  MiddlewareFunction,
+  Overwrite,
+  Parser,
+  ProcedureBuilder,
+  Simplify,
+  UnsetMarker,
+} from '@trpc/server/unstable-core-do-not-import'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -16,7 +26,6 @@ import type { SuperagentService } from './modules/superagent'
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import type { ServerPlacement } from './modules/updates/service'
 import type { RegistryModules, SessionRegistry } from './relay'
-import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import { withOperation } from './store/executor/operation-scope'
@@ -37,9 +46,6 @@ export interface Context {
   repos: RepoRegistry
   /** Stable hosted workspace identity for pre-auth join URLs; absent on self-hosted. */
   workspaceId?: string
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional so test
-   *  callers that don't exercise discovery need not construct one. */
-  discovery?: MachineRepoDiscovery
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider
   /** What this caller may do with issues. The authenticated principal below is
@@ -189,12 +195,35 @@ export function errorShapeWithCause<TShape extends { data: Record<string, unknow
   }
 }
 
+/**
+ * What a WRITE route says about itself (ADR 12 D9, POD-6593): the registration it
+ * reaches and which path that registration is on. Only the write-route
+ * generator (`modules/write-routes/`) sets it, on every mutation it
+ * builds; a query carries none. A test walks the served router and holds every
+ * mutation to a registration in the sync or the plain registry.
+ */
+export interface WriteRouteMeta {
+  /** The registration's wire name (`layout.set`, `logs.forward`), or
+   *  {@link ANY_SYNC_REGISTRATION} for `sync.submit`, whose envelope names one. */
+  readonly registration: string
+  readonly path: 'sync' | 'plain' | 'direct'
+}
+
+/** `sync.submit`'s registration: whichever the envelope names. */
+export const ANY_SYNC_REGISTRATION = '*'
+
+/** A procedure's meta: a write route's, or nothing (a query). */
+export type RouteMeta = Partial<WriteRouteMeta>
+
 /** Composed at rebase with POD-701's timing core: one create() carries both. */
-const core = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
-    return errorShapeWithCause(shape, error)
-  },
-})
+const core = initTRPC
+  .context<Context>()
+  .meta<RouteMeta>()
+  .create({
+    errorFormatter({ shape, error }) {
+      return errorShapeWithCause(shape, error)
+    },
+  })
 
 /** Slow-call visibility [POD-701]: one warning when a procedure exceeds
  *  this, throttled per path so a storm can't flood the logs. */
@@ -238,11 +267,110 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
 /** One call is one operation [POD-6189]: memos that opt in (the grants loader)
  *  answer a row once for the whole call, before, inside and after its write
  *  spans. See `store/executor/operation-scope.ts`. */
-const oneOperation = core.middleware(async ({ next }) => await withOperation(async () => await next()))
+const oneOperation = core.middleware(
+  async ({ next }) => await withOperation(async () => await next()),
+)
+
+/** The base procedure: the always-on timing middleware and the operation scope. */
+const baseProcedure = core.procedure.use(rpcTiming).use(oneOperation)
+
+// ---------------------------------------------------------------------------
+// The query-only builder (ADR 12 D9, POD-6593)
+// ---------------------------------------------------------------------------
+
+/** tRPC's own (unexported) `IntersectIfDefined`, which its builder chains with. */
+type IntersectIfDefined<A, B> = A extends UnsetMarker
+  ? B
+  : B extends UnsetMarker
+    ? A
+    : Simplify<A & B>
+
+/**
+ * A procedure builder with NO `.mutation`: `.input`, `.output`, `.meta` and
+ * `.use` chain to another query-only builder, and it ends in `.query` or
+ * `.subscription`. It is the builder every module gets as `t.procedure`, so a
+ * module cannot build a write route: every write route is generated from a
+ * registration by `modules/write-routes/`, which alone holds the full builder
+ * ({@link claimWriteProcedureBuilder}). `write-routes.typecheck.ts` holds the
+ * missing `.mutation` with `@ts-expect-error`.
+ *
+ * The signatures are tRPC's own (`ProcedureBuilder`), without its compile-time
+ * refusal to chain an optional parser onto a required one.
+ */
+export interface QueryProcedureBuilder<C, M, CO, II, IO, OI, OO> {
+  input<$P extends Parser>(
+    schema: $P,
+  ): QueryProcedureBuilder<
+    C,
+    M,
+    CO,
+    IntersectIfDefined<II, inferParser<$P>['in']>,
+    IntersectIfDefined<IO, inferParser<$P>['out']>,
+    OI,
+    OO
+  >
+  output<$P extends Parser>(
+    schema: $P,
+  ): QueryProcedureBuilder<
+    C,
+    M,
+    CO,
+    II,
+    IO,
+    IntersectIfDefined<OI, inferParser<$P>['in']>,
+    IntersectIfDefined<OO, inferParser<$P>['out']>
+  >
+  meta(meta: M): QueryProcedureBuilder<C, M, CO, II, IO, OI, OO>
+  use<$CO>(
+    fn: MiddlewareBuilder<Overwrite<C, CO>, M, $CO, IO> | MiddlewareFunction<C, M, CO, $CO, IO>,
+  ): QueryProcedureBuilder<C, M, Overwrite<CO, $CO>, II, IO, OI, OO>
+  query: ProcedureBuilder<C, M, CO, II, IO, OI, OO, false>['query']
+  subscription: ProcedureBuilder<C, M, CO, II, IO, OI, OO, false>['subscription']
+}
+
+/** The query-only view of a full builder. */
+type QueryOnly<B> =
+  B extends ProcedureBuilder<
+    infer C,
+    infer M,
+    infer CO,
+    infer II,
+    infer IO,
+    infer OI,
+    infer OO,
+    false
+  >
+    ? QueryProcedureBuilder<C, M, CO, II, IO, OI, OO>
+    : never
+
+/** The builder modules get: queries only. */
+export type ModuleProcedureBuilder = QueryOnly<typeof baseProcedure>
 
 /** The shared tRPC core: identical to `initTRPC.create()` except `procedure`
- *  carries the always-on timing middleware and the operation scope. */
+ *  carries the always-on timing middleware and the operation scope, and builds
+ *  QUERIES only ({@link QueryProcedureBuilder}). */
 export const t = {
   ...core,
-  procedure: core.procedure.use(rpcTiming).use(oneOperation),
+  procedure: baseProcedure as ModuleProcedureBuilder,
+}
+
+/** The builder a write route is built from. */
+export type WriteProcedureBuilder = typeof baseProcedure
+
+let writeBuilderClaimed = false
+
+/**
+ * The builder WRITE routes are made from, handed out ONCE (POD-6593). The
+ * write-route generator claims it when it loads; any second claimant fails at
+ * boot. So the one module that may build a mutation is the one that holds it,
+ * and every write route is generated there from a registration.
+ */
+export function claimWriteProcedureBuilder(): WriteProcedureBuilder {
+  if (writeBuilderClaimed) {
+    throw new Error(
+      'trpc: the write procedure builder is already claimed; write routes are generated by modules/write-routes/ only',
+    )
+  }
+  writeBuilderClaimed = true
+  return baseProcedure
 }

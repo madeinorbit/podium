@@ -18,6 +18,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
@@ -275,6 +276,19 @@ export function bridgeConfigChanged(bus: EventBus): () => void {
 }
 
 /**
+ * A preference patch refused for what it IS, not for anything that might pass on
+ * a retry: a definitive verdict. The sync write entry point answers it as an
+ * `invalid` refusal, so the client outbox dead-letters it instead of retrying a
+ * write that can never apply (POD-6350).
+ */
+export class SettingsPatchRefused extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SettingsPatchRefused'
+  }
+}
+
+/**
  * Settings + model catalog + telegram-setup flow — peeled off SessionRegistry
  * (issue #13 Phase 2). setSettings persists first, then emits 'settings.changed'
  * on the bus; reactions (notification replay, auto-continue re-arm) live with
@@ -477,8 +491,19 @@ export class SettingsService {
     member: UserId,
   ): Promise<void> {
     if (JSON.stringify(previous) === JSON.stringify(next)) return
-    // WHOSE view this is (POD-6291): the reactions to personal leaves are per
-    // member, so the event names the writer and they reach the writer only.
+    // AFTER THE COMMIT inside a unit of work [POD-6349]. Subscribers reach the
+    // network (the Telegram adapter reconfigures, notify replays to targets) and
+    // the sessions (auto-continue re-arms), so from inside a unit of work they
+    // would act on a change that can still roll back. Their recovery is the row:
+    // each one reads the current settings at boot. With no span open the event
+    // fires here and is awaited, as before.
+    if (spanOpen()) {
+      afterCommit(
+        async () => await this.bus.emitSettled('settings.changed', { previous, next, member }),
+        'settings-changed',
+      )
+      return
+    }
     await this.bus.emitSettled('settings.changed', { previous, next, member })
   }
 
@@ -531,7 +556,7 @@ export class SettingsService {
     if (secrets.length > 0) {
       // Names the KEYS and never a value, for the reason `assertNoSecretChange`
       // does: the key vocabulary is public, the material is not.
-      throw new Error(
+      throw new SettingsPatchRefused(
         `a preference patch may not write server-owned secrets (${secrets.join(', ')}) — ` +
           'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
       )

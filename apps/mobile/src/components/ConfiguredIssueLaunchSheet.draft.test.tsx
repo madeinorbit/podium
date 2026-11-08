@@ -9,9 +9,11 @@ const api = vi.hoisted(() => ({ issues: {
   addSession: { mutate: vi.fn(async () => {}) },
   start: { mutate: vi.fn(async () => {}) },
 } }))
+// The spawn is the task's effect record (POD-6526): begin or add, never the routes.
+const startIssueSession = vi.hoisted(() => vi.fn((_args: unknown) => ({ settled: Promise.resolve(true) })))
 const settings = vi.hoisted(() => ({ model: { codingHarness: 'codex' } }))
 vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
-vi.mock('../client/hooks', () => ({ useTrpc: () => api }))
+vi.mock('../client/hooks', () => ({ useTrpc: () => api, useStoreActions: () => ({ startIssueSession }) }))
 vi.mock('./BottomSheet', () => ({ BottomSheet: ({ children, footer, visible }: { children: ReactNode; footer: ReactNode; visible: boolean }) =>
   visible ? createElement('div', null, children, footer) : null }))
 vi.mock('./PressableScale', () => ({ PressableScale: ({ children, onPress, disabled, accessibilityLabel }: {
@@ -34,7 +36,8 @@ it('uses Settings for auto and saves a harness pin before spawning an effort ove
   render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
-  await waitFor(() => expect(api.issues.addSession.mutate).toHaveBeenCalledWith({ id: record.id }))
+  await waitFor(() => expect(startIssueSession).toHaveBeenCalledWith({ issueId: record.id }))
+  expect(api.issues.addSession.mutate).not.toHaveBeenCalled()
   expect(api.issues.update.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id,
     patch: { defaultAgent: 'codex', defaultEffort: 'high' } })
 })
@@ -56,7 +59,7 @@ it('keeps untouched launch values live, drops edits on reopen and saves only tou
   expect(screen.getByText('codex:gpt-6.1-sol / auto')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
-  await waitFor(() => expect(api.issues.addSession.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id }))
+  await waitFor(() => expect(startIssueSession).toHaveBeenCalledExactlyOnceWith({ issueId: record.id }))
   expect(api.issues.update.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id, patch: { defaultEffort: 'high' } })
-  expect(api.issues.update.mutate.mock.invocationCallOrder[0]).toBeLessThan(api.issues.addSession.mutate.mock.invocationCallOrder[0]!)
+  expect(api.issues.update.mutate.mock.invocationCallOrder[0]).toBeLessThan(startIssueSession.mock.invocationCallOrder[0]!)
 })

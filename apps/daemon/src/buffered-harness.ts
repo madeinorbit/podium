@@ -5,15 +5,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
-  bindHarnessExec,
+  type BoundCommand,
   buildResolvedInventory,
+  harnessChildEnv,
+  harnessCommand,
+  harnessContext,
   harnessMcpConfigTransport,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { buildHarnessExec } from './harness-exec.js'
 import type { DaemonHarnessRuntime } from './harness-runtime.js'
-import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -51,8 +54,9 @@ const execFileAsync = promisify(execFile)
  * - success: `{ok:true, output: stdout.trim()}` with a 240s default kill
  *   budget (`timeoutMs` override), 4MiB stdout cap, prompt on stdin (then EOF),
  *   MCP config via temp file (`path` transport) or inline `-c` overrides,
- *   child env = process.env + manifest env + HOME + instance env minus
- *   inherited harness controls, temp file removed in `finally`.
+ *   child env = `harnessChildEnv` over the account context (command env,
+ *   manifest env as wiring, HOME + instance env, inherited credentials and
+ *   harness controls removed), temp file removed in `finally`.
  * - failure: `{ok:false, output: err.message}` for malformed MCP, unsupported
  *   or unknown harness, temp-write failure, timeout, output cap, missing
  *   executable and child non-zero exit. A temp-write failure refuses rather
@@ -82,10 +86,10 @@ export interface BufferedHarnessChildOpts {
   env: NodeJS.ProcessEnv
 }
 
-/** Process-boundary seam: execFile + stdin-close + stdout capture. */
+/** Process-boundary seam: execFile + stdin-close + stdout capture. Only a
+ *  bound command: argv[0] is the turn's harness installation (POD-6536). */
 export type BufferedHarnessRunChild = (
-  cmd: string,
-  args: string[],
+  command: BoundCommand,
   opts: BufferedHarnessChildOpts,
   stdin: string,
 ) => Promise<{ stdout: string }>
@@ -115,12 +119,11 @@ async function defaultSnapshot(ctx: BufferedHarnessContext): Promise<ResolvedHar
 /** Process-boundary seam, exported for tests: proves stdin-EOF, timeout and cap
  *  against a real child without a harness binary on PATH. */
 export function defaultRunChild(
-  cmd: string,
-  args: string[],
+  command: BoundCommand,
   opts: BufferedHarnessChildOpts,
   stdin: string,
 ): Promise<{ stdout: string }> {
-  const pending = execFileAsync(cmd, args, {
+  const pending = execFileAsync(command.cmd, command.args, {
     timeout: opts.timeout,
     maxBuffer: opts.maxBuffer,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
@@ -142,8 +145,7 @@ export async function executeBufferedHarnessTurn(
   const runChild = io?.runChild ?? defaultRunChild
   const writeTemp = io?.writeTemp ?? ((path: string, data: string) => writeFileSync(path, data))
   const removeTemp = io?.removeTemp ?? ((path: string) => rmSync(path, { force: true }))
-  const makeTempPath =
-    io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
+  const makeTempPath = io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
 
   // Claude's --mcp-config must be a file path: stage the JSON per run. Codex
   // takes inline `-c` overrides (translated in buildHarnessExec) — no file.
@@ -166,36 +168,32 @@ export async function executeBufferedHarnessTurn(
     // tool-less run) and on declared-unsupported or unknown harnesses — both
     // must surface as a failed turn with the harness named, never a fallback.
     const snapshot = await snapshotFor()
-    const {
-      cmd,
-      args,
-      stdin,
-      env: execEnv,
-    } = bindHarnessExec(
+    // The argv first: an unknown or exec-less harness refuses here, naming
+    // itself, before any context is built for it.
+    const exec = buildHarnessExec(msg.agent, {
+      prompt: msg.prompt,
+      ...(msg.model ? { model: msg.model } : {}),
+      ...(msg.effort ? { effort: msg.effort } : {}),
+      ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+      ...(mcpConfigPath ? { mcpConfigPath } : {}),
+      ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+      ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+    })
+    const context = harnessContext(
       snapshot,
-      msg.agent,
-      buildHarnessExec(msg.agent, {
-        env: snapshot.commandEnvironment.env,
-        prompt: msg.prompt,
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.effort ? { effort: msg.effort } : {}),
-        ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
-        ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-        ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-      }),
+      msg.agent as BuiltinHarnessKind,
+      ctx.homeDir ?? snapshot.commandEnvironment.machineHome,
     )
-    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
-    const childEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...execEnv,
-      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
-    }
-    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
+    const { stdin, env: execEnv, ...command } = harnessCommand(context, exec)
+    // ONE RECIPE (POD-6535). The frame carries no session env, so nothing on
+    // it was chosen: every credential the command env carries is inherited
+    // and stripped (F10). codex's MCP bearer token rides `execEnv` (POD-1021)
+    // as wiring. `execFile` replaces the child env outright, so this is all of it.
+    const { env: childEnv } = harnessChildEnv(context, {
+      ...(execEnv ? { wiringEnv: execEnv } : {}),
+    })
     const { stdout } = await runChild(
-      cmd,
-      args,
+      command,
       {
         timeout: msg.timeoutMs ?? BUFFERED_HARNESS_DEFAULT_TIMEOUT_MS,
         maxBuffer: BUFFERED_HARNESS_MAX_BUFFER_BYTES,

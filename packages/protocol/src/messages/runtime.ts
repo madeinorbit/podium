@@ -129,6 +129,10 @@ export const RefusalReason = z.enum([
   // byte-identical. `configure()` with a value the harness cannot take
   // (POD-3081) — the field is real, the value is not.
   'invalid_value',
+  // APPENDED, last for the same arithmetic. An interrupt named a turn
+  // (POD-6397) and that turn had already ended: nothing was stopped, and the
+  // turn running now, if any, was not touched.
+  'turn_ended',
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 
@@ -719,6 +723,13 @@ export const RuntimeInterruptRequestMessage = z.object({
   cancelRowId: z.string().min(1).optional(),
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
+  /**
+   * THE TURN THIS STOP IS FOR (POD-6397): the `turnStartedAt` of the agent
+   * state the person saw. The daemon, which owns the marker, stops only that
+   * turn and answers `turn_ended` when it is over. Absent (and on a daemon from
+   * before it, which drops the key) the stop is for whatever turn runs.
+   */
+  turn: z.string().min(1).max(64).optional(),
 })
 export type RuntimeInterruptRequestMessage = z.infer<typeof RuntimeInterruptRequestMessage>
 

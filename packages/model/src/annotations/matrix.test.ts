@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { conflictRuleFor, FIELD_LWW_CLOCK, permitsFieldLww } from './arbitration'
+import { conflictRuleFor, FIELD_LWW_CLOCK } from './arbitration'
 import {
   DECLARED_OMISSIONS,
   FIELD_LWW_MEMBERS,
@@ -267,9 +267,10 @@ describe('no annotation contradicts the ADR', () => {
       expect(row.conflict, `${id} still claims field-LWW`).toBe('single-writer')
       expect(row.visibility).toBe<VisibilityClass>('per-user-state')
     }
-    // `archived` / `workState` became SHARED session facts at exp-rev.
-    expect(conflictRuleFor(ROW.sessionLabels as string)).toBe('exp-rev')
-    expect(permitsFieldLww(ROW.sessionLabels as string)).toBe(false)
+    // `archived` / `workState` became SHARED session facts (D10); ADR 12 D3
+    // (POD-6406) makes each label its own field-LWW group, still shared.
+    expect(conflictRuleFor(ROW.sessionLabels as string)).toBe('field-LWW')
+    expect(OWNERSHIP_MATRIX_INDEX.get(ROW.sessionLabels as string)?.visibility).toBe('personal')
   })
 
   it('reserves op-stream for D12’s named members and IMPLEMENTS NONE of it', () => {

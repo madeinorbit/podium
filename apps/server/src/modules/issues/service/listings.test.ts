@@ -10,6 +10,7 @@
  * the issue map, every listing was also compared with the map's code.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../../store'
@@ -98,9 +99,9 @@ describe('issue listings over the database', () => {
     await grantIssue(store, 'iss_b1', BOB, 'manage')
     await grantIssue(store, 'iss_16', BOB, 'write')
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(viewer, asIssueId('iss_2'), { readAt: '2026-10-01T00:00:00.000Z', pinnedAt: '2026-10-02T00:00:00.000Z' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_2'), { readAt: '2026-10-01T00:00:00.000Z', pinnedAt: '2026-10-02T00:00:00.000Z' })
     // Quarantined: a NULL id (SQLite allows one in a TEXT primary key).
-    await store.issues.upsertIssue({ ...(await store.issues.getIssue('iss_7'))!, id: asIssueId('iss_corrupt'), seq: 99, revision: undefined } as never)
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...(await store.issues.getIssue('iss_7'))!, id: asIssueId('iss_corrupt'), seq: 99, revision: undefined } as never)
     rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
     const reports = reportsOver(store, 'abc fix #2 and issue/3-login\n#14 done')
 

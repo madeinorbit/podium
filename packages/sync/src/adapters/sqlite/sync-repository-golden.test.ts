@@ -109,11 +109,12 @@ describe('the change log', () => {
     ])
   })
 
-  it('reads back exactly the five columns changesSince projects', async () => {
+  it('reads back the five base keys, and no provenance key for a NULL column', async () => {
     await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{"a":1}')], 11)
     const [row] = await repo.changesSince(0)
-    // The KEY SET, not just the values: a widened projection (rule 39) shows up
-    // here and nowhere else, because every other assertion reads named fields.
+    // The KEY SET, not just the values: a NULL provenance column comes back as
+    // an ABSENT key (POD-6272), never as `null` and never as `undefined` under
+    // a present key, so a reader cannot tell the read from a row that never had one.
     expect(Object.keys(row as object).sort()).toEqual([
       'entity',
       'entityId',
@@ -128,6 +129,71 @@ describe('the change log', () => {
       op: 'upsert',
       payload: '{"a":1}',
     })
+  })
+
+  it('stores the provenance triple and reads it back on both range reads (POD-6272)', async () => {
+    await repo.appendChanges(
+      [
+        {
+          ...change('issueProjection', 'i1', 'upsert', '{"a":1}'),
+          originId: 'peer-1',
+          causationId: 'c-1',
+          mutationId: asMutationId('m-1'),
+        },
+        {
+          ...change('issueProjection', 'i2', 'upsert', '{"b":1}'),
+          mutationId: asMutationId('m-2'),
+        },
+        change('issueProjection', 'i3', 'remove', null),
+      ],
+      11,
+    )
+    expect(
+      stored('SELECT seq, origin_id, causation_id, mutation_id FROM changes ORDER BY seq'),
+    ).toEqual([
+      { seq: 1, origin_id: 'peer-1', causation_id: 'c-1', mutation_id: 'm-1' },
+      { seq: 2, origin_id: null, causation_id: null, mutation_id: 'm-2' },
+      { seq: 3, origin_id: null, causation_id: null, mutation_id: null },
+    ])
+    const expected = [
+      {
+        seq: 1,
+        entity: 'issueProjection',
+        entityId: 'i1',
+        op: 'upsert',
+        payload: '{"a":1}',
+        originId: 'peer-1',
+        causationId: 'c-1',
+        mutationId: 'm-1',
+      },
+      {
+        seq: 2,
+        entity: 'issueProjection',
+        entityId: 'i2',
+        op: 'upsert',
+        payload: '{"b":1}',
+        mutationId: 'm-2',
+      },
+      { seq: 3, entity: 'issueProjection', entityId: 'i3', op: 'remove', payload: null },
+    ]
+    expect(await repo.changesSince(0)).toEqual(expected)
+    expect(await repo.changesInRange(0, 3, 10)).toEqual(expected)
+  })
+
+  it('binds provenance across the 100-row chunk boundary', async () => {
+    // Eight parameters a row now: 100 rows is 800, under SQLite's 999.
+    const rows = Array.from({ length: 150 }, (_, i) => ({
+      ...change('issueProjection', `i${i}`, 'upsert', '{}'),
+      mutationId: asMutationId(`m-${i}`),
+    }))
+    await repo.appendChanges(rows, 7)
+    expect(
+      stored('SELECT seq, mutation_id FROM changes WHERE seq IN (100, 101, 150) ORDER BY seq'),
+    ).toEqual([
+      { seq: 100, mutation_id: 'm-99' },
+      { seq: 101, mutation_id: 'm-100' },
+      { seq: 150, mutation_id: 'm-149' },
+    ])
   })
 
   it('honours the cursor, the seq order and the limit', async () => {
@@ -175,7 +241,7 @@ describe('the statements themselves', () => {
   it('projects exactly the columns each read needs, and no more [rule 39]', async () => {
     // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
     // on the emitted SELECT list. The counts are the ones the hand-written
-    // statements named: five of nine on `changes`, four of four on
+    // statements named: eight of nine on `changes` (POD-6272 added provenance), four of four on
     // `change_latest`, fifteen of sixteen on `queued_messages`, three of five on
     // `upstream_outbox`.
     const { repo, sql } = recordingRepo()
@@ -190,7 +256,16 @@ describe('the statements themselves', () => {
         c.replaceAll('"', ''),
       )
     }
-    expect(projection('changes')).toEqual(['seq', 'entity', 'entity_id', 'op', 'payload'])
+    expect(projection('changes')).toEqual([
+      'seq',
+      'entity',
+      'entity_id',
+      'op',
+      'payload',
+      'origin_id',
+      'causation_id',
+      'mutation_id',
+    ])
     expect(projection('change_latest')).toEqual(['seq', 'entity', 'entity_id', 'payload'])
     expect(projection('queued_messages')).toEqual([
       'id',
@@ -389,8 +464,13 @@ describe('the installed world, read by key [POD-6156]', () => {
   })
 
   it('reads more keys than one statement holds', async () => {
-    const keys = Array.from({ length: 600 }, (_, i) => ({ entity: 'issueProjection', entityId: `k${i}` }))
-    expect(await repo.installedStates([...keys, { entity: 'issueProjection', entityId: 'a' }])).toEqual([
+    const keys = Array.from({ length: 600 }, (_, i) => ({
+      entity: 'issueProjection',
+      entityId: `k${i}`,
+    }))
+    expect(
+      await repo.installedStates([...keys, { entity: 'issueProjection', entityId: 'a' }]),
+    ).toEqual([
       { seq: 6, entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '"issue"' },
     ])
   })

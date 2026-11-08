@@ -27,13 +27,12 @@
  * procedure the router does not serve — and requires the comparisons to fire.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS EXISTS ALONGSIDE THE SOURCE-TEXT AUDIT
+ * WHY IT READS THE RUNNING OBJECT
  * ---------------------------------------------------------------------------
  *
- * `scripts/audit-settings-commands.ts` makes the same claims by reading
- * `router.ts` as TEXT. It resolves no modules, so it runs in a fresh checkout
- * and before anything is built — and it is blind to everything not spelled in
- * that one file. This one reads the OBJECT that will actually be served:
+ * The source-text settings audit that made the same claims is deleted
+ * (POD-6595): modules cannot build a write route at all now. This one reads the
+ * OBJECT that will actually be served:
  * `_def.procedures` is the dispatch table itself and `_def.type` is the verb
  * tRPC enforces on the wire.
  *

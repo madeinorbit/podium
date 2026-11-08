@@ -31,10 +31,9 @@
  */
 
 import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/engine'
-import { rowFingerprint } from '@podium/client-core/command-reducers'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { Replica } from '@podium/client-core/replica'
-import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import { parseIssueUserStateRowId } from '@podium/model'
 import type {
   FieldValues,
   KernelCommand,
@@ -56,7 +55,8 @@ export interface ReceiptsRuntime {
 
 /**
  * One outcome for one transaction. `kind` is the outbox kind (`issueUpdate`,
- * `issueMarkRead`, …) and `id` the entity id in its input. A superseded entry
+ * `recordEdit`, …) and `id` the entity id in its input (an issue's id for a
+ * mark-read, whose row id names its issue). A superseded entry
  * the queue could no longer see carries neither. Assignable to the write
  * contract's `WriteEvent`.
  */
@@ -82,9 +82,15 @@ export type ReceiptEvent =
     }
 
 function targetId(input: unknown): string | undefined {
-  const id = (input as { id?: unknown } | null | undefined)?.id
-  return typeof id === 'string' ? id : undefined
+  const i = input as { kind?: unknown; id?: unknown } | null | undefined
+  if (typeof i?.id !== 'string') return undefined
+  // A mark-read is a record edit of my own issue row (POD-6404): its target is
+  // the issue the row is about.
+  return i.kind === 'issueUserState' ? parseIssueUserStateRowId(i.id).entityId : i.id
 }
+
+const isMarkRead = (entry: { kind: string; input: unknown }): boolean =>
+  entry.kind === 'recordEdit' && (entry.input as { kind?: unknown }).kind === 'issueUserState'
 
 function toReceipt(outcome: OutboxOutcome): ReceiptEvent {
   switch (outcome.type) {
@@ -152,26 +158,44 @@ export function subscribeReceipts(
 }
 
 /**
+ * Enqueue-time baselines `send` filed, per outbox instance and transaction id.
+ * In memory only, as the kernel queue kept them before POD-6279 removed them
+ * from the outbox: a reloaded outbox has none, nor does a write the pool made
+ * or one enqueued before its row was known. The reference pending log reads
+ * them; production does not.
+ */
+const baselines = new WeakMap<object, Map<string, string>>()
+
+/** A row's DATA fields, keys sorted (no `$` metadata), as one string. */
+function fingerprint(row: object): string {
+  const data: Record<string, unknown> = {}
+  for (const k of Object.keys(row).sort()) {
+    if (!k.startsWith('$')) data[k] = (row as Record<string, unknown>)[k]
+  }
+  return JSON.stringify(data)
+}
+
+/**
  * The enqueue-time server values of the fields an entry patches, read from the
- * queue entry's own `baseline` (the replica row fingerprinted at enqueue). The
- * kernel queue keeps it in memory only, so an entry restored by a reload has
- * none, and neither does one enqueued before its row was known.
+ * baseline `send` filed under its id (the replica row fingerprinted at
+ * enqueue).
  *
  * Exported for the phase-c gate adapter (`gen/arm-edits.ts`), which rebuilds
  * `OutboxPendingWrite`s for a re-created arm after a reload (POD-4574).
  */
-export function baseOf(entry: OutboxEntry): FieldValues<'issue'> | undefined {
-  if (entry.baseline === undefined) return undefined
+export function baseOf(outbox: object, entry: OutboxEntry): FieldValues<'issue'> | undefined {
+  const baseline = baselines.get(outbox)?.get(entry.mutationId)
+  if (baseline === undefined) return undefined
   let row: Record<string, unknown>
   try {
-    const parsed = JSON.parse(entry.baseline) as unknown
+    const parsed = JSON.parse(baseline) as unknown
     if (!parsed || typeof parsed !== 'object') return undefined
     row = parsed as Record<string, unknown>
   } catch {
     return undefined
   }
   const text = (v: unknown): string | null => (typeof v === 'string' ? v : null)
-  if (entry.kind === 'issueMarkRead') return { readAt: text(row.readAt) }
+  if (isMarkRead(entry)) return { readAt: text(row.readAt) }
   if (entry.kind === 'issueUpdate') {
     const patch = (entry.input as { patch?: Record<string, unknown> }).patch ?? {}
     const base: { title?: string; stage?: string } = {}
@@ -182,8 +206,8 @@ export function baseOf(entry: OutboxEntry): FieldValues<'issue'> | undefined {
   return undefined
 }
 
-function pendingWrite(entry: OutboxEntry, acked: boolean): OutboxPendingWrite {
-  const base = baseOf(entry)
+function pendingWrite(outbox: object, entry: OutboxEntry, acked: boolean): OutboxPendingWrite {
+  const base = baseOf(outbox, entry)
   return {
     txId: entry.mutationId,
     kind: entry.kind,
@@ -195,22 +219,18 @@ function pendingWrite(entry: OutboxEntry, acked: boolean): OutboxPendingWrite {
 }
 
 /**
- * The enqueue-time baseline `send` files on the entry: the `rowFingerprint`
- * of the same truth row the pool transaction log fingerprints for these two
- * commands — the principal's marker for a mark-read, the projection for an
- * update (mirrors the row-source `truth` reader). `undefined` when the row
+ * The enqueue-time baseline `send` files: the fingerprint of the truth row
+ * these two commands land on — the principal's marker for a mark-read, the
+ * projection for an update (mirrors the row-source `truth` reader). `undefined` when the row
  * is not in the replica, exactly like an entry enqueued before its row was
  * known.
  */
 function sendBaseline(runtime: ReceiptsRuntime, command: KernelCommand): string | undefined {
   const row =
-    command.kind === 'issueMarkRead'
-      ? runtime.replica.row?.(
-          'issueUserStates',
-          issueUserStateRowId(asUserId(runtime.principal.userId), asIssueId(command.input.id)),
-        )
+    command.kind === 'recordEdit'
+      ? runtime.replica.row?.('issueUserStates', command.input.id)
       : runtime.replica.row?.('issueProjections', command.input.id)
-  return row === undefined ? undefined : rowFingerprint(row)
+  return row === undefined ? undefined : fingerprint(row)
 }
 
 /** A {@link WriteTransport} whose events carry the outbox kind and target id.
@@ -222,7 +242,7 @@ export interface ReceiptTransport extends Omit<WriteTransport, 'subscribe'> {
 /**
  * The {@link WriteTransport} a phase-c arm sends through (W2): `send` enqueues
  * under the arm's txId into the outbox, filing the enqueue-time baseline
- * (`sendBaseline`) the same way the writer-owned path does; `subscribe`
+ * (`sendBaseline`) beside it; `subscribe`
  * is {@link subscribeReceipts} plus a `rejected` for an enqueue that failed;
  * `pending` lists queued then awaiting-truth entries in queue order (W11).
  */
@@ -239,11 +259,16 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
   return {
     send(txId, command: KernelCommand) {
       const baseline = sendBaseline(runtime, command)
-      const opts = { mutationId: txId, ...(baseline === undefined ? {} : { baseline }) }
+      if (baseline !== undefined) {
+        let filed = baselines.get(runtime.outbox)
+        if (filed === undefined) baselines.set(runtime.outbox, (filed = new Map()))
+        filed.set(txId, baseline)
+      }
+      const opts = { mutationId: txId }
       const enqueued =
         command.kind === 'issueUpdate'
           ? runtime.outbox.enqueue('issueUpdate', command.input, opts)
-          : runtime.outbox.enqueue('issueMarkRead', command.input, opts)
+          : runtime.outbox.enqueue('recordEdit', command.input, opts)
       Promise.resolve(enqueued).catch((error: unknown) => {
         // The throw came after the entry reached the queue: the kernel still
         // owes it an outcome, and will report it.
@@ -252,7 +277,7 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
           type: 'rejected',
           txId,
           kind: command.kind,
-          id: command.input.id,
+          id: targetId(command.input),
           error: { message: error instanceof Error ? error.message : String(error), parked: false },
         }
         for (const listener of [...failures]) listener(event)
@@ -263,8 +288,8 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
     },
     pending() {
       return [
-        ...runtime.outbox.pending().map((e) => pendingWrite(e, false)),
-        ...runtime.outbox.awaiting().map((e) => pendingWrite(e, true)),
+        ...runtime.outbox.pending().map((e) => pendingWrite(runtime.outbox, e, false)),
+        ...runtime.outbox.awaiting().map((e) => pendingWrite(runtime.outbox, e, true)),
       ]
     },
   }

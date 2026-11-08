@@ -35,27 +35,41 @@
  * not done here.
  */
 
+import { randomUUID } from 'node:crypto'
 import {
-  normalizeDockWorktreeKey,
+  asSessionId,
   type IssueId,
   type MachineId,
+  normalizeDockWorktreeKey,
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { randomUUID } from 'node:crypto'
-import { asSessionId } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import type { UserDockShellRepository } from '../../store/user-layout'
 
 /** The session facts `forWorktree` needs — a narrow port, not the lifecycle. */
 export interface DockShellSessionPort {
   sessionById(sessionId: SessionId): Promise<DockShellSessionView | undefined>
+  /**
+   * Start the shell under `sessionId`. Since POD-6419 this asks for the start
+   * (a `session.launch` effect record, in the write's unit of work) rather than
+   * spawning: the session row is born under that id once the start runs, after
+   * the commit. `actor` is who asked, for the record's attribution.
+   */
   createShell(input: {
+    /** The writer of the command that asked (ADR 12 D9): the start record is
+     *  written in its unit. */
+    writer: Pick<LedgerWriter, 'commit'>
     sessionId: SessionId
     cwd: string
     ownerUserId: UserId
     machineId?: MachineId
+    actor?: string
   }): Promise<{ sessionId: SessionId }>
-  archiveSession?(sessionId: SessionId): Promise<void>
+  archiveSession?(
+    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
+    sessionId: SessionId,
+  ): Promise<void>
 }
 
 export interface DockShellSessionView {
@@ -89,9 +103,10 @@ export class DockShellService {
    * normal shell spawn (agentKind 'shell'); only the mapping is new.
    */
   async forWorktree(
+    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
     userId: UserId,
     worktreePath: string,
-    opts: { machineId?: MachineId } = {},
+    opts: { machineId?: MachineId; actor?: string } = {},
   ): Promise<ForWorktreeResult> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) {
@@ -107,14 +122,16 @@ export class DockShellService {
           }
           // Dead, missing, or non-shell: archive best-effort, then replace.
           if (view && !view.archived) {
-            await this.deps.sessions.archiveSession?.(existing).catch(() => {})
+            await this.deps.sessions.archiveSession?.(writer, existing).catch(() => {})
           }
           const replacement = asSessionId(randomUUID())
           await this.deps.sessions.createShell({
+            writer,
             sessionId: replacement,
             cwd: key,
             ownerUserId: userId,
             ...(opts.machineId ? { machineId: opts.machineId } : {}),
+            ...(opts.actor ? { actor: opts.actor } : {}),
           })
           await this.deps.dockShells.set(userId, key, replacement, this.nowIso())
           return { sessionId: replacement, created: true }
@@ -124,10 +141,12 @@ export class DockShellService {
         if (won) {
           try {
             await this.deps.sessions.createShell({
+              writer,
               sessionId: claimed,
               cwd: key,
               ownerUserId: userId,
               ...(opts.machineId ? { machineId: opts.machineId } : {}),
+              ...(opts.actor ? { actor: opts.actor } : {}),
             })
           } catch (error) {
             await this.deps.dockShells.removeBySession(claimed).catch(() => {})
@@ -152,7 +171,10 @@ export class DockShellService {
     const current = new Promise<void>((resolve) => {
       release = resolve
     })
-    this.locks.set(key, prior.then(() => current))
+    this.locks.set(
+      key,
+      prior.then(() => current),
+    )
     await prior
     try {
       return await fn()
@@ -305,7 +327,8 @@ export async function resolveSampledShellOwners(
     const key = rows[0]?.worktreeKey
     if (key) keys.add(key)
   }
-  const issueByKey = keys.size === 0 ? new Map<string, IssueId | null>() : await deps.issuesForCwds([...keys])
+  const issueByKey =
+    keys.size === 0 ? new Map<string, IssueId | null>() : await deps.issuesForCwds([...keys])
   const perShell: DockShellOwnerDeps = {
     worktreeForSession: async (id) => mapped.get(id) ?? [],
     issueForCwd: async (cwd) => issueByKey.get(cwd) ?? null,

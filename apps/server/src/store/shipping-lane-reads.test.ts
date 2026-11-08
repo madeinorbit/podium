@@ -13,6 +13,7 @@ import {
   type ShipOrder,
   shipLaneId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
@@ -113,8 +114,8 @@ async function seeded(orders: readonly ShipOrder[]): Promise<SessionStore> {
   const s = await openTestStore(':memory:')
   stores.push(s)
   for (const [index, order] of orders.entries()) {
-    await s.issues.upsertIssue(issue(order.issueId, index + 1))
-    await s.shipping.createOrder(order)
+    await s.issues.upsertIssue(fixtureWriteScope(), issue(order.issueId, index + 1))
+    await s.shipping.createOrder(fixtureWriteScope(), order)
   }
   return s
 }
@@ -132,7 +133,13 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       shipOrder('other-destination', 5, { destination: 'git:origin/main' }),
       shipOrder('other-repo', 6, { repoId: asRepoId('repo-2') }),
     ])
-    await s.shipping.transitionOrder('started', 'queued', 'preflight', '2026-08-12T11:00:00.000Z')
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      'started',
+      'queued',
+      'preflight',
+      '2026-08-12T11:00:00.000Z',
+    )
     const lane = await s.shipping.queuedLaneOrders(asRepoId('repo-1'), 'local:main')
     expect(lane.map((order) => order.id)).toEqual([
       'spelled-ref',
@@ -156,7 +163,13 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       shipOrder('cancelled', 3, { deliveryDependsOn: [asShipOrderId('dependency')] }),
       shipOrder('unrelated', 4, { deliveryDependsOn: [asShipOrderId('elsewhere')] }),
     ])
-    await s.shipping.transitionOrder('cancelled', 'queued', 'cancelled', '2026-08-12T11:00:00.000Z')
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      'cancelled',
+      'queued',
+      'cancelled',
+      '2026-08-12T11:00:00.000Z',
+    )
     expect((await s.shipping.queuedDependentsOf(['dependency'])).map((order) => order.id)).toEqual([
       'same-lane',
       'cross-lane',
@@ -174,7 +187,8 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       // CONSTANT-IDENTIFIER STATEMENT POD-5612 — the probe interpolates the
       // constant the assertion above verified against sqlite_master, to prove
       // the index serves that exact shape. Nothing user-supplied enters it.
-      sql.raw( // CONSTANT-IDENTIFIER STATEMENT POD-5612
+      sql.raw(
+        // CONSTANT-IDENTIFIER STATEMENT POD-5612
         `EXPLAIN QUERY PLAN SELECT id FROM ship_orders WHERE ${ACTIVE_SHIP_ORDER_TERM} AND state = 'queued' AND EXISTS (SELECT 1 FROM json_each(delivery_depends_on) WHERE json_each.value IN ('dependency'))`,
       ),
     )) as { detail: string }[]
@@ -185,7 +199,7 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
 
   it('reads open holds, receipts and stack edges only for the orders asked about', async () => {
     const s = await seeded([shipOrder('lower', 0), shipOrder('upper', 1), shipOrder('other', 2)])
-    await s.shipping.recordNativeStackEdge({
+    await s.shipping.recordNativeStackEdge(fixtureWriteScope(), {
       upperOrderId: asShipOrderId('upper'),
       lowerOrderId: asShipOrderId('lower'),
       recordedAt: '2026-08-12T11:00:00.000Z',

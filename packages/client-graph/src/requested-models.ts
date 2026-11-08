@@ -123,6 +123,9 @@ registerModels(
         identityFingerprint: 'string',
         status: 'enum',
         credentialSource: 'enum',
+        // Per-user managed key sharing
+        sharing: 'object',
+        sharedBy: 'string',
         // Machine/login observations
         machines: 'object',
         serverAi: 'object',
@@ -142,6 +145,8 @@ registerModels(
         'identity',
         'identityFingerprint',
         'credentialSource',
+        'sharing',
+        'sharedBy',
         'machines',
         'serverAi',
         'loginRequired',

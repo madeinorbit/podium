@@ -37,6 +37,7 @@ import { describe, expect, it } from 'vitest'
 // because the barrel is the corpus's surface to curate, and this file has no
 // claim on widening it.
 import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import { CODEX_SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
@@ -138,6 +139,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     (/rollout-(.+)\.jsonl$/.exec(input.pathHint?.split('/').at(-1) ?? '')?.[1] ?? '')
 
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++seq
       return {
@@ -467,6 +469,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       },
       spec: () => ({
         harness: 'codex',
+        harnessContext: testHarnessContext({ kind: 'codex' }),
         selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
         workdir: '/tmp/conformance-codex',
         model: {},

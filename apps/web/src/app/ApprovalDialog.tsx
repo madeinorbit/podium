@@ -1,5 +1,5 @@
 import { observer } from '@podium/client-graph/react'
-import { describeApprovalOp, formatLong, issueDisplayRef } from '@podium/protocol'
+import { describeApprovalOp, formatLong, issueDisplayRef, submitNow } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -32,8 +32,31 @@ export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | 
     setPendingAction(approve ? 'approve' : 'deny')
     setError(null)
     try {
-      if (approve) await trpc.approvals.approve.mutate({ id: current.id })
-      else await trpc.approvals.deny.mutate({ id: current.id })
+      // On the sync write entry point (POD-6415): the decision is written, and
+      // the operation runs after it commits. LEGACY(remove-after: 2027-03): a
+      // server without `sync.submit` takes the old route.
+      const id = current.id
+      if (approve) {
+        await submitNow(
+          trpc,
+          'approvals.approve',
+          { id },
+          {
+            action: 'approve this request',
+            legacy: async () => await trpc.approvals.approve.mutate({ id }),
+          },
+        )
+      } else {
+        await submitNow(
+          trpc,
+          'approvals.deny',
+          { id },
+          {
+            action: 'deny this request',
+            legacy: async () => await trpc.approvals.deny.mutate({ id }),
+          },
+        )
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not record the decision. Try again.')
     } finally {

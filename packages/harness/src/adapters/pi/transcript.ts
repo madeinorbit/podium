@@ -1,11 +1,11 @@
 import type { TranscriptItem } from '@podium/model'
-import { toolInputPreview } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import { contentToText, isRecord, stringField } from '../shared/json-util.js'
-import type { HarnessRuntimeObservation } from '../../transcript-types.js'
-import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
-import { locatePiSessionFile } from '../../pi/paths.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+import { locatePiSessionFile } from '../../pi/paths.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import { toolInputPreview } from '../claude-code/transcript.js'
+import { contentToText, isRecord, stringField } from '../shared/json-util.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /**
  * Normalize one Pi session JSONL entry into Podium chat items.
@@ -240,14 +240,14 @@ function truncate(s: string, max: number): string {
 // authoritative transcript definition for this harness (spec §4).
 // ---------------------------------------------------------------------------
 
-
 export async function piChainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   const path = await locatePiSessionFile({
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
   })
   return path ? [path] : []
 }

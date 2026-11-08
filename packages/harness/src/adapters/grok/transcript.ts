@@ -66,17 +66,22 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
       // Measured 35/35: the prompt's submit hook_execution is immediately
       // before its chunk. Reader-local context only; a clipped read has no id.
       const preceding = recordField(recordField(previousRecord, 'params'), 'update')
-      const promptId = stringField(preceding, 'sessionUpdate') === 'hook_execution' &&
+      const promptId =
+        stringField(preceding, 'sessionUpdate') === 'hook_execution' &&
         stringField(preceding, 'event_name') === 'user_prompt_submit'
-        ? stringField(preceding, 'prompt_id') : undefined
+          ? stringField(preceding, 'prompt_id')
+          : undefined
       if (!text && tags.length === 0) return []
       // A LATER CHUNK OF THE SAME PROMPT IS NOT ANOTHER ENTRY (POD-5923).
       // Measured on 1.0.46, a paste of image paths alone is recorded as a
       // text chunk of `[Image #N]` placeholders and then one image chunk per
       // image, all with the prompt's `promptIndex`. The image chunks are that
       // prompt's images; counted as entries they were unexplained prompts.
-      const companion = !text && stringField(preceding, 'sessionUpdate') === 'user_message_chunk' &&
-        promptIndexOf(preceding) !== undefined && promptIndexOf(preceding) === promptIndexOf(update)
+      const companion =
+        !text &&
+        stringField(preceding, 'sessionUpdate') === 'user_message_chunk' &&
+        promptIndexOf(preceding) !== undefined &&
+        promptIndexOf(preceding) === promptIndexOf(update)
       return [
         {
           id: SYNTHESIZED_ITEM_ID_PREFIX,
@@ -469,7 +474,8 @@ export async function grokChainPaths(input: TranscriptSourceInput): Promise<stri
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
     ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
   })
   return path ? [path] : []

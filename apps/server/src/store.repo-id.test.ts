@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -109,9 +110,9 @@ describe('repo_id schema (v8, #74)', () => {
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', async () => {
     const s = await openTestStore(':memory:')
     await s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3, machineId: s.hostMachineId }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3, machineId: s.hostMachineId }))
     const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/r' })
     expect((await s.repos.listRepos())[0]?.repoId).toBe(fallback)
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(fallback)
@@ -141,7 +142,7 @@ describe('repo_id schema (v8, #74)', () => {
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', async () => {
     const s = await openTestStore(':memory:')
     await s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(
       deriveRepoId({
         originUrl: 'https://github.com/o/repo',
@@ -258,7 +259,7 @@ describe('stored repo ids are read, never re-derived', () => {
     expect(await s.repos.resolveRepoIdForPath('/legacy/deep/inside')).toBe(stored)
     expect(deriveRepoId({ machineId: s.hostMachineId, path: '/legacy' })).not.toBe(stored)
     // And its issues keep pointing at it.
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(stored)
     await s.close()
   })
@@ -266,11 +267,11 @@ describe('stored repo ids are read, never re-derived', () => {
   it('uses an issue caller machine and refuses an unplaced issue', async () => {
     const s = await openTestStore(':memory:')
     try {
-      await expect(s.issues.upsertIssue(issueRow({ repoPath: '/undiscovered' })))
+      await expect(s.issues.upsertIssue(fixtureWriteScope(), issueRow({ repoPath: '/undiscovered' })))
         .rejects.toThrow('no reporting machine')
       expect(await s.issues.getIssue('iss_x')).toBeNull()
       const machineId = asMachineId('caller-machine')
-      await s.issues.upsertIssue(issueRow({ repoPath: '/undiscovered', machineId }))
+      await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ repoPath: '/undiscovered', machineId }))
       expect((await s.issues.getIssue('iss_x'))?.repoId).toBe(
         deriveRepoId({ machineId, path: '/undiscovered' }),
       )

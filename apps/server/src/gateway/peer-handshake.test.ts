@@ -26,6 +26,7 @@ import {
   machineUseAllowed,
 } from '@podium/protocol'
 import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { mintPairingToken, openEnrollmentLedger } from '../enrollment-ledger'
 import { PairingManager } from '../hub/pairing'
@@ -1028,7 +1029,7 @@ describe('legacy binding ownership handoff', () => {
         tokenHash: sha256('tok'),
         ownerUserId: owner,
       })
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id: asSessionId(`legacy-${machineId}`),
         ownerUserId: owner,
         agentKind: 'codex',

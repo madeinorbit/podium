@@ -1,30 +1,43 @@
-import { firstAdminMemberId, asAgentIdentityId } from '@podium/model'
-import { asMachineId, asSessionId, type MachineId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asSessionId,
+  firstAdminMemberId,
+  type MachineId,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { Session } from './session'
-import type { HandoffPorts } from './handoff/ports'
-import { HandoffTransfer, type HandoffTransferPorts } from './handoff/transfer'
-import type { HandoffPlacement } from './handoff/placement'
-import type { HandoffPreflightResult } from './handoff/preflight'
-import type { SessionRepository } from './repository'
-import { SessionRevival, type SessionRevivalPorts } from './session-revival'
-import { SessionTeardown, type SessionTeardownPorts } from './session-teardown'
-import { SessionClientPlane, type SessionClientPlanePorts } from './session-client-plane'
-import { SessionMachineReconciler, type MachineReconcilerPorts } from './machine-reconciler'
 import { SessionClientControl, type SessionClientControlPorts } from './client-control'
-import { SessionStateService, type SessionStatePorts } from './session-state/service'
+import type { HandoffPlacement } from './handoff/placement'
+import type { HandoffPorts } from './handoff/ports'
+import type { HandoffPreflightResult } from './handoff/preflight'
+import { HandoffTransfer, type HandoffTransferPorts } from './handoff/transfer'
+import { type MachineReconcilerPorts, SessionMachineReconciler } from './machine-reconciler'
+import type { SessionRepository } from './repository'
+import { Session } from './session'
+import { SessionClientPlane, type SessionClientPlanePorts } from './session-client-plane'
+import { SessionRevival, type SessionRevivalPorts } from './session-revival'
+import { type SessionStatePorts, SessionStateService } from './session-state/service'
+import { SessionTeardown, type SessionTeardownPorts } from './session-teardown'
 
 function deferred() {
   let resolve!: () => void
-  const promise = new Promise<void>(done => { resolve = done })
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 
 function fixture() {
   const session = new Session({
     ownerUserId: firstAdminMemberId(),
-    delegation: { actor: asAgentIdentityId('durable-order'), onBehalfOf: firstAdminMemberId(), grantedScope: { kind: 'all' }, parentBindingId: null, revision: 1 },
+    delegation: {
+      actor: asAgentIdentityId('durable-order'),
+      onBehalfOf: firstAdminMemberId(),
+      grantedScope: { kind: 'all' },
+      parentBindingId: null,
+      revision: 1,
+    },
     sessionId: asSessionId('durable-order'),
     durableLabel: 'podium-durable-order',
     agentKind: 'claude-code',
@@ -41,8 +54,15 @@ function fixture() {
   const events: string[] = []
   const entered = deferred()
   const commit = deferred()
-  const repository: Pick<SessionRepository, 'write'> = {
-    async write(subject, mutate) {
+  // Serves both shapes: the repository's `write(writer, session, mutate)` and
+  // the PORT a session service takes, `write(session, mutate)`, which is the
+  // repository's write with its writer bound.
+  const repository = {
+    async write(...args: unknown[]) {
+      const [subject, mutate] = (args[0] instanceof Session ? args : args.slice(1)) as [
+        Session,
+        (draft: ReturnType<Session['captureDurableState']>) => unknown,
+      ]
       const draft = subject.captureDurableState()
       mutate(draft)
       entered.resolve()
@@ -67,14 +87,18 @@ describe('durable session write ordering', () => {
       repository: f.repository,
       now: () => 0,
       autoContinue: { onSessionGone() {} },
-      rpc: { runtimeLifecycle: async () => {
-        f.events.push(`kill:${f.session.status}`)
-        return { result: { ok: true, retirement: 'confirmed' } }
-      } },
+      rpc: {
+        runtimeLifecycle: async () => {
+          f.events.push(`kill:${f.session.status}`)
+          return { result: { ok: true, retirement: 'confirmed' } }
+        },
+      },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
-    const pending = teardown.hibernateSession({ sessionId: f.session.sessionId })
-      .then(result => { f.events.push(`return:${f.session.status}`); return result })
+    const pending = teardown.hibernateSession({ sessionId: f.session.sessionId }).then((result) => {
+      f.events.push(`return:${f.session.status}`)
+      return result
+    })
     await f.entered.promise
     f.commit.resolve()
     expect(await pending).toEqual({ ok: true })
@@ -88,14 +112,18 @@ describe('durable session write ordering', () => {
       write: f.repository.write,
       onSessionGone() {},
       broadcastSessions() {},
-      toMachine: () => { f.events.push('kill') },
+      toMachine: () => {
+        f.events.push('kill')
+      },
     } as unknown as HandoffTransferPorts)
     const pending = transfer.apply(
       { session: f.session } as HandoffPlacement,
       {} as HandoffPreflightResult,
       { sessionId: f.session.sessionId, machineId: asMachineId('target') },
       {} as Parameters<HandoffTransfer['apply']>[3],
-      () => { if (revoked) throw new Error('machine grant revoked') },
+      () => {
+        if (revoked) throw new Error('machine grant revoked')
+      },
     )
     await f.entered.promise
     revoked = true
@@ -105,14 +133,19 @@ describe('durable session write ordering', () => {
     expect(f.events).toEqual(['commit', 'commit'])
   })
 
-  it.each(['source', 'rollback'] as const)('handoff %s commit precedes process control', async (phase) => {
+  it.each([
+    'source',
+    'rollback',
+  ] as const)('handoff %s commit precedes process control', async (phase) => {
     const f = fixture()
     if (phase === 'rollback') f.session.status = 'hibernated'
     const transfer = new HandoffTransfer({
       write: f.repository.write,
       onSessionGone() {},
       broadcastSessions() {},
-      toMachine: () => { f.events.push('kill') },
+      toMachine: () => {
+        f.events.push('kill')
+      },
       sleep: async () => {},
       rpc: {
         runtimeLifecycle: async () => {
@@ -127,19 +160,26 @@ describe('durable session write ordering', () => {
         return { ok: true }
       },
     } as unknown as HandoffTransferPorts)
-    const pending = transfer.apply(
-      { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
-      {} as HandoffPreflightResult,
-      { sessionId: f.session.sessionId, machineId: asMachineId('target') },
-      {} as Parameters<HandoffTransfer['apply']>[3],
-      () => {},
-    ).then(() => 'unexpected success', error => error.message)
+    const pending = transfer
+      .apply(
+        { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
+        {} as HandoffPreflightResult,
+        { sessionId: f.session.sessionId, machineId: asMachineId('target') },
+        {} as Parameters<HandoffTransfer['apply']>[3],
+        () => {},
+      )
+      .then(
+        () => 'unexpected success',
+        (error) => error.message,
+      )
     await f.entered.promise
     f.commit.resolve()
     expect(await pending).toBe('export refused')
-    expect(f.events).toEqual(phase === 'source'
-      ? ['commit', 'kill', 'commit', 'resume:hibernated']
-      : ['commit', 'resume:hibernated'])
+    expect(f.events).toEqual(
+      phase === 'source'
+        ? ['commit', 'kill', 'commit', 'resume:hibernated']
+        : ['commit', 'resume:hibernated'],
+    )
   })
 
   it('handoff aborts before export when source retirement is unconfirmed', async () => {
@@ -148,7 +188,9 @@ describe('durable session write ordering', () => {
       write: f.repository.write,
       onSessionGone() {},
       broadcastSessions() {},
-      toMachine: () => { f.events.push('escalation-kill') },
+      toMachine: () => {
+        f.events.push('escalation-kill')
+      },
       sleep: async () => {},
       rpc: {
         // A legacy acknowledgement: the verb ran, but no process death was measured.
@@ -164,13 +206,18 @@ describe('durable session write ordering', () => {
       },
       resurrectSession: async () => ({ ok: true }),
     } as unknown as HandoffTransferPorts)
-    const pending = transfer.apply(
-      { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
-      {} as HandoffPreflightResult,
-      { sessionId: f.session.sessionId, machineId: asMachineId('target') },
-      {} as Parameters<HandoffTransfer['apply']>[3],
-      () => {},
-    ).then(() => 'unexpected success', error => error.message)
+    const pending = transfer
+      .apply(
+        { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
+        {} as HandoffPreflightResult,
+        { sessionId: f.session.sessionId, machineId: asMachineId('target') },
+        {} as Parameters<HandoffTransfer['apply']>[3],
+        () => {},
+      )
+      .then(
+        () => 'unexpected success',
+        (error) => error.message,
+      )
     await f.entered.promise
     f.commit.resolve()
     expect(await pending).toBe('source process retirement was not confirmed')
@@ -181,7 +228,11 @@ describe('durable session write ordering', () => {
     return new SessionRevival({
       repository: f.repository,
       instructionsForStart: async () => ({ instructions: [], commit: async () => {} }),
-      terminalProof: { fence: async () => { f.events.push(`fence:${f.session.status}`) } },
+      terminalProof: {
+        fence: async () => {
+          f.events.push(`fence:${f.session.status}`)
+        },
+      },
       toMachine: (_machine: MachineId, message: ControlMessage) => {
         if (message.type === 'spawn') f.events.push(`spawn:${message.cwd}`)
       },
@@ -218,25 +269,31 @@ describe('durable session write ordering', () => {
   })
 })
 
-
 describe('async session port boundaries', () => {
   it('reattach includes the committed fence identity and resolved transcript hint', async () => {
     const f = fixture()
     const plane = new SessionClientPlane({
-      terminalProof: { fence: async () => {
-        await Promise.resolve()
-        return { observationGeneration: 7, bindingVersion: 4, providerSessionId: 'provider' }
-      } },
-      rpc: { transcriptPathHint: async () => {
-        await Promise.resolve()
-        return { pathHint: '/recorded/transcript' }
-      } },
+      terminalProof: {
+        fence: async () => {
+          await Promise.resolve()
+          return { observationGeneration: 7, bindingVersion: 4, providerSessionId: 'provider' }
+        },
+      },
+      rpc: {
+        transcriptPathHint: async () => {
+          await Promise.resolve()
+          return { pathHint: '/recorded/transcript' }
+        },
+      },
       machines: { ownershipRows: async () => [], grantsForMachine: async () => [] },
       state: { draftSyncEnabled: () => false },
     } as unknown as SessionClientPlanePorts)
     expect(await plane.reattachMessageFor(f.session, f.session.machineId)).toMatchObject({
-      type: 'reattach', observationGeneration: 7, observationBindingVersion: 4,
-      observationProviderSessionId: 'provider', pathHint: '/recorded/transcript',
+      type: 'reattach',
+      observationGeneration: 7,
+      observationBindingVersion: 4,
+      observationProviderSessionId: 'provider',
+      pathHint: '/recorded/transcript',
       binding: { transitionId: `reattach:${f.session.sessionId}:7` },
     })
   })
@@ -252,37 +309,56 @@ describe('async session port boundaries', () => {
         f.events.push(`reattach:${f.session.status}`)
         return { type: 'reattach' } as ControlMessage
       },
-      toMachine: () => { f.events.push('send') },
+      toMachine: () => {
+        f.events.push('send')
+      },
       broadcastSessions() {},
     } as unknown as MachineReconcilerPorts)
-    const pending = reconciler.reviveParkedButAlive(f.session, f.session.machineId, 'test census', { measuredPtyHost: true })
+    const pending = reconciler.reviveParkedButAlive(f.session, f.session.machineId, 'test census', {
+      measuredPtyHost: true,
+    })
     await f.entered.promise
     f.commit.resolve()
     await pending
     expect(f.events).toEqual(['commit', 'reattach:reconnecting', 'send'])
   })
 
-  it.each(['setSessionDraft', 'draftEdit'] as const)('%s frame waits for its draft port', async (type) => {
-    const entered = deferred(), release = deferred()
+  it.each([
+    'setSessionDraft',
+    'draftEdit',
+  ] as const)('%s frame waits for its draft port', async (type) => {
+    const entered = deferred(),
+      release = deferred()
     const events: string[] = []
     const write = async () => {
       entered.resolve()
       await release.promise
       events.push('draft saved')
     }
-    const control = new SessionClientControl({ setDraft: write, editDraft: write } as unknown as SessionClientControlPorts)
-    const pending = control.onFrame(
-      {} as Parameters<SessionClientControl['onFrame']>[0],
-      { id: 'client' } as Parameters<SessionClientControl['onFrame']>[1],
-      { type, sessionId: asSessionId('draft'), text: '', baseRev: 0 },
-    ).then(() => { events.push('frame returned') })
+    const control = new SessionClientControl({
+      setDraft: write,
+      editDraft: write,
+    } as unknown as SessionClientControlPorts)
+    const pending = control
+      .onFrame(
+        {} as Parameters<SessionClientControl['onFrame']>[0],
+        { id: 'client' } as Parameters<SessionClientControl['onFrame']>[1],
+        { type, sessionId: asSessionId('draft'), text: '', baseRev: 0 },
+      )
+      .then(() => {
+        events.push('frame returned')
+      })
     await entered.promise
     release.resolve()
     await pending
     expect(events).toEqual(['draft saved', 'frame returned'])
   })
 
-  it.each(['archive', 'shell', 'stale'] as const)('%s parking commits before killing the process', async (kind) => {
+  it.each([
+    'archive',
+    'shell',
+    'stale',
+  ] as const)('%s parking commits before killing the process', async (kind) => {
     const f = fixture()
     if (kind === 'shell') Object.assign(f.session, { agentKind: 'shell' })
     const teardown = new SessionTeardown({
@@ -291,15 +367,20 @@ describe('async session port boundaries', () => {
       now: () => 0,
       autoContinue: { onSessionGone() {} },
       rearmUnread: async () => {},
-      rpc: { runtimeLifecycle: async () => {
-        f.events.push(`kill:${f.session.status}`)
-        return { result: { ok: true, retirement: 'confirmed' } }
-      } },
+      rpc: {
+        runtimeLifecycle: async () => {
+          f.events.push(`kill:${f.session.status}`)
+          return { result: { ok: true, retirement: 'confirmed' } }
+        },
+      },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
-    const pending = kind === 'archive' ? teardown.parkArchivedSession(f.session.sessionId)
-      : kind === 'shell' ? teardown.parkShellSession(f.session.sessionId)
-      : teardown.parkStaleSession({ sessionId: f.session.sessionId })
+    const pending =
+      kind === 'archive'
+        ? teardown.parkArchivedSession(undefined as never, f.session.sessionId)
+        : kind === 'shell'
+          ? teardown.parkShellSession(f.session.sessionId)
+          : teardown.parkStaleSession({ sessionId: f.session.sessionId })
     await f.entered.promise
     f.commit.resolve()
     await pending
@@ -311,10 +392,16 @@ describe('async session port boundaries', () => {
     const state = new SessionStateService({
       store: { sessions: { setDraftDoc: async () => {}, draftDocOf: async () => undefined } },
       getSession: () => f.session,
-      writeSession: async (_id: Parameters<SessionStatePorts['writeSession']>[0], mutate: Parameters<SessionStatePorts['writeSession']>[1]) => {
+      writeSession: async (
+        _writer: Parameters<SessionStatePorts['writeSession']>[0],
+        _id: Parameters<SessionStatePorts['writeSession']>[1],
+        mutate: Parameters<SessionStatePorts['writeSession']>[2],
+      ) => {
         await f.repository.write(f.session, mutate)
       },
-      broadcastToClients: () => { f.events.push('published') },
+      broadcastToClients: () => {
+        f.events.push('published')
+      },
       broadcastSessions() {},
     } as unknown as SessionStatePorts)
     const pending = state.setDraft({ sessionId: f.session.sessionId, text: 'draft' })
@@ -336,12 +423,20 @@ describe('async session port boundaries', () => {
     const state = new SessionStateService({
       store: {
         sessions: {
-          setDraftDoc: async (_id: string, doc: { text: string }) => { persisted.push(doc.text) },
+          setDraftDoc: async (_id: string, doc: { text: string }) => {
+            persisted.push(doc.text)
+          },
           draftDocOf: async () => undefined,
         },
       },
       getSession: () => f.session,
-      writeSession: async (_id: Parameters<SessionStatePorts['writeSession']>[0], mutate: Parameters<SessionStatePorts['writeSession']>[1]) => { await f.repository.write(f.session, mutate) },
+      writeSession: async (
+        _writer: Parameters<SessionStatePorts['writeSession']>[0],
+        _id: Parameters<SessionStatePorts['writeSession']>[1],
+        mutate: Parameters<SessionStatePorts['writeSession']>[2],
+      ) => {
+        await f.repository.write(f.session, mutate)
+      },
       broadcastToClients() {},
       broadcastSessions() {},
     } as unknown as SessionStatePorts)

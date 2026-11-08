@@ -44,14 +44,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
 import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import type { PodiumClientApi } from '../api'
-import {
-  type AwaitingTruth,
-  insertOverlay,
-  type OverlayEntity,
-  type OverlayTarget,
-  type PendingOverlay,
-  pruneAwaiting,
-} from '../command-reducers'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'
@@ -279,7 +271,6 @@ function makeEngine(
     hub?: FakeHub
     storage?: StorageApi
     replica?: Replica
-    spawnConfirmGraceMs?: number
     workspacePruneGraceMs?: number
     draftSendDebounceMs?: number
     draftPersistDebounceMs?: number
@@ -303,9 +294,6 @@ function makeEngine(
       opts.replica ?? createReplicaFixture({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
-    ...(opts.spawnConfirmGraceMs !== undefined
-      ? { spawnConfirmGraceMs: opts.spawnConfirmGraceMs }
-      : {}),
     ...(opts.workspacePruneGraceMs !== undefined
       ? { workspacePruneGraceMs: opts.workspacePruneGraceMs }
       : {}),
@@ -499,29 +487,25 @@ describe('replicated layout routing', () => {
     const dock = makeEngine()
     dock.engine.access.setDockTab('git')
     await settle()
-    expect(dock.engine.outbox.pending()).toMatchObject([
-      { kind: 'layoutSet', input: { values: { dockTab: 'git' } } },
-    ])
+    // One key: a record edit of my layout row (POD-6404).
+    const layout = (key: string, value: unknown) => ({
+      kind: 'recordEdit',
+      input: { kind: 'userLayout', id: expect.stringContaining(key), patch: { value } },
+    })
+    expect(dock.engine.outbox.pending()).toMatchObject([layout('dockTab', 'git')])
     dock.engine.dispose()
 
     const superPanel = makeEngine()
     superPanel.engine.access.setSuperOpen(false)
     await settle()
-    expect(superPanel.engine.outbox.pending()).toMatchObject([
-      { kind: 'layoutSet', input: { values: { superOpen: '0' } } },
-    ])
+    expect(superPanel.engine.outbox.pending()).toMatchObject([layout('superOpen', '0')])
     superPanel.engine.dispose()
 
     const panelMode = makeEngine()
     panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
     expect(panelMode.engine.outbox.pending()).toMatchObject([
-      {
-        kind: 'layoutSet',
-        input: {
-          values: { panelMode: JSON.stringify({ 'session-1': 'native' }) },
-        },
-      },
+      layout('panelMode', JSON.stringify({ 'session-1': 'native' })),
     ])
     panelMode.engine.dispose()
   })
@@ -827,31 +811,22 @@ describe('engine lifecycle', () => {
   })
 })
 
-describe('session resurrection', () => {
-  it('reports a rejected resurrection instead of silently swallowing it', async () => {
+describe('session resurrection (POD-6399)', () => {
+  // Resume is an edit of the session record now; how it went shows on the
+  // session (`sessionTransition`), so the old call's refusal toasts are gone.
+  it('is an edit of the session record, never the old resurrect call', async () => {
     const api = makeApi()
-    api.sessions.resurrect = {
-      mutate: vi.fn(async () => ({ ok: false, reason: 'worktree unavailable' })),
-    }
+    const resurrect = vi.fn(async () => ({ ok: true }))
+    api.sessions.resurrect = { mutate: resurrect }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.access.resurrectSession(asSessionId('sleeping'))
+    const result = await engine.access.resurrectSession(asSessionId('sleeping'))
 
-    expect(errors).toEqual(["Couldn't resume the session — worktree unavailable"])
-  })
-
-  it('reports a resurrection transport failure', async () => {
-    const api = makeApi()
-    api.sessions.resurrect = {
-      mutate: vi.fn(async () => {
-        throw new Error('server offline')
-      }),
-    }
-    const { engine, errors } = makeEngine({ api })
-
-    await engine.access.resurrectSession(asSessionId('sleeping'))
-
-    expect(errors).toEqual(["Couldn't resume the session — server offline"])
+    expect(resurrect).not.toHaveBeenCalled()
+    // This fixture attaches no pool writer: the edit is refused, and says so.
+    expect(result.ok).toBe(false)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatch(/^Couldn't change the session — /)
   })
 })
 

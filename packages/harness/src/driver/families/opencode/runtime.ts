@@ -54,6 +54,7 @@ import { transcriptItemRefOf } from '@podium/model'
 import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
@@ -89,7 +90,12 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -212,8 +218,18 @@ export interface OpencodeRuntimeHost {
      *  so a host cannot accidentally reuse one across sessions. */
     secret: string
     username: string
+    /** The session's pinned harness context (POD-6546): the server runs its
+     *  installation and starts from its environment. */
+    harnessContext: HarnessContext
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): a
+   * wake that restarts a parked server. The one the session was spawned with
+   * while this host holds it; after a supervisor restart, one rebuilt from
+   * the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
 
   stageAttachment: AttachmentStager
 
@@ -455,7 +471,7 @@ interface PromptRecordWaiter {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: OpencodeServerEndpoint
   promptRecords: Set<PromptRecordWaiter>
   promptFingerprints: Map<string, PromptFingerprint>
@@ -1708,7 +1724,7 @@ export function createOpencodeRuntime(
    * asymmetric here and a 400 from getting it wrong names neither field.
    */
   function modelFor(
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
     input: TurnInput,
   ): { providerID: string; modelID: string } | undefined {
     const override = input.overrides?.supported ? input.overrides.value.model : undefined
@@ -1732,7 +1748,7 @@ export function createOpencodeRuntime(
    * `auto` means opencode's own default, so it sends no `variant` at all rather
    * than a variant literally named "auto".
    */
-  function effortFor(spec: SessionSpec, input: TurnInput): string | undefined {
+  function effortFor(spec: EngineSessionSpec, input: TurnInput): string | undefined {
     const override = input.overrides?.supported ? input.overrides.value.effort : undefined
     const raw = override ?? spec.model.effort
     return raw && raw !== 'auto' ? raw : undefined
@@ -2601,12 +2617,13 @@ export function createOpencodeRuntime(
       workdir: entry.workdir,
       secret: host.randomSecret(),
       username: entry.username,
+      harnessContext: await host.harnessContextFor(entry.sessionId),
     })
   }
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: OpencodeServerEndpoint
     opencodeSessionId: OpencodeSessionId
     bindingVersion: number
@@ -2716,6 +2733,7 @@ export function createOpencodeRuntime(
       workdir: spec.workdir,
       secret,
       username,
+      harnessContext: spec.harnessContext,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const make = host.makeClient ?? createOpencodeClient
@@ -2780,6 +2798,7 @@ export function createOpencodeRuntime(
         workdir: spec.workdir,
         secret,
         username: 'podium',
+        harnessContext: spec.harnessContext,
         ...(spec.env ? { env: spec.env } : {}),
       })
       return attachSession({

@@ -9,7 +9,8 @@
 
 import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
-import { type MailHandlerContext, personOf } from './context'
+import { MailRefusal } from '../refusal'
+import { type MailHandlerContext, mailWriter, personOf } from './context'
 
 export async function inboxConsumeHandler(
   ctx: MailHandlerContext,
@@ -42,6 +43,7 @@ export async function inboxConsumeHandler(
         (await deps.issues.hierarchy.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
     const rows = await svc.readInbox(
+      mailWriter(ctx, 'mail.inboxConsume'),
       [{ kind: 'issue', id }],
       consume !== undefined ? { consume } : {},
     )
@@ -52,11 +54,13 @@ export async function inboxConsumeHandler(
     )
   }
   const principals = access.callerPrincipals(caller.capability)
-  if (principals.length === 0) throw new Error('no mailbox bound to this caller')
+  if (principals.length === 0) throw new MailRefusal('invalid', 'no mailbox bound to this caller')
   return await Promise.all(
-    (await svc.readInbox(principals, { consume: caller.capability.actorSessionId ?? null })).map(
-      async (m) => await access.wire(m),
-    ),
+    (
+      await svc.readInbox(mailWriter(ctx, 'mail.inboxConsume'), principals, {
+        consume: caller.capability.actorSessionId ?? null,
+      })
+    ).map(async (m) => await access.wire(m)),
   )
 }
 
@@ -81,7 +85,7 @@ async function humanInbox(
   } else {
     box = { kind: 'operator' }
   }
-  const rows = await deps.messages.readInbox([box], {})
+  const rows = await deps.messages.readInbox(mailWriter(ctx, 'mail.inboxConsume'), [box], {})
   return await Promise.all(
     (await access.visibleTo(caller, rows)).map(async (m) => await access.wire(m)),
   )

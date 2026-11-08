@@ -27,6 +27,7 @@ import {
 } from './headless-turn.js'
 import type { SessionSpec } from './session-spec.js'
 import type { SendOptions, TurnInput } from './turns.js'
+import { testHarnessContext } from './testing/harness-context.js'
 import { createFakeDriver, resetFakeRuntime } from './testing/fake-driver.js'
 
 const DIGEST_A = 'a'.repeat(64)
@@ -36,6 +37,7 @@ const OTHER_ACCOUNT = 'native:fake-harness:fp-2'
 
 const SPEC: SessionSpec = {
   harness: 'fake-harness',
+  harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: { auth: 'unknown', platform: 'linux', available: ['fake'] },
   workdir: '/repo',
   model: {},

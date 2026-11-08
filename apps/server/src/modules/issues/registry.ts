@@ -36,6 +36,7 @@ import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
+import { artifactEffectCommitOf } from './artifact-effect-record'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import { eventsForMember } from './event-visibility'
 import { isCommentAuthor } from './service/mail'
@@ -413,6 +414,28 @@ function withWarning<T>(gate: { warning?: string }, result: T): T {
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
  *  never dodge the lane. A person (any member, POD-6288) passes through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
+/**
+ * M5 [spec:SP-6144]: who may start this issue. The whole proposal SUBTREE is
+ * inert: a sub-issue filed under a proposed parent cannot be started to run
+ * work under an unapproved proposal, so the ancestor chain is checked, not
+ * just the row. The `start` handler, and its answer with no machine
+ * (`work-effects.ts`, POD-6603).
+ */
+export async function assertStartable(
+  ctx: {
+    reports: { get(id: string): Promise<{ stage: string } | null> }
+    hierarchy: { ancestorIds(id: string): Promise<readonly string[]> }
+    caller: IssueCaller
+  },
+  id: string,
+): Promise<void> {
+  await assertNotProposedForAgent(ctx, id, 'start')
+  if (isPersonCapability(ctx.caller.capability)) return
+  for (const anc of await ctx.hierarchy.ancestorIds(id)) {
+    await assertNotProposedForAgent(ctx, anc, 'start work under')
+  }
+}
+
 async function assertNotProposedForAgent(
   ctx: {
     reports: { get(id: string): Promise<{ stage: string } | null> }
@@ -598,6 +621,16 @@ type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
   : C extends { readonly conflict: ConflictClass }
     ? unknown
     : { readonly __mutationContractMustDeclareARealConflictClassNotNA: never }
+
+/** The git actions' effect port (`git-effects.ts`); the composed server always
+ *  wires it, and a context without it has no git action to run. */
+function gitEffectsOf(ctx: IssueCommandCtx): NonNullable<IssueCommandCtx['deps']['gitEffects']> {
+  const port = ctx.deps.gitEffects
+  if (port === undefined) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'the git effects are not wired' })
+  }
+  return port
+}
 
 function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   name: N,
@@ -932,11 +965,38 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
-      // add pulls a snapshot from the owning daemon before the panel commit;
-      // remove also deletes the snapshot dir.
+      if (input.op === 'artifact-add' || input.op === 'artifact-remove') {
+        // The commit of an artifact effect (POD-6420), on the entry point: the
+        // entry comes from the record, never from the call.
+        if (input.effectId !== undefined) {
+          const port = ctx.deps.artifactEffects
+          if (port === undefined) throw new IssueRefusal('artifact effects are not served here')
+          const issueId = await ctx.reports.resolveRef(input.id)
+          const change = artifactEffectCommitOf(await port.record(input.effectId), {
+            issueId,
+            op: input.op,
+            principal: ctx.caller.principal,
+          })
+          return await ctx.crud.panelApply(
+            issueId,
+            change.op === 'artifact-add' ? { op: 'artifact-add', ...change.entry } : change,
+          )
+        }
+      }
+      // An upload's byte packets (`begin`, `chunk`, `abort`) are transport into
+      // private staging: no issue write, so no writer (POD-6605). Served, every
+      // other artifact op is an effect record and never runs below.
       if (input.op === 'artifact-upload') {
         if (!input.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
+        if (input.upload.action !== 'commit') {
+          return await ctx.crud.stageArtifactUpload(input.id, input.upload)
+        }
+      }
+      // Inline: an artifact op in a dispatcher a test builds by hand, with no
+      // effect records wired (POD-6420): the permanent-store paths
+      // ([spec:SP-0fc9]). Add pulls a snapshot from the owning daemon before the
+      // panel commit; remove also deletes the snapshot dir.
+      if (input.op === 'artifact-upload' && input.upload) {
         return await ctx.crud.panelArtifactTransfer(input.id, input.upload)
       }
       if (input.op === 'artifact-add') {
@@ -1103,12 +1163,7 @@ const defs = {
       // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
-      await assertNotProposedForAgent(ctx, input.id, 'start')
-      if (!isPersonCapability(ctx.caller.capability)) {
-        for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
-          await assertNotProposedForAgent(ctx, anc, 'start work under')
-        }
-      }
+      await assertStartable(ctx, input.id)
       const gate = await workMachineGate(ctx, input.id, 'start')
       return await ctx.withMutation(input.mutationId, async () =>
         withWarning(
@@ -1121,6 +1176,7 @@ const defs = {
             ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
             ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+            ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
           }),
         ),
       )
@@ -1278,7 +1334,9 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => await ctx.gitWorkflow.action(input.id, input.kind),
+    // An effect record (POD-6394): every device sees it run; the reply is as
+    // before. The command never runs the git work itself (POD-6603).
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, input.kind, input.id),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -1329,8 +1387,8 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+    // An effect record (POD-6394), like `action`.
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, 'integrate', input.id),
   }),
   ship: def('ship', {
     kind: 'mutation',
@@ -1386,6 +1444,7 @@ const defs = {
         await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
           ...startedOnBehalfOf(ctx),
+          ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
           ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
         }),
       )
@@ -1401,6 +1460,7 @@ const defs = {
         await ctx.gitWorkflow.addShell(input.id, {
           spawnedBy: ctx.spawnProvenance(),
           ...startedOnBehalfOf(ctx),
+          ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
         }),
       )
     },
@@ -1670,6 +1730,7 @@ const defs = {
         })
       }
       const r = await ctx.deps.answerSessionQuestion(
+        ctx.writer,
         issue.humanQuestionAskedBy,
         input.answer,
         ctx.caller,
@@ -1873,10 +1934,13 @@ const defs = {
       // The one send path (POD-4846): there is no second, direct mailbox write.
       const send = ctx.deps.sendMessage
       if (!send) throw new Error('mail sending is not wired on this server')
-      const r = await send(ctx.messageSender(), {
+      const r = await send(ctx.writer, ctx.messageSender(), {
         to: { kind: 'issue', id: input.id },
         body: input.body,
         ...(input.messageId ? { messageId: input.messageId } : {}),
+        // On the sync write entry point (POD-6525) an address that can never be
+        // delivered to is answered with its dead letter in the write.
+        terminalInUnit: true,
       })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only

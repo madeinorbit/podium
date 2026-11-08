@@ -111,8 +111,52 @@ export const APPROVAL_STALL_SWEEP_MS = 60_000
 /** What one member's approvals procedures reach (see `ApprovalService.forCaller`). */
 export interface ApprovalCallerView {
   listPending(): Promise<ApprovalWire[]>
-  approve(id: string): Promise<ApprovalWire>
-  deny(id: string): Promise<ApprovalWire>
+  approve(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire>
+  deny(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire>
+}
+
+/**
+ * The closed server catalog (POD-6415): the ops the SERVER runs after approval,
+ * through the same doors every transport uses (`executeServerOp`). Every other
+ * op belongs to the owning daemon. Named here so a decision can tell which one
+ * it is WITHOUT running it: a decision is a write, and the op runs after it.
+ */
+export const SERVER_APPROVAL_OPS: ReadonlySet<ApprovalOp['kind']> = new Set([
+  'workflow-publish',
+  'workflow-set-default',
+  'automation-schedule',
+])
+
+export const isServerApprovalOp = (op: ApprovalOp): boolean => SERVER_APPROVAL_OPS.has(op.kind)
+
+/** Why a decision was refused: the approval is unknown, or already decided. */
+export class ApprovalRefusal extends Error {
+  constructor(
+    readonly kind: 'target-not-found' | 'conflict',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApprovalRefusal'
+  }
+}
+
+/**
+ * The unit of work a decision is written in (POD-6415, ADR 12 D2). The
+ * decision's own rows (the transition, the activity events) are written in it;
+ * everything outside the database runs after it commits:
+ *
+ *  - `afterCommit`: the exec request to the owning daemon, the outcome mail and
+ *    the broadcast. Never on a rollback.
+ *  - `executeOnServer`: a server-catalog op, as an `approval.execute` effect
+ *    record created in the same unit; its run executes the op
+ *    ({@link ApprovalService.runServerOp}).
+ *
+ * Without one (a direct call: the service's own tests), each step runs at once,
+ * as the decision always did.
+ */
+export interface ApprovalDecisionUnit {
+  afterCommit(step: () => void | Promise<void>, label: string): void
+  executeOnServer(row: ApprovalRow): Promise<void>
 }
 
 export class ApprovalService {
@@ -213,13 +257,13 @@ export class ApprovalService {
     }
     return {
       listPending: async () => await this.listPendingFor(userId),
-      approve: async (id) => {
+      approve: async (id, unit) => {
         await mine(id)
-        return await this.approve(id)
+        return await this.approve(id, unit)
       },
-      deny: async (id) => {
+      deny: async (id, unit) => {
         await mine(id)
-        return await this.deny(id)
+        return await this.deny(id, unit)
       },
     }
   }
@@ -277,8 +321,14 @@ export class ApprovalService {
 
   /** Relay entry (agent): file a request. Idempotent-ish — an identical op
    *  already pending for the same machine is returned instead of duplicated,
-   *  so an agent retrying doesn't stack popups. */
-  async request(input: unknown): Promise<{ id: string; status: string; message: string }> {
+   *  so an agent retrying doesn't stack popups. The row and its activity event
+   *  are written in `unit` (the `approvals.request` sync command, POD-6603);
+   *  the broadcast follows its commit. Without one (the service's own tests),
+   *  the broadcast runs at once. */
+  async request(
+    input: unknown,
+    unit?: Pick<ApprovalDecisionUnit, 'afterCommit'>,
+  ): Promise<{ id: string; status: string; message: string }> {
     const raw = (input ?? {}) as Record<string, unknown>
     const op = ApprovalOp.parse(raw.op)
     // DECODE EDGE: `input` is the untyped relay payload. The guard below refuses
@@ -309,7 +359,8 @@ export class ApprovalService {
     }
     await this.deps.store.insert(row)
     await this.log(row, 'issue.approval_requested')
-    await this.broadcast()
+    if (unit === undefined) await this.broadcast()
+    else unit.afterCommit(async () => await this.broadcast(), 'approvals.requested')
     return {
       id: row.id,
       status: 'pending',
@@ -335,54 +386,110 @@ export class ApprovalService {
     return w
   }
 
-  /** Operator: approve → execute through the closed server catalog or hand the
-   * op to the owning daemon. toMachine queues if the daemon is briefly offline. */
-  async approve(id: string): Promise<ApprovalWire> {
+  /** A decision with no unit of work around it: each step at once (see
+   *  {@link ApprovalDecisionUnit}). */
+  private immediateUnit(): ApprovalDecisionUnit & { flush(): Promise<void> } {
+    const steps: (() => void | Promise<void>)[] = []
+    return {
+      afterCommit: (step) => {
+        steps.push(step)
+      },
+      executeOnServer: async (row) => {
+        await this.runServerOp(row.id)
+      },
+      flush: async () => {
+        for (const step of steps.splice(0)) await step()
+      },
+    }
+  }
+
+  /** The pending row a decision settles, moved to `to`; refused when unknown or decided. */
+  private async decide(id: string, to: 'executing' | 'denied', result?: string): Promise<ApprovalRow> {
     const row = await this.deps.store.get(id)
-    if (!row) throw new Error(`unknown approval request: ${id}`)
-    if (!(await this.deps.store.transition(id, 'pending', 'executing'))) {
-      throw new Error(`approval ${id} is not pending (already decided?)`)
+    if (!row) throw new ApprovalRefusal('target-not-found', `unknown approval request: ${id}`)
+    if (!(await this.deps.store.transition(id, 'pending', to, result))) {
+      throw new ApprovalRefusal('conflict', `approval ${id} is not pending (already decided?)`)
     }
+    return row
+  }
+
+  /**
+   * Operator: approve. The decision is written in `unit`; the op runs after it
+   * commits, through the closed server catalog (an `approval.execute` record) or
+   * on the owning daemon (toMachine queues if it is briefly offline).
+   */
+  async approve(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire> {
+    const immediate = unit === undefined ? this.immediateUnit() : undefined
+    const on = unit ?? immediate!
+    const row = await this.decide(id, 'executing')
     await this.log(row, 'issue.approval_approved')
-    try {
-      const serverResult = (await this.deps.executeServerOp?.(row.op, row.sessionId)) ?? null
-      if (serverResult !== null) {
-        await this.deps.store.transition(id, 'executing', 'succeeded', serverResult)
-        await this.log(row, 'issue.approval_succeeded')
-        await this.notify(row, `succeeded — ${serverResult}`)
+    if (isServerApprovalOp(row.op)) {
+      await on.executeOnServer(row)
+      on.afterCommit(async () => await this.broadcast(), 'approvals.broadcast')
+    } else {
+      on.afterCommit(async () => {
+        this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
+        // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
+        // early notify below: its row staying `executing` is honest, not stuck.
+        if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
+        // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
+        // decision itself is the last thing we can reliably deliver.
+        if (row.op.kind === 'stop') await this.notify(row, 'approved — executing')
         await this.broadcast()
-        return await this.toWire(await this.row(id))
-      }
-    } catch (error) {
-      const result = describeError(error)
-      await this.deps.store.transition(id, 'executing', 'failed', result)
-      await this.log(row, 'issue.approval_failed')
-      await this.notify(row, `FAILED — ${result}`)
-      await this.broadcast()
-      return await this.toWire(await this.row(id))
+      }, 'approvals.dispatch')
     }
-    this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
-    // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
-    // early notify below: its row staying `executing` is honest, not stuck.
-    if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
-    // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
-    // decision itself is the last thing we can reliably deliver.
-    if (row.op.kind === 'stop') await this.notify(row, 'approved — executing')
-    await this.broadcast()
+    await immediate?.flush()
     return await this.toWire(await this.row(id))
   }
 
-  /** Operator: deny. Terminal. */
-  async deny(id: string): Promise<ApprovalWire> {
-    const row = await this.deps.store.get(id)
-    if (!row) throw new Error(`unknown approval request: ${id}`)
-    if (!(await this.deps.store.transition(id, 'pending', 'denied', 'denied by the operator'))) {
-      throw new Error(`approval ${id} is not pending (already decided?)`)
+  /**
+   * Run an approved server-catalog op (the `approval.execute` record's run, or a
+   * direct decision's): once, while the row is `executing`. Answers how it ended;
+   * a row no longer executing (already settled) answers its own status.
+   */
+  async runServerOp(id: string): Promise<{ status: ApprovalRow['status']; resultText: string | null }> {
+    const row = await this.row(id)
+    if (row.status !== 'executing') return { status: row.status, resultText: row.resultText }
+    let outcome: { to: 'succeeded' | 'failed'; text: string }
+    try {
+      const serverResult = (await this.deps.executeServerOp?.(row.op, row.sessionId)) ?? null
+      outcome =
+        serverResult === null
+          ? { to: 'failed', text: `the server does not run ${row.op.kind}` }
+          : { to: 'succeeded', text: serverResult }
+    } catch (error) {
+      outcome = { to: 'failed', text: describeError(error) }
     }
-    await this.log(row, 'issue.approval_denied')
-    await this.notify(row, 'denied by the operator')
+    await this.settleServerOp(row, outcome.to, outcome.text)
+    return { status: outcome.to, resultText: outcome.text }
+  }
+
+  /** Settle an executing server-catalog row, and tell everyone who waits on it. */
+  async settleServerOp(row: ApprovalRow, to: 'succeeded' | 'failed', text: string): Promise<boolean> {
+    if (!(await this.deps.store.transition(row.id, 'executing', to, text))) return false
+    await this.log(row, to === 'succeeded' ? 'issue.approval_succeeded' : 'issue.approval_failed')
+    await this.notify(row, to === 'succeeded' ? `succeeded — ${text}` : `FAILED — ${text}`)
     await this.broadcast()
+    return true
+  }
+
+  /** Operator: deny. Terminal; the mail and the broadcast follow the commit. */
+  async deny(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire> {
+    const immediate = unit === undefined ? this.immediateUnit() : undefined
+    const on = unit ?? immediate!
+    const row = await this.decide(id, 'denied', 'denied by the operator')
+    await this.log(row, 'issue.approval_denied')
+    on.afterCommit(async () => {
+      await this.notify(row, 'denied by the operator')
+      await this.broadcast()
+    }, 'approvals.denied')
+    await immediate?.flush()
     return await this.toWire(await this.row(id))
+  }
+
+  /** One approval row, for the `approval.execute` record's run and recovery. */
+  async rowOf(id: string): Promise<ApprovalRow | undefined> {
+    return (await this.deps.store.get(id)) ?? undefined
   }
 
   /** Daemon reply: execution finished. A `stop` op may never report (the daemon
@@ -468,7 +575,9 @@ export class ApprovalService {
     for (const row of rows) {
       if (row.op.kind === 'stop') continue
       live.add(row.id)
-      if (this.deps.hasDaemon && !this.deps.hasDaemon(row.machineId)) {
+      // A server-catalog op waits on no daemon: its record runs right after the
+      // decision commits, so one still executing past the deadline is stuck.
+      if (!isServerApprovalOp(row.op) && this.deps.hasDaemon && !this.deps.hasDaemon(row.machineId)) {
         // Parked, not stalled: the frame is queued for this machine's next attach.
         this.stallClock.delete(row.id)
         continue
@@ -488,6 +597,14 @@ export class ApprovalService {
   /** Move one stalled row to `failed` and tell everyone who was waiting on it. */
   private async failStalled(row: ApprovalRow, waitedMs: number): Promise<boolean> {
     const minutes = Math.round(waitedMs / 60_000)
+    if (isServerApprovalOp(row.op)) {
+      const stuck =
+        `the server did not finish this operation after ${minutes} minutes. ` +
+        'It may or may not have run; check before asking again.'
+      if (!(await this.settleServerOp(row, 'failed', stuck))) return false
+      this.stallClock.delete(row.id)
+      return true
+    }
     // Say what is known and no more. The machine may in fact have run the op and lost
     // its reply, so this must NOT claim nothing happened — it must name the one thing
     // that is certainly true and the one thing the operator can do about it.

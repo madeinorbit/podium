@@ -156,11 +156,20 @@
                 },
                 "stateSource": "hook",
                 "stateConfidence": 1,
-                "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
+                "stateObservedAt": "changes[0].value.agentState.stateObservedAt",
+                "turnStartedAt": "changes[0].value.agentState.turnStartedAt"
               },
               "archived": true,
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
+              "desired": "running",
+              "force": true,
+              "revision": 1,
+              "observedRevision": 1,
+              "lifecycleFailure": {
+                "revision": 1,
+                "reason": "changes[0].value.lifecycleFailure.reason"
+              },
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -185,8 +194,12 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": ["changes[0].value.configureFields[0]"],
-              "attachKinds": ["engine"],
+              "configureFields": [
+                "changes[0].value.configureFields[0]"
+              ],
+              "attachKinds": [
+                "engine"
+              ],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -197,7 +210,9 @@
                     "input": true
                   }
                 ],
-                "artifacts": ["changes[0].value.offer.artifacts[0]"],
+                "artifacts": [
+                  "changes[0].value.offer.artifacts[0]"
+                ],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -230,7 +245,10 @@
               },
               "viaHub": true,
               "upstreamStale": true
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -242,7 +260,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\",\"turnStartedAt\":\"changes[0].value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"changes[0].value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -300,14 +318,18 @@
               "type": "phase",
               "assignee": "changes[0].value.assignee",
               "legacyAssignee": "changes[0].value.legacyAssignee",
-              "labels": ["changes[0].value.labels[0]"],
+              "labels": [
+                "changes[0].value.labels[0]"
+              ],
               "estimateMin": 2,
               "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
               "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "blockedByNotes": [
+                "changes[0].value.blockedByNotes[0]"
+              ],
               "worktreePath": "changes[0].value.worktreePath",
               "branch": "changes[0].value.branch",
               "parentBranch": "changes[0].value.parentBranch",
@@ -319,7 +341,9 @@
               "needsHuman": false,
               "asked": {
                 "question": "changes[0].value.asked.question",
-                "options": ["changes[0].value.asked.options[0]"],
+                "options": [
+                  "changes[0].value.asked.options[0]"
+                ],
                 "at": "changes[0].value.asked.at",
                 "by": "changes[0].value.asked.by",
                 "attribution": {
@@ -353,9 +377,13 @@
                         "size": 2
                       }
                     ],
-                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
+                    "sourcePaths": [
+                      "changes[0].value.panel.artifacts[0].sourcePaths[0]"
+                    ],
                     "tracking": "untracked",
-                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
+                    "untrackedPaths": [
+                      "changes[0].value.panel.artifacts[0].untrackedPaths[0]"
+                    ]
                   }
                 ],
                 "deferred": [
@@ -386,7 +414,10 @@
               "visibility": "per-user-state",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -398,7 +429,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"landedAt\":\"changes[0].value.landedAt\",\"landedSha\":\"changes[0].value.landedSha\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"changes[0].value.assignee\",\"legacyAssignee\":\"changes[0].value.legacyAssignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"changes[0].value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"changes[0].value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"landedAt\":\"changes[0].value.landedAt\",\"landedSha\":\"changes[0].value.landedSha\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"changes[0].value.assignee\",\"legacyAssignee\":\"changes[0].value.legacyAssignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"changes[0].value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"changes[0].value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -421,7 +452,10 @@
               "fromId": "changes[0].value.fromId",
               "toId": "changes[0].value.toId",
               "type": "changes[0].value.type"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -433,7 +467,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -457,7 +491,10 @@
               "defaultParentBranch": "changes[0].value.defaultParentBranch",
               "repoPath": "changes[0].value.repoPath",
               "name": "changes[0].value.name"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -469,7 +506,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\",\"name\":\"changes[0].value.name\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\",\"name\":\"changes[0].value.name\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -515,10 +552,15 @@
                 "generation": 5,
                 "reasonCode": "policy:fixture-hold",
                 "headline": "changes[0].value.hold.headline",
-                "actions": ["policy:fixture-action"]
+                "actions": [
+                  "policy:fixture-action"
+                ]
               },
               "receiptId": "changes[0].value.receiptId"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -530,7 +572,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -554,11 +596,18 @@
               "destination": "changes[0].value.destination",
               "trains": [
                 {
-                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
+                  "orderIds": [
+                    "changes[0].value.trains[0].orderIds[0]"
+                  ]
                 }
               ],
-              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
-            }
+              "blockedOrderIds": [
+                "changes[0].value.blockedOrderIds[0]"
+              ]
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -570,7 +619,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]}}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -613,7 +662,10 @@
                 "value": "changes[0].value.resume.value"
               },
               "providerId": "changes[0].value.providerId"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -625,7 +677,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -660,7 +712,10 @@
               "nextRunAt": "changes[0].value.nextRunAt",
               "lastRunAt": "changes[0].value.lastRunAt",
               "createdAt": "changes[0].value.createdAt"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -672,7 +727,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"last\":false,\"totalRows\":8,\"countsByEntity\":{\"countsByEntity.key\":8}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":8,\"countsByEntity\":{\"countsByEntity.key\":8}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -828,11 +883,20 @@
                 },
                 "stateSource": "hook",
                 "stateConfidence": 1,
-                "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
+                "stateObservedAt": "changes[0].value.agentState.stateObservedAt",
+                "turnStartedAt": "changes[0].value.agentState.turnStartedAt"
               },
               "archived": true,
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
+              "desired": "running",
+              "force": true,
+              "revision": 1,
+              "observedRevision": 1,
+              "lifecycleFailure": {
+                "revision": 1,
+                "reason": "changes[0].value.lifecycleFailure.reason"
+              },
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -857,8 +921,12 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": ["changes[0].value.configureFields[0]"],
-              "attachKinds": ["engine"],
+              "configureFields": [
+                "changes[0].value.configureFields[0]"
+              ],
+              "attachKinds": [
+                "engine"
+              ],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -869,7 +937,9 @@
                     "input": true
                   }
                 ],
-                "artifacts": ["changes[0].value.offer.artifacts[0]"],
+                "artifacts": [
+                  "changes[0].value.offer.artifacts[0]"
+                ],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -902,7 +972,10 @@
               },
               "viaHub": true,
               "upstreamStale": true
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -914,7 +987,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\",\"turnStartedAt\":\"changes[0].value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"changes[0].value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -934,7 +1007,10 @@
             "op": "remove",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -946,7 +1022,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -966,7 +1042,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -978,7 +1057,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -998,7 +1077,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -1010,7 +1092,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1030,7 +1112,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -1042,7 +1127,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1062,7 +1147,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -1074,7 +1162,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1094,7 +1182,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": true,
@@ -1106,7 +1197,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1126,7 +1217,10 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ],
         "last": false,
@@ -1138,7 +1232,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false,\"totalRows\":8,\"countsByEntity\":{\"countsByEntity.key\":8}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":false,\"totalRows\":8,\"countsByEntity\":{\"countsByEntity.key\":8}}"
     },
     {
       "schema": "FeedChange",
@@ -1282,11 +1376,20 @@
             },
             "stateSource": "hook",
             "stateConfidence": 1,
-            "stateObservedAt": "value.agentState.stateObservedAt"
+            "stateObservedAt": "value.agentState.stateObservedAt",
+            "turnStartedAt": "value.agentState.turnStartedAt"
           },
           "archived": true,
           "stoppedAt": "value.stoppedAt",
           "stopReason": "self",
+          "desired": "running",
+          "force": true,
+          "revision": 1,
+          "observedRevision": 1,
+          "lifecycleFailure": {
+            "revision": 1,
+            "reason": "value.lifecycleFailure.reason"
+          },
           "workState": "planning",
           "resumable": true,
           "resume": {
@@ -1311,8 +1414,12 @@
           "driverId": "value.driverId",
           "requestedDriverId": "value.requestedDriverId",
           "driverFamily": "server",
-          "configureFields": ["value.configureFields[0]"],
-          "attachKinds": ["engine"],
+          "configureFields": [
+            "value.configureFields[0]"
+          ],
+          "attachKinds": [
+            "engine"
+          ],
           "queuedMessageCount": 1,
           "offer": {
             "message": "value.offer.message",
@@ -1323,7 +1430,9 @@
                 "input": true
               }
             ],
-            "artifacts": ["value.offer.artifacts[0]"],
+            "artifacts": [
+              "value.offer.artifacts[0]"
+            ],
             "createdAt": "value.offer.createdAt"
           },
           "handoffTargetMachineId": "value.handoffTargetMachineId",
@@ -1356,12 +1465,15 @@
           },
           "viaHub": true,
           "upstreamStale": true
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"agentProfileId\":\"value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"messageDraft\":\"value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
+      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"agentProfileId\":\"value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\",\"turnStartedAt\":\"value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"messageDraft\":\"value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1411,14 +1523,18 @@
           "type": "phase",
           "assignee": "value.assignee",
           "legacyAssignee": "value.legacyAssignee",
-          "labels": ["value.labels[0]"],
+          "labels": [
+            "value.labels[0]"
+          ],
           "estimateMin": 2,
           "sortKey": "value.sortKey",
           "dueAt": "value.dueAt",
           "parentId": "value.parentId",
           "supersededBy": "value.supersededBy",
           "duplicateOf": "value.duplicateOf",
-          "blockedByNotes": ["value.blockedByNotes[0]"],
+          "blockedByNotes": [
+            "value.blockedByNotes[0]"
+          ],
           "worktreePath": "value.worktreePath",
           "branch": "value.branch",
           "parentBranch": "value.parentBranch",
@@ -1430,7 +1546,9 @@
           "needsHuman": false,
           "asked": {
             "question": "value.asked.question",
-            "options": ["value.asked.options[0]"],
+            "options": [
+              "value.asked.options[0]"
+            ],
             "at": "value.asked.at",
             "by": "value.asked.by",
             "attribution": {
@@ -1464,9 +1582,13 @@
                     "size": 2
                   }
                 ],
-                "sourcePaths": ["value.panel.artifacts[0].sourcePaths[0]"],
+                "sourcePaths": [
+                  "value.panel.artifacts[0].sourcePaths[0]"
+                ],
                 "tracking": "untracked",
-                "untrackedPaths": ["value.panel.artifacts[0].untrackedPaths[0]"]
+                "untrackedPaths": [
+                  "value.panel.artifacts[0].untrackedPaths[0]"
+                ]
               }
             ],
             "deferred": [
@@ -1497,12 +1619,15 @@
           "visibility": "per-user-state",
           "createdAt": "value.createdAt",
           "updatedAt": "value.updatedAt"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"seq\":2,\"title\":\"value.title\",\"brief\":\"value.brief\",\"acceptance\":\"value.acceptance\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"dependencyNote\":\"value.dependencyNote\",\"suggestedReason\":\"value.suggestedReason\",\"description\":{\"value\":\"value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"landedAt\":\"value.landedAt\",\"landedSha\":\"value.landedSha\",\"deferUntil\":\"value.deferUntil\",\"archived\":false,\"deletedAt\":\"value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"value.assignee\",\"legacyAssignee\":\"value.legacyAssignee\",\"labels\":[\"value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"value.sortKey\",\"dueAt\":\"value.dueAt\",\"parentId\":\"value.parentId\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"machineId\":\"value.machineId\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"agentProfileId\":\"value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"value.asked.question\",\"options\":[\"value.asked.options[0]\"],\"at\":\"value.asked.at\",\"by\":\"value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.asked.attribution.actor.id\"},\"onBehalfOf\":\"value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"prUrl\":\"value.prUrl\",\"revision\":2,\"owner\":\"value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\"}}"
+      "encoded": "{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"seq\":2,\"title\":\"value.title\",\"brief\":\"value.brief\",\"acceptance\":\"value.acceptance\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"dependencyNote\":\"value.dependencyNote\",\"suggestedReason\":\"value.suggestedReason\",\"description\":{\"value\":\"value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"landedAt\":\"value.landedAt\",\"landedSha\":\"value.landedSha\",\"deferUntil\":\"value.deferUntil\",\"archived\":false,\"deletedAt\":\"value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"value.assignee\",\"legacyAssignee\":\"value.legacyAssignee\",\"labels\":[\"value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"value.sortKey\",\"dueAt\":\"value.dueAt\",\"parentId\":\"value.parentId\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"machineId\":\"value.machineId\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"agentProfileId\":\"value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"value.asked.question\",\"options\":[\"value.asked.options[0]\"],\"at\":\"value.asked.at\",\"by\":\"value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.asked.attribution.actor.id\"},\"onBehalfOf\":\"value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"prUrl\":\"value.prUrl\",\"revision\":2,\"owner\":\"value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1517,12 +1642,15 @@
           "fromId": "value.fromId",
           "toId": "value.toId",
           "type": "value.type"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"fromId\":\"value.fromId\",\"toId\":\"value.toId\",\"type\":\"value.type\"}}"
+      "encoded": "{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"fromId\":\"value.fromId\",\"toId\":\"value.toId\",\"type\":\"value.type\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1538,12 +1666,15 @@
           "defaultParentBranch": "value.defaultParentBranch",
           "repoPath": "value.repoPath",
           "name": "value.name"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"defaultParentBranch\":\"value.defaultParentBranch\",\"repoPath\":\"value.repoPath\",\"name\":\"value.name\"}}"
+      "encoded": "{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"defaultParentBranch\":\"value.defaultParentBranch\",\"repoPath\":\"value.repoPath\",\"name\":\"value.name\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1581,15 +1712,20 @@
             "generation": 5,
             "reasonCode": "policy:fixture-hold",
             "headline": "value.hold.headline",
-            "actions": ["policy:fixture-action"]
+            "actions": [
+              "policy:fixture-action"
+            ]
           },
           "receiptId": "value.receiptId"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"}}"
+      "encoded": "{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1605,16 +1741,23 @@
           "destination": "value.destination",
           "trains": [
             {
-              "orderIds": ["value.trains[0].orderIds[0]"]
+              "orderIds": [
+                "value.trains[0].orderIds[0]"
+              ]
             }
           ],
-          "blockedOrderIds": ["value.blockedOrderIds[0]"]
-        }
+          "blockedOrderIds": [
+            "value.blockedOrderIds[0]"
+          ]
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"destination\":\"value.destination\",\"trains\":[{\"orderIds\":[\"value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"value.blockedOrderIds[0]\"]}}"
+      "encoded": "{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"destination\":\"value.destination\",\"trains\":[{\"orderIds\":[\"value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"value.blockedOrderIds[0]\"]},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1649,12 +1792,15 @@
             "value": "value.resume.value"
           },
           "providerId": "value.providerId"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
+      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -1681,12 +1827,15 @@
           "nextRunAt": "value.nextRunAt",
           "lastRunAt": "value.lastRunAt",
           "createdAt": "value.createdAt"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":false,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
+      "encoded": "{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":false,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1830,11 +1979,20 @@
             },
             "stateSource": "hook",
             "stateConfidence": 1,
-            "stateObservedAt": "value.agentState.stateObservedAt"
+            "stateObservedAt": "value.agentState.stateObservedAt",
+            "turnStartedAt": "value.agentState.turnStartedAt"
           },
           "archived": true,
           "stoppedAt": "value.stoppedAt",
           "stopReason": "self",
+          "desired": "running",
+          "force": true,
+          "revision": 1,
+          "observedRevision": 1,
+          "lifecycleFailure": {
+            "revision": 1,
+            "reason": "value.lifecycleFailure.reason"
+          },
           "workState": "planning",
           "resumable": true,
           "resume": {
@@ -1859,8 +2017,12 @@
           "driverId": "value.driverId",
           "requestedDriverId": "value.requestedDriverId",
           "driverFamily": "server",
-          "configureFields": ["value.configureFields[0]"],
-          "attachKinds": ["engine"],
+          "configureFields": [
+            "value.configureFields[0]"
+          ],
+          "attachKinds": [
+            "engine"
+          ],
           "queuedMessageCount": 1,
           "offer": {
             "message": "value.offer.message",
@@ -1871,7 +2033,9 @@
                 "input": true
               }
             ],
-            "artifacts": ["value.offer.artifacts[0]"],
+            "artifacts": [
+              "value.offer.artifacts[0]"
+            ],
             "createdAt": "value.offer.createdAt"
           },
           "handoffTargetMachineId": "value.handoffTargetMachineId",
@@ -1904,12 +2068,15 @@
           },
           "viaHub": true,
           "upstreamStale": true
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"agentProfileId\":\"value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"messageDraft\":\"value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
+      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"agentProfileId\":\"value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\",\"turnStartedAt\":\"value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"messageDraft\":\"value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1921,12 +2088,15 @@
         "op": "remove",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":2,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":2,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1938,12 +2108,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":3,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":3,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1955,12 +2128,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":4,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":4,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1972,12 +2148,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":5,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":5,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1989,12 +2168,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":6,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":6,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -2006,12 +2188,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":7,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -2023,12 +2208,15 @@
         "op": "evict",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":8,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":8,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedCursorField",
@@ -2209,11 +2397,20 @@
                 },
                 "stateSource": "hook",
                 "stateConfidence": 1,
-                "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
+                "stateObservedAt": "changes[0].value.agentState.stateObservedAt",
+                "turnStartedAt": "changes[0].value.agentState.turnStartedAt"
               },
               "archived": true,
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
+              "desired": "running",
+              "force": true,
+              "revision": 1,
+              "observedRevision": 1,
+              "lifecycleFailure": {
+                "revision": 1,
+                "reason": "changes[0].value.lifecycleFailure.reason"
+              },
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -2238,8 +2435,12 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": ["changes[0].value.configureFields[0]"],
-              "attachKinds": ["engine"],
+              "configureFields": [
+                "changes[0].value.configureFields[0]"
+              ],
+              "attachKinds": [
+                "engine"
+              ],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -2250,7 +2451,9 @@
                     "input": true
                   }
                 ],
-                "artifacts": ["changes[0].value.offer.artifacts[0]"],
+                "artifacts": [
+                  "changes[0].value.offer.artifacts[0]"
+                ],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -2283,14 +2486,17 @@
               },
               "viaHub": true,
               "upstreamStale": true
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\",\"turnStartedAt\":\"changes[0].value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"changes[0].value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2348,14 +2554,18 @@
               "type": "phase",
               "assignee": "changes[0].value.assignee",
               "legacyAssignee": "changes[0].value.legacyAssignee",
-              "labels": ["changes[0].value.labels[0]"],
+              "labels": [
+                "changes[0].value.labels[0]"
+              ],
               "estimateMin": 2,
               "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
               "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "blockedByNotes": [
+                "changes[0].value.blockedByNotes[0]"
+              ],
               "worktreePath": "changes[0].value.worktreePath",
               "branch": "changes[0].value.branch",
               "parentBranch": "changes[0].value.parentBranch",
@@ -2367,7 +2577,9 @@
               "needsHuman": false,
               "asked": {
                 "question": "changes[0].value.asked.question",
-                "options": ["changes[0].value.asked.options[0]"],
+                "options": [
+                  "changes[0].value.asked.options[0]"
+                ],
                 "at": "changes[0].value.asked.at",
                 "by": "changes[0].value.asked.by",
                 "attribution": {
@@ -2401,9 +2613,13 @@
                         "size": 2
                       }
                     ],
-                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
+                    "sourcePaths": [
+                      "changes[0].value.panel.artifacts[0].sourcePaths[0]"
+                    ],
                     "tracking": "untracked",
-                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
+                    "untrackedPaths": [
+                      "changes[0].value.panel.artifacts[0].untrackedPaths[0]"
+                    ]
                   }
                 ],
                 "deferred": [
@@ -2434,14 +2650,17 @@
               "visibility": "per-user-state",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"landedAt\":\"changes[0].value.landedAt\",\"landedSha\":\"changes[0].value.landedSha\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"changes[0].value.assignee\",\"legacyAssignee\":\"changes[0].value.legacyAssignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"changes[0].value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"changes[0].value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"landedAt\":\"changes[0].value.landedAt\",\"landedSha\":\"changes[0].value.landedSha\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"phase\",\"assignee\":\"changes[0].value.assignee\",\"legacyAssignee\":\"changes[0].value.legacyAssignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"creation-attachment\",\"chatUploadId\":\"changes[0].value.panel.artifacts[0].chatUploadId\",\"chatUploadOwner\":\"changes[0].value.panel.artifacts[0].chatUploadOwner\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2464,14 +2683,17 @@
               "fromId": "changes[0].value.fromId",
               "toId": "changes[0].value.toId",
               "type": "changes[0].value.type"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2495,14 +2717,17 @@
               "defaultParentBranch": "changes[0].value.defaultParentBranch",
               "repoPath": "changes[0].value.repoPath",
               "name": "changes[0].value.name"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\",\"name\":\"changes[0].value.name\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\",\"name\":\"changes[0].value.name\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2548,17 +2773,22 @@
                 "generation": 5,
                 "reasonCode": "policy:fixture-hold",
                 "headline": "changes[0].value.hold.headline",
-                "actions": ["policy:fixture-action"]
+                "actions": [
+                  "policy:fixture-action"
+                ]
               },
               "receiptId": "changes[0].value.receiptId"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2582,18 +2812,25 @@
               "destination": "changes[0].value.destination",
               "trains": [
                 {
-                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
+                  "orderIds": [
+                    "changes[0].value.trains[0].orderIds[0]"
+                  ]
                 }
               ],
-              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
-            }
+              "blockedOrderIds": [
+                "changes[0].value.blockedOrderIds[0]"
+              ]
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2636,14 +2873,17 @@
                 "value": "changes[0].value.resume.value"
               },
               "providerId": "changes[0].value.providerId"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2678,14 +2918,17 @@
               "nextRunAt": "changes[0].value.nextRunAt",
               "lastRunAt": "changes[0].value.lastRunAt",
               "createdAt": "changes[0].value.createdAt"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -2840,11 +3083,20 @@
                 },
                 "stateSource": "hook",
                 "stateConfidence": 1,
-                "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
+                "stateObservedAt": "changes[0].value.agentState.stateObservedAt",
+                "turnStartedAt": "changes[0].value.agentState.turnStartedAt"
               },
               "archived": true,
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
+              "desired": "running",
+              "force": true,
+              "revision": 1,
+              "observedRevision": 1,
+              "lifecycleFailure": {
+                "revision": 1,
+                "reason": "changes[0].value.lifecycleFailure.reason"
+              },
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -2869,8 +3121,12 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": ["changes[0].value.configureFields[0]"],
-              "attachKinds": ["engine"],
+              "configureFields": [
+                "changes[0].value.configureFields[0]"
+              ],
+              "attachKinds": [
+                "engine"
+              ],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -2881,7 +3137,9 @@
                     "input": true
                   }
                 ],
-                "artifacts": ["changes[0].value.offer.artifacts[0]"],
+                "artifacts": [
+                  "changes[0].value.offer.artifacts[0]"
+                ],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -2914,14 +3172,17 @@
               },
               "viaHub": true,
               "upstreamStale": true
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"agentProfileId\":\"changes[0].value.agentProfileId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.compactingFrom.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\",\"turnStartedAt\":\"changes[0].value.agentState.turnStartedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"desired\":\"running\",\"force\":true,\"revision\":1,\"observedRevision\":1,\"lifecycleFailure\":{\"revision\":1,\"reason\":\"changes[0].value.lifecycleFailure.reason\"},\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"messageDraft\":\"changes[0].value.messageDraft\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -2941,14 +3202,17 @@
             "op": "remove",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -2968,14 +3232,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -2995,14 +3262,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -3022,14 +3292,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -3049,14 +3322,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -3076,14 +3352,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -3103,14 +3382,17 @@
             "op": "evict",
             "value": {
               "unknownFixture": "changes[0].value"
-            }
+            },
+            "originId": "changes[0].originId",
+            "causationId": "changes[0].causationId",
+            "mutationId": "changes[0].mutationId"
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedRescopeMessage",
@@ -3224,12 +3506,15 @@
         "op": "upsert",
         "value": {
           "unknownFixture": "value"
-        }
+        },
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":1,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"seq\":1,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"unknownFixture\":\"value\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     }
   ]
 }

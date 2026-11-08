@@ -680,11 +680,15 @@ function assistantItems(
     // the parent message's stop_reason on each, so this is reliable per text block.
     const sr = message.stop_reason
     const isAnswer = sr === 'end_turn' || sr === 'stop_sequence'
+    // The API message id: what the live stream of this text was keyed by
+    // (POD-6280), so the record retires its own preview.
+    const streamId = typeof message.id === 'string' && message.id ? message.id : undefined
     items.unshift({
       id: uuid ?? '',
       role: 'assistant',
       ts,
       text,
+      ...(streamId ? { streamId } : {}),
       ...(isAnswer ? { answer: true as const } : {}),
     })
   }
@@ -938,7 +942,8 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
     cwd: input.cwd,
     resumeValue: input.resumeValue,
     ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
   })
   return path ? [path] : []
 }

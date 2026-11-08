@@ -16,21 +16,22 @@ import {
   shipRepairRef,
 } from '@podium/model'
 import {
-  shippingJobRequestFingerprint,
   type ShippingJobRequestMessage,
+  shippingJobRequestFingerprint,
 } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from '../../../../daemon/src/shipping/executor'
+import { openTestStore } from '../../test-support/open-test-store'
+import type { ShippingWriter } from './service'
 import {
   ShippingEvidenceRegistry,
-  shipwrightApplyPatchThroughRelay,
-  ShipwrightService,
   type ShipwrightContextInput,
   type ShipwrightEvidenceMaterializer,
+  ShipwrightService,
+  shipwrightApplyPatchThroughRelay,
   validateShipwrightPatch,
 } from './shipwright'
-import { openTestStore } from '../../test-support/open-test-store'
 
 describe('bounded shipwright patch contract', () => {
   it('accepts an exact text patch and marks test changes for Inspector review', () => {
@@ -159,9 +160,9 @@ describe('bounded shipwright patch contract', () => {
         sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
       } as never),
     ).toBe(ref)
-    expect(await restarted.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
-      'bounded',
-    )
+    expect(
+      await restarted.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7),
+    ).toBe('bounded')
     await expect(
       restarted.read(
         {
@@ -243,11 +244,15 @@ describe('durable shipwright model results', () => {
     let quotaReads = 0
     let validationProfileReads = 0
     let outputIndex = 0
+    // The writer `consider` is handed; every rung's session commits through it (POD-6606).
+    const writer = {} as ShippingWriter
+    const writers: unknown[] = []
     const service = new ShipwrightService({
       headless: {
         headlessSession: (sessionId) => sessions.get(sessionId) as never,
-        createHeadlessSession: async (input) => {
+        createHeadlessSession: async (writer, input) => {
           creates.push(input)
+          writers.push(writer)
           if (!sessions.has(input.sessionId as string)) {
             sessions.set(input.sessionId as string, {
               ...input,
@@ -317,6 +322,10 @@ describe('durable shipwright model results', () => {
     })
     return {
       service,
+      writer,
+      writers,
+      consider: (input: Parameters<ShipwrightService['consider']>[0]) =>
+        service.consider(input, writer),
       creates,
       turns,
       acknowledgements,
@@ -331,7 +340,7 @@ describe('durable shipwright model results', () => {
 
   it('fails closed when the materializer returns a raw executor path', async () => {
     const h = fixture('{}', undefined, async () => ['/executor/journal/gate.log'] as never)
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,
@@ -352,7 +361,7 @@ describe('durable shipwright model results', () => {
 
   it('does not advertise open repair when no personal model owner can dispatch', async () => {
     const h = fixture('{}')
-    const result = await h.service.consider({
+    const result = await h.consider({
       order: {
         ...order,
         requestedBy: { actor: order.requestedBy.actor, onBehalfOf: undefined },
@@ -375,7 +384,7 @@ describe('durable shipwright model results', () => {
 
   it('does not advertise open repair when no model account is available before dispatch', async () => {
     const h = fixture('{}', undefined, undefined, undefined, () => null)
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,
@@ -398,7 +407,7 @@ describe('durable shipwright model results', () => {
       seen.push(input)
       throw new Error('artifact custody belongs to another attempt')
     })
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,
@@ -450,9 +459,13 @@ describe('durable shipwright model results', () => {
       authority,
     } as never
 
-    const first = await h.service.consider(input)
-    const replay = await h.service.consider(input)
+    const first = await h.consider(input)
+    const replay = await h.consider(input)
     expect(first).toEqual(replay)
+    // Every rung's headless session commits through the writer the repair was
+    // handed: the hold's command or the lanes' own (POD-6606).
+    expect(h.writers.length).toBeGreaterThan(0)
+    expect(h.writers.every((w) => w === h.writer)).toBe(true)
     expect(first).toMatchObject({
       kind: 'patched',
       repairRef: `refs/podium/ship-repair/order-shipwright/attempt-shipwright/4/${'c'.repeat(64)}`,
@@ -575,7 +588,7 @@ describe('durable shipwright model results', () => {
         },
       }),
     )
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue: { ...issue, repoPath: repo },
@@ -610,7 +623,7 @@ describe('durable shipwright model results', () => {
         concerns: ['model-authored concern must not become an evidence ref'],
       }),
     )
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,
@@ -655,7 +668,7 @@ describe('durable shipwright model results', () => {
         maxInspectorTurns: 2,
       },
     )
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,
@@ -691,7 +704,7 @@ describe('durable shipwright model results', () => {
         maxInspectorTurns: 0,
       },
     )
-    const result = await h.service.consider({
+    const result = await h.consider({
       order,
       attempt,
       issue,

@@ -34,6 +34,7 @@ export type {
   PortableCredentialOptions,
 } from './inventory/credentials.js'
 export {
+  CredentialAccountUnavailableError,
   handleCredentialExport,
   handleCredentialInstall,
   installPortableCredential,
@@ -41,7 +42,7 @@ export {
 } from './inventory/credentials.js'
 export type { InstallRequestPorts, InstallTarget } from './inventory/install.js'
 export { installableTargets, installTargetFor, runInstallTarget } from './inventory/install.js'
-export type { QuotaFetcher } from './inventory/usage.js'
+export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
   quotaAgentLabel,

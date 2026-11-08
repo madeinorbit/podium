@@ -287,6 +287,15 @@ export default defineConfig(({ command, mode }) => {
         '@podium/commands/settings-write-plan': fileURLToPath(
           new URL('../../packages/commands/src/settings/write-plan.ts', import.meta.url),
         ),
+        '@podium/commands/issues-synced': fileURLToPath(
+          new URL('../../packages/commands/src/issues/synced.ts', import.meta.url),
+        ),
+        '@podium/commands/fleet-synced': fileURLToPath(
+          new URL('../../packages/commands/src/fleet/synced.ts', import.meta.url),
+        ),
+        '@podium/commands/records': fileURLToPath(
+          new URL('../../packages/commands/src/records/index.ts', import.meta.url),
+        ),
         '@podium/commands': fileURLToPath(
           new URL('../../packages/commands/src/index.ts', import.meta.url),
         ),
@@ -427,18 +436,19 @@ export default defineConfig(({ command, mode }) => {
        * matches against, so a split there does not throw, it just silently stops
        * colouring code.
        *
-       * scripts/web-bundle-budget.ts fails the build if any of these is bundled
-       * more than once again.
+       * scripts/web-bundle-correctness.ts fails the build if any of these is
+       * bundled more than once again.
        *
        * THE ROWS BELOW THE BLANK LINE ARE THERE FOR BYTES, NOT FOR CRASHES
        * (POD-2527), and they are the reason this list stopped being hand-picked.
        *
-       * A split does not need a feature to break before it costs something. It
-       * lands in `sourcesContent` twice, and the eager SOURCE budget — which
-       * counts original text, not emitted code — then prices one vendor file at
-       * double. That is how a build in an agent worktree came to report
-       * `eager parsed source bytes: 7757776 exceeds 7700000` and be read as 58KB
-       * of app growth. It was not growth: @dnd-kit/core (104,325), @dnd-kit/
+       * A split does not need a feature to break before it costs something: the
+       * browser downloads and evaluates one vendor file twice. Nothing fails the
+       * build for that any more (the size budget was removed in POD-6423), so
+       * these rows are the only thing keeping it out. When the budget existed, a
+       * build in an agent worktree reported
+       * `eager parsed source bytes: 7757776 exceeds 7700000`, read as 58KB of
+       * app growth. It was not growth: @dnd-kit/core (104,325), @dnd-kit/
        * utilities (7,960), @trpc/server (3,663) and clsx (388) were each in the
        * bundle twice, which is 116,336 bytes — more than the whole overage.
        * 7,757,776 less those four second copies is 7,641,440, which is what the
@@ -488,7 +498,8 @@ export default defineConfig(({ command, mode }) => {
         // above: from an uninstalled worktree the web build resolved
         // `motion-dom` twice — once from its own tree and once by walking up
         // into the parent checkout, since `.worktrees/` lives inside it — and
-        // the budget check refused the bundle. Containers never saw it because
+        // the bundle shipped two copies (then caught by the size budget, since
+        // removed in POD-6423). Containers never saw it because
         // they have no parent checkout to walk up into, so this only ever
         // failed for someone building from a worktree.
         'motion',

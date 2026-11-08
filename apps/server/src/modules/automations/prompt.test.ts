@@ -1,6 +1,7 @@
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { automationPromptMessageId, failureNoticeId } from '../../message-ids'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { mailHarness } from '../messages/characterization-support'
 import { automationPromptSender } from './prompt'
 
@@ -15,7 +16,9 @@ import { automationPromptSender } from './prompt'
  */
 describe('an automation prompt', () => {
   const owner = firstAdminMemberId()
-  const prompt = (over: Partial<Parameters<ReturnType<typeof automationPromptSender>>[0]> = {}) => ({
+  const prompt = (
+    over: Partial<Parameters<ReturnType<typeof automationPromptSender>>[0]> = {},
+  ) => ({
     automationId: 'aut_nightly',
     ownerUserId: owner,
     runId: 'run_1',
@@ -27,6 +30,7 @@ describe('an automation prompt', () => {
   const sender = (h: Awaited<ReturnType<typeof mailHarness>>) =>
     automationPromptSender({
       messages: h.svc,
+      writer: messageTestWriter(),
       sessionById: async (id) => h.sessions.find((s) => s.sessionId === id),
     })
 
@@ -71,7 +75,9 @@ describe('an automation prompt', () => {
     await sender(h)(prompt())
     const id = automationPromptMessageId('run_1', asSessionId('s1'))
 
-    await h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: h.pushes[0]?.text ?? '' }])
+    await h.svc.onTranscriptDelta(asSessionId('s1'), [
+      { role: 'user', text: h.pushes[0]?.text ?? '' },
+    ])
 
     expect((await h.svc.message(id))?.deliveryStatus).toBe('confirmed')
   })
@@ -128,7 +134,9 @@ describe('an automation prompt', () => {
     expect(gone).toEqual({ ok: false, reason: 'unknown session' })
     expect(parked).toEqual({ ok: false, reason: 'no resume ref' })
     expect(await h.svc.message(automationPromptMessageId('run_1', asSessionId('gone')))).toBeNull()
-    expect(await h.svc.message(automationPromptMessageId('run_1', asSessionId('parked')))).toBeNull()
+    expect(
+      await h.svc.message(automationPromptMessageId('run_1', asSessionId('parked'))),
+    ).toBeNull()
     expect(h.pushes).toHaveLength(0)
     expect(h.wakeSpawns).toHaveLength(0)
   })

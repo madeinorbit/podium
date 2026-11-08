@@ -26,7 +26,8 @@ import { spawnPromptMessageId } from '../../message-ids'
 import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
-import { deliverAnswerToSession } from './answer-delivery'
+import { agentCommandPrincipal } from '../effects/writer'
+import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
 import { superagentFrom, superagentSender } from './send'
 
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
@@ -106,6 +107,8 @@ export async function buildSuperagentTools(
 ): Promise<SuperagentTool[]> {
   const { modules, repos, store, waitPollMs } = deps
   const sessions = modules.sessions
+  // Its writes are its own account's (`superagent.tools`, POD-6601).
+  const writer = modules.superagentToolsWriter
   const issues = modules.issues
   const rpc = modules.rpc
   // Session provenance (issue #60): thread-scoped when the executing thread is known.
@@ -294,7 +297,8 @@ export async function buildSuperagentTools(
           spawnedBy,
           ownerUserId,
         })
-        if (str(args.name)) await sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
+        if (str(args.name))
+          await sessions.renameSession(writer, { sessionId, name: str(args.name) ?? '' })
         const first = str(args.firstMessage)
         if (first) {
           // The superagent's message (POD-4846): stored, enveloped, durable across
@@ -303,6 +307,7 @@ export async function buildSuperagentTools(
           // session's and a retried start stores it once.
           await superagentSender(
             modules.messages,
+            writer,
             ownerUserId,
           )({
             sessionId,
@@ -331,6 +336,7 @@ export async function buildSuperagentTools(
         // enveloped, so the receiver sees who is speaking.
         if (!ownerUserId) return 'unknown superagent thread'
         const r = await modules.messages.send(
+          writer,
           superagentFrom(ownerUserId),
           {
             to: { kind: 'session', id: sessionIdArg(args.sessionId) },
@@ -365,30 +371,29 @@ export async function buildSuperagentTools(
         // The menu gate + option matching live in answer-delivery.ts (issue #53),
         // shared with the web-callable issues.answerQuestion. Menu-only here: no
         // textFallback — this tool's contract is the native menu or a refusal.
+        // Delivered by a `session.answer` record (POD-6415), written as the
+        // superagent's own session.
         const actorSessionId = threadId
           ? (await store.superagent.getSuperagentThread(threadId))?.podiumSessionId
           : undefined
-        const principal = actorSessionId
-          ? await sessions.inboxPrincipalForSession(actorSessionId)
+        const actor = actorSessionId
+          ? await agentCommandPrincipal(modules, actorSessionId)
           : undefined
-        if (!principal || !memoryReader) return 'failed: answer caller identity unavailable'
-        const r = await deliverAnswerToSession(
-          {
-            getSession,
-            sessions,
-            messages: modules.messages,
-            rpc: {
-              readTranscript: async (input) => await rpc.readTranscript(input, memoryReader),
-            },
-          },
-          {
-            sessionId: sessionIdArg(args.sessionId),
-            answer: str(args.answer) ?? '',
-            principal,
-          },
+        if (!actor || !memoryReader) return 'failed: answer caller identity unavailable'
+        const settled = await answerThroughEffect(
+          modules,
+          actor,
+          { kind: 'session', id: sessionIdArg(args.sessionId) },
+          { via: 'tool', text: str(args.answer) ?? '' },
         )
+        // A session out of reach and a missing one answer alike.
+        if (settled.kind === 'refused') return 'unknown session'
+        const answer = settledResult(settled)
+        if (!('result' in answer)) return answer.message
+        const r = answer.result as
+          | { ok: true; choices: unknown; note?: string }
+          | { ok: false; message: string }
         if (!r.ok) return r.message
-        if (r.via !== 'menu') return 'failed: unexpected delivery path' // unreachable without textFallback
         return JSON.stringify({
           answered: true,
           choices: r.choices,
@@ -417,6 +422,7 @@ export async function buildSuperagentTools(
         if (!ownerUserId) return 'unknown superagent thread'
         const r = await superagentSender(
           modules.messages,
+          writer,
           ownerUserId,
         )({
           sessionId: sessionIdArg(args.sessionId),
@@ -442,7 +448,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
-        const r = await sessions.continueSession({ sessionId })
+        const r = await sessions.continueSession(writer, { sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
       },
     },
@@ -496,7 +502,7 @@ export async function buildSuperagentTools(
         // is its human's row, not an instance-wide one. SOLE_USER_ID until POD-1075
         // gives the superagent thread a real owner to read the identity from.
         if (!ownerUserId) return 'unknown superagent thread'
-        await sessions.setSnooze({ userId: ownerUserId, sessionId, until: value })
+        await sessions.setSnooze(writer, { userId: ownerUserId, sessionId, until: value })
         return JSON.stringify({ snoozedUntil: value })
       },
     },
@@ -514,7 +520,7 @@ export async function buildSuperagentTools(
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
-        await sessions.clearSnooze(ownerUserId, sessionId)
+        await sessions.clearSnooze(writer, ownerUserId, sessionId)
         return 'snooze cleared'
       },
     },
@@ -531,7 +537,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
-        await sessions.renameSession({
+        await sessions.renameSession(writer, {
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
         })
@@ -559,7 +565,7 @@ export async function buildSuperagentTools(
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
         if (!(await getSession(sessionId))) return 'unknown session'
-        await sessions.setWorkState({ sessionId, workState: parsed.data })
+        await sessions.setWorkState(writer, { sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
     },
@@ -640,7 +646,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
         if (refused) return refused
-        await sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
+        await sessions.killSession(writer, { sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
     },
@@ -742,6 +748,7 @@ export async function buildSuperagentTools(
         // one send path (clamps/cooldown apply), then a bounded ack wait.
         if (!ownerUserId) return 'unknown superagent thread'
         const r = await modules.messages.send(
+          writer,
           superagentFrom(ownerUserId),
           {
             to: { kind: 'session', id: sessionId },

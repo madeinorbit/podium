@@ -21,6 +21,7 @@ import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import { managementAccountFor, resolveManagementAccount } from '../harness-management.js'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')
@@ -28,7 +29,16 @@ const log = createLogger('daemon:transcripts')
 /** Retained native archive service, independent of runtime handles, bridges and
  * process inventory. Keep this boundary when removing legacy session control.
  * Ownership and server lake integration: docs/architecture/transcript-archive.md. */
-export type TranscriptArchiveContext = Pick<DaemonContext, 'homeDir' | 'send'>
+export type TranscriptArchiveContext = Pick<
+  DaemonContext,
+  'homeDir' | 'accountHome' | 'harnessRuntime' | 'send'
+>
+
+/** What a transcript read needs to name the account (POD-6534). */
+export type TranscriptAccountContext = Pick<
+  DaemonContext,
+  'homeDir' | 'accountHome' | 'harnessRuntime'
+>
 
 /**
  * Resolve a session's TRUE harness for the transcript-source layer, which routes
@@ -74,7 +84,7 @@ export function transcriptAnnotations(): TranscriptAnnotationStore {
 // file-chain source, matching the pre-registry behavior — the session still
 // runs, it just has no readable history.
 export async function sourceForRead(
-  ctx: Pick<DaemonContext, 'homeDir'>,
+  ctx: TranscriptAccountContext,
   msg: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -88,12 +98,20 @@ export async function sourceForRead(
   const grammar = transcript ? declaredValue(transcript) : undefined
   if (!grammar) return fileChainSource([], () => [])
   const annotations = transcriptAnnotations()
+  // ACCOUNT ROOTS (POD-6534): the read names the account's home and the env
+  // its child gets, so the adapter's roots rule picks the transcript folder
+  // the session wrote to — never the daemon's own selectors. The settled
+  // snapshot, not an inventory wave in flight: this read is on the switch path.
+  const account = await resolveManagementAccount(ctx, { wait: false })
+  // No home to name at all: nothing to read, never the daemon's own HOME.
+  if (!account) return fileChainSource([], () => [])
+  const scope = managementAccountFor(account, agentKind)
   const source = await transcriptSourceFromGrammar(grammar, {
     podiumSessionId: msg.sessionId,
     cwd: msg.cwd,
     ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
     ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),
-    ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+    account: scope,
     transcriptRoot: join(stateDir(), 'transcripts'),
   })
   return withTranscriptAnnotations(source, () => annotations.read(msg.sessionId))
@@ -157,7 +175,12 @@ export async function readTranscriptMirror(
   }): void => ctx.send({ type: 'transcriptMirrorResult', requestId: msg.requestId, ...r })
   const refuse = (error: string): void => reply({ data: '', fileSize: 0, eof: false, error })
   try {
-    const real = await resolveWithinRoots(msg.path, discoveryRoots(ctx.homeDir ?? homedir()))
+    // The account's home (POD-6534), the one the transcript reads use.
+    const account = await resolveManagementAccount(ctx, { wait: false })
+    const real = await resolveWithinRoots(
+      msg.path,
+      discoveryRoots(account?.home ?? ctx.homeDir ?? homedir()),
+    )
     if (!real) {
       refuse('denied') // outside every discovery root, or vanished — never read
       return

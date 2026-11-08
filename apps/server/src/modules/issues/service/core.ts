@@ -28,7 +28,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { EntityChangeSpec, WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
@@ -44,7 +44,7 @@ import {
 } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
-import type { IssueDeps } from './types'
+import type { IssueDeps, IssueWriter } from './types'
 
 const log = createLogger('server:issues')
 
@@ -218,14 +218,15 @@ export class IssueStore {
    * member: a marker write with nobody behind it has no row to land in.
    */
   async writeIssueUserState(
+    writer: IssueWriter,
     issueId: IssueId,
     patch: Partial<StoredIssueUserState>,
     user: UserId,
   ): Promise<void> {
     const owner = user
-    await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.issues.setIssueUserState(owner, issueId, patch)
+    await this.arbitrated(writer).commit({
+      write: async (scope) => {
+        await this.deps.store.issues.setIssueUserState(scope, owner, issueId, patch)
         return await this.deps.store.issues.getIssueUserState(owner, issueId)
       },
       changes: (state) => [
@@ -248,14 +249,14 @@ export class IssueStore {
    * the task itself — a reopen or a start retires every member's tuck, not one
    * person's — so another member's fold cannot survive into the next close.
    */
-  async clearIssueMarkerForAll(issueId: IssueId, marker: 'tuckedAt'): Promise<void> {
-    await this.deps.ledger.commit({
-      write: async () => {
+  async clearIssueMarkerForAll(writer: IssueWriter, issueId: IssueId, marker: 'tuckedAt'): Promise<void> {
+    await this.arbitrated(writer).commit({
+      write: async (scope) => {
         const holders = (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
           (state) => state[marker] != null,
         )
         for (const state of holders) {
-          await this.deps.store.issues.setIssueUserState(state.userId, issueId, { [marker]: null })
+          await this.deps.store.issues.setIssueUserState(scope, state.userId, issueId, { [marker]: null })
         }
         return await Promise.all(
           holders.map(async (state) => ({
@@ -286,18 +287,20 @@ export class IssueStore {
    * for none, so two racing records keep the first.
    */
   private async commitUserState(
+    writer: IssueWriter,
     issueId: IssueId,
     user: UserId,
     decide: (
       current: StoredIssueUserState | undefined,
     ) => Partial<StoredIssueUserState> | undefined,
   ): Promise<boolean> {
-    const { result } = await this.deps.ledger.commit({
-      write: async () => {
+    const { result } = await this.arbitrated(writer).commit({
+      write: async (scope) => {
         const current = await this.deps.store.issues.getIssueUserState(user, issueId)
         const patch = decide(current)
         if (patch === undefined) return { wrote: false as const }
         const state = await this.deps.store.issues.setIssueUserState(
+          scope,
           user,
           issueId,
           patch,
@@ -334,9 +337,9 @@ export class IssueStore {
    * Answers whether a record was written. Opening, searching or reading a task
    * never calls this.
    */
-  async recordParticipation(issueId: IssueId, user: UserId, via: IssueJoinVia): Promise<boolean> {
+  async recordParticipation(writer: IssueWriter, issueId: IssueId, user: UserId, via: IssueJoinVia): Promise<boolean> {
     const at = this.now()
-    return await this.commitUserState(issueId, user, (current) =>
+    return await this.commitUserState(writer, issueId, user, (current) =>
       current?.joinedAt != null ? undefined : { joinedAt: at, joinedVia: via },
     )
   }
@@ -349,26 +352,27 @@ export class IssueStore {
    * sides.
    */
   async recordAssignment(
+    writer: IssueWriter,
     issueId: IssueId,
     assignee: UserId,
     by: UserId | null,
     previous?: UserId | null,
   ): Promise<void> {
     const at = this.now()
-    if (previous && previous !== assignee) await this.dismissAssignment(issueId, previous)
+    if (previous && previous !== assignee) await this.dismissAssignment(writer, issueId, previous)
     // Taking a task yourself is joining it, not being assigned it: the
     // removable row is only for an assignment someone else made.
     if (by === assignee) {
-      await this.recordParticipation(issueId, assignee, 'join')
+      await this.recordParticipation(writer, issueId, assignee, 'join')
       return
     }
-    await this.commitUserState(issueId, assignee, () => ({ assignedAt: at, assignedBy: by }))
+    await this.commitUserState(writer, issueId, assignee, () => ({ assignedAt: at, assignedBy: by }))
   }
 
   /** Remove `user`'s assigned row (POD-6290). Nothing else changes: not the
    *  assignee, not their start or join record, not anyone else's rows. */
-  async dismissAssignment(issueId: IssueId, user: UserId): Promise<boolean> {
-    return await this.commitUserState(issueId, user, (current) =>
+  async dismissAssignment(writer: IssueWriter, issueId: IssueId, user: UserId): Promise<boolean> {
+    return await this.commitUserState(writer, issueId, user, (current) =>
       current?.assignedAt == null && current?.assignedBy == null
         ? undefined
         : { assignedAt: null, assignedBy: null },
@@ -1006,6 +1010,43 @@ export class IssueStore {
     }
   }
 
+  /**
+   * One repository registry write and the repo rows it moves, in ONE commit
+   * (POD-6524). The registry's writes (add, remove, prefix, base branch,
+   * origin) used to land in the store and then {@link publishRepos}: a
+   * reconcile, which by design carries no provenance (POD-6272), so a device's
+   * `repos.*` write could be confirmed only by its receipt. A declared commit is
+   * stamped with the causing command's provenance like every other synced write,
+   * and the store write and its change rows commit or roll back together.
+   *
+   * The declaration is still the full O(repos) truth, so nothing has to know
+   * which logical repo a checkout write touches: every row is declared as an
+   * upsert (the ledger's dedup drops the unchanged ones), and a logical repo
+   * that was there before the write and is gone after it is declared removed.
+   */
+  async commitRepoWrite<T>(writer: IssueWriter, write: () => Promise<T>): Promise<T> {
+    const { result } = await this.arbitrated(writer).commit({
+      write: async () => {
+        const before = repoProjectionRows(await this.deps.store.repos.listRepos())
+        return { value: await write(), before: new Set<string>(before.map((r) => r.id)) }
+      },
+      changes: async ({ before }) => {
+        const after = repoProjectionRows(await this.deps.store.repos.listRepos())
+        const listed = new Set<string>(after.map((r) => r.id))
+        const specs: EntityChangeSpec[] = after.map((r) => ({
+          entity: 'repo',
+          id: r.id,
+          op: 'upsert',
+          value: r.value,
+        }))
+        for (const id of before)
+          if (!listed.has(id)) specs.push({ entity: 'repo', id, op: 'remove' })
+        return specs
+      },
+    })
+    return result.value
+  }
+
   /** Reconcile own rows and companions at boot or after a hard delete. */
   async reconcileAndPublish(): Promise<void> {
     await this.reconcileProjections()
@@ -1032,6 +1073,7 @@ export class IssueStore {
   }
   /** Persist one row and publish only its normalized data. */
   async persist(
+    writer: IssueWriter,
     row: IssueRow,
     opts?: {
       touch?: boolean
@@ -1039,7 +1081,7 @@ export class IssueStore {
       afterWrite?: (row: IssueRow) => unknown | Promise<unknown>
     },
   ): Promise<IssueProjection> {
-    return await this.persistWith(row, undefined, opts)
+    return await this.persistWith(writer, row, undefined, opts)
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
@@ -1048,8 +1090,9 @@ export class IssueStore {
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   async persistWith(
+    writer: IssueWriter,
     row: IssueRow,
-    extraWrite?: () => unknown | Promise<unknown>,
+    extraWrite?: (scope: WriteScope) => unknown | Promise<unknown>,
     opts?: {
       touch?: boolean
       /**
@@ -1104,11 +1147,12 @@ export class IssueStore {
     let committedProjectionChanges: readonly EntityChangeSpec[] = []
     let committedExtraChanges: readonly EntityChangeSpec[] = []
     const wire = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          await extraWrite?.()
+      await this.arbitrated(writer).commit({
+        write: async (scope) => {
+          await extraWrite?.(scope)
           const worktreeWas = await this.worktreeBefore(row)
           await this.deps.store.issues.upsertIssue(
+            scope,
             row,
             pin === undefined
               ? undefined
@@ -1141,8 +1185,9 @@ export class IssueStore {
    * `touch` is an option — see {@link persist} for what `false` means, and
    * POD-1102 for why a scope repair must not mark a whole repo unread. */
   async persistManyWith<T>(
+    writer: IssueWriter,
     rows: IssueRow[],
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
     extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
     events: (result: T) =>
       | readonly {
@@ -1179,13 +1224,14 @@ export class IssueStore {
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
     const committed = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          result = await write()
+      await this.arbitrated(writer).commit({
+        write: async (scope) => {
+          result = await write(scope)
           for (const row of rows) {
             const pin = pins.get(row.id)
             const worktreeWas = await this.worktreeBefore(row)
             await this.deps.store.issues.upsertIssue(
+              scope,
               row,
               pin === undefined ? undefined : { expectedRevision: pin },
             )
@@ -1236,8 +1282,27 @@ export class IssueStore {
   }
 
   /** A git observation changes only its independently keyed companion. */
-  async broadcastIssue(row: IssueRow): Promise<void> {
-    await this.deps.ledger.capture([this.gitStateChange(row)])
+  async broadcastIssue(writer: IssueWriter, row: IssueRow): Promise<void> {
+    await this.arbitrated(writer).capture([this.gitStateChange(row)])
+  }
+
+  /**
+   * The writer a funnel commits on: the caller's own (a command's, or a named
+   * server origin's, ADR 12 D9), under the issue revision arbitration the
+   * composition wires (`IssueAuthorityArbitration.wrap`).
+   */
+  private arbitrated(writer: IssueWriter): IssueWriter {
+    return this.deps.arbitrate?.(writer) ?? writer
+  }
+
+  /**
+   * The service's own writer, a `server` origin (`issues.server`): the worktree,
+   * landing and git-state work the server does on its own account. Refused inside
+   * a client command, so a command that reaches one of these paths has to pass
+   * its own writer down instead (POD-6603).
+   */
+  get serverWriter(): IssueWriter {
+    return this.deps.ledger
   }
 
   /** @internal */
@@ -1247,8 +1312,8 @@ export class IssueStore {
     return r
   }
   /** @internal */
-  async persistRow(row: IssueRow): Promise<IssueProjection> {
-    return await this.persist(row)
+  async persistRow(writer: IssueWriter, row: IssueRow): Promise<IssueProjection> {
+    return await this.persist(writer, row)
   }
   /** @internal */
   get d(): IssueDeps {

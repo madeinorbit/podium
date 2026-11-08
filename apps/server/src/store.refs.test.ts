@@ -31,11 +31,12 @@ describe('repo prefixes', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', asMachineId('__local__'), undefined, 'PDM')
     expect(await s.repos.prefixForPath('/a/podium')).toBe('PDM')
-    await expect(s.repos.addRepo('/b/thing', asMachineId('__local__'), undefined, 'lower'),
+    await expect(
+      s.repos.addRepo('/b/thing', asMachineId('__local__'), undefined, 'lower'),
     ).rejects.toThrow()
-    await expect(s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM')).rejects.toThrow(
-      /already in use/,
-    )
+    await expect(
+      s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM'),
+    ).rejects.toThrow(/already in use/)
     await s.close()
   })
 
@@ -82,7 +83,15 @@ describe('repo base branches (POD-2065)', () => {
               : { ok: false, output: 'fatal: Needed a single revision' }
           },
         },
-        issues: { reports: { store: { publishRepos: async () => {} } } },
+        issues: {
+          reports: {
+            store: {
+              publishRepos: async () => {},
+              commitRepoWrite: async <T>(_writer: unknown, write: () => Promise<T>) =>
+                await write(),
+            },
+          },
+        },
       },
     } as unknown as SessionRegistry
     return { repos: new RepoRegistry(reg, s), asked }
@@ -92,14 +101,14 @@ describe('repo base branches (POD-2065)', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)
     const { repos, asked } = registry(s, ['main', 'tf.dev'])
-    await repos.setDefaultParentBranch('/a/podium', 'tf.dev')
+    await repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev')
     expect(asked).toEqual(['refs/heads/tf.dev'])
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBe('tf.dev')
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium/.worktrees/x')).toBe('tf.dev')
     expect((await s.repos.listRepos())[0]?.defaultParentBranch).toBe('tf.dev')
     // The prefix row it shares is untouched.
     expect(await s.repos.prefixForPath('/a/podium')).toBe('POD')
-    await repos.setDefaultParentBranch('/a/podium', null)
+    await repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', null)
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
     await s.close()
   })
@@ -108,9 +117,9 @@ describe('repo base branches (POD-2065)', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)
     const { repos } = registry(s, ['main'])
-    await expect(repos.setDefaultParentBranch('/a/podium', 'tf.dev')).rejects.toThrow(
-      "branch 'tf.dev' does not exist in /a/podium",
-    )
+    await expect(
+      repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev'),
+    ).rejects.toThrow("branch 'tf.dev' does not exist in /a/podium")
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
     await s.close()
   })
@@ -131,12 +140,12 @@ describe('repo base branches (POD-2065)', () => {
       'HEAD',
       '@',
     ]) {
-      await expect(repos.setDefaultParentBranch('/a/podium', bad)).rejects.toThrow(
-        `invalid branch name '${bad}'`,
-      )
+      await expect(
+        repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', bad),
+      ).rejects.toThrow(`invalid branch name '${bad}'`)
     }
     expect(asked).toEqual([])
-    await repos.setDefaultParentBranch('/a/podium', 'feature/tf.dev')
+    await repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'feature/tf.dev')
     expect(asked).toEqual(['refs/heads/feature/tf.dev'])
     await s.close()
   })
@@ -199,9 +208,9 @@ describe('repo base branches (POD-2065)', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)
     const { repos } = registry(s, ['tf.dev'], false)
-    await expect(repos.setDefaultParentBranch('/a/podium', 'tf.dev')).rejects.toThrow(
-      /could not read the repository at \/a\/podium/,
-    )
+    await expect(
+      repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev'),
+    ).rejects.toThrow(/could not read the repository at \/a\/podium/)
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
     await s.close()
   })

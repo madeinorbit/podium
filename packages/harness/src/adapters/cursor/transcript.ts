@@ -1,14 +1,14 @@
 import type { TranscriptItem } from '@podium/model'
-import { toolInputPreview } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import {
   fileTranscript,
   supported,
-  transcriptFileExists,
   type TranscriptSourceInput,
+  transcriptFileExists,
 } from '../../manifest.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import { toolInputPreview } from '../claude-code/transcript.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */
 export function cursorRecordToItems(record: unknown): TranscriptItem[] {
@@ -203,13 +203,12 @@ function stringField(value: unknown, key: string): string | undefined {
 // authoritative transcript definition for this harness (spec §4).
 // ---------------------------------------------------------------------------
 
-
 export async function cursorChainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   const path = cursorSessionPaths({
     cwd: input.cwd,
     chatId: input.resumeValue,
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
   }).transcriptPath
   return (await transcriptFileExists(path)) ? [path] : []
 }

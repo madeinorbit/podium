@@ -97,6 +97,7 @@ import {
 import {
   belongsTo,
   CONFIRMED,
+  type ConfirmationEvidence,
   collapseKeyOf,
   confirmationOf,
   type DeadLetterRecord,
@@ -248,6 +249,10 @@ export type RemovalLicence =
  */
 class OutboxDraft {
   readonly events: OutboxEvent[] = []
+  /** In-memory bookkeeping to run at the moment this draft is ADOPTED — right
+   *  after the store write outside a span, at the span's commit inside one — and
+   *  never if it is not. */
+  readonly adoptions: (() => void)[] = []
   private readonly licensed = new Map<MutationId, RemovalLicence>()
   /** Ids this draft inserted or replaced, and ids it removed. */
   private readonly touched = new Set<MutationId>()
@@ -357,6 +362,10 @@ class OutboxDraft {
     this.events.push(event)
   }
 
+  onAdopt(adopt: () => void): void {
+    this.adoptions.push(adopt)
+  }
+
   /** The validated record set, or a loud failure. */
   sealed(): readonly OutboxRecord[] {
     const after = new Set(this.records.map((r) => r.mutationId))
@@ -413,6 +422,17 @@ export class Outbox {
    *  ONE transaction compose instead of overwriting each other. */
   private readonly spanDeltas = new WeakMap<SyncSpan, OutboxStoreMutation[]>()
   private readonly spanEvents = new WeakMap<SyncSpan, OutboxEvent[]>()
+  private readonly spanAdoptions = new WeakMap<SyncSpan, (() => void)[]>()
+  /**
+   * Ids `confirm` retired while their submit was still on the wire. The reply
+   * that comes back afterwards finds no record; this set is how `attempt` tells
+   * "covering truth already took it" from a lost race with another writer, so the
+   * partition proceeds instead of stopping on a Stale error. Each id is consumed
+   * by its own attempt.
+   */
+  private readonly coveredOnWire = new Set<MutationId>()
+  /** Ids this instance has submitted and not yet heard back about. */
+  private readonly onWire = new Set<MutationId>()
 
   private readonly backoff: BackoffPolicy
 
@@ -705,6 +725,7 @@ export class Outbox {
     })
 
     let outcome: OutboxSubmitOutcome
+    this.onWire.add(sending.mutationId)
     try {
       outcome = await this.config.submit.submit(envelopeFor(sending))
     } catch {
@@ -712,8 +733,40 @@ export class Outbox {
       // misclassified blip costs a retry, a misclassified refusal would retry
       // poison forever (see OutboxSubmitOutcome).
       outcome = { kind: 'unreachable' }
+    } finally {
+      this.onWire.delete(sending.mutationId)
     }
 
+    // The covering frame can overtake the reply: `confirm` may already have
+    // retired this entry while it was on the wire. Its truth is in the replica,
+    // so whatever the reply says there is nothing left to record, and the
+    // partition goes on. The catch covers a confirm that commits between this
+    // check and the settle's own commit.
+    if (this.takeCoveredOnWire(sending.mutationId, outcome)) return true
+    try {
+      return await this.settle(sending, outcome)
+    } catch (error) {
+      if (
+        error instanceof OutboxStaleError &&
+        this.takeCoveredOnWire(sending.mutationId, outcome)
+      ) {
+        return true
+      }
+      throw error
+    }
+  }
+
+  /** True when `confirm` retired this in-flight entry; consumes the mark. */
+  private takeCoveredOnWire(mutationId: MutationId, outcome: OutboxSubmitOutcome): boolean {
+    if (this.find(mutationId) !== undefined) return false
+    if (!this.coveredOnWire.delete(mutationId)) return false
+    // The entry is durably gone, so an announcement can no longer race its commit.
+    if (outcome.kind === 'applied') outcome.onCommitted?.()
+    return true
+  }
+
+  /** Record one submit outcome. @returns true when the partition may continue. */
+  private async settle(sending: OutboxRecord, outcome: OutboxSubmitOutcome): Promise<boolean> {
     if (outcome.kind === 'applied') {
       if (outcome.retire === true) {
         try {
@@ -747,7 +800,12 @@ export class Outbox {
         }
       } else {
         try {
-          await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+          // The receipt is stored WITH `appliedAt`, in the same commit, so the
+          // entry is never durably applied without the cursor that retires it.
+          await this.transition(sending, 'authority-applied', {
+            appliedAt: this.config.now(),
+            receipt: outcome.receipt,
+          })
         } catch (error) {
           if (
             error instanceof OutboxStaleError ||
@@ -994,6 +1052,59 @@ export class Outbox {
         draft.remove(id, 'covering-truth')
         draft.emit({ type: 'retired', mutationId: id })
       }
+    }, span)
+  }
+
+  /**
+   * Would `confirm(evidence)` retire anything? Synchronous and read-only over the
+   * in-memory records, so a replica can decide BEFORE it opens a transaction
+   * whether this commit needs the outbox as a participant. It applies the same
+   * coverage rule as `confirm`; the two must agree.
+   */
+  isConfirmable(evidence: ConfirmationEvidence): boolean {
+    const named = new Set(evidence.confirmed)
+    return this.mine().some((record) => isCoveredBy(record, evidence, named))
+  }
+
+  /**
+   * Retire every entry the evidence covers, in ONE draft (D9 invariant 1's
+   * covering-truth licence). Returns the retired ids in queue order.
+   *
+   * The evidence is what one replica commit proves it holds: rows whose
+   * provenance names an entry's id, and the cursor it certifies. Pass that
+   * commit's `span` so the retirement lands with the entity rows and the cursor,
+   * or not at all (ADR 2 D10); nothing is adopted or emitted before it commits.
+   * The coverage rule is `isCoveredBy`. Ids this queue does not own, and parked
+   * or cancelled entries, are ignored, never an error: a frame names every
+   * writer's mutations, not only this principal's.
+   */
+  async confirm(evidence: ConfirmationEvidence, span?: SyncSpan): Promise<readonly MutationId[]> {
+    const named = new Set(evidence.confirmed)
+    // Cheap exit from memory: a frame that covers nothing costs no store read.
+    if (!this.isConfirmable(evidence)) return []
+    return await this.mutate((draft) => {
+      const retired: MutationId[] = []
+      for (const record of draft.all()) {
+        if (!belongsTo(record, this.principal)) continue
+        if (!isCoveredBy(record, evidence, named)) continue
+        // An entry the replica proves applied before its reply came back: it is
+        // observable as `applied`, then `retired`, as `applyTerminal` does. No
+        // intermediate record is written — it leaves in this same draft.
+        if (record.state !== 'applied') {
+          draft.emit({ type: 'applied', mutationId: record.mutationId })
+        }
+        retired.push(record.mutationId)
+      }
+      for (const id of retired) {
+        draft.remove(id, 'covering-truth')
+        draft.emit({ type: 'retired', mutationId: id })
+      }
+      // Marked at adoption, never before: an aborted span leaves the entry in
+      // place, and its reply must then be recorded as usual.
+      draft.onAdopt(() => {
+        for (const id of retired) if (this.onWire.has(id)) this.coveredOnWire.add(id)
+      })
+      return retired
     }, span)
   }
 
@@ -1481,12 +1592,16 @@ export class Outbox {
       const outcome = await this.store.apply(delta)
       if (!outcome.ok) throw new OutboxConflict(outcome.conflicts)
       this.records = next
+      for (const adopt of draft.adoptions) adopt()
       for (const event of draft.events) this.emit(event)
       return result
     }
     const accumulated = this.spanDeltas.get(span)
     if (accumulated) accumulated.push(delta)
     else this.spanDeltas.set(span, [delta])
+    const adoptions = this.spanAdoptions.get(span)
+    if (adoptions) adoptions.push(...draft.adoptions)
+    else this.spanAdoptions.set(span, [...draft.adoptions])
     const pending = this.spanEvents.get(span)
     if (pending) pending.push(...draft.events)
     else {
@@ -1499,9 +1614,11 @@ export class Outbox {
         // include an independent user action that committed while the span was open.
         const deltas = this.spanDeltas.get(span) ?? []
         this.records = deltas.reduce(applyMutation, [...this.records])
+        for (const adopt of this.spanAdoptions.get(span) ?? []) adopt()
         for (const event of this.spanEvents.get(span) ?? []) this.emit(event)
         this.spanDeltas.delete(span)
         this.spanEvents.delete(span)
+        this.spanAdoptions.delete(span)
       })
       // No abort hook, and none needed: nothing is adopted and nothing is emitted
       // until `onCommit` runs, so an aborted span leaves this instance exactly as
@@ -1519,6 +1636,43 @@ export class Outbox {
   private emit(event: OutboxEvent): void {
     for (const listener of this.listeners) listener(event)
   }
+}
+
+/**
+ * The coverage rule (ADR 12, POD-6275): does this evidence prove the replica
+ * holds the server truth containing `record`? Shared by `isConfirmable` and
+ * `confirm`, so they cannot disagree. The caller has already scoped `record` to
+ * the bound principal.
+ *
+ * - Named by provenance, in `queued`, `sending`, `accepted` or `applied`: covered.
+ *   The row carrying its id is in the replica.
+ * - `applied` with a receipt: covered iff the receipt is on the same feed and
+ *   epoch and at or below the certified seq, or the commit is an install of a
+ *   DIFFERENT feed or epoch (a new truth that supersedes the receipt's). Epochs
+ *   compare by equality only.
+ * - `applied` without a receipt: covered by any evidence (Decision 4).
+ * - Anything else — parked, cancelled, an unnamed entry not yet applied — is not.
+ */
+const isCoveredBy = (
+  record: OutboxRecord,
+  evidence: ConfirmationEvidence,
+  named: ReadonlySet<MutationId>,
+): boolean => {
+  const { state } = record
+  if (named.has(record.mutationId)) {
+    if (state === 'queued' || state === 'sending' || state === 'accepted' || state === 'applied') {
+      return true
+    }
+  }
+  if (state !== 'applied') return false
+  const receipt = record.receipt
+  // LEGACY(remove-after: 2027-03): applied entries persisted by older builds, and replies from servers without `sync.submit`, carry no receipt; any confirmation retires them. Removing it strands those entries in the outbox for good.
+  if (receipt === undefined) return true
+  const through = evidence.through
+  if (receipt.feedId === through.feedId && receipt.epoch === through.epoch) {
+    return receipt.seq <= through.seq
+  }
+  return evidence.install
 }
 
 /**

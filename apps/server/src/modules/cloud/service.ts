@@ -54,6 +54,12 @@ export interface CloudServiceDeps {
   readonly sessions: RegistryModules['sessions']
   readonly repos: RepoRegistry
   readonly store: SessionRegistry['sessionStore']
+  /**
+   * Park the local session once its runtime exists, as the caller: a
+   * `records.session` edit (`desired: hibernated`) on the sync write entry point
+   * (ADR 12 D5 E1, POD-6417). The session controller acts after that commit.
+   */
+  readonly hibernateLocal: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
 }
 
 /** The shipped mapping, moved verbatim: an unconfigured provider is a
@@ -181,7 +187,7 @@ export class CloudService {
       })
 
       if (input.hibernateLocal) {
-        const parked = await this.deps.sessions.hibernateSession({ sessionId: session.sessionId })
+        const parked = await this.deps.hibernateLocal(session.sessionId)
         if (!parked.ok) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',

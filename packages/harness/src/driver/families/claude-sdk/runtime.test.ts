@@ -2,6 +2,7 @@ import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { RequestNotSentError } from '../../errors.js'
 import type { RuntimeEvent } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import { claudeUserMessageUuid } from './message-uuid.js'
 import {
@@ -16,6 +17,7 @@ const SESSION = 'claude-sdk-durable' as SessionId
 function spec() {
   return {
     harness: 'claude-code' as const,
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: {
       auth: 'subscription' as const,
       platform: 'linux' as const,

@@ -408,7 +408,7 @@ describe('repos router', () => {
   // doesn't silently bless the new shape without review.
   it.skip('discovery.refreshRepos enriches registered roots in place (no home walk)', async () => {
     const { call, repos, registry, daemon } = await repoCaller()
-    await repos.add('/abs/app')
+    await repos.add(repos.serverWriter, '/abs/app')
     const p = call.discovery.refreshRepos()
     await Promise.resolve()
     const req = daemon.find((m) => m.type === 'scanReposRequest') as ReposReq

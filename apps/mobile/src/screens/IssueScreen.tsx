@@ -270,6 +270,7 @@ const IssueContent = observer(function IssueContent({
     hasCloseBlockers,
     run,
     actions,
+    pool,
     // Only reached when the shared derivation found something to say; a clean
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),

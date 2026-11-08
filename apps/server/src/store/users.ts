@@ -100,6 +100,15 @@ const earliestAdminRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Every admin who can act: the readers of an instance-wide effect (POD-6358). */
+const activeAdminIdRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
+    .prepare(),
+)
+
 /** The one key of the earliest-admin loader: the instance has one earliest admin. */
 const EARLIEST_ADMIN = 'earliest-admin'
 
@@ -589,6 +598,15 @@ export class UsersRepository {
    */
   async get(userId: UserId): Promise<UserAccountRow | undefined> {
     return await this.accounts.load(userId)
+  }
+
+  /**
+   * The ids of every admin who can act (not disabled). The readers of an
+   * instance-wide effect record (a software update, a server move), read once
+   * per visibility pass that holds one (POD-6358).
+   */
+  async activeAdminIds(): Promise<ReadonlySet<string>> {
+    return new Set((await activeAdminIdRows(this.db).all()).map((row) => row.id))
   }
 
   /** The account role, or `undefined` for an account that cannot act. */

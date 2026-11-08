@@ -1,5 +1,6 @@
 import type { AgentSessionHandle, DriverId, RuntimeDriver } from '@podium/harness/driver/host'
 import { EngineBindUnrecoverable } from '@podium/harness/driver/host'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { Inventory, SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createDaemonMachineRuntime } from './machine-runtime'
@@ -154,6 +155,7 @@ describe('daemon machine runtime composition', () => {
     await runtime.create(
       {
         harness: 'grok',
+        harnessContext: testHarnessContext({ kind: 'grok' }),
         selection: {
           auth: 'subscription',
           platform: 'linux',

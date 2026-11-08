@@ -325,18 +325,16 @@ export async function installTerminalInstrumentation(input: {
    */
   harness: string
   /**
-   * The session channel (callback URL/socket) plus spawn env. A Pick, so the
-   * family cannot reach session fields it was not handed either.
+   * The session channel (callback URL/socket) plus the session-pinned harness
+   * context: the folders and the verified version the install uses. A Pick, so
+   * the family cannot reach session fields it was not handed either.
    */
-  spec: Pick<SessionSpec, 'instrumentation' | 'env'>
+  spec: Pick<SessionSpec, 'instrumentation' | 'harnessContext'>
   /** The adapter sections this family owns — its only adapter knowledge. */
   sections: TerminalInstrumentationSections
   settingsDir: string
-  homeDir?: string
   /** Host telemetry plumbing for the harness version probe (best-effort). */
   reportVersionProbe?: (harness: string, output: string) => void
-  /** Version from the inventory snapshot retained for this spawn. */
-  verifiedVersion?: string
 }): Promise<InstalledTerminalInstrumentation> {
   const { spec, sections } = input
   const channel = spec.instrumentation
@@ -351,10 +349,8 @@ export async function installTerminalInstrumentation(input: {
     ...(channel.socketPath ? { socketPath: channel.socketPath } : {}),
     ...(channel.seedTheme !== undefined ? { seedTheme: channel.seedTheme } : {}),
     settingsDir: input.settingsDir,
-    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-    ...(spec.env ? { env: spec.env } : {}),
+    harnessContext: spec.harnessContext,
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
-    ...(input.verifiedVersion ? { verifiedVersion: input.verifiedVersion } : {}),
   }
   // The install scope is adapter-declared: one strategy per `scope.kind`,
   // looked up — never an `if` on a harness-shaped flag. The `home` strategy
@@ -374,7 +370,6 @@ export async function installTerminalInstrumentation(input: {
         { kind: 'home' }
       >
       const home = homeScope.homeOf(destination)
-      destination.harnessHome = home
       return serialized(`${input.harness}:${home}`, () => instrumentation.install(destination))
     },
   }

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
@@ -87,7 +88,7 @@ async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
 /** Append `n` distinct issue upserts, returning the ledger's cursor after them. */
 async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
-    await ledger.commit({
+    await testLedgerWriter(ledger).commit({
       write: async () => undefined,
       changes: () => [{ entity: 'issueProjection', id, op: 'upsert', value: { id, title: id } }],
     })

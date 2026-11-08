@@ -23,32 +23,32 @@ describe('RepoRegistry', () => {
   it('starts empty, adds, dedupes, lists, removes', async () => {
     const reg = await singleMachineRepos(await openTestStore(':memory:'))
     expect(await reg.list()).toEqual([])
-    await reg.add('/home/u/src/app')
-    await reg.add('/home/u/src/app') // dedupe
+    await reg.add(reg.serverWriter, '/home/u/src/app')
+    await reg.add(reg.serverWriter, '/home/u/src/app') // dedupe
     expect(await reg.list()).toEqual(['/home/u/src/app'])
-    await reg.remove('/home/u/src/app')
+    await reg.remove(reg.serverWriter, '/home/u/src/app')
     expect(await reg.list()).toEqual([])
   })
 
   it('rejects non-absolute and empty paths', async () => {
     const reg = await singleMachineRepos(await openTestStore(':memory:'))
-    await expect(reg.add('')).rejects.toThrow()
-    await expect(reg.add('relative/path')).rejects.toThrow()
+    await expect(reg.add(reg.serverWriter, '')).rejects.toThrow()
+    await expect(reg.add(reg.serverWriter, 'relative/path')).rejects.toThrow()
   })
 
   it('persists across instances on the same db file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-reporeg-'))
     const file = join(dir, 'podium.db')
     const a = await singleMachineRepos(await openTestStore(file))
-    await a.add('/abs/one')
+    await a.add(a.serverWriter, '/abs/one')
     const b = await singleMachineRepos(await openTestStore(file))
     expect(await b.list()).toEqual(['/abs/one'])
   })
 
   it('inferFromPath returns the longest matching registered root', async () => {
     const repos = await singleMachineRepos(await openTestStore(':memory:'))
-    await repos.add('/a')
-    await repos.add('/a/b')
+    await repos.add(repos.serverWriter, '/a')
+    await repos.add(repos.serverWriter, '/a/b')
     expect(await repos.inferFromPath('/a/b/x/y')).toBe('/a/b')
     expect(await repos.inferFromPath('/a/x')).toBe('/a')
     expect(await repos.inferFromPath('/a')).toBe('/a')
@@ -76,7 +76,6 @@ describe('RepoRegistry', () => {
   })
 })
 
-
 it.each([
   ['/repo', '/repo/wt', '/repo/wt/src', '/repository'],
   ['C:\\repo', 'C:\\repo\\wt', 'c:/REPO/wt/src', 'C:\\repository'],
@@ -85,16 +84,27 @@ it.each([
   expect(inferRepoFromRoots([root], sibling)).toBeUndefined()
 })
 
-
 it('machine paths: repo scan matches case-folded keys without rewriting display paths', async () => {
   const machineId = asMachineId('windows-scan')
   const root = String.raw`C:\Src\Podium`
   const repoId = asRepoId('repo-stored')
   const row = { machineId, path: root, repoId, prefix: null, originUrl: null }
-  const registry = new RepoRegistry({ modules: {
-    machines: { onlineMachineIds: () => [machineId] },
-    rpc: { scanRepos: async () => ({ repositories: [{ path: 'c:/src/podium', kind: 'repository', worktrees: [] }], diagnostics: [] }) },
-  } } as unknown as SessionRegistry, { repos: { listRepos: async () => [row], listRepoPaths: async () => [root] } } as unknown as SessionStore)
+  const registry = new RepoRegistry(
+    {
+      modules: {
+        machines: { onlineMachineIds: () => [machineId] },
+        rpc: {
+          scanRepos: async () => ({
+            repositories: [{ path: 'c:/src/podium', kind: 'repository', worktrees: [] }],
+            diagnostics: [],
+          }),
+        },
+      },
+    } as unknown as SessionRegistry,
+    {
+      repos: { listRepos: async () => [row], listRepoPaths: async () => [root] },
+    } as unknown as SessionStore,
+  )
   const result = await registry.scanReposAll()
   expect(result.repositories).toEqual([expect.objectContaining({ path: 'c:/src/podium', repoId })])
 })
@@ -109,7 +119,13 @@ describe('republishing the logical repo row', () => {
   const make = (stored: string | null, scanned: { path: string; originUrl?: string }[]) => {
     const published: number[] = []
     const updates: string[] = []
-    const row = { machineId, path: root, repoId: asRepoId('repo-podium'), prefix: 'POD', originUrl: stored }
+    const row = {
+      machineId,
+      path: root,
+      repoId: asRepoId('repo-podium'),
+      prefix: 'POD',
+      originUrl: stored,
+    }
     const registry = new RepoRegistry(
       {
         modules: {
@@ -120,14 +136,26 @@ describe('republishing the logical repo row', () => {
               diagnostics: [],
             }),
           },
-          issues: { reports: { store: { publishRepos: async () => void published.push(1) } } },
+          issues: {
+            reports: {
+              store: {
+                publishRepos: async () => void published.push(1),
+                commitRepoWrite: async <T>(_writer: unknown, write: () => Promise<T>) => {
+                  const value = await write()
+                  published.push(1)
+                  return value
+                },
+              },
+            },
+          },
         },
       } as unknown as SessionRegistry,
       {
         repos: {
           listRepos: async () => [row],
           listRepoPaths: async () => [root],
-          updateRepoOrigin: async (_m: string, path: string, url: string) => void updates.push(`${path} ${url}`),
+          updateRepoOrigin: async (_m: string, path: string, url: string) =>
+            void updates.push(`${path} ${url}`),
           removeRepo: async () => {},
         },
       } as unknown as SessionStore,
@@ -153,7 +181,7 @@ describe('republishing the logical repo row', () => {
 
   it('publishes when a checkout is removed', async () => {
     const { registry, published } = make(origin, [])
-    await registry.remove(root, machineId)
+    await registry.remove(registry.serverWriter, root, machineId)
     expect(published).toHaveLength(1)
   })
 })

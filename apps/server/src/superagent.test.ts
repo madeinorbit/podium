@@ -23,6 +23,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
+import { clientSessionViews } from './test-support/session-views'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -153,25 +154,30 @@ describe('start_agent tool wiring (issue #60)', () => {
     // only on a machine that reported their repo (2b803efb5).
     await assignHostMachine(registry.sessionStore)
     await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
-    await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
-      if (m.type === 'repoOpRequest') {
-        queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-            type: 'repoOpResult',
-            requestId: m.requestId,
-            ok: true,
-            output: '',
-          }),
-        )
-      }
-    }, fixtureInventory({
-      // An agent spawn requests a headed terminal driver, which the daemon must
-      // advertise (fb68d2f05).
-      runtimeDrivers: [
-        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
-        { harness: 'codex', id: 'codex-pty', family: 'terminal' },
-      ],
-    }))
+    await attachDaemonWithInventory(
+      registry,
+      registry.sessionStore.hostMachineId,
+      (m) => {
+        if (m.type === 'repoOpRequest') {
+          queueMicrotask(() =>
+            registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+              type: 'repoOpResult',
+              requestId: m.requestId,
+              ok: true,
+              output: '',
+            }),
+          )
+        }
+      },
+      fixtureInventory({
+        // An agent spawn requests a headed terminal driver, which the daemon must
+        // advertise (fb68d2f05).
+        runtimeDrivers: [
+          { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+          { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+        ],
+      }),
+    )
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     await sa.history(firstAdminMemberId())
@@ -239,8 +245,14 @@ describe('start_agent tool wiring (issue #60)', () => {
       { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } } },
       '2026-11-04T00:00:00.000Z',
     )
-    const task = await registry.issues.crud.create({ repoPath: '/r', title: 'Admin work', startNow: false })
-    await registry.issues.crud.update(task.id, { worktreePath: '/r/.worktrees/a' })
+    const task = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Admin work',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, task.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const threadId = 'concierge_colleague'
     await registry.sessionStore.superagent.upsertSuperagentThread({
       id: threadId,
@@ -271,15 +283,21 @@ describe('start_agent tool wiring (issue #60)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: string }
     expect(
-      (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
-        ?.spawnedBy,
+      (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)?.spawnedBy,
     ).toBe('superagent:btw_s1')
   })
 
   it("issueId on a started issue spawns in the issue's worktree", async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/issue-1-x',
+      stage: 'planning',
+    })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -300,7 +318,11 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('unstarted issue spawn preserves the exact initiating superagent thread', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Fix login',
+      startNow: false,
+    })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -323,8 +345,15 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('works with issueId alone — cwd is optional when the issue provides it', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/issue-1-x',
+      stage: 'planning',
+    })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -370,8 +399,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('global')),
     ) as { sessionId: string }
     expect(
-      (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
-        ?.spawnedBy,
+      (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)?.spawnedBy,
     ).toBe('superagent:global')
   })
 
@@ -522,13 +550,17 @@ describe('session-steering tool belt (issue #62)', () => {
     }
     const answer = async (input: { sessionId: string; answer: string }) => {
       const threadId = asThreadId('answer_test')
-      if (!await registry.sessionStore.superagent.getSuperagentThread(threadId)) {
+      if (!(await registry.sessionStore.superagent.getSuperagentThread(threadId))) {
         const { sessionId } = await registry.modules.sessions.createSession({
           agentKind: 'claude-code',
           cwd: '/w',
           spawnedBy: `superagent:${threadId}`,
         })
-        await registry.sessionStore.superagent.upsertSuperagentThread({ id: threadId, ownerUserId: firstAdminMemberId(), kind: 'global' })
+        await registry.sessionStore.superagent.upsertSuperagentThread({
+          id: threadId,
+          ownerUserId: firstAdminMemberId(),
+          kind: 'global',
+        })
         await registry.sessionStore.superagent.updateSuperagentThreadBinding(threadId, {
           podiumSessionId: sessionId,
         })
@@ -753,9 +785,9 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = await harness({ transcriptItems: [askItem()] })
     const sessionId = await h.spawn(true)
     markPending(h, sessionId)
-    expect(
-      await h.tool('answer_question', { sessionId, answer: 'Yes' }),
-    ).toBe('failed: answer caller identity unavailable')
+    expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })).toBe(
+      'failed: answer caller identity unavailable',
+    )
     expect(h.inputs).toEqual([])
   })
 
@@ -789,7 +821,9 @@ describe('session-steering tool belt (issue #62)', () => {
     // The retry text in the short frame (POD-4868).
     expect(h.sends[0]).toMatchObject({
       sessionId,
-      text: expect.stringMatching(/^\[podium message (msg_\S+) · from system:auto-continue · to your session\]\ncontinue\n\[end podium message \1\]$/),
+      text: expect.stringMatching(
+        /^\[podium message (msg_\S+) · from system:auto-continue · to your session\]\ncontinue\n\[end podium message \1\]$/,
+      ),
       origin: 'auto_continue',
     })
     expect(h.inputs).toEqual([])
@@ -868,7 +902,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // projection's overlay cache, which is the same rule `IssueService.rows` has
     // always had. Driving the real entry point is also what makes this a test of
     // the shipped path rather than of the repository.
-    h.registry.modules.sessions.setSnooze({
+    h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
       userId: firstAdminMemberId(),
       sessionId,
       until: '2020-01-01T00:00:00.000Z',
@@ -877,7 +911,11 @@ describe('session-steering tool belt (issue #62)', () => {
     // …while an open-ended snooze (null) never lapses by time. The counterfactual
     // that keeps the assertion above from passing for the wrong reason: if the
     // projection had simply stopped carrying snoozes, this would fail too.
-    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
+      userId: firstAdminMemberId(),
+      sessionId,
+      until: null,
+    })
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeNull()
   })
 
@@ -990,7 +1028,11 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    await h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    await h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
+      userId: firstAdminMemberId(),
+      sessionId,
+      until: null,
+    })
     const rows = JSON.parse(
       await h.tool('list_sessions', {}, asThreadId('global')),
     ) as Array<Record<string, unknown>>

@@ -6,57 +6,34 @@
  * a runtime or a full list. Server truth stays in the replica; pending patches
  * and spawn inserts are folded over one addressed row.
  *
- * RETIREMENT RULE (#263) — an overlay retires EXACTLY ONCE, on the first of:
+ * RETIREMENT RULE (ADR 12): an overlay lives exactly as long as its outbox
+ * entry. A queued entry paints; an applied entry keeps painting while it
+ * awaits confirmation; the replica's commit of covering truth (a cursor at or
+ * past the entry's receipt, or a row carrying its mutation id) retires the
+ * entry and the overlay with it, in one step. A refused entry drops at once.
+ * Nothing here compares a painted value with a server row, and no timer
+ * retires anything.
  *
- *  (a) success + covering truth: its mutation resolved (the entry left the
- *      outbox queue via a successful drain / the spawn create acked) AND
- *      server truth covering it landed in the replica. "Covering" is:
- *        - for a patch: the row now reflects the mutation (`coveredBy`), OR
- *          a PATCHED cell left its enqueue-time value for something that is
- *          not this mutation's — a competing write on the same field, and
- *          server truth wins. Unrelated cells (gitState, childCount, revision)
- *          changing do not count: a partial patch must not retire because the
- *          rest of the row moved under load. The escape is limited to the
- *          oldest awaiting entry per row, and a TTL backstop bounds the rest
- *          (see pruneAwaiting);
- *        - for a spawn insert: a base row with the client-minted id exists
- *          (resolution plays no part — the broadcast may beat the tRPC ack).
- *      Until BOTH hold, the overlay keeps painting on top of every replica
- *      write — a reconnect heal snapshot that predates the mutation's effect
- *      can never flash the stale value (the no-flicker guarantee all three
- *      old mechanisms approximated).
+ * A spawn placeholder is not an outbox entry. It retires when a base row with
+ * its client-minted id exists, which is exact.
  *
- *  (b) definitive failure: the mutation was rejected (outbox poison drop /
- *      the spawn create rejected) — the overlay drops immediately and the
- *      existing failure surfacing (toast) fires.
- *
- * Lifecycle of an outboxed mutation's overlay, concretely:
- *   enqueue            → overlay active (derived from the queue itself; being
- *                        replica-persisted, it survives an offline reload)
- *   drain success      → overlay handed to the awaiting-truth stage
- *                        (Outbox.onApplied fires before subscribers see the
- *                        shrunken queue, so there is no uncovered gap). The
- *                        stage is DURABLE (#263 review finding 1): the entry
- *                        transitions in outbox storage (state 'awaiting-truth')
- *                        rather than being deleted, so a reload inside the
- *                        resolution→truth window restores the overlay instead
- *                        of exposing stale replica truth
- *   truth lands        → overlay retired (rule (a)) + storage entry deleted
- *   poison drop        → overlay dropped + toast (rule (b))
+ * GENERIC RECORD WRITES (ADR 12 D3, POD-6392) take ONE case for every declared
+ * kind: the entry's patch is the paint, spelled as the kind's wire row spells
+ * it; a create inserts its row; a remove hides the row. Nothing in that case
+ * names a kind (`recordOverlays`).
  */
 
-import { createLogger } from '@podium/logger'
 import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
-import {
-  IssueProjection,
-  IssueUserStateWire,
-  isIssueDeferred,
-  UNSNOOZE_BACKDATE_MS,
-} from '@podium/model'
+import { IssueProjection, IssueUserStateWire } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
-
-const log = createLogger('client-core:overlay')
+import {
+  isRecordOutboxKind,
+  loadedRecordDeclarations,
+  RECORD_HOMES,
+  recordDeclaration,
+  recordOpOf,
+} from './records'
 
 /** The entities a per-row reader may paint from transactions (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
@@ -75,9 +52,6 @@ export type OverlayTarget = OverlayEntity | 'issueUserStates' | 'sessionUserStat
  *  below are the typed constructors; folding is structural. */
 type OverlayPatch = Record<string, unknown>
 
-/** The rows a `coveredBy` judges. */
-export type OverlayRow = SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
-
 export type PendingOverlay =
   | {
       op: 'patch'
@@ -87,9 +61,6 @@ export type PendingOverlay =
       /** Target row id (sessionId / issue id; the entity's id for per-user state). */
       id: string
       patch: OverlayPatch
-      /** True when `row` (current server truth) already reflects this
-       *  mutation — applying the patch would be observationally a no-op. */
-      coveredBy: (row: OverlayRow) => boolean
       /**
        * The row this patch folds over when the target row is ABSENT. Only
        * per-user state has one: an absent `(user, issue)` row means "nothing
@@ -112,64 +83,26 @@ export type PendingOverlay =
       /** The whole placeholder row, shown until a base row (same id) lands. */
       insert: SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
     }
-
-/** A resolved patch overlay still awaiting covering server truth (rule (a)).
- *  `baseline` is the `rowFingerprint` of the target row's REPLICA truth at
- *  ENQUEUE time (unpainted). A competing write is a PATCHED cell leaving that
- *  baseline for a value that is not this overlay's — not "any cell on the row
- *  changed". Captured at enqueue, NOT at resolution: truth can land BEFORE the
- *  mutation response, and a resolution-time fingerprint of that already-final
- *  row would never "move past" — wedging the overlay forever (#263 review
- *  finding 2). `undefined` when the row wasn't in the replica at enqueue time
- *  (or the entry predates baselines): the moved-past escape is unavailable then
- *  and retirement rests on coveredBy / row-gone / the TTL. */
-export interface AwaitingTruth {
-  overlay: Extract<PendingOverlay, { op: 'patch' }>
-  baseline: string | undefined
-  /** Epoch ms when the mutation resolved — drives the TTL backstop. */
-  resolvedAt: number
-}
+  | {
+      /**
+       * A queued or awaiting removal (POD-6392): the row is absent from here on
+       * in queue order, as it will be once the removal lands. A later patch
+       * folds over the target's absent row, if it has one.
+       */
+      op: 'remove'
+      /** Stable identity: the outbox entry's mutationId. */
+      key: string
+      entity: OverlayTarget
+      id: string
+    }
 
 /**
- * TTL backstop for the awaiting-truth stage (#263 review finding 3): an
- * awaiting entry whose covering truth never arrives (echo lost, competing
- * writes racing, a younger same-row entry blocked from the moved-past escape)
- * retires after this long. Tradeoff, deliberately: retiring a stuck overlay
- * can briefly show pre-mutation server truth (mild, self-healing — the next
- * sync converges), while keeping it forever can mask another client's write
- * indefinitely (visible wrongness with no recovery). Bounding beats wedging.
- */
-export const AWAITING_TRUTH_TTL_MS = 60_000
-
-/** Stable empty set so snapshot slices keep identity when nothing is pending. */
-
-/**
- * Stable row fingerprint for baselines: DATA fields only, keys sorted. Replica
- * rows are TanStack DB objects carrying volatile $-metadata ($synced flips
- * false→true after persistence, $origin local→remote across a reload,
- * $collectionId embeds a per-instance nonce) — raw JSON.stringify would read
- * every one of those flips as "the row moved", spuriously firing the
- * moved-past-baseline escape. Key sorting guards against storage round-trips
- * reordering properties. JSON.stringify drops undefined-valued fields, so a
- * field assigned undefined equals one that is absent.
- */
-export function rowFingerprint(row: object): string {
-  const data: Record<string, unknown> = {}
-  for (const k of Object.keys(row).sort()) {
-    if (!k.startsWith('$')) data[k] = (row as Record<string, unknown>)[k]
-  }
-  return JSON.stringify(data)
-}
-
-/**
- * Cell equality for a partial-patch overlay's `coveredBy`.
+ * Cell equality for the fold's "did a patch move this cell" check.
  *
  * `null` and `undefined` are ONE value here, and that is not laziness about
  * types: the wire spells "unset" both ways for the same field. `issues.update`
- * clears acceptance with `acceptance: null` while `IssueProjection.acceptance` is `optional()` —
- * absent once cleared — so a strict `===` would leave every clear painted until
- * its TTL. `rowFingerprint` above already makes the same collapse for the same
- * reason (JSON.stringify drops undefined-valued keys).
+ * clears acceptance with `acceptance: null` while `IssueProjection.acceptance`
+ * is `optional()`, absent once cleared.
  */
 function sameCell(a: unknown, b: unknown): boolean {
   return cellValue(a) === cellValue(b)
@@ -197,14 +130,10 @@ function sameKeyedCell(key: string, a: unknown, b: unknown): boolean {
  * An op-stream document (`description` on the normalized issue row) is
  * its materialized `value`. Its `revision` and `opsTail` are the authority's
  * bookkeeping: a painted `{ value }` and the echoed `{ value, revision }` show
- * the same text, and comparing the objects by identity would read every pending
- * document edit as a competing write (and retire it at the first prune).
+ * the same text.
  *
- * Any other structured cell (`labels`, `asked`) is its JSON. The enqueue
- * baseline is a PARSED fingerprint, so its arrays are never the row's arrays:
- * by identity, an unchanged `labels` read as "moved past the baseline", and a
- * label edit was dropped at resolution — the old chips flashed back until the
- * echo landed (found by POD-4969's per-kind echo test).
+ * Any other structured cell (`labels`, `asked`) is its JSON, so two equal
+ * arrays are one value.
  *
  * Unset is one value here too.
  */
@@ -225,63 +154,13 @@ function cellValue(v: unknown): unknown {
 
 const DOC_KEYS: ReadonlySet<string> = new Set(['value', 'revision', 'opsTail'])
 
-/**
- * True when a PATCHED cell left its enqueue-time value for something that is
- * not this overlay's intended value. That is a competing write on the same
- * field. Other cells changing (gitState, childCount, revision, lastActiveAt)
- * are not a competing write for a partial patch — retiring on those is what
- * made a sidebar sort snap back under load: the echo for an unrelated field
- * arrived before the sortKey echo, the whole-row fingerprint moved, and the
- * painted order dropped.
- *
- * A cell that now equals the overlay's value is coverage, not competition
- * (`coveredBy` retires those). Malformed or missing baselines cannot judge
- * movement — same as the no-baseline rule in pruneAwaiting.
- */
-export function patchedCellsMovedPast(
-  overlay: Extract<PendingOverlay, { op: 'patch' }>,
-  row: object,
-  baseline: string | undefined,
-): boolean {
-  if (baseline === undefined) return false
-  let parsed: Record<string, unknown>
-  try {
-    const raw: unknown = JSON.parse(baseline)
-    if (raw === null || typeof raw !== 'object') return false
-    parsed = raw as Record<string, unknown>
-  } catch {
-    return false
-  }
-  const rec = row as Record<string, unknown>
-  for (const key of Object.keys(overlay.patch)) {
-    const now = rec[key]
-    if (sameKeyedCell(key, now, parsed[key])) continue
-    if (sameKeyedCell(key, now, overlay.patch[key])) continue
-    return true
-  }
-  return false
-}
-
-/** Read one cell from the enqueue-time server-truth fingerprint. Missing or
- * malformed baselines are ordinary for restored/legacy entries. */
-function baselineCell(entry: OutboxEntry, key: string): unknown {
-  if (entry.baseline === undefined) return undefined
-  try {
-    const row = JSON.parse(entry.baseline) as unknown
-    return row && typeof row === 'object' ? (row as Record<string, unknown>)[key] : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function patchOverlay(
   entity: OverlayTarget,
   id: string,
   key: string,
   patch: OverlayPatch,
-  coveredBy: (row: OverlayRow) => boolean,
 ): Extract<PendingOverlay, { op: 'patch' }> {
-  return { op: 'patch', key, entity, id, patch, coveredBy }
+  return { op: 'patch', key, entity, id, patch }
 }
 
 /** A spawn placeholder (#119) as a unified overlay entry: same bookkeeping as
@@ -308,9 +187,9 @@ const ISSUE_PROJECTION_KEYS: ReadonlySet<string> = new Set(Object.keys(IssueProj
 const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description'])
 
 /**
- * `issues.update` keys the SERVER resolves into a different cell, so no row can
- * cover their raw value and they are not painted (they would only sit on the
- * TTL). `agentProfile` is a name or id the server turns into `agentProfileId`
+ * `issues.update` keys the SERVER resolves into a different cell, so their raw
+ * value would paint something no row ever holds; they are not painted.
+ * `agentProfile` is a name or id the server turns into `agentProfileId`
  * (POD-6107). `overlay.test.ts` holds this set exact, so it cannot grow quietly.
  */
 export const ISSUE_SERVER_RESOLVED_UPDATE_KEYS: ReadonlySet<string> = new Set(['agentProfile'])
@@ -321,8 +200,7 @@ export const ISSUE_SERVER_RESOLVED_UPDATE_KEYS: ReadonlySet<string> = new Set(['
  * A per-user marker goes to the `(user, issue)` row; a durable field goes to
  * the normalized issue row, in ITS spelling — `description` is a document
  * there, so the text is painted as `{ value }`. A key neither row
- * carries is not painted at all: no row could ever cover it, so it would sit
- * on the TTL. `overlay.test.ts` holds every key the contract accepts to one of
+ * carries is not painted at all: no row shows it. `overlay.test.ts` holds every key the contract accepts to one of
  * the two homes, so a new contract key cannot fall through silently.
  */
 export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; user: OverlayPatch } {
@@ -341,190 +219,44 @@ export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; us
  * Project one queued outbox entry into its overlays. Mirrors — field for field —
  * the optimistic patches the engine used to write straight into the replica,
  * so the painted result is byte-identical to the old mechanism's. Kinds with
- * no visible optimism project to nothing. Each kind's `coveredBy` encodes what
- * SERVER truth reflecting the mutation looks like (the server trims names,
- * stamps its own readAt clock, derives `unread`).
+ * no visible optimism project to nothing. Where the server normalizes a value
+ * (it trims names, sorts labels), the paint normalizes it the same way, so the
+ * row does not move when truth replaces the paint.
  *
  * ONE ENTRY, ONE OVERLAY PER ROW IT LANDS ON (POD-4969). Issue writes target
  * the NORMALIZED rows: the durable fields on `issueProjections`, the per-user
  * markers on `issueUserStates`. Every kind lands on exactly one of them except
  * `issueUpdate`, whose patch may carry personal markers beside durable fields.
- * All parts share the mutationId and retire against their own rows.
+ * All parts share the mutationId and retire with its entry.
  */
-export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
-  const projected = overlayOf(entry)
+export function overlaysForOutboxEntry(
+  entry: OutboxEntry,
+  viewer: ReducerViewer = {},
+): PendingOverlay[] {
+  const projected = overlayOf(entry, viewer)
   return projected === null ? [] : Array.isArray(projected) ? projected : [projected]
 }
 
-function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
+/** What the reducing device knows. Only a record create reads it: a fresh
+ *  record's owner is painted as this person, and its placement (an issue's
+ *  repo) guessed from the rows the device holds (POD-6400). */
+export interface ReducerViewer {
+  readonly userId?: string
+  readonly known?: (entity: string, field: string, value: unknown) => readonly string[]
+}
+
+function overlayOf(
+  entry: OutboxEntry,
+  viewer: ReducerViewer,
+): PendingOverlay | PendingOverlay[] | null {
+  if (isRecordOutboxKind(entry.kind)) return recordOverlays(entry, viewer)
   switch (entry.kind as keyof OutboxKinds) {
-    case 'rename': {
-      const i = entry.input as OutboxKinds['rename']
-      const name = i.name.trim() // the server stores the trimmed name too
-      return patchOverlay('sessions', i.sessionId, entry.mutationId, { name }, (r) => {
-        return ((r as SessionMeta).name ?? '') === name
-      })
-    }
-    case 'setArchived': {
-      const i = entry.input as OutboxKinds['setArchived']
-      return patchOverlay(
-        'sessions',
-        i.sessionId,
-        entry.mutationId,
-        { archived: i.archived },
-        (r) => (r as SessionMeta).archived === i.archived,
-      )
-    }
-    case 'setWorkState': {
-      const i = entry.input as OutboxKinds['setWorkState']
-      const workState: WorkState | undefined = i.workState ?? undefined
-      return patchOverlay(
-        'sessions',
-        i.sessionId,
-        entry.mutationId,
-        { workState },
-        (r) => ((r as SessionMeta).workState ?? null) === (workState ?? null),
-      )
-    }
-    // THE FOUR PER-USER SESSION KINDS (POD-4974 S3) land on this principal's
-    // `(user, session)` row, never on the shared session row: `readAt` and
-    // `snoozedUntil` are facts about a reader and a session together. The
-    // reader joins that row into the session view (`session-values.ts`), which
-    // is where `unread` is derived, so nothing here paints `unread`. Coverage is
-    // judged on the per-user row too.
-    case 'snoozeSet': {
-      // Exact, with `null` its own value: a snooze "until the next message" is
-      // `null`, and no snooze is an absent cell (NULL_IS_A_VALUE).
-      const i = entry.input as OutboxKinds['snoozeSet']
-      return patchOverlay(
-        'sessionUserStates',
-        i.sessionId,
-        entry.mutationId,
-        { snoozedUntil: i.until },
-        (r) => sameKeyedCell('snoozedUntil', (r as SessionUserStateWire).snoozedUntil, i.until),
-      )
-    }
-    case 'snoozeClear': {
-      // `undefined`, not null: the server's cleared row carries no snooze cell,
-      // and `null` would be a snooze until the next message.
-      const i = entry.input as OutboxKinds['snoozeClear']
-      return patchOverlay(
-        'sessionUserStates',
-        i.sessionId,
-        entry.mutationId,
-        { snoozedUntil: undefined },
-        (r) => (r as SessionUserStateWire).snoozedUntil === undefined,
-      )
-    }
-    case 'sessionMarkRead': {
-      const i = entry.input as OutboxKinds['sessionMarkRead']
-      // THE PAINT IS AT LEAST THE SESSION'S LAST ACTIVITY. `unread` is derived
-      // on the client as `lastActiveAt > readAt`, and `lastActiveAt` is the
-      // SERVER's clock: a client clock running behind it would paint a cursor
-      // older than the activity it is acknowledging, and the session would stay
-      // unread under the press. The enqueue baseline carries the session row's
-      // `lastActiveAt` (the transaction log merges it in), so this stays a function of
-      // the entry; without one (a reloaded kernel entry) the press time stands.
-      //
-      // COVERED like `issueMarkRead`: the server stamps its own clock, so the
-      // cursor only has to move off the enqueue-time one. WITHOUT a baseline —
-      // which is every entry the kernel queue restores after a reload, since it
-      // keeps baselines in memory only — the enqueue-time cursor is unknown,
-      // and any older cursor would read as coverage and drop the paint before
-      // the echo. Then the cursor must be at or after the press: a client clock
-      // AHEAD of the server's only holds the paint until the TTL, while truth
-      // already says read.
-      const pressedAt = new Date(entry.queuedAt).toISOString()
-      const activity = baselineCell(entry, 'lastActiveAt')
-      const readAt =
-        i.readAt ??
-        (typeof activity === 'string' && Date.parse(activity) > entry.queuedAt
-          ? activity
-          : pressedAt)
-      const previousReadAt = baselineCell(entry, 'readAt')
-      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt }, (r) => {
-        const current = (r as SessionUserStateWire).readAt
-        if (current == null) return false
-        if (i.readAt) return current >= i.readAt
-        if (entry.baseline !== undefined) return current !== previousReadAt
-        return Date.parse(current) >= entry.queuedAt
-      })
-    }
-    case 'sessionMarkUnread': {
-      const i = entry.input as OutboxKinds['sessionMarkUnread']
-      return patchOverlay(
-        'sessionUserStates',
-        i.sessionId,
-        entry.mutationId,
-        { readAt: null },
-        (r) => (r as SessionUserStateWire).readAt == null,
-      )
-    }
     case 'dismissOffer': {
       const i = entry.input as OutboxKinds['dismissOffer']
-      // COVERING TRUTH IS "THAT offer is no longer standing", not "there is no
-      // offer". The server clears the offer it matched, and the same row is
-      // where a NEWER offer arrives — one posted while the dismissal was still
-      // queued. Judging coverage on `offer == null` would keep this overlay
-      // painting over that new offer until the entry retired some other way,
-      // which is the one thing the stamp guard exists to prevent on the server
-      // and must not be reintroduced on the client.
       // `undefined`, not null, for the same reason `snoozeClear` patches
       // `snoozedUntil: undefined`: the server's cleared row carries no offer
       // key at all, so the paint is byte-identical to the truth it predicts.
-      return patchOverlay(
-        'sessions',
-        i.sessionId,
-        entry.mutationId,
-        { offer: undefined },
-        (r) => (r as SessionMeta).offer?.createdAt !== i.offerCreatedAt,
-      )
-    }
-    case 'issueMarkRead': {
-      const i = entry.input as OutboxKinds['issueMarkRead']
-      const previousReadAt = baselineCell(entry, 'readAt')
-      // `readAt` is PER-USER state (POD-4969): its home is this principal's
-      // `(user, issue)` row, never the shared normalized issue row. Unlike tuck,
-      // mark-read can start from an OLDER non-null cursor, so mere presence is
-      // not covering truth: the cursor must move past the enqueue-time cell.
-      return patchOverlay(
-        'issueUserStates',
-        i.id,
-        entry.mutationId,
-        { readAt: i.readAt ?? new Date(entry.queuedAt).toISOString() },
-        (r) => {
-          const readAt = (r as IssueUserStateWire).readAt
-          return readAt != null && (i.readAt ? readAt >= i.readAt : readAt !== previousReadAt)
-        },
-      )
-    }
-    case 'issueMarkUnread': {
-      // Covered by an ABSENT row too: the server deletes a row whose three
-      // markers are all null, and the row source folds absence as that null row.
-      const i = entry.input as OutboxKinds['issueMarkUnread']
-      return patchOverlay(
-        'issueUserStates',
-        i.id,
-        entry.mutationId,
-        { readAt: null },
-        (r) => (r as IssueUserStateWire).readAt == null,
-      )
-    }
-    case 'issueSetTucked': {
-      const i = entry.input as OutboxKinds['issueSetTucked']
-      // The server stamps its own clock, so covering truth is judged on the
-      // PRESENCE of tuckedAt, not on the timestamp value (same reasoning as
-      // sessionMarkRead's readAt). Until it lands, the pending entry keeps the
-      // row folded across every replica write — including a reconnect heal
-      // snapshot taken before the mutation reached the server, which is exactly
-      // the un-fold flicker the old ui-state path could not avoid.
-      return patchOverlay(
-        'issueUserStates',
-        i.id,
-        entry.mutationId,
-        { tuckedAt: i.tucked ? new Date(entry.queuedAt).toISOString() : null },
-        (r) => ((r as IssueUserStateWire).tuckedAt != null) === i.tucked,
-      )
+      return patchOverlay('sessions', i.sessionId, entry.mutationId, { offer: undefined })
     }
     case 'issueUpdate': {
       // THE PATCH IS THE OVERLAY (POD-781), ROUTED BY HOME (POD-4969). Every key
@@ -533,52 +265,23 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       // two overlays, one per row it lands on, both keyed by this mutation. The
       // routing is read off the two schemas (`issueUpdateRoute`), not listed.
       //
-      // COVERED = every key the caller set now reads back equal, on that row.
-      // Not "the row changed": a competing writer moving some OTHER field must
-      // not retire this overlay, and the moved-past-baseline escape in
-      // `pruneAwaiting` already handles the case where one genuinely won.
-      //
-      // The server is trusted to land these verbatim, which is a claim about
-      // THIS command and was verified: `IssueCrud.update` normalizes only by
+      // The server lands these verbatim: `IssueCrud.update` normalizes only by
       // ADDING keys (`normalizeClosedPatch` stamps `stage: 'done'` beside a
       // `closedReason`, a `defaultAgent` change resets model/effort) and never
-      // rewrites a key the caller sent — no trimming, no coercion. Were that to
-      // change, the mismatch costs one prune pass, not a wedge: the row moves
-      // past the enqueue baseline without covering, and server truth wins.
+      // rewrites a key the caller sent, so the paint is what truth will show.
       const i = entry.input as OutboxKinds['issueUpdate']
       const { issue, user } = issueUpdateRoute(i.patch as OverlayPatch)
       const out: Extract<PendingOverlay, { op: 'patch' }>[] = []
-      // An empty half is a write with nothing to paint on that row. Leaving it
-      // out keeps it from parking a no-op that has to wait for coverage it would
-      // get for free; an empty patch projects to no overlay at all.
+      // An empty half is a write with nothing to paint on that row; an empty
+      // patch projects to no overlay at all.
       for (const [entity, patch] of [
         ['issueProjections', issue],
         ['issueUserStates', user],
       ] as const) {
-        const keys = Object.keys(patch)
-        if (keys.length === 0) continue
-        out.push(
-          patchOverlay(entity, i.id, entry.mutationId, patch, (r) => {
-            const row = r as unknown as Record<string, unknown>
-            return keys.every((k) => sameCell(row[k], patch[k]))
-          }),
-        )
+        if (Object.keys(patch).length === 0) continue
+        out.push(patchOverlay(entity, i.id, entry.mutationId, patch))
       }
       return out
-    }
-    case 'issueArchive': {
-      // `issues.archive` is one-way — there is no `archived: false` arm on this
-      // command (unarchiving goes through `issueUpdate`). The sidebar drops a
-      // row on `issue.archived || issue.deletedAt`, so this is an ordinary patch
-      // and the row leaves the list on the press.
-      const i = entry.input as OutboxKinds['issueArchive']
-      return patchOverlay(
-        'issueProjections',
-        i.id,
-        entry.mutationId,
-        { archived: true },
-        (r) => (r as IssueProjection).archived === true,
-      )
     }
     case 'issueDelete': {
       // THE DELETE CASCADE (POD-781 design constraint (b)), and why ONE overlay
@@ -611,105 +314,29 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         'issueProjections',
         i.id,
         entry.mutationId,
-        // The server stamps its own clock; covering truth is judged on PRESENCE,
-        // like `sessionMarkRead`'s readAt and `issueSetTucked`'s tuckedAt.
+        // The server stamps its own clock, like `issueSetTucked`'s tuckedAt.
         { deletedAt: new Date(entry.queuedAt).toISOString() },
-        (r) => (r as IssueProjection).deletedAt != null,
       )
     }
     case 'issueClose': {
-      // COVERAGE IS DERIVED HERE, and this is the one case in the POD-781 family
-      // where exact-match would have been wrong.
-      //
       // `reason` is OPTIONAL on the contract and the server supplies its own
       // default (`IssueCrud.close`'s `reason = 'done'`) when the caller omits it.
-      // A client that compared `closedReason` to the string it sent would be
-      // comparing against a value it never sent — so what is judged is the
-      // DERIVED fact the close produces: the stage settled to 'done' AND a reason
-      // is on the row, whatever it says. That is the same shape of judgement
-      // `sessionMarkRead` makes about a server-stamped `readAt`.
-      //
       // What is PAINTED is only what the caller actually said. `stage: 'done'` is
       // not a guess — `normalizeClosedPatch` makes it structural: setting a
       // non-null closedReason moves the stage there, and the two menu entries
       // (Done / Won't fix) both send a reason.
       const i = entry.input as OutboxKinds['issueClose']
-      return patchOverlay(
-        'issueProjections',
-        i.id,
-        entry.mutationId,
-        { stage: 'done', ...(i.reason == null ? {} : { closedReason: i.reason }) },
-        (r) =>
-          (r as IssueProjection).stage === 'done' && (r as IssueProjection).closedReason != null,
-      )
-    }
-    case 'issueDefer': {
-      // The plainest cell in the family: `issues.defer` is `update{deferUntil}`
-      // and the server stores the string as given — a full ISO instant, the
-      // board's bare `YYYY-MM-DD` preset, or the `next-message` sentinel. So this
-      // is an exact match, through `sameCell` because clearing a defer sends
-      // `null` while a never-deferred row may simply not carry the field.
-      const i = entry.input as OutboxKinds['issueDefer']
-      return patchOverlay(
-        'issueProjections',
-        i.id,
-        entry.mutationId,
-        { deferUntil: i.until },
-        (r) => sameCell((r as IssueProjection).deferUntil, i.until),
-      )
-    }
-    case 'issueUndefer': {
-      // UNSNOOZE IS NOT "CLEAR" (issue #133). The server backdates `deferUntil`
-      // past the sidebar's coarse minute-granularity clock rather than nulling it,
-      // which lands the row in the returned-from-defer state: top of WORK, wearing
-      // the "Unsnoozed" tag, until the operator next opens it. Painting `null`
-      // here would paint a DIFFERENT act — the quiet clear that `defer(null)` is —
-      // and the tag would appear only once the round trip finished, which is the
-      // exact lag this issue exists to delete. `UNSNOOZE_BACKDATE_MS` is shared
-      // with the server for that reason (it moved into `@podium/model`).
-      //
-      // COVERAGE IS DERIVED, on the predicate rather than the instant: the server
-      // backdates from ITS clock at apply time, and a queued undefer that drains
-      // an hour later lands a different timestamp than the one painted here. What
-      // both agree on is that the issue is no longer deferred. A no-op undefer
-      // (the row was not deferred at all) is covered from the start, which is
-      // right — there is nothing for truth to catch up to.
-      const i = entry.input as OutboxKinds['issueUndefer']
-      return patchOverlay(
-        'issueProjections',
-        i.id,
-        entry.mutationId,
-        { deferUntil: new Date(entry.queuedAt - UNSNOOZE_BACKDATE_MS).toISOString() },
-        (r) => !isIssueDeferred(r as IssueProjection, Date.now()),
-      )
-    }
-    case 'issueSetLabels': {
-      // THE SERVER NORMALIZES THIS ONE, so the overlay normalizes it the same way
-      // — the precedent is `rename` above, which trims because the server trims.
-      // `setIssueLabels` drops blanks and duplicates, and the read side returns
-      // the set `ORDER BY label ASC`. Painting the raw array would repaint the
-      // chip row the moment truth landed, which is a flicker the overlay exists
-      // to prevent.
-      //
-      // COVERAGE IS DERIVED — as a SET, not as an array. The sorted order is the
-      // one thing here the client cannot honestly claim to reproduce: SQLite
-      // orders TEXT by byte and JavaScript by UTF-16 code unit, and those part
-      // company outside ASCII. Judging membership keeps a label with an accent or
-      // an emoji in it from hanging its overlay to the TTL for a difference
-      // nobody can see.
-      const i = entry.input as OutboxKinds['issueSetLabels']
-      const labels = [...new Set(i.labels.map((l) => l.trim()).filter(Boolean))].sort()
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { labels }, (r) => {
-        const current = (r as IssueProjection).labels ?? []
-        return current.length === labels.length && labels.every((l) => current.includes(l))
+      return patchOverlay('issueProjections', i.id, entry.mutationId, {
+        stage: 'done',
+        ...(i.reason == null ? {} : { closedReason: i.reason }),
       })
     }
     case 'issueSetPlacement': {
       // WHAT MOVES ON SCREEN IS THE PARENT LINK, so that is what this paints.
       // `'mission'` hangs the issue under the origin (it nests into that mission
       // in the sidebar and on the deck's spine); `'own'` cuts it loose to
-      // top-level. Both are `parentId`, and `sameCell` is why `null` is honest
-      // for the second: the wire spells "no parent" as an absent field.
+      // top-level. Both are `parentId`; the wire spells "no parent" as an
+      // absent field, which the fold reads as `null`.
       //
       // THE PROVENANCE EDGE IS NOT PAINTED, deliberately, and this is the one
       // POD-781 kind that paints less than its command writes. `deps` is on the
@@ -725,9 +352,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       // row that lags was the complaint.
       const i = entry.input as OutboxKinds['issueSetPlacement']
       const parentId = i.placement === 'mission' ? i.originId : null
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { parentId }, (r) =>
-        sameCell((r as IssueProjection).parentId, parentId),
-      )
+      return patchOverlay('issueProjections', i.id, entry.mutationId, { parentId })
     }
     case 'issueRestore': {
       // THE INVERSE OF `issueDelete`, and honest about being a PARTIAL inverse.
@@ -747,9 +372,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       // against this restore (they share `issue-deleted:<id>`), no cascade ever
       // ran, and the row returns with its sessions intact.
       const i = entry.input as OutboxKinds['issueRestore']
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { deletedAt: null }, (r) =>
-        sameCell((r as IssueProjection).deletedAt, null),
-      )
+      return patchOverlay('issueProjections', i.id, entry.mutationId, { deletedAt: null })
     }
     case 'resumeAndSend': {
       // A WAKE *IS* ROW-VISIBLE (POD-762). This used to project null on the
@@ -765,23 +388,83 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       // once — the parked bar, the composer placeholder, the activity row, the
       // sidebar's queue count — with no surface needing to hear about the send.
       const i = entry.input as OutboxKinds['resumeAndSend']
-      return patchOverlay(
-        'sessions',
-        i.sessionId,
-        entry.mutationId,
-        { queuedMessageCount: 1 },
-        // Covered as soon as the server has an opinion of its own: it reports a
-        // queue, or the session is no longer parked (it woke, and a fast drain
-        // may have emptied the queue before any snapshot showed it non-zero).
-        (r) => {
-          const s = r as SessionMeta
-          const parked = s.status === 'hibernated' || s.status === 'exited'
-          return (s.queuedMessageCount ?? 0) > 0 || !parked
-        },
-      )
+      return patchOverlay('sessions', i.sessionId, entry.mutationId, { queuedMessageCount: 1 })
     }
     default:
       return null
+  }
+}
+
+/**
+ * THE ONE GENERIC CASE (ADR 12 D3, POD-6392): what a record write paints, for
+ * every declared kind, read off the declaration and nothing else.
+ *
+ *  - edit: the patch, on the kind's row in the pool; a cleared cell
+ *    (`unset`, POD-6403) paints absent;
+ *  - create: the record's WHOLE row, as the kind declares a new one looks
+ *    (POD-6400, `freshRow`): the create's fields with their defaults, the
+ *    constant cells, and a placeholder for each cell the server assigns (an
+ *    issue's `seq` is 0, read as pending; its timestamps are the queue time).
+ *    The server's row replaces it when the entry retires;
+ *  - remove: the row is hidden.
+ *
+ * The values are the entry's own, which the API already parsed with the
+ * command's schema (`records.ts`), so they are what the server stores. The
+ * pool row a record lands on is its kind's home (`RECORD_HOMES`).
+ */
+function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverlay[] {
+  if (!isRecordOutboxKind(entry.kind)) return []
+  const input = entry.input as {
+    kind: keyof typeof RECORD_HOMES
+    id: string
+    patch?: OverlayPatch
+    unset?: readonly string[]
+    fields?: OverlayPatch
+    expectedRevision?: number
+  }
+  const d = recordDeclaration(input.kind)
+  const home = RECORD_HOMES[input.kind]
+  if (d === undefined || home === undefined || home === null) return []
+  const row = home.row(input.id)
+  const { freshRow, wireCells } = loadedRecordDeclarations()
+  switch (recordOpOf(entry.kind)) {
+    case 'edit': {
+      // A kind with a spec revision paints the revision this edit will make
+      // (POD-6399), so "not answered yet" reads the same before the receipt as
+      // after it: revision ahead of the observed one.
+      const patch: OverlayPatch = {
+        ...wireCells(d, input.patch ?? {}),
+        ...(d.revisionField !== undefined && typeof input.expectedRevision === 'number'
+          ? { [d.revisionField]: input.expectedRevision + 1 }
+          : {}),
+      }
+      // A cleared cell paints absent (POD-6403): the fold spreads `undefined`.
+      for (const name of input.unset ?? []) if (name in d.fields) patch[name] = undefined
+      return Object.keys(patch).length === 0
+        ? []
+        : [patchOverlay(home.target, row, entry.mutationId, patch)]
+    }
+    case 'create': {
+      const whole = freshRow(d, input.id, input.fields ?? {}, {
+        at: new Date(entry.queuedAt).toISOString(),
+        by: viewer.userId ?? null,
+        ...(viewer.known === undefined ? {} : { known: viewer.known }),
+      })
+      // A declaration check holds every create kind to a whole row; a row that
+      // still does not parse (an entry from an older build) paints nothing.
+      if (whole === undefined || !d.wire.safeParse(whole).success) return []
+      return [
+        {
+          op: 'insert',
+          key: entry.mutationId,
+          entity: home.target,
+          id: row,
+          insert: whole as Extract<PendingOverlay, { op: 'insert' }>['insert'],
+        },
+      ]
+    }
+    case 'remove':
+      return [{ op: 'remove', key: entry.mutationId, entity: home.target, id: row }]
   }
 }
 
@@ -800,9 +483,8 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
  * vocabularies drift silently and nothing notices. `overlay.test.ts` asserts every
  * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order reduce in actions.ts because they are non-entity per-user rows.
  *
- * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been: `issueMarkRead`,
- * `issueMarkUnread` and `issueSetTucked` have reducer cases above without an entry
- * here, and POD-781's nine curation kinds (`issueUpdate`, `issueArchive`,
+ * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been (the per-user
+ * issue marks are record edits since POD-6404), and POD-781's nine curation kinds (`issueUpdate`, `issueArchive`,
  * `issueDelete`, `issueClose`, `issueDefer`, `issueUndefer`, `issueSetLabels`,
  * `issueSetPlacement`, `issueRestore`) follow them.
  * This map's totality test is stated against `sessionStateCommandNames()` — the
@@ -814,15 +496,25 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
  * drift for them.
  */
 export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> = {
-  'sessions.rename': 'rename',
-  'sessions.setArchived': 'setArchived',
-  'sessions.setWorkState': 'setWorkState',
-  'sessions.markRead': 'sessionMarkRead',
-  'sessions.markUnread': 'sessionMarkUnread',
   'sessions.dismissOffer': 'dismissOffer',
-  'snoozes.set': 'snoozeSet',
-  'snoozes.clear': 'snoozeClear',
 }
+
+/**
+ * The presence contracts whose writes became generic record edits (POD-6404):
+ * the apps paint them with the one record case, and the old routes stay only
+ * for older apps until POD-6359. The contract ↔ reducer totality test reads
+ * this beside the map above.
+ */
+export const PRESENCE_CONTRACTS_AS_RECORD_EDITS: ReadonlySet<string> = new Set([
+  'sessions.markRead',
+  'sessions.markUnread',
+  'snoozes.set',
+  'snoozes.clear',
+  // The session labels (POD-6406).
+  'sessions.rename',
+  'sessions.setArchived',
+  'sessions.setWorkState',
+])
 
 /** True when the fold actually moved one of the cells it wrote. Only the patched
  *  keys are looked at — every other cell came straight off `row`. */
@@ -844,6 +536,20 @@ export function foldRowOverlays<T extends object>(
   overlays: readonly PendingOverlay[],
 ): T | undefined {
   if (overlays.length === 0) return base
+  // A removal hides the row and everything folded before it; what comes after
+  // it folds over the absent row, as it will once the removal lands.
+  let last = -1
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    if (overlays[i]!.op === 'remove') {
+      last = i
+      break
+    }
+  }
+  if (last >= 0) {
+    base = undefined
+    overlays = overlays.slice(last + 1)
+    if (overlays.length === 0) return undefined
+  }
   let row = base
   let absent = false
   if (row === undefined) {
@@ -862,91 +568,4 @@ export function foldRowOverlays<T extends object>(
   if (movedAnyCell(row, merged, patches)) return merged
   // An absent row that the patches leave saying "nothing set" stays absent.
   return absent ? undefined : row
-}
-
-/**
- * Apply retirement rule (a) to the awaiting-truth stage for one entity: drop
- * every entry whose target row is gone, is covered, had a patched cell move
- * past its enqueue baseline (oldest entry per row only — see below), or
- * outlived the TTL.
- * Returns the SAME array when nothing retired.
- *
- * The moved-past-baseline escape is restricted to the OLDEST awaiting entry
- * per row, judged against the PRE-prune set (#263 review finding 3): entries
- * enqueued back-to-back share a baseline (the replica stays unpainted while
- * they queue), so truth covering the FIRST mutation moves the row past every
- * sibling's baseline at once — an unrestricted escape would retire the younger
- * entries too, flashing their un-echoed values away (rapid same-field edits;
- * archive's paired setArchived/setWorkState). A younger entry becomes escape-
- * eligible on a LATER prune pass, once it is the oldest survivor; until then
- * the TTL bounds it.
- */
-export function pruneAwaiting<T extends object>(
-  awaiting: AwaitingTruth[],
-  entity: OverlayTarget,
-  base: readonly T[],
-  keyOf: (row: T) => string,
-  now: number = Date.now(),
-  /**
-   * Ids the AUTHORITY said were REMOVED — deleted, not merely absent (POD-380).
-   *
-   * Absence and deletion are different facts and this parameter is what keeps them
-   * apart. A replica no longer holds the world, only its principal's slice
-   * (docs/multi-user-readiness.md §3.1), so a row can leave `base` because it was
-   * deleted OR because it left YOUR VIEW — an un-share, a rescope, POD-1077's
-   * `evict` op. ADR 2 §3.1's warning is explicit: `remove` cannot be reused for
-   * the second case, because the replica would render it as "deleted", and D5
-   * already warns that soft-delete and tombstone "look identical from a distance
-   * and are not". This is a third member of that family.
-   *
-   * Any slice exit retires the overlay. An evicted or rescoped row must not remain
-   * paintable by client optimism, because doing so would fabricate visibility.
-   */
-  removedIds?: ReadonlySet<string>,
-  /**
-   * What an ABSENT row means, for an entity where absence is a value (POD-4969):
-   * the per-user `(user, issue)` row is deleted when all three markers clear, so
-   * its absence is "nothing set" and a mark-unread is covered by it. Return
-   * undefined when the absence is real — the issue left the slice — and the
-   * overlay retires as for any gone row.
-   */
-  absentRow?: (id: string) => T | undefined,
-): AwaitingTruth[] {
-  if (!awaiting.some((a) => a.overlay.entity === entity)) return awaiting
-  const byId = new Map(base.map((r) => [keyOf(r), r]))
-  // Oldest awaiting entry per row, from the PRE-prune set: only it may use the
-  // moved-past-baseline escape in this pass (array order = resolution order).
-  const oldestByRow = new Map<string, AwaitingTruth>()
-  for (const a of awaiting) {
-    if (a.overlay.entity === entity && !oldestByRow.has(a.overlay.id)) {
-      oldestByRow.set(a.overlay.id, a)
-    }
-  }
-  const keep = awaiting.filter((a) => {
-    if (a.overlay.entity !== entity) return true
-    const row = byId.get(a.overlay.id) ?? absentRow?.(a.overlay.id)
-    if (row === undefined) {
-      void removedIds
-      return false
-    }
-    if (a.overlay.coveredBy(row as unknown as OverlayRow)) return false
-    if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
-      // Covering truth never arrived — bound the mask instead of wedging (see
-      // the AWAITING_TRUTH_TTL_MS tradeoff note).
-      log.debug('awaiting-truth overlay outlived its TTL without covering truth — retiring', {
-        key: a.overlay.key,
-        ageMs: now - a.resolvedAt,
-      })
-      return false
-    }
-    // A patched cell left the ENQUEUE baseline for a third value: a competing
-    // write on the same field — server truth wins. Unrelated cells moving do
-    // not count (a sortKey overlay must survive a gitState / childCount echo).
-    // Oldest-per-row only; no baseline (row absent at enqueue) → no escape.
-    if (oldestByRow.get(a.overlay.id) === a && patchedCellsMovedPast(a.overlay, row, a.baseline)) {
-      return false
-    }
-    return true
-  })
-  return keep.length === awaiting.length ? awaiting : keep
 }

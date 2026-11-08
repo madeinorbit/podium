@@ -27,7 +27,12 @@
  */
 
 import type { CommandContract } from '@podium/commands'
-import { ISSUE_CONTRACTS, LAYOUT_CONTRACTS, SETTINGS_CONTRACTS } from '@podium/commands'
+import {
+  EFFECT_CONTRACTS,
+  ISSUE_CONTRACTS,
+  LAYOUT_CONTRACTS,
+  SETTINGS_CONTRACTS,
+} from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { OUTBOX_COMMANDS } from './wiring'
 
@@ -39,6 +44,7 @@ for (const contract of [
   ...Object.values(ISSUE_CONTRACTS),
   ...Object.values(SETTINGS_CONTRACTS),
   ...Object.values(LAYOUT_CONTRACTS),
+  ...Object.values(EFFECT_CONTRACTS),
 ]) {
   byName.set((contract as CommandContract).name, contract as CommandContract)
 }
@@ -75,20 +81,7 @@ const lookup = (name: string): CommandContract | undefined => {
  * reddens this test and the row moves under the guard instead of staying
  * quietly unchecked.
  */
-const UNGUARDED = [
-  'dismissOffer',
-  'pinSet',
-  'rename',
-  'tabSetOrder',
-  'resumeAndSend',
-  'sendText',
-  'sessionMarkRead',
-  'sessionMarkUnread',
-  'setArchived',
-  'setWorkState',
-  'snoozeClear',
-  'snoozeSet',
-].sort()
+const UNGUARDED = ['dismissOffer', 'pinSet', 'tabSetOrder', 'resumeAndSend', 'sendText'].sort()
 
 describe('the client outbox contract table matches the contracts', () => {
   const entries = Object.entries(OUTBOX_COMMANDS)

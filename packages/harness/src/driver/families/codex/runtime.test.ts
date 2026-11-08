@@ -19,6 +19,7 @@ import { streamItemIdOf } from '../../../store/index.js'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
 import { codexAppServerCapabilities } from './capabilities.js'
 import { createCodexClient } from './client.js'
@@ -89,6 +90,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     },
   }
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment:
       stageAttachment ??
       (async ({ source }) => ({
@@ -183,6 +185,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   const runtime = createCodexRuntime(host, createMemoryDriverSlots())
   const handle = await runtime.driver.create({
     harness: 'codex',
+    harnessContext: testHarnessContext({ kind: 'codex' }),
     selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
     workdir: '/tmp/codex-test',
     model: {},

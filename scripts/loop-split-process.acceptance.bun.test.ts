@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asThreadId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { Hono } from 'hono'
 import { reviveCompatibilityBlockedJanitor } from '../apps/cli/src/podium-update'
 import { registerMaintenanceRoute } from '../apps/server/src/modules/maintenance/route'
@@ -280,7 +281,7 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
       const dir = makeRoot('podium-janitor-' + boundary + '-')
       const harness = await maintenanceHarness(dir)
       const message = dueMessage('msg_' + boundary)
-      await harness.store.messages.addMessage(message)
+      await harness.store.messages.addMessage(fixtureWriteScope(), message)
       const boundaryHit = harness.arm(boundary)
       const firstStarted = join(dir, 'first.started')
       const first = spawnJanitor(dir, harness.dbPath, harness.serverUrl, firstStarted)
@@ -293,9 +294,13 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         ])
         expect(first.child.pid).toBeGreaterThan(0)
         if (boundary === 'before-apply') {
-          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe('stored')
+          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe(
+            'stored',
+          )
         } else {
-          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
+          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe(
+            'expired',
+          )
           expect(await expiredEventCount(harness.store, message.id)).toBe(1)
         }
         await kill(first.child, 'SIGKILL')
@@ -307,7 +312,8 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         const recovered = spawnJanitor(dir, harness.dbPath, harness.serverUrl, recoveredStarted)
         try {
           await waitUntil(
-            async () => (await harness.store.messages.getMessage(message.id))?.deliveryStatus === 'expired',
+            async () =>
+              (await harness.store.messages.getMessage(message.id))?.deliveryStatus === 'expired',
             'janitor recovery apply',
           )
           await waitUntil(() => existsSync(recoveredStarted), 'recovered janitor start')
@@ -397,7 +403,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
 
       const message = dueMessage('msg_watchdog_restart')
       const boundaryHit = harness.arm('after-apply-before-ack')
-      await harness.store.messages.addMessage(message)
+      await harness.store.messages.addMessage(fixtureWriteScope(), message)
       await Promise.race([
         boundaryHit,
         Bun.sleep(10_000).then(() => {

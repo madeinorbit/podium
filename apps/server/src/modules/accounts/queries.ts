@@ -40,11 +40,11 @@ export const ACCOUNT_QUERIES = {
   // silently undone one of the two.
   list: query(noInput, async (state) => {
     // ONE MEMBER'S HUB (POD-6300, design §2.5). The caller's own managed
-    // connections; the native logins of the machines in the caller's OWN
-    // custody (a machine's native logins belong to the person who looks after
+    // connections or explicitly shared keys; native logins on machines in their
+    // OWN custody (a machine's native logins belong to the person who looks after
     // it); the instance's legacy provider keys to an admin only, because those
     // are instance settings, not anyone's connection. Nothing of another
-    // member's reaches this list, admins included.
+    // member's private connection reaches this list, admins included.
     const viewer = asUserId(state.callerUserId)
     const standing = await state.machineStanding()
     const custody = new Set([...standing].filter(([, s]) => s === 'custody').map(([id]) => id))
@@ -74,8 +74,7 @@ export const ACCOUNT_QUERIES = {
     const serverAi = state.resolveCodexServerAi
       ? await state.resolveCodexServerAi().catch(() => undefined)
       : undefined
-    const legacyVisible = state.callerRole ? (await state.callerRole()) === 'admin' : true
-    const managedRows = await state.accounts.listFor(viewer)
+    const legacyVisible = (await state.callerRole?.()) === 'admin'
     // The viewer's D11 choices and how their ticked logins' copies went (POD-6301).
     const choiceKey = (harness: string, fingerprint: string) => `${harness}\u0000${fingerprint}`
     const ticked = new Set(
@@ -98,8 +97,9 @@ export const ACCOUNT_QUERIES = {
         await accountViews(
           async (provider) =>
             legacyVisible ? await state.settings.apiKeyFor(provider) : undefined,
-          managedRows,
-          ownOnline as unknown as Parameters<typeof accountViews>[2],
+          state.accounts,
+          viewer,
+          ownOnline as unknown as Parameters<typeof accountViews>[3],
           served,
         )
       ).map(async (account) => {

@@ -217,13 +217,14 @@ export async function assertMayCommandSession(
     )
     return
   }
-  // Issueless target: an agent may command it only as its parent (spawnedBy
-  // provenance); --outside-scope confirms scope-crossing on ISSUE targets and
-  // never substitutes here. Its human, the owner, may always (above).
+  // Issueless targets stay private to their human (checked above). An agent
+  // may command one as its parent, or confirm a stop with human permission
+  // [spec:SP-9904]; an unscoped capability alone never grants private access.
   const isParent =
     capability.actorSessionId !== undefined &&
     isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })
-  if (!isParent) {
+  const confirmedStop = overrideScope === true && proc === 'sessions.stop'
+  if (!isParent && !confirmedStop) {
     throw new Error('target session has no issue; only its parent or the operator may message it')
   }
 }

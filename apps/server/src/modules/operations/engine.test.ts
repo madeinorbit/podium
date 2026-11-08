@@ -1737,3 +1737,54 @@ describe('fenced rehearsal adoption', () => {
     expect(ensure).not.toHaveBeenCalled()
   })
 })
+
+describe('an operation started for an effect record (POD-6358)', () => {
+  it('takes the id its caller names, so a second start for the same record finds it', async () => {
+    const { registry, engine } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    const result = await engine.start('test', undefined, { id: 'op_eff_1' })
+    expect(result.started && result.operation.id).toBe('op_eff_1')
+    expect((await engine.get('op_eff_1'))?.state).toBe('running')
+    // The group is held by the record's own operation: a second start names it.
+    expect(await engine.start('test', undefined, { id: 'op_eff_2' })).toEqual({
+      started: false,
+      alreadyRunning: 'op_eff_1',
+    })
+  })
+
+  it('tells every listener about every persisted transition, until it unsubscribes', async () => {
+    const { registry, engine } = harness()
+    registry.register(testKind())
+    const seen: string[] = []
+    const later: string[] = []
+    const off = engine.onChanged((row, previous) => {
+      seen.push(`${previous ?? '-'}>${row.state}`)
+    })
+    await run(engine, 'test')
+    off()
+    engine.onChanged((row) => {
+      later.push(row.state)
+    })
+    await run(engine, 'test')
+    expect(seen[0]).toBe('->running')
+    expect(seen.at(-1)).toBe('running>done')
+    // Unsubscribed: the second operation reached only the listener added after.
+    expect(seen.filter((s) => s.endsWith('>done'))).toHaveLength(1)
+    expect(later.at(-1)).toBe('done')
+  })
+
+  it('a listener that throws does not stop the operation or the other listeners', async () => {
+    const { registry, engine } = harness()
+    registry.register(testKind())
+    const seen: string[] = []
+    engine.onChanged(() => {
+      throw new Error('a broken observer')
+    })
+    engine.onChanged((row) => {
+      seen.push(row.state)
+    })
+    const result = await run(engine, 'test')
+    expect(result.started && (await engine.get(result.operation.id))?.state).toBe('done')
+    expect(seen.at(-1)).toBe('done')
+  })
+})

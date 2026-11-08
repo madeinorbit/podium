@@ -1,9 +1,11 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { discoveredPlacement } from '@podium/client-core/values'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { requireLoaded, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { companion, lazy } from '@podium/mobx-helpers'
-import { asIssueId, asMutationId } from '@podium/model'
+import type { StartIssueSession } from '@podium/client-core/spawn-agent'
+import { asIssueId, asMutationId, type IssueId, type MutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
 import { action, compareShallow, observable, runInAction } from 'mobx'
 import { type JSX, type MouseEvent, useState } from 'react'
@@ -63,7 +65,8 @@ class ProposalSubmissions {
     })
   }
 
-  @action async submit(id: string, verb: ProposalAction, trpc: Trpc): Promise<void> {
+  @action async submit(id: string, verb: ProposalAction, ports: ProposalPorts): Promise<void> {
+    const { trpc } = ports
     const previous = this.byId.get(id)
     // Synchronous guard: even two clicks in the same React turn issue one command.
     if (previous?.phase === 'pending' || previous?.phase === 'success') return
@@ -74,8 +77,8 @@ class ProposalSubmissions {
       const input = { id: asIssueId(id), mutationId }
       // The operator-authenticated client uses the existing commands. In particular,
       // start owns promotion, placement and proposal → parent → mission profiles.
-      if (verb === 'backlog') await trpc.issues.promote.mutate(input)
-      else if (verb === 'start') await trpc.issues.start.mutate(input)
+      if (verb === 'backlog') await issueWrites(trpc).promote.mutate(input)
+      else if (verb === 'start') await startProposal(ports.startIssueSession, input)
       else await trpc.issues.close.mutate({ ...input, reason: 'declined' })
       runInAction(() => this.byId.set(id, { action: verb, mutationId, phase: 'success' }))
     } catch (error) {
@@ -89,6 +92,36 @@ class ProposalSubmissions {
       )
     }
   }
+}
+
+/** What a proposal's verbs write through. */
+interface ProposalPorts {
+  readonly trpc: Trpc
+  readonly startIssueSession: StartIssueSession
+}
+
+/**
+ * Start a proposal: an `issue.begin` record (POD-6526) under the card's
+ * mutation id, so a retry writes the same record. Started once it is durably
+ * queued: the starting session paints from the record (also while its machine
+ * is offline), and a later failure is told once on this device.
+ */
+async function startProposal(
+  startIssueSession: StartIssueSession,
+  input: { id: IssueId; mutationId: MutationId },
+): Promise<void> {
+  const { settled } = startIssueSession({
+    issueId: input.id,
+    mode: 'begin',
+    mutationId: input.mutationId,
+  })
+  if (!(await settled)) throw new Error("Couldn't start the task")
+}
+
+function useProposalPorts(): ProposalPorts {
+  const trpc = useRuntimeSelector((store) => store.trpc)
+  const startIssueSession = useRuntimeSelector((store) => store.startIssueSession)
+  return { trpc, startIssueSession }
 }
 
 // The opening's Full view model owns this companion's lifetime. A temporary
@@ -113,7 +146,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
   ...navigation
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const submissions = submissionsFor(full)
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const ports = useProposalPorts()
   const ids = submissions.ids
   // First Flights: the first proposal the operator has not acted on yet. A receipt
   // (or a pending/failed command) is acted on, so the tip skips it. Once the
@@ -141,7 +174,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
           provenance={submissions.provenance(full.task(id))}
           task={full.task(id)}
           status={submissions.byId.get(id)}
-          onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
+          onSubmit={(verb) => void submissions.submit(id, verb, ports)}
           tipAnchor={id === firstId ? setAnchor : undefined}
           {...navigation}
         />
@@ -163,7 +196,7 @@ export const SpinOffProposals = observer(function SpinOffProposals({
   ...navigation
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const submissions = submissionsFor(full)
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const ports = useProposalPorts()
   const ids = submissions.spinOffIds
   if (!ids.length) return null
   return (
@@ -183,7 +216,7 @@ export const SpinOffProposals = observer(function SpinOffProposals({
           provenance={submissions.provenance(full.task(id))}
           task={full.task(id)}
           status={submissions.byId.get(id)}
-          onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
+          onSubmit={(verb) => void submissions.submit(id, verb, ports)}
           {...navigation}
         />
       ))}

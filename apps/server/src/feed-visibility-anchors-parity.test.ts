@@ -17,9 +17,9 @@ import { createHash } from 'node:crypto'
 import {
   asIssueId,
   asRepoId,
-  canonicalShippingDestination,
   asShipOrderId,
   asUserId,
+  canonicalShippingDestination,
   firstAdminMemberId,
   type IssueId,
   issueDepId,
@@ -29,6 +29,7 @@ import {
   shipLaneId,
 } from '@podium/model'
 import type { EntityRef, VisibilityAnchorPort, VisibilityEdge } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
@@ -138,8 +139,13 @@ async function build(world: World) {
   for (let start = 0; start < world.issues.length; start += 500) {
     await store.transact(async () => {
       for (const [index, issue] of world.issues.slice(start, start + 500).entries()) {
-        await store.issues.upsertIssue({
-          ...issueRowFixture({ id: issue.id, repoPath: issue.repoPath, seq: start + index + 1, ownerUserId: issue.owner }),
+        await store.issues.upsertIssue(fixtureWriteScope(), {
+          ...issueRowFixture({
+            id: issue.id,
+            repoPath: issue.repoPath,
+            seq: start + index + 1,
+            ownerUserId: issue.owner,
+          }),
           repoId: undefined,
           machineId: store.hostMachineId,
           parentId: null,
@@ -150,7 +156,7 @@ async function build(world: World) {
   }
   await store.transact(async () => {
     for (const session of world.sessions) {
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id: session.id,
         ownerUserId: OWNER,
         agentKind: 'claude-code',
@@ -179,7 +185,13 @@ async function build(world: World) {
     }
   })
   const deleted = world.sessions.filter((session) => session.deleted).map((session) => session.id)
-  if (deleted.length > 0) await store.sessions.softDeleteSessions(deleted, '2026-08-02T00:00:00.000Z', 'user' as never)
+  if (deleted.length > 0)
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      deleted,
+      '2026-08-02T00:00:00.000Z',
+      'user' as never,
+    )
   for (const grant of world.grants) {
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -198,9 +210,15 @@ async function build(world: World) {
   for (const o of world.orders) {
     const issue = byId.get(o.issueId)
     if (!issue) throw new Error(`order ${o.id} names unknown issue ${o.issueId}`)
-    await store.shipping.createOrder(order(o, issue, store.hostMachineId))
+    await store.shipping.createOrder(fixtureWriteScope(), order(o, issue, store.hostMachineId))
     if (o.state === 'cancelled') {
-      await store.shipping.transitionOrder(o.id, 'queued', 'cancelled', '2026-08-12T11:00:00.000Z')
+      await store.shipping.transitionOrder(
+        fixtureWriteScope(),
+        o.id,
+        'queued',
+        'cancelled',
+        '2026-08-12T11:00:00.000Z',
+      )
     }
   }
 
@@ -211,11 +229,13 @@ async function build(world: World) {
     rows.push({ entity, entityId, op: 'upsert', payload })
   for (const issue of world.issues) {
     up('issueProjection', issue.id, JSON.stringify({ id: issue.id, owner: issue.owner }))
-    if (bucketOf(`${issue.id}:git`, 2) === 0) up('issueGitState', issue.id, JSON.stringify({ id: issue.id }))
+    if (bucketOf(`${issue.id}:git`, 2) === 0)
+      up('issueGitState', issue.id, JSON.stringify({ id: issue.id }))
   }
   for (const session of world.sessions) {
     up('session', session.id, JSON.stringify({ id: session.id }))
-    if (session.resumeValue) up('conversation', session.resumeValue, JSON.stringify({ id: session.resumeValue }))
+    if (session.resumeValue)
+      up('conversation', session.resumeValue, JSON.stringify({ id: session.resumeValue }))
   }
   for (const dep of world.deps) up('issueDep', dep.id, JSON.stringify({ id: dep.id }))
   for (const o of world.orders) {
@@ -227,15 +247,18 @@ async function build(world: World) {
     up('shipLane', shipLaneId(asRepoId(o.repo), 'local:main'), JSON.stringify({ repo: o.repo }))
   }
   for (const events of world.events.values()) {
-    for (const event of events) up('issueEvent', event.entityId, JSON.stringify({ id: event.entityId }))
+    for (const event of events)
+      up('issueEvent', event.entityId, JSON.stringify({ id: event.entityId }))
   }
   for (const row of world.extra) up(row.entity, row.entityId, row.payload)
   // Removals land after their upserts, so the world no longer holds them.
   for (const dep of world.deps) {
-    if (dep.removed) rows.push({ entity: 'issueDep', entityId: dep.id, op: 'remove', payload: null })
+    if (dep.removed)
+      rows.push({ entity: 'issueDep', entityId: dep.id, op: 'remove', payload: null })
   }
   for (const o of world.orders) {
-    if (o.installed === 'removed') rows.push({ entity: 'shipOrder', entityId: o.id, op: 'remove', payload: null })
+    if (o.installed === 'removed')
+      rows.push({ entity: 'shipOrder', entityId: o.id, op: 'remove', payload: null })
   }
   for (let start = 0; start < rows.length; start += 1000) {
     await store.sync.appendChanges(rows.slice(start, start + 1000) as never, 1_000 + start)
@@ -273,10 +296,18 @@ function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort 
           const p = JSON.parse(row.payload) as Record<string, unknown>
           if (typeof p.issueId !== 'string') continue
           push(ordersByIssue, p.issueId, { entity: 'shipOrder', entityId: row.entityId })
-          if (p.state === 'queued' && typeof p.repoId === 'string' && typeof p.destination === 'string' && typeof p.targetBranch === 'string') {
+          if (
+            p.state === 'queued' &&
+            typeof p.repoId === 'string' &&
+            typeof p.destination === 'string' &&
+            typeof p.targetBranch === 'string'
+          ) {
             push(lanesByIssue, p.issueId, {
               entity: 'shipLane',
-              entityId: shipLaneId(asRepoId(p.repoId), canonicalShippingDestination(p.destination, p.targetBranch)),
+              entityId: shipLaneId(
+                asRepoId(p.repoId),
+                canonicalShippingDestination(p.destination, p.targetBranch),
+              ),
             })
           }
         } catch {
@@ -293,9 +324,14 @@ function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort 
       const order = await store.shipping.getOrder(ref.entityId)
       if (!order || order.state === 'queued') return null
       const owner = (await store.issues.getIssue(order.issueId))?.ownerUserId
-      const candidates = [...new Set([...(owner ? [owner] : []), ...(await audienceOf(order.issueId))])]
+      const candidates = [
+        ...new Set([...(owner ? [owner] : []), ...(await audienceOf(order.issueId))]),
+      ]
       if (candidates.length === 0) return null
-      const laneId = shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch))
+      const laneId = shipLaneId(
+        order.repoId,
+        canonicalShippingDestination(order.destination, order.targetBranch),
+      )
       const members = await store.shipping.laneMemberIssueIds(laneId)
       const audience: string[] = []
       for (const userId of candidates) {
@@ -308,7 +344,9 @@ function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort 
         }
         if (!readable) audience.push(userId)
       }
-      return audience.length === 0 ? null : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
+      return audience.length === 0
+        ? null
+        : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
     }
     if (ref.entity !== 'issueProjection') return null
     const audience = await audienceOf(ref.entityId)
@@ -359,8 +397,12 @@ function refsOf(world: World): EntityRef[] {
     ...world.orders.map((o): EntityRef => ({ entity: 'shipOrder', entityId: o.id })),
     { entity: 'issueProjection', entityId: 'iss_missing' },
     { entity: 'shipOrder', entityId: 'order-missing' },
-    ...world.issues.slice(0, 3).map((issue): EntityRef => ({ entity: 'issueGitState', entityId: issue.id })),
-    ...world.sessions.slice(0, 3).map((session): EntityRef => ({ entity: 'session', entityId: session.id })),
+    ...world.issues
+      .slice(0, 3)
+      .map((issue): EntityRef => ({ entity: 'issueGitState', entityId: issue.id })),
+    ...world.sessions
+      .slice(0, 3)
+      .map((session): EntityRef => ({ entity: 'session', entityId: session.id })),
   ]
 }
 
@@ -432,18 +474,52 @@ describe('visibility anchors: database reads answer like the old whole-table ind
         { issueId: 'iss_10', grantee: REVOKED, revoked: true },
       ],
       orders: [
-        { id: 'order-1-old', issueId: 'iss_1', repo: 'repo-a', state: 'cancelled', installed: 'row' },
+        {
+          id: 'order-1-old',
+          issueId: 'iss_1',
+          repo: 'repo-a',
+          state: 'cancelled',
+          installed: 'row',
+        },
         { id: 'order-1', issueId: 'iss_1', repo: 'repo-a', state: 'queued', installed: 'row' },
         { id: 'order-10', issueId: 'iss_10', repo: 'repo-a', state: 'queued', installed: 'row' },
-        { id: 'order-x-old', issueId: 'iss_1|x', repo: 'repo-b', state: 'cancelled', installed: 'removed' },
-        { id: 'order-x', issueId: 'iss_1|x', repo: 'repo-b', state: 'queued', installed: 'corrupt' },
-        { id: 'order-back', issueId: 'iss\\back', repo: 'repo-b', state: 'cancelled', installed: 'none' },
-        { id: 'order-alone', issueId: 'iss_alone', repo: 'repo-c', state: 'cancelled', installed: 'row' },
+        {
+          id: 'order-x-old',
+          issueId: 'iss_1|x',
+          repo: 'repo-b',
+          state: 'cancelled',
+          installed: 'removed',
+        },
+        {
+          id: 'order-x',
+          issueId: 'iss_1|x',
+          repo: 'repo-b',
+          state: 'queued',
+          installed: 'corrupt',
+        },
+        {
+          id: 'order-back',
+          issueId: 'iss\\back',
+          repo: 'repo-b',
+          state: 'cancelled',
+          installed: 'none',
+        },
+        {
+          id: 'order-alone',
+          issueId: 'iss_alone',
+          repo: 'repo-c',
+          state: 'cancelled',
+          installed: 'row',
+        },
       ],
       extra: [
         { entity: 'issueProjection', entityId: 'iss_corrupt', payload: '{bad' },
         { entity: 'shipOrder', entityId: 'order-null-payload', payload: 'null' },
-        { entity: 'shipOrder', entityId: 'order-number-issue', payload: '{"issueId":7,"state":"queued"}' },
+        {
+          entity: 'shipOrder',
+          entityId: 'order-number-issue',
+          payload: '{"issueId":7,"state":"queued"}',
+        },
       ],
       events: new Map([
         ['iss_1', [{ entity: 'issueEvent' as const, entityId: issueEventRowId(1, 'iss_1') }]],

@@ -41,12 +41,14 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess, mayReachPrivate } from '../../../issue-authz'
 import { failureNoticeId } from '../../../message-ids'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
 import type { MessageGateDeps, MessageWire } from '../gate'
+import { MailRefusal } from '../refusal'
 import type { MessageDeliveryDeps } from '../service'
 
 /** Wake-path placement port — see {@link MessageDeliveryDeps.placementAtWake}. */
@@ -247,6 +249,26 @@ export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
+  /**
+   * The handler runs as a write on the sync write entry point (POD-6525), in
+   * its unit of work: a send answers an undeliverable address with its dead
+   * letter in the write, and work outside the database waits for the commit.
+   * Absent for a direct dispatch (a read, a fixture, a caller already inside
+   * someone else's write).
+   */
+  inEntry?: boolean
+  /**
+   * The write's own writer, when it runs on the entry point (ADR 12 D9,
+   * POD-6601): what the write creates in its unit (an agent spawn's launch
+   * record) is written with it.
+   */
+  writer?: Pick<LedgerWriter, 'commit' | 'capture'>
+  /**
+   * An await saw the child settle (POD-6525): the gate retires the parent's
+   * wake claim as its own write once the wait is over. Absent = the await
+   * retires it itself, directly.
+   */
+  observed?(child: SessionId): void
 }
 
 /**
@@ -318,11 +340,11 @@ export class MailAccess {
     proc: string,
   ): Promise<void> {
     const target = await this.deps.sessionById(sessionId)
-    if (!target) throw new Error('session not found')
+    if (!target) throw new MailRefusal('target-not-found', 'session not found')
     if (caller.principal.kind !== 'system') {
       const owner = await this.deps.sessionOwnerUserId?.(sessionId)
       if (!mayReachPrivate(onBehalfOfUser(caller.principal), { id: sessionId, owner })) {
-        throw new Error('session not found')
+        throw new MailRefusal('target-not-found', 'session not found')
       }
       if (caller.principal.kind === 'user') return
     }
@@ -337,7 +359,10 @@ export class MailAccess {
       caller.capability.actorSessionId !== undefined &&
       isSpawnedBy(target.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
     if (!isOperator && !isParent) {
-      throw new Error('target session has no issue; only its parent or the operator may message it')
+      throw new MailRefusal(
+        'unauthorized',
+        'target session has no issue; only its parent or the operator may message it',
+      )
     }
   }
 
@@ -522,4 +547,19 @@ export class MailAccess {
       expectsResponse: m.expectsResponse ?? false,
     }
   }
+}
+
+/**
+ * THE COMMAND'S WRITER, for a mail write (ADR 12 D9, POD-6602): every row a mail
+ * command stores or moves is written with it, in the command's unit, so its
+ * change rows carry the command's mutationId. A handler reached without one (a
+ * direct dispatch from outside every write) has nothing to write with.
+ */
+export function mailWriter(
+  ctx: Pick<MailHandlerContext, 'writer'>,
+  what: string,
+): Pick<LedgerWriter, 'commit' | 'capture'> {
+  if (ctx.writer === undefined)
+    throw new Error(`${what}: a mail write runs with its command's writer`)
+  return ctx.writer
 }

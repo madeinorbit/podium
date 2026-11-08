@@ -19,6 +19,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { openTestStore } from './test-support/open-test-store'
 
 const TEST_MACHINE = asMachineId('machine-under-test')
@@ -88,6 +89,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     const attachment = staged(sessionId)
 
     const sent = await reg1.modules.messages.send(
+      reg1.modules.sessions.serverWriter,
       { kind: 'operator' },
       {
         to: { kind: 'session', id: sessionId },
@@ -145,10 +147,12 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       const chat = await reg.modules.messages.send(
+        reg.modules.sessions.serverWriter,
         { kind: 'operator' },
         { to: { kind: 'session', id: sessionId }, body: 'typed by a person', urgency: 'next-turn' },
       )
       const mail = await reg.modules.messages.send(
+        reg.modules.sessions.serverWriter,
         { kind: 'system', name: 'a job' },
         {
           to: { kind: 'session', id: sessionId },
@@ -184,6 +188,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
 
     const sent = await reg1.modules.messages.send(
+      reg1.modules.sessions.serverWriter,
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'stop and read this', urgency: 'interrupt' },
     )

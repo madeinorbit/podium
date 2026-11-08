@@ -1,15 +1,23 @@
-import { asMutationId, asSessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   deadLetterHandlingFor,
-  shouldParkDeadLetter,
   isInitialConnectivityError,
   OUTBOX_COMMANDS,
   OUTBOX_DEAD_LETTER_HANDLING,
   OUTBOX_ROUTING,
   type OutboxKinds,
+  outboxExecutors,
   outboxRoutingFor,
+  shouldParkDeadLetter,
 } from './wiring'
 
 describe('isInitialConnectivityError', () => {
@@ -42,43 +50,78 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
     worktree: '/repo/wt-a',
     sessionIds: [asSessionId('s-1')],
   } as OutboxKinds['tabSetOrder'],
-  layoutSet: { values: { density: 'compact' } } as OutboxKinds['layoutSet'],
-  layoutClear: { keys: ['density'] } as OutboxKinds['layoutClear'],
   settingsUpdatePersonal: {
     values: { theme: 'dark' },
   } as OutboxKinds['settingsUpdatePersonal'],
   sendText: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['sendText'],
   resumeAndSend: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['resumeAndSend'],
-  rename: { sessionId: asSessionId('s-1'), name: 'new name' } as OutboxKinds['rename'],
-  setArchived: { sessionId: asSessionId('s-1'), archived: true } as OutboxKinds['setArchived'],
-  setWorkState: { sessionId: asSessionId('s-1'), workState: null } as OutboxKinds['setWorkState'],
-  snoozeSet: { sessionId: asSessionId('s-1'), until: null } as OutboxKinds['snoozeSet'],
-  snoozeClear: { sessionId: asSessionId('s-1') } as OutboxKinds['snoozeClear'],
-  sessionMarkRead: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkRead'],
-  sessionMarkUnread: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkUnread'],
   dismissOffer: {
     sessionId: asSessionId('s-1'),
     offerCreatedAt: '2026-08-16T09:00:00.000Z',
   } as OutboxKinds['dismissOffer'],
-  issueMarkRead: { id: 'POD-1' } as OutboxKinds['issueMarkRead'],
-  issueMarkUnread: { id: 'POD-1' } as OutboxKinds['issueMarkUnread'],
-  issueSetTucked: { id: 'POD-1', tucked: true } as OutboxKinds['issueSetTucked'],
   issueUpdate: { id: 'POD-1', patch: { title: 'renamed' } } as OutboxKinds['issueUpdate'],
-  issueArchive: { id: 'POD-1' } as OutboxKinds['issueArchive'],
   issueDelete: { id: 'POD-1' } as OutboxKinds['issueDelete'],
   issueClose: { id: 'POD-1', reason: 'done' } as OutboxKinds['issueClose'],
-  issueDefer: { id: 'POD-1', until: null } as OutboxKinds['issueDefer'],
-  issueUndefer: { id: 'POD-1' } as OutboxKinds['issueUndefer'],
-  issueSetLabels: { id: 'POD-1', labels: ['bug'] } as OutboxKinds['issueSetLabels'],
   issueSetPlacement: {
     id: 'POD-1',
     placement: 'mission',
     originId: 'POD-2',
   } as OutboxKinds['issueSetPlacement'],
   issueRestore: { id: 'POD-1' } as OutboxKinds['issueRestore'],
+  recordCreate: {
+    kind: 'issueProjection',
+    id: 'iss_00000000-0000-4000-8000-000000000001',
+    fields: { title: 'New', repoPath: '/repo' },
+  },
+  recordEdit: {
+    kind: 'issueProjection',
+    id: 'iss_00000000-0000-4000-8000-000000000001',
+    patch: { title: 'Renamed' },
+    expectedRevision: 1,
+  },
+  effectCreate: {
+    id: 'eff_00000000-0000-4000-8000-000000000001',
+    kind: 'session.launch',
+    target: { kind: 'session', id: '00000000-0000-4000-8000-000000000002' },
+    input: { cwd: '/repo' },
+  },
+  effectDismiss: { id: 'eff_00000000-0000-4000-8000-000000000001' },
+  recordRemove: {
+    kind: 'sessionUserState',
+    id: sessionUserStateRowId(asUserId('u-1'), asSessionId('s-1')),
+  },
 }
 
-const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
+/** Every queued kind: the fixed contracts, and the generic record writes
+ *  (POD-6392), whose contract comes from their input. */
+const kinds = Object.keys(SAMPLE) as (keyof OutboxKinds)[]
+
+/** A session's labels: a generic edit of the session record (POD-6406). */
+const sessionEdit = (id: string, patch: object): OutboxKinds['recordEdit'] => ({
+  kind: 'session',
+  id,
+  patch: patch as Record<string, unknown>,
+})
+/** An issue's plain fields: a generic edit of the issue record (POD-6405). */
+const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
+  kind: 'issueProjection',
+  id,
+  patch: patch as Record<string, unknown>,
+  ...(unset === undefined ? {} : { unset }),
+})
+/** My read mark, snooze or tuck: a generic edit of my own row (POD-6404). */
+const AT = '2026-11-05T00:00:00.000Z'
+const mySession = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
+  kind: 'sessionUserState',
+  id: sessionUserStateRowId(asUserId('u-1'), asSessionId(id)),
+  patch: patch as Record<string, unknown>,
+  ...(unset === undefined ? {} : { unset }),
+})
+const myIssue = (id: string, patch: object): OutboxKinds['recordEdit'] => ({
+  kind: 'issueUserState',
+  id: issueUserStateRowId(asUserId('u-1'), asIssueId(id)),
+  patch: patch as Record<string, unknown>,
+})
 
 const route = <K extends keyof OutboxKinds>(kind: K, input: OutboxKinds[K]) =>
   outboxRoutingFor(kind, input, asMutationId('mid-1'))
@@ -86,18 +129,30 @@ const route = <K extends keyof OutboxKinds>(kind: K, input: OutboxKinds[K]) =>
 describe('automatic bookkeeping recovery policy', () => {
   it('discards only automatic issue-read receipts and fails closed for unknown work', () => {
     expect(Object.keys(OUTBOX_DEAD_LETTER_HANDLING).sort()).toEqual([...kinds].sort())
-    expect(kinds.filter((kind) => deadLetterHandlingFor(kind) === 'discard-automatic')).toEqual([
-      'issueMarkRead',
-    ])
+    // No fixed kind is automatic now: the automatic receipt is a record edit
+    // that only sets my read mark on an issue (POD-6404).
+    expect(kinds.filter((kind) => deadLetterHandlingFor(kind) === 'discard-automatic')).toEqual([])
+    expect(deadLetterHandlingFor('recordEdit', myIssue('i1', { readAt: AT }))).toBe(
+      'discard-automatic',
+    )
+    expect(deadLetterHandlingFor('recordEdit', myIssue('i1', { readAt: null }))).toBe('recover')
+    expect(deadLetterHandlingFor('recordEdit', myIssue('i1', { tuckedAt: AT }))).toBe('recover')
+    expect(deadLetterHandlingFor('recordEdit', mySession('s1', { readAt: AT }))).toBe('recover')
+    // An older build's queued receipt is still automatic (LEGACY).
+    expect(deadLetterHandlingFor('issueMarkRead')).toBe('discard-automatic')
     expect(deadLetterHandlingFor('future-authored-command')).toBe('recover')
   })
 
   it('parks only writes that carry the author’s own words', () => {
     expect(shouldParkDeadLetter('rename', { sessionId: 's1', name: 'mine' })).toBe(true)
-    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'Renamed' } })).toBe(true)
-    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(false)
-    expect(shouldParkDeadLetter('issueSetTucked', { id: 'i1', tucked: true })).toBe(false)
-    expect(shouldParkDeadLetter('issueMarkRead', { id: 'i1' })).toBe(false)
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'Renamed' } })).toBe(
+      true,
+    )
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(
+      false,
+    )
+    expect(shouldParkDeadLetter('recordEdit', myIssue('i1', { tuckedAt: AT }))).toBe(false)
+    expect(shouldParkDeadLetter('recordEdit', myIssue('i1', { readAt: AT }))).toBe(false)
     expect(shouldParkDeadLetter('future-authored-command', { id: 'i1' })).toBe(true)
   })
 })
@@ -114,18 +169,24 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     // Every kind has an entry — the typed Record is the real guard, this catches
     // a table that drifted out of sync with OUTBOX_COMMANDS at runtime.
     expect(Object.keys(OUTBOX_ROUTING).sort()).toEqual([...kinds].sort())
+    // The only kinds without a fixed contract are the generic record writes.
+    expect(kinds.filter((kind) => !(kind in OUTBOX_COMMANDS)).sort()).toEqual([
+      'recordCreate',
+      'recordEdit',
+      'recordRemove',
+    ])
   })
 
   it('gives different targets different partitions, so one refusal cannot wedge the rest', () => {
-    expect(route('issueMarkRead', { id: 'POD-1' }).partitionKey).not.toBe(
-      route('issueMarkRead', { id: 'POD-2' }).partitionKey,
+    expect(route('recordEdit', myIssue('POD-1', { readAt: AT })).partitionKey).not.toBe(
+      route('recordEdit', myIssue('POD-2', { readAt: AT })).partitionKey,
     )
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
-      route('rename', { sessionId: asSessionId('s-2'), name: 'a' }).partitionKey,
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).partitionKey).not.toBe(
+      route('recordEdit', sessionEdit('s-2', { name: 'a' })).partitionKey,
     )
     // ...and a session write is not serialised behind an unrelated issue write.
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
-      route('issueMarkRead', { id: 'POD-1' }).partitionKey,
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).partitionKey).not.toBe(
+      route('recordEdit', myIssue('POD-1', { readAt: AT })).partitionKey,
     )
   })
 
@@ -147,21 +208,23 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
   it('keeps writes to the SAME row in one partition, preserving their order', () => {
     // This is what the legacy `chained` flag tracked: two edits of one row must
     // not be able to reorder.
-    const a = route('rename', { sessionId: asSessionId('s-1'), name: 'first' }).partitionKey
-    const b = route('rename', { sessionId: asSessionId('s-1'), name: 'second' }).partitionKey
+    const a = route('recordEdit', sessionEdit('s-1', { name: 'first' })).partitionKey
+    const b = route('recordEdit', sessionEdit('s-1', { name: 'second' })).partitionKey
     expect(a).toBe(b)
   })
 
-  it('orders a session\'s chat sends in ONE partition, apart from its curation writes (POD-4762)', () => {
+  it("orders a session's chat sends in ONE partition, apart from its curation writes (POD-4762)", () => {
     const s1 = asSessionId('s-1')
     const live = route('sendText', { sessionId: s1, text: 'first' }).partitionKey
     const wake = route('resumeAndSend', { sessionId: s1, text: 'second' }).partitionKey
     // Live and waking sends to one session keep the order they were written in.
     expect(live).toBe(wake)
     // Another session's messages never wait behind these.
-    expect(live).not.toBe(route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey)
+    expect(live).not.toBe(
+      route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey,
+    )
     // A parked rename must not hold every later message to the session.
-    expect(live).not.toBe(route('rename', { sessionId: s1, name: 'n' }).partitionKey)
+    expect(live).not.toBe(route('recordEdit', sessionEdit(s1, { name: 'n' })).partitionKey)
   })
 })
 
@@ -172,8 +235,6 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('resumeAndSend', SAMPLE.resumeAndSend).collapseKey).toBeUndefined()
     // Partial patches — a later one carries only the keys it touches, so it does
     // NOT subsume an earlier one. Collapsing these would drop fields silently.
-    expect(route('layoutSet', SAMPLE.layoutSet).collapseKey).toBeUndefined()
-    expect(route('layoutClear', SAMPLE.layoutClear).collapseKey).toBeUndefined()
     expect(
       route('settingsUpdatePersonal', SAMPLE.settingsUpdatePersonal).collapseKey,
     ).toBeUndefined()
@@ -189,14 +250,14 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // either does exactly what the first did. Their keys are DISTINCT from the
     // patch kind's — which has none — so nothing can collapse an un-archive.
     const id = 'POD-1'
-    expect(route('issueArchive', { id }).collapseKey).toBe(
-      route('issueArchive', { id }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { archived: true })).collapseKey,
     )
-    expect(route('issueArchive', { id }).collapseKey).not.toBe(
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).not.toBe(
       route('issueDelete', { id }).collapseKey,
     )
-    expect(route('issueArchive', { id }).collapseKey).not.toBe(
-      route('issueArchive', { id: 'POD-2' }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).not.toBe(
+      route('recordEdit', issueEdit('POD-2', { archived: true })).collapseKey,
     )
   })
 
@@ -205,14 +266,14 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     const id = 'POD-1'
     const partitions = new Set([
       route('issueUpdate', { id, patch: { title: 'x' } }).partitionKey,
-      route('issueArchive', { id }).partitionKey,
+      route('recordEdit', issueEdit(id, { archived: true })).partitionKey,
       route('issueDelete', { id }).partitionKey,
-      route('issueMarkRead', { id }).partitionKey,
-      route('issueSetTucked', { id, tucked: true }).partitionKey,
+      route('recordEdit', myIssue(id, { readAt: AT })).partitionKey,
+      route('recordEdit', myIssue(id, { tuckedAt: AT })).partitionKey,
       route('issueClose', { id, reason: 'done' }).partitionKey,
-      route('issueDefer', { id, until: null }).partitionKey,
-      route('issueUndefer', { id }).partitionKey,
-      route('issueSetLabels', { id, labels: ['bug'] }).partitionKey,
+      route('recordEdit', issueEdit(id, {}, ['deferUntil'])).partitionKey,
+      route('recordEdit', issueEdit(id, { deferUntil: AT })).partitionKey,
+      route('recordEdit', issueEdit(id, { labels: ['bug'] })).partitionKey,
       route('issueSetPlacement', { id, placement: 'own', originId: 'POD-9' }).partitionKey,
       route('issueRestore', { id }).partitionKey,
     ])
@@ -226,17 +287,17 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
   it('shares one collapse key between commands that write the same state cell', () => {
     // The user's last click on the cell wins, which is what they meant.
     const id = 'POD-1'
-    expect(route('issueMarkRead', { id }).collapseKey).toBe(
-      route('issueMarkUnread', { id }).collapseKey,
+    expect(route('recordEdit', myIssue(id, { readAt: AT })).collapseKey).toBe(
+      route('recordEdit', myIssue(id, { readAt: null })).collapseKey,
     )
-    expect(route('snoozeSet', { sessionId: asSessionId('s-1'), until: null }).collapseKey).toBe(
-      route('snoozeClear', { sessionId: asSessionId('s-1') }).collapseKey,
+    expect(route('recordEdit', mySession('s-1', { snoozedUntil: null })).collapseKey).toBe(
+      route('recordEdit', mySession('s-1', {}, ['snoozedUntil'])).collapseKey,
     )
     // POD-781: defer and undefer are the issue twins of that pair — two commands
     // writing `deferUntil`, so "snooze until Friday, no — unsnooze" sends the
     // last word rather than both in order.
-    expect(route('issueDefer', { id, until: '2099-01-01' }).collapseKey).toBe(
-      route('issueUndefer', { id }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { deferUntil: '2099-01-01' })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { deferUntil: AT })).collapseKey,
     )
   })
 
@@ -249,11 +310,11 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('issueClose', { id, reason: 'done' }).collapseKey).toBe(
       route('issueClose', { id, reason: 'wontfix' }).collapseKey,
     )
-    expect(route('issueSetLabels', { id, labels: ['a'] }).collapseKey).toBe(
-      route('issueSetLabels', { id, labels: ['b'] }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { labels: ['a'] })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { labels: ['b'] })).collapseKey,
     )
     expect(route('issueClose', { id, reason: 'done' }).collapseKey).not.toBe(
-      route('issueSetLabels', { id, labels: ['a'] }).collapseKey,
+      route('recordEdit', issueEdit(id, { labels: ['a'] })).collapseKey,
     )
     expect(route('issueUpdate', { id, patch: { stage: 'backlog' } }).collapseKey).toBeUndefined()
   })
@@ -272,7 +333,7 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // Archiving is a different cell, and an un-archive rides `issueUpdate`,
     // which collapses with nothing.
     expect(route('issueRestore', { id }).collapseKey).not.toBe(
-      route('issueArchive', { id }).collapseKey,
+      route('recordEdit', issueEdit(id, { archived: true })).collapseKey,
     )
   })
 
@@ -292,12 +353,12 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     )
     // ...and the offer is not the read cursor, the name, or the snooze.
     expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).collapseKey).not.toBe(
-      route('sessionMarkRead', { sessionId }).collapseKey,
+      route('recordEdit', mySession(sessionId, { readAt: AT })).collapseKey,
     )
     // It rides the session's partition, so it cannot overtake a rename made on
     // the same row.
     expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).partitionKey).toBe(
-      route('rename', { sessionId, name: 'a' }).partitionKey,
+      route('recordEdit', sessionEdit(sessionId, { name: 'a' })).partitionKey,
     )
   })
 
@@ -318,15 +379,15 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
   })
 
   it('never shares a collapse key across different targets or different cells', () => {
-    expect(route('issueMarkRead', { id: 'POD-1' }).collapseKey).not.toBe(
-      route('issueMarkRead', { id: 'POD-2' }).collapseKey,
+    expect(route('recordEdit', myIssue('POD-1', { readAt: AT })).collapseKey).not.toBe(
+      route('recordEdit', myIssue('POD-2', { readAt: AT })).collapseKey,
     )
     // Read state and tucked state are two cells on the same issue.
-    expect(route('issueMarkRead', { id: 'POD-1' }).collapseKey).not.toBe(
-      route('issueSetTucked', { id: 'POD-1', tucked: true }).collapseKey,
+    expect(route('recordEdit', myIssue('POD-1', { readAt: AT })).collapseKey).not.toBe(
+      route('recordEdit', myIssue('POD-1', { tuckedAt: AT })).collapseKey,
     )
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).collapseKey).not.toBe(
-      route('setArchived', { sessionId: asSessionId('s-1'), archived: true }).collapseKey,
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).collapseKey).not.toBe(
+      route('recordEdit', sessionEdit('s-1', { archived: true })).collapseKey,
     )
   })
 
@@ -339,5 +400,83 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       const other = outboxRoutingFor(kind, SAMPLE[kind], asMutationId('mid-2'))
       expect(other.partitionKey).toBe(routed.partitionKey)
     }
+  })
+})
+
+describe('effect refusals through the executor', () => {
+  it.each([
+    'effectCreate',
+    'effectDismiss',
+  ] as const)('%s keeps the server message, kind and validation paths', async (kind) => {
+    const refusal = {
+      kind: 'invalid',
+      message: 'Choose a machine before starting the task.',
+      details: ['input.machineId'],
+    }
+    const api = {
+      sync: { submit: { mutate: vi.fn(async () => ({ outcome: 'rejected', refusal })) } },
+    }
+    const execute = outboxExecutors(api as never)
+    const mutationId = asMutationId('m-effect')
+    const createInput = { ...SAMPLE.effectCreate, mutationId }
+    const dismissInput = { ...SAMPLE.effectDismiss, mutationId }
+    const result =
+      kind === 'effectCreate'
+        ? execute.effectCreate(createInput)
+        : execute.effectDismiss(dismissInput)
+    await expect(result).rejects.toMatchObject({
+      message: refusal.message,
+      refusal,
+      data: { code: 'BAD_REQUEST' },
+    })
+  })
+})
+
+describe('POD-6415 — an offer dismissal drains on the sync write entry point', () => {
+  const entry = {
+    sessionId: asSessionId('s-1'),
+    offerCreatedAt: '2026-11-06T12:00:00.000Z',
+    mutationId: asMutationId('m-dismiss-1'),
+  }
+  const applied = {
+    outcome: 'applied',
+    result: null,
+    receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+    replayed: false,
+  }
+
+  it('sends sessions.dismissOffer on sync.submit under the entry’s own mutationId', async () => {
+    const submit = vi.fn(async (_envelope: unknown) => applied)
+    const route = vi.fn(async () => ({}))
+    const api = {
+      sync: { submit: { mutate: submit } },
+      sessions: { dismissOffer: { mutate: route } },
+    }
+    await outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer'])
+    expect(submit).toHaveBeenCalledWith({
+      mutationId: 'm-dismiss-1',
+      command: 'sessions.dismissOffer',
+      version: 1,
+      input: { sessionId: 's-1', offerCreatedAt: '2026-11-06T12:00:00.000Z' },
+    })
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('a server without the entry point takes the old route (LEGACY until 2027-03)', async () => {
+    const route = vi.fn(async (_input: unknown) => ({}))
+    const api = { sessions: { dismissOffer: { mutate: route } } }
+    await outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer'])
+    expect(route).toHaveBeenCalledWith(entry)
+  })
+
+  it('a refusal is definitive: it carries a tRPC code the outbox classifies', async () => {
+    const submit = vi.fn(async () => ({ outcome: 'rejected', refusal: { kind: 'conflict' } }))
+    const api = {
+      sync: { submit: { mutate: submit } },
+      sessions: { dismissOffer: { mutate: vi.fn() } },
+    }
+    await expect(
+      outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer']),
+    ).rejects.toMatchObject({ data: { code: 'CONFLICT' } })
   })
 })

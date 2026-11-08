@@ -72,6 +72,7 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -103,7 +104,12 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -217,6 +223,12 @@ export interface CodexRuntimeHost {
   launch(input: {
     sessionId: SessionId
     workdir: string
+    /**
+     * THE SESSION'S PINNED HARNESS CONTEXT (POD-6546): the engine runs its
+     * installation and starts from its environment. From the spec on create
+     * and resume, from {@link harnessContextFor} where a launch has no spec.
+     */
+    harnessContext: HarnessContext
     env?: Readonly<Record<string, string>>
     /**
      * Podium's MCP configuration, forwarded VERBATIM from `SessionSpec`.
@@ -336,6 +348,13 @@ export interface CodexRuntimeHost {
    * it absent and every adopt resumes.
    */
   adopt?(binding: SessionBinding): Promise<CodexServerEndpoint | undefined>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): an
+   * adopt or wake that must start a fresh engine. The one the session was
+   * spawned with while this host holds it; after a supervisor restart, one
+   * rebuilt from the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -523,7 +542,7 @@ interface CodexConnection {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: CodexServerEndpoint
   connection: CodexConnection
   client: CodexClient
@@ -1593,7 +1612,7 @@ export function createCodexRuntime(
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
    *  default, which is not ours to override. */
-  function modelOf(spec: SessionSpec): string | undefined {
+  function modelOf(spec: EngineSessionSpec): string | undefined {
     const raw = spec.model.model
     return raw && raw !== 'auto' ? raw : undefined
   }
@@ -1606,14 +1625,14 @@ export function createCodexRuntime(
    * and falsy. The host's argv builder branches on presence, and an empty inline
    * config would make it mount nothing while looking like it mounted something.
    */
-  function mcpOf(spec: SessionSpec): {
+  function mcpOf(spec: EngineSessionSpec): {
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
   } {
     return spec.mcpServers.supported ? { mcpServers: spec.mcpServers.value } : {}
   }
 
   /** The session's instructions for the host to hand Codex, or nothing. */
-  function instructionsOf(spec: SessionSpec): { instructions?: string } {
+  function instructionsOf(spec: EngineSessionSpec): { instructions?: string } {
     const instructions = instructionsText(spec)
     return instructions ? { instructions } : {}
   }
@@ -2651,7 +2670,7 @@ export function createCodexRuntime(
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: CodexServerEndpoint
     connection: CodexConnection
     threadId: CodexThreadId
@@ -2758,6 +2777,7 @@ export function createCodexRuntime(
     const endpoint = await host.launch({
       sessionId,
       workdir: spec.workdir,
+      harnessContext: spec.harnessContext,
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
       ...instructionsOf(spec),
@@ -2803,11 +2823,14 @@ export function createCodexRuntime(
    *  `resume()` and `adopt()` wait for this before publishing a live handle. */
   async function resumeThread(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     threadId: CodexThreadId
     bindingVersion: number
     observerGeneration: number
     endpoint?: CodexServerEndpoint
+    /** The context a fresh engine runs under; read only when no survivor
+     *  endpoint is supplied. */
+    harnessContext: () => Promise<HarnessContext>
     rolloutPath?: string
   }): Promise<AgentSessionHandle> {
     const endpoint =
@@ -2815,6 +2838,7 @@ export function createCodexRuntime(
       (await host.launch({
         sessionId: input.sessionId,
         workdir: input.spec.workdir,
+        harnessContext: await input.harnessContext(),
         ...(input.spec.env ? { env: input.spec.env } : {}),
         ...mcpOf(input.spec),
         ...instructionsOf(input.spec),
@@ -2859,7 +2883,7 @@ export function createCodexRuntime(
     }
   }
 
-  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): SessionSpec => ({
+  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): EngineSessionSpec => ({
     harness: 'codex',
     selection: {
       auth: 'subscription',
@@ -2891,6 +2915,7 @@ export function createCodexRuntime(
       return resumeThread({
         sessionId,
         spec,
+        harnessContext: async () => spec.harnessContext,
         threadId: ref.value,
         bindingVersion: previous + 1,
         observerGeneration: previous + 1,
@@ -2927,6 +2952,7 @@ export function createCodexRuntime(
       const handle = await resumeThread({
         sessionId: binding.sessionId,
         spec: adoptedSpec(journalled.workdir, journalled.model),
+        harnessContext: () => host.harnessContextFor(binding.sessionId),
         threadId: journalled.threadId,
         rolloutPath: journalled.rolloutPath,
         endpoint,

@@ -33,10 +33,10 @@ export interface FeedVisibilityStore {
     'issueIdsForOrders' | 'laneMemberIssueIdsMany' | 'ordersByIds' | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
-  readonly grants: Pick<
-    SessionStore['grants'],
-    'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
-  >
+  readonly effects: Pick<SessionStore['effects'], 'audiencesOf' | 'liveOnTargets'>
+  /** Admins read every instance-wide effect record (POD-6358). */
+  readonly users: Pick<SessionStore['users'], 'activeAdminIds'>
+  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
 }
 export type DeliveryMessages = Pick<

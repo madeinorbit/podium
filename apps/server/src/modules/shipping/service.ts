@@ -24,6 +24,7 @@ import {
   type ShipStep,
   shipRepairRef,
 } from '@podium/model'
+import type { MetadataChange } from '@podium/protocol'
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
 import {
   SHIPPING_TRAIN_CAPABILITY,
@@ -31,7 +32,13 @@ import {
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
-import type { BaselineFoldPort, EntityChangeSpec, LedgerCommitOp } from '@podium/sync'
+import type {
+  BaselineFoldPort,
+  EntityChangeSpec,
+  LedgerCommitOp,
+  LedgerCommitResult,
+  WriteScope,
+} from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { afterCommit } from '../../store/executor/executor'
 import {
@@ -162,19 +169,32 @@ export interface ShippingIssuePort {
   get(id: string): Promise<IssueReport>
   children(id: string, recursive?: boolean): Promise<IssueReport[]>
   shippingCommit<T>(
+    writer: ShippingWriter,
     id: IssueId,
     mutation: ShippingIssueMutation,
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
   ): Promise<{ issue: IssueProjection; result: T }>
   shippingCommitMany<T>(
+    writer: ShippingWriter,
     entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
   ): Promise<{ issues: IssueProjection[]; result: T }>
   takeBranchCustody?(issue: IssueReport): Promise<{ ok: boolean; detail: string }>
 }
 
-export interface ShippingLedgerPort {
-  commit<T>(op: LedgerCommitOp<T>): Promise<{ result: T }>
+/**
+ * What a ship write commits on (ADR 12 D9, POD-6594): the writer of the ship
+ * command that asked, or the lanes' own (`shipping.lanes`). Its issue commits go
+ * through the issues service on the same writer.
+ */
+export interface ShippingWriter {
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
+  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
+}
+
+/** The lane machine's own writer, a `server` origin (`shipping.lanes`): every
+ *  write the lanes make, the boot reconcile included. Never a command's. */
+export interface ShippingLedgerPort extends ShippingWriter {
   reconcile(entity: 'shipOrder' | 'shipLane', rows: { id: string; value: unknown }[]): unknown
 }
 
@@ -433,7 +453,10 @@ export class ShippingService {
   /** Resolve the intentionally tiny `issues.ship` command into the live approval
    * snapshot, then enter the same atomic/idempotent admission transaction used by
    * every other Shipping caller. */
-  async enqueueCurrent(input: CurrentShipOrderInput): Promise<EnqueuedShipOrder> {
+  async enqueueCurrent(
+    writer: ShippingWriter,
+    input: CurrentShipOrderInput,
+  ): Promise<EnqueuedShipOrder> {
     const issue = await this.deps.issues.get(input.issueId)
     const policy = await this.deps.policy.resolve(issue)
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
@@ -462,7 +485,7 @@ export class ShippingService {
     if (!accepted && !policy.evidenceOptional) {
       throw new ShippingAdmissionError('evidence', 'accepted review evidence is required by policy')
     }
-    return await this.enqueue({
+    return await this.enqueue(writer, {
       ...input,
       requestedBy: this.deps.authorization.attribution(input.principal),
       approved: {
@@ -478,7 +501,7 @@ export class ShippingService {
   /** Admission + handoff port consumed by the command layer. All reads finish
    * before the single outer commit; order, issue custody and replica rows then
    * commit or roll back together. */
-  async enqueue(input: ApprovedShipOrderInput): Promise<EnqueuedShipOrder> {
+  async enqueue(writer: ShippingWriter, input: ApprovedShipOrderInput): Promise<EnqueuedShipOrder> {
     this.admissionsInFlight += 1
     let release!: () => void
     const previous = this.admissionTail
@@ -487,14 +510,17 @@ export class ShippingService {
     })
     await previous
     try {
-      return await this.enqueueSerial(input)
+      return await this.enqueueSerial(writer, input)
     } finally {
       this.admissionsInFlight -= 1
       release()
     }
   }
 
-  private async enqueueSerial(input: ApprovedShipOrderInput): Promise<EnqueuedShipOrder> {
+  private async enqueueSerial(
+    writer: ShippingWriter,
+    input: ApprovedShipOrderInput,
+  ): Promise<EnqueuedShipOrder> {
     const issue = await this.deps.issues.get(input.issueId)
     this.deps.authorization.authorize({
       principal: input.principal,
@@ -719,6 +745,7 @@ export class ShippingService {
     try {
       admission = await (
         await this.commitMany(
+          writer,
           [
             {
               order,
@@ -769,7 +796,7 @@ export class ShippingService {
               },
             })),
           ],
-          async () => {
+          async (scope) => {
             const live = await this.deps.issues.get(issue.id)
             if ((await this.deps.policy.resolve(live)).id !== policy.id) {
               throw new ShippingAdmissionError('policy', 'repository shipping policy changed')
@@ -793,7 +820,7 @@ export class ShippingService {
                 'integration receipt changed before shipping custody committed',
               )
             }
-            const result = await this.deps.repository.createOrReturnActiveOrder({
+            const result = await this.deps.repository.createOrReturnActiveOrder(scope, {
               ...order,
               ...(receipt ? { currentIntegrationReceipt: receipt } : {}),
             })
@@ -929,7 +956,12 @@ export class ShippingService {
         !attempt.finishedAt &&
         (await this.deps.repository.hasCancellationIntent(attempt.id, attempt.leaseGeneration))
       ) {
-        await this.settleCancellation(order, attempt, await this.deps.issues.get(order.issueId))
+        await this.settleCancellation(
+          this.deps.ledger,
+          order,
+          attempt,
+          await this.deps.issues.get(order.issueId),
+        )
         return
       }
       const lease = attempt ? this.leases.get(order.id) : undefined
@@ -970,6 +1002,7 @@ export class ShippingService {
           order.validationProfileDigest !== liveValidationDigest)
       ) {
         await this.hold(
+          this.deps.ledger,
           order,
           attempt,
           'policy-refused',
@@ -984,6 +1017,7 @@ export class ShippingService {
           const custody = await this.deps.issues.takeBranchCustody(issue)
           if (!custody.ok) {
             await this.hold(
+              this.deps.ledger,
               order,
               attempt,
               'policy:branch-custody',
@@ -1005,6 +1039,7 @@ export class ShippingService {
         )
         if (prefixRefusal) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'policy-refused',
@@ -1036,6 +1071,7 @@ export class ShippingService {
         )
         if (prefixRefusal) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'policy-refused',
@@ -1074,6 +1110,7 @@ export class ShippingService {
       if (order.state === 'landing') {
         if (coveredPrefix.length > 0 && !(await this.trainPrefixStillExact(coveredPrefix, order))) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'approval-stale',
@@ -1089,6 +1126,7 @@ export class ShippingService {
         )
         if (prefixRefusal) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'policy-refused',
@@ -1123,6 +1161,7 @@ export class ShippingService {
         )
         if (prefixRefusal) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'policy-refused',
@@ -1170,6 +1209,7 @@ export class ShippingService {
           result.validationResult !== 'passed'
         ) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'destination-mismatch',
@@ -1238,6 +1278,7 @@ export class ShippingService {
         ).flat()
         if (coveredSettlements.length !== coveredPrefix.length) {
           await this.hold(
+            this.deps.ledger,
             order,
             attempt,
             'approval-stale',
@@ -1259,6 +1300,7 @@ export class ShippingService {
         }
         try {
           await this.commitMany(
+            this.deps.ledger,
             [
               {
                 order: order,
@@ -1307,8 +1349,8 @@ export class ShippingService {
                 },
               })),
             ],
-            async () =>
-              await this.deps.repository.completeVerifiedTrain({
+            async (scope) =>
+              await this.deps.repository.completeVerifiedTrain(scope, {
                 leader: {
                   orderId: order.id,
                   expectedState: 'verifying',
@@ -1362,7 +1404,7 @@ export class ShippingService {
     }
   }
 
-  async cancel(input: CancelShipOrderInput): Promise<ShipOrder> {
+  async cancel(writer: ShippingWriter, input: CancelShipOrderInput): Promise<ShipOrder> {
     const { order, issue } = await this.authorizedOrder(
       input.orderId,
       input.principal,
@@ -1373,7 +1415,7 @@ export class ShippingService {
       const hold = await this.deps.repository.openHoldForOrder(order.id)
       if (!hold) throw new Error(`held shipping order ${order.id} has no open hold`)
       return (
-        await this.resolveHold({
+        await this.resolveHold(writer, {
           orderId: order.id,
           action: 'return-to-issue',
           expectedGeneration: hold.generation,
@@ -1413,21 +1455,44 @@ export class ShippingService {
       const intentKey = `cancel:${intentAttempt.leaseGeneration}`
       const intentStartedAt = this.now()
       const summary = cancellationSummary(order.id, activeTrain?.id)
-      await this.deps.repository.requestCancellation({
-        orderId: intentOrder.id,
-        expectedState: intentOrder.state,
-        attemptId: intentAttempt.id,
-        generation: intentAttempt.leaseGeneration,
-        planned: {
-          ...this.step(intentOrder, intentAttempt, intentKey, 'cancel', 'planned', intentStartedAt),
-          summary,
-        },
-        running: {
-          ...this.step(intentOrder, intentAttempt, intentKey, 'cancel', 'running', intentStartedAt),
-          summary,
-        },
+      // The cancel intent is a ship row write: in a commit on the command's writer (ADR 12 D9).
+      await writer.commit({
+        write: async (scope) =>
+          await this.deps.repository.requestCancellation(scope, {
+            orderId: intentOrder.id,
+            expectedState: intentOrder.state,
+            attemptId: intentAttempt.id,
+            generation: intentAttempt.leaseGeneration,
+            planned: {
+              ...this.step(
+                intentOrder,
+                intentAttempt,
+                intentKey,
+                'cancel',
+                'planned',
+                intentStartedAt,
+              ),
+              summary,
+            },
+            running: {
+              ...this.step(
+                intentOrder,
+                intentAttempt,
+                intentKey,
+                'cancel',
+                'running',
+                intentStartedAt,
+              ),
+              summary,
+            },
+          }),
+        // The row can move the projection of the order and of its train's members
+        // (an order's activity is its latest step; a train moves together); an
+        // unchanged projection is dropped by the ledger's dedup.
+        changes: async () => await this.projectionFor(await this.trainOrderIds(intentOrder.id)),
       })
       await this.settleCancellation(
+        writer,
         intentOrder,
         intentAttempt,
         intentOrder.id === order.id ? issue : await this.deps.issues.get(intentOrder.issueId),
@@ -1442,6 +1507,7 @@ export class ShippingService {
       : [order]
     const result = await (
       await this.commitMany(
+        writer,
         cancellationMembers.map((member) => ({
           order: member,
           mutation:
@@ -1479,8 +1545,9 @@ export class ShippingService {
                   },
                 },
         })),
-        async () => {
+        async (scope) => {
           return await this.deps.repository.cancelAttemptAndOrder(
+            scope,
             order.id,
             order.state as Extract<
               ShipOrderState,
@@ -1496,6 +1563,7 @@ export class ShippingService {
   }
 
   private async settleCancellation(
+    writer: ShippingWriter,
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueReport,
@@ -1533,6 +1601,7 @@ export class ShippingService {
       } catch (error) {
         const summary = describeError(error)
         await this.hold(
+          writer,
           order,
           attempt,
           'policy-refused',
@@ -1560,6 +1629,7 @@ export class ShippingService {
       } catch (error) {
         const summary = describeError(error)
         await this.hold(
+          writer,
           order,
           attempt,
           'machine-unavailable',
@@ -1573,6 +1643,7 @@ export class ShippingService {
       }
       if (result.state !== 'cancelled' && result.state !== 'succeeded') {
         await this.hold(
+          writer,
           order,
           attempt,
           'machine-unavailable',
@@ -1628,6 +1699,7 @@ export class ShippingService {
       : [targetOrder]
     const result = await (
       await this.commitMany(
+        writer,
         cancellationMembers.map((member) => ({
           order: member,
           mutation:
@@ -1661,8 +1733,9 @@ export class ShippingService {
                   },
                 },
         })),
-        async () =>
+        async (scope) =>
           await this.deps.repository.cancelAttemptAndOrder(
+            scope,
             targetOrder.id,
             targetOrder.state as Extract<
               ShipOrderState,
@@ -1681,7 +1754,10 @@ export class ShippingService {
     return result
   }
 
-  async resolveHold(input: ResolveShipHoldInput): Promise<ResolvedShipHold> {
+  async resolveHold(
+    writer: ShippingWriter,
+    input: ResolveShipHoldInput,
+  ): Promise<ResolvedShipHold> {
     const { orderId, action, expectedGeneration } = input
     const { order, issue } = await this.authorizedOrder(
       orderId,
@@ -1727,7 +1803,8 @@ export class ShippingService {
       ) {
         throw new Error(`ship hold ${hold.id} repair context custody changed`)
       }
-      const decision = await repair.consider(context)
+      // The hold's own command asked: the repair writes as that command (POD-6606).
+      const decision = await repair.consider(context, writer)
       if (decision.kind !== 'patched') {
         throw new Error(`ship hold ${hold.id} did not produce an immutable repair candidate`)
       }
@@ -1738,6 +1815,7 @@ export class ShippingService {
     }
     const result = (
       await this.deps.issues.shippingCommit(
+        writer,
         order.issueId,
         {
           expectedStage: 'shipping',
@@ -1753,8 +1831,9 @@ export class ShippingService {
             },
           },
         },
-        async () => {
+        async (scope) => {
           await this.deps.repository.resolveHold(
+            scope,
             order.id,
             expectedGeneration,
             action,
@@ -1853,8 +1932,8 @@ export class ShippingService {
     const pinned = this.leases.pin(train.orders.map((order) => order.id))
     const result = (
       await this.deps.ledger.commit({
-        write: async () =>
-          await this.deps.repository.claimTrain({
+        write: async (scope) =>
+          await this.deps.repository.claimTrain(scope, {
             leaderOrderId: train.orders.at(-1)!.id,
             startedAt,
             members: train.orders.map((order) => {
@@ -1955,8 +2034,9 @@ export class ShippingService {
     const covered = new Map<ShipOrderId, ShipOrder>()
     let frontier: readonly ShipOrder[] = [covering]
     while (frontier.length > 0) {
-      const named = [...new Set(frontier.flatMap((order) => order.deliveryDependsOn))]
-        .filter((id) => !covered.has(id))
+      const named = [...new Set(frontier.flatMap((order) => order.deliveryDependsOn))].filter(
+        (id) => !covered.has(id),
+      )
       const next: ShipOrder[] = []
       for (const dependency of await this.deps.repository.ordersByIds(named)) {
         if (
@@ -2023,6 +2103,7 @@ export class ShippingService {
     }
     if (settlements.length === 0) return
     await this.commitMany(
+      this.deps.ledger,
       settlements.map(({ order, receipt }) => ({
         order: order,
         mutation: {
@@ -2035,9 +2116,14 @@ export class ShippingService {
           },
         },
       })),
-      async () => {
+      async (scope) => {
         for (const { receipt } of settlements) {
-          await this.deps.repository.completeCoveredOrder(receipt, covering.id, effectEnvelopeKey)
+          await this.deps.repository.completeCoveredOrder(
+            scope,
+            receipt,
+            covering.id,
+            effectEnvelopeKey,
+          )
         }
       },
     )
@@ -2092,14 +2178,20 @@ export class ShippingService {
         `${verify.jobId}:${verify.requestDigest}`,
       )
       await this.commitMany(
+        this.deps.ledger,
         manifest.members.map((member) => ({
           order: { id: member.orderId, issueId: member.issueId },
           mutation: {
             expectedStage: ['shipping', 'done'] as const,
           },
         })),
-        async () =>
-          await this.deps.repository.releaseTrain(manifest.id, receipt.completedAt, 'landed'),
+        async (scope) =>
+          await this.deps.repository.releaseTrain(
+            scope,
+            manifest.id,
+            receipt.completedAt,
+            'landed',
+          ),
       )
     }
   }
@@ -2113,7 +2205,9 @@ export class ShippingService {
     if (!invalidatedBy) return []
     // Only a queued order is ever invalidated (the state check below), so only
     // the active orders are read, never the shipped history (POD-6172).
-    const remaining = (await this.deps.repository.activeOrders()).filter((order) => order.state === 'queued')
+    const remaining = (await this.deps.repository.activeOrders()).filter(
+      (order) => order.state === 'queued',
+    )
     const pending: { order: ShipOrder; hold: ShipHold; invalidatedBy: ShipOrderId }[] = []
     let advanced = true
     while (advanced) {
@@ -2175,6 +2269,7 @@ export class ShippingService {
     const pending = await this.planStaleDescendants([landed], destinationSha)
     if (pending.length === 0) return
     await this.commitMany(
+      this.deps.ledger,
       pending.map(({ order, hold, invalidatedBy }) => ({
         order: order,
         mutation: {
@@ -2193,8 +2288,8 @@ export class ShippingService {
           },
         },
       })),
-      async () => {
-        for (const { hold } of pending) await this.deps.repository.raiseHold(hold)
+      async (scope) => {
+        for (const { hold } of pending) await this.deps.repository.raiseHold(scope, hold)
       },
     )
   }
@@ -2290,9 +2385,9 @@ export class ShippingService {
           }
         }
       }
-      const write = async () => {
+      const write = async (scope: WriteScope) => {
         for (const edge of discovered) {
-          await this.deps.repository.recordNativeStackEdge({
+          await this.deps.repository.recordNativeStackEdge(scope, {
             upperOrderId: edge.upper.id,
             lowerOrderId: edge.lowerOrderId,
             recordedAt: edge.recordedAt,
@@ -2306,6 +2401,7 @@ export class ShippingService {
         })
       } else {
         await this.commitMany(
+          this.deps.ledger,
           [...affected.values()].map((member) => ({
             order: member,
             mutation: {
@@ -2346,7 +2442,9 @@ export class ShippingService {
         : order
     })
     const activeIds = new Set(active.map((order) => order.id))
-    const named = active.flatMap((order) => order.deliveryDependsOn).filter((id) => !activeIds.has(id))
+    const named = active
+      .flatMap((order) => order.deliveryDependsOn)
+      .filter((id) => !activeIds.has(id))
     const dependencies = (await this.deps.repository.ordersByIds(named)).filter(
       (order) => !activeIds.has(order.id),
     )
@@ -2363,7 +2461,9 @@ export class ShippingService {
     approvedHeadSha: string,
     declared: readonly ShipOrderId[],
   ): Promise<ShipOrderId[]> {
-    const candidates = (await this.deps.repository.activeOrdersOfLane(repoId, [destination])).filter(
+    const candidates = (
+      await this.deps.repository.activeOrdersOfLane(repoId, [destination])
+    ).filter(
       (order) =>
         order.issueId !== issue.id &&
         order.repoId === repoId &&
@@ -2403,8 +2503,8 @@ export class ShippingService {
     const pinned = this.leases.pin([order.id])
     const acquired = (
       await this.deps.ledger.commit({
-        write: async () =>
-          await this.deps.repository.claimAttempt({
+        write: async (scope) =>
+          await this.deps.repository.claimAttempt(scope, {
             orderId: order.id,
             expectedState: order.state as Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>,
             expectedAttemptId: previous?.id ?? null,
@@ -2448,8 +2548,8 @@ export class ShippingService {
     const at = this.now()
     const result = (
       await this.deps.ledger.commit({
-        write: async () =>
-          await this.deps.repository.transitionOrder(order.id, order.state, next, at),
+        write: async (scope) =>
+          await this.deps.repository.transitionOrder(scope, order.id, order.state, next, at),
         changes: async () => await this.projectionFor([order.id]),
       })
     ).result
@@ -2473,14 +2573,36 @@ export class ShippingService {
     let latest = await this.deps.repository.latestStepForEffect(attempt.id, effectKey)
     const startedAt = latest?.startedAt ?? this.now()
     if (!latest) {
-      latest = await this.deps.repository.appendStep(
-        this.step(order, attempt, effectKey, operation, 'planned', startedAt),
-      )
+      // A step row is a ship row write: in a commit on the lanes' writer (ADR 12 D9).
+      latest = (
+        await this.deps.ledger.commit({
+          write: async (scope) =>
+            await this.deps.repository.appendStep(
+              scope,
+              this.step(order, attempt, effectKey, operation, 'planned', startedAt),
+            ),
+          // The row can move the projection of the order and of its train's members
+          // (an order's activity is its latest step; a train moves together); an
+          // unchanged projection is dropped by the ledger's dedup.
+          changes: async () => await this.projectionFor(await this.trainOrderIds(order.id)),
+        })
+      ).result
     }
     if (latest.state === 'planned') {
-      latest = await this.deps.repository.appendStep(
-        this.step(order, attempt, effectKey, operation, 'running', startedAt),
-      )
+      // A step row is a ship row write: in a commit on the lanes' writer (ADR 12 D9).
+      latest = (
+        await this.deps.ledger.commit({
+          write: async (scope) =>
+            await this.deps.repository.appendStep(
+              scope,
+              this.step(order, attempt, effectKey, operation, 'running', startedAt),
+            ),
+          // The row can move the projection of the order and of its train's members
+          // (an order's activity is its latest step; a train moves together); an
+          // unchanged projection is dropped by the ledger's dedup.
+          changes: async () => await this.projectionFor(await this.trainOrderIds(order.id)),
+        })
+      ).result
     }
     if (await this.deps.repository.hasCancellationIntent(attempt.id, attempt.leaseGeneration))
       return null
@@ -2502,6 +2624,7 @@ export class ShippingService {
     } catch (error) {
       const summary = describeError(error)
       await this.hold(
+        this.deps.ledger,
         order,
         attempt,
         'policy-refused',
@@ -2560,10 +2683,18 @@ export class ShippingService {
     this.heartbeat(order.id, attempt.id, attempt.leaseGeneration)
     if (result.state === 'running') return null
     if (result.state === 'succeeded' && request.train && operation === 'verify') {
-      await this.deps.repository.recordEffectEnvelope({
-        request,
-        result,
-        recordedAt: result.finishedAt ?? this.now(),
+      // The effect envelope is a ship row write: in a commit on the lanes' writer (ADR 12 D9).
+      await this.deps.ledger.commit({
+        write: async (scope) =>
+          await this.deps.repository.recordEffectEnvelope(scope, {
+            request,
+            result,
+            recordedAt: result.finishedAt ?? this.now(),
+          }),
+        // The row can move the projection of the order and of its train's members
+        // (an order's activity is its latest step; a train moves together); an
+        // unchanged projection is dropped by the ledger's dedup.
+        changes: async () => await this.projectionFor(await this.trainOrderIds(order.id)),
       })
     }
     const effect = await this.effectCommit(order, attempt, operation, result, startedAt)
@@ -2571,8 +2702,8 @@ export class ShippingService {
       const changedAt = result.finishedAt ?? this.now()
       try {
         await this.deps.ledger.commit({
-          write: async () =>
-            await this.deps.repository.commitEffectResult({
+          write: async (scope) =>
+            await this.deps.repository.commitEffectResult(scope, {
               orderId: order.id,
               expectedState: order.state,
               attemptId: attempt.id,
@@ -2616,6 +2747,7 @@ export class ShippingService {
     }
     if (result.state === 'held') {
       await this.hold(
+        this.deps.ledger,
         order,
         attempt,
         this.holdCode(result.classification),
@@ -2630,6 +2762,7 @@ export class ShippingService {
       // its own cancellation transition. Recovery must classify that boundary
       // instead of redispatching the cancelled effect forever.
       await this.hold(
+        this.deps.ledger,
         order,
         attempt,
         'machine-unavailable',
@@ -2785,6 +2918,7 @@ export class ShippingService {
         : `Validation isolated failing changes: ${failureOrderIds.join(', ')}.`
     const failures = new Set(failureOrderIds)
     await this.commitMany(
+      this.deps.ledger,
       members.map((member) => ({
         order: member,
         mutation: {
@@ -2810,8 +2944,8 @@ export class ShippingService {
           },
         },
       })),
-      async () =>
-        await this.deps.repository.isolateTrainFailure({
+      async (scope) =>
+        await this.deps.repository.isolateTrainFailure(scope, {
           trainId: manifest.id,
           leaderOrderId: order.id,
           leaderAttemptId: attempt.id,
@@ -2916,7 +3050,8 @@ export class ShippingService {
     const context = await this.repairContext(order, attempt, issue, failure)
     let decision: ShippingRepairDecision
     try {
-      decision = await repair.consider(context)
+      // A lane job's failure: the lanes' own write (POD-6606).
+      decision = await repair.consider(context, this.deps.ledger)
     } catch (error) {
       this.audit('shipping.repair_consider_failed', order.issueId, {
         orderId: order.id,
@@ -2970,8 +3105,8 @@ export class ShippingService {
         changedAt,
       )
       await this.deps.ledger.commit({
-        write: async () =>
-          await this.deps.repository.commitEffectResult({
+        write: async (scope) =>
+          await this.deps.repository.commitEffectResult(scope, {
             orderId: order.id,
             expectedState: order.state,
             attemptId: attempt.id,
@@ -2991,6 +3126,7 @@ export class ShippingService {
       })
     } else {
       await this.hold(
+        this.deps.ledger,
         order,
         attempt,
         decision.reasonCode,
@@ -3090,6 +3226,7 @@ export class ShippingService {
   }
 
   private async hold(
+    writer: ShippingWriter,
     order: ShipOrder,
     attempt: ShipAttempt,
     reasonCode: ShipHold['reasonCode'],
@@ -3125,12 +3262,13 @@ export class ShippingService {
         )
       : [order]
     await this.commitMany(
+      writer,
       affected.map((member) => ({
         order: member,
         mutation: {
           expectedStage: 'shipping' as const,
           needsHuman: member.id === order.id || member.state !== 'preflight',
-          event: async () => {
+          event: async (scope) => {
             const liveHold = await this.deps.repository.openHoldForOrder(member.id)
             return liveHold
               ? {
@@ -3150,9 +3288,9 @@ export class ShippingService {
           },
         },
       })),
-      async () =>
+      async (scope) =>
         effect
-          ? await this.deps.repository.commitEffectResult({
+          ? await this.deps.repository.commitEffectResult(scope, {
               orderId: order.id,
               expectedState: order.state,
               attemptId: attempt.id,
@@ -3161,7 +3299,7 @@ export class ShippingService {
               outcome: { kind: 'hold', hold, attemptFinishedAt: raisedAt, preserveAttempt },
             })
           : cancellationFailure
-            ? await this.deps.repository.commitCancellationHold({
+            ? await this.deps.repository.commitCancellationHold(scope, {
                 orderId: order.id,
                 expectedState: order.state,
                 attemptId: attempt.id,
@@ -3170,7 +3308,7 @@ export class ShippingService {
                 hold,
                 attemptFinishedAt: raisedAt,
               })
-            : await this.deps.repository.commitCustodyHold({
+            : await this.deps.repository.commitCustodyHold(scope, {
                 orderId: order.id,
                 expectedState: order.state,
                 attemptId: attempt.id,
@@ -3807,6 +3945,12 @@ export class ShippingService {
    * REMOVED: empty lanes are not kept, and the readers who lose it are evicted
    * by the feed's visibility anchor, not by this row.
    */
+  /** The orders a lane write can move: `orderId` and its active train's members. */
+  private async trainOrderIds(orderId: ShipOrderId): Promise<ShipOrderId[]> {
+    const train = await this.deps.repository.activeTrainForOrder(orderId)
+    return [orderId, ...(train?.members.map((member) => member.orderId) ?? [])]
+  }
+
   private async projectionFor(
     touched: Iterable<ShipOrder | ShipOrderId>,
   ): Promise<EntityChangeSpec[]> {
@@ -3864,15 +4008,17 @@ export class ShippingService {
    * every entry's order plus `alsoTouched`; the others carry none.
    */
   private async commitMany<T>(
+    writer: ShippingWriter,
     entries: readonly {
       order: Pick<ShipOrder, 'id' | 'issueId'>
       mutation: Omit<ShippingIssueMutation, 'shipOrderChanges'>
     }[],
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
     alsoTouched: readonly ShipOrderId[] = [],
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     const touched = [...entries.map((entry) => entry.order.id), ...alsoTouched]
     return await this.deps.issues.shippingCommitMany(
+      writer,
       entries.map((entry, index) => ({
         id: entry.order.issueId,
         mutation: {

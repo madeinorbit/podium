@@ -14,6 +14,7 @@ import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
@@ -281,15 +282,15 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     try {
       // (a) IssueService direct.
       const regA = await freshRegistry()
-      const a = await regA.issues.crud.create({
+      const a = await regA.issues.crud.create(regA.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Lifecycle',
         description: 'characterize me',
         startNow: false,
       })
-      await regA.issues.crud.claim(a.id)
-      await regA.issues.commentsMail.addCallerComment(a.id, 'progress note', AS_OPERATOR)
-      await regA.issues.crud.close(a.id, 'done')
+      await regA.issues.crud.claim(regA.issues.reports.store.serverWriter, a.id, asUserId('agent:test'))
+      await regA.issues.commentsMail.addCallerComment(regA.issues.reports.store.serverWriter, a.id, 'progress note', AS_OPERATOR)
+      await regA.issues.crud.close(regA.issues.reports.store.serverWriter, a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.
@@ -383,8 +384,8 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'bimodal', startNow: false })
-      const patched = await reg.issues.crud.update(w.id, { closedReason: 'wontfix' })
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'bimodal', startNow: false })
+      const patched = await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { closedReason: 'wontfix' })
       // #24: closing via reason IS closing — stage follows to 'done'.
       expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
@@ -401,7 +402,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
       await expect(
-        reg.issues.crud.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
+        reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
       ).rejects.toThrow(/closedReason/)
     } finally {
       await reg.dispose()
@@ -412,10 +413,14 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'reopen me', startNow: false })
-      await reg.issues.crud.close(w.id) // stage done + closedReason 'done'
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'reopen me',
+        startNow: false,
+      })
+      await reg.issues.crud.close(reg.issues.reports.store.serverWriter, w.id) // stage done + closedReason 'done'
       // The obvious "reopen": drag the card back to in_progress.
-      const reopened = await reg.issues.crud.update(w.id, { stage: 'in_progress' })
+      const reopened = await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { stage: 'in_progress' })
       expect(reopened.stage).toBe('in_progress')
       // #24: closedReason clears with the stage move, so the reopened issue is
       // open/ready-visible again — no explicit closedReason:null needed.
@@ -439,14 +444,14 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
         repoPath: '/r',
         title: 'audible re-close',
         startNow: false,
       })
-      await reg.issues.crud.close(w.id)
-      await reg.issues.crud.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
-      await reg.issues.crud.update(w.id, { stage: 'done' }) // drag back to done
+      await reg.issues.crud.close(reg.issues.reports.store.serverWriter, w.id)
+      await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { stage: 'in_progress' }) // real reopen: reason clears
+      await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
@@ -498,7 +503,7 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = await ledger.reconcile('issueProjection', [
+    let changes = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -509,9 +514,11 @@ describe('characterization: change-log delta client heals to identical state (co
     // and a brand-new entity.
     apply(
       liveState,
-      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 'a2' } }]),
+      await testLedgerWriter(ledger).reconcile('issueProjection', [
+        { id: 'a', value: { id: 'a', title: 'a2' } },
+      ]),
     )
-    changes = await ledger.reconcile('issueProjection', [
+    changes = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
@@ -565,9 +572,13 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const issue = await reg1.issues.crud.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    await reg1.issues.commentsMail.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
-    await reg1.issues.crud.close(issue.id, 'done')
+    const issue = await reg1.issues.crud.create(reg1.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'survive',
+      startNow: false,
+    })
+    await reg1.issues.commentsMail.addComment(reg1.issues.reports.store.serverWriter, issue.id, 'agent:test', 'durable note', AS_OPERATOR)
+    await reg1.issues.crud.close(reg1.issues.reports.store.serverWriter, issue.id, 'done')
     await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({
       ok: true,
     }))

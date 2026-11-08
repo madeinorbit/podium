@@ -64,6 +64,8 @@ export interface MachineReconcilerPorts {
   pushPriorities(): void
   /** Archive means stopped: park a survivor that is still live/reconnecting. */
   parkArchivedSession(sessionId: Session['sessionId']): Promise<void>
+  /** Re-kill an archived row that reads parked over a running process (POD-6349). */
+  retireArchivedSurvivor(sessionId: Session['sessionId']): Promise<void>
   /** Build the reattach control message for one survivor. */
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   /**
@@ -231,6 +233,23 @@ export class SessionMachineReconciler {
       // passive PTY bind, never a spawning adopt.
       await this.withSession(candidate.sessionId, 'durableCensus', async (s) => {
         if (s) await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', { measuredPtyHost: true })
+      })
+    }
+    // ARCHIVED SURVIVORS ARE RE-KILLED, NOT REVIVED [POD-6349]. An archive park
+    // commits its row before the stop goes out (the stop is an after-commit
+    // effect), so a server that dies in between leaves an archived row reading
+    // parked over a live agent. The attach pass cannot see it (it parks only rows
+    // that still read running) and the revival above deliberately skips archived
+    // rows, so the census is where the machine's own report retires it.
+    const archivedButAlive = await this.candidates(
+      machineId,
+      (s) =>
+        s.machineId === machineId && !s.headless && s.archived &&
+        (s.status === 'hibernated' || s.status === 'exited') && live.has(s.durableLabel),
+    )
+    for (const candidate of archivedButAlive) {
+      await this.withSession(candidate.sessionId, 'archivedSurvivor', async (s) => {
+        if (s) await this.ports.retireArchivedSurvivor(s.sessionId)
       })
     }
   }

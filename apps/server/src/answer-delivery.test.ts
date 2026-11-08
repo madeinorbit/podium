@@ -1,3 +1,4 @@
+import type { TranscriptItem } from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -6,7 +7,6 @@ import {
   asSessionId,
   firstAdminMemberId,
 } from '@podium/model'
-import type { TranscriptItem } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { senderFromInboxPrincipal } from './modules/messages/service'
@@ -15,6 +15,7 @@ import {
   type AnswerDeliveryDeps,
   deliverAnswerToSession,
 } from './modules/superagent/answer-delivery'
+import { messageTestWriter } from './test-support/message-writer'
 
 /**
  * The shared answer-delivery path (issue #53): the answer_question menu gate +
@@ -64,6 +65,7 @@ function harness(opts: { phase?: string; needKind?: string; items?: TranscriptIt
     }),
   )
   const deps: AnswerDeliveryDeps = {
+    writer: messageTestWriter(),
     getSession: (id) =>
       id === 'sess_1'
         ? {
@@ -89,6 +91,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     })
     expect(r).toEqual({ ok: true, via: 'menu', choices: [{ optionIndices: [2] }] })
     expect(h.answerAskUserQuestion).toHaveBeenCalledWith({
+      writer: expect.anything(),
       sessionId: asSessionId('sess_1'),
       choices: [{ optionIndices: [2] }],
       principal,
@@ -107,6 +110,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     // A person answered: their words, as their message — unwrapped, and waking
     // a parked session (POD-4846).
     expect(h.send).toHaveBeenCalledWith(
+      expect.anything(),
       { kind: 'operator', attribution: principal.attribution, delegationRef: null },
       {
         to: { kind: 'session', id: 'sess_1' },

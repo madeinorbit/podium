@@ -22,8 +22,10 @@ import {
   AutomationWire,
   ChangeCursorSeqField,
   ChangeEntityIdField,
+  ChangeProvenanceFields,
   ChangeSeqField,
   ConversationSummaryWire,
+  EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
   IssueProjection,
@@ -36,8 +38,9 @@ import {
   ShipOrderProjection,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { z } from 'zod'
+import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
+import { changeRowArm } from './change-row'
 import {
   FeedBootstrapMessage,
   FeedBootstrapMessageLenient,
@@ -51,7 +54,7 @@ import {
   UnknownFeedChange,
   validateFeedFrame,
 } from './feed'
-import { MetadataChangeOp, MetadataEntityKind } from './sync'
+import { MetadataChangeOp, MetadataDeltaMessage, MetadataEntityKind } from './sync'
 
 type Arm = { shape: Record<string, unknown> }
 const arms = FeedChange.options as unknown as Arm[]
@@ -73,6 +76,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   automationRun: AutomationRunWire,
   shipOrder: ShipOrderProjection,
   shipLane: ShipLaneProjection,
+  effect: EffectRecordWire,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -81,7 +85,14 @@ const kindOf = (arm: Arm): string =>
 const innerOf = (optional: unknown): unknown =>
   (optional as { _def: { innerType: unknown } })._def.innerType
 
-const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
+// Frame fields as a producer writes them; rows as a parse yields them, since a
+// provenance-carrying row's input `mutationId` is not yet the branded id the
+// frame validators read.
+const delta = (
+  over: Partial<Omit<z.input<typeof FeedDeltaMessage>, 'changes'>> & {
+    changes?: FeedDeltaMessage['changes']
+  } = {},
+) => ({
   type: 'feedDelta' as const,
   feedId: 'feed-01J',
   epoch: 'epoch-01J',
@@ -93,10 +104,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all thirteen entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all fourteen entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(13)
+    expect(arms).toHaveLength(14)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 
@@ -186,6 +197,95 @@ describe('the v2 change row composes the shared vocabulary', () => {
         value: missingIssue,
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('a v2 row carries the command that caused it (ADR 2 D8)', () => {
+  const provenance = { originId: 'peer-1', causationId: 'mut-1', mutationId: 'mut-1' }
+  const repoRow = {
+    seq: 5,
+    entity: 'repo',
+    entityId: 'repo_1',
+    op: 'upsert',
+    value: { id: 'repo_1', prefix: 'POD' },
+  }
+
+  it('a v2 delta row keeps its provenance through parse', () => {
+    const frame = delta({ changes: [{ ...repoRow, ...provenance }] as never })
+    for (const schema of [FeedDeltaMessage, FeedDeltaMessageLenient]) {
+      const [row] = schema.parse(frame).changes
+      expect(row).toMatchObject(provenance)
+      // Key order is wire contract: provenance comes AFTER `value`, so the
+      // pinned `seq, entity, entityId, op, value` prefix is unchanged.
+      expect(Object.keys(row ?? {})).toEqual([
+        'seq',
+        'entity',
+        'entityId',
+        'op',
+        'value',
+        'originId',
+        'causationId',
+        'mutationId',
+      ])
+    }
+    // A removal carries the command that removed it too.
+    const removed = FeedChange.parse({
+      seq: 6,
+      entity: 'repo',
+      entityId: 'repo_1',
+      op: 'remove',
+      mutationId: 'mut-2',
+    })
+    expect(removed).toEqual({
+      seq: 6,
+      entity: 'repo',
+      entityId: 'repo_1',
+      op: 'remove',
+      mutationId: 'mut-2',
+    })
+    // A kind this build has no arm for keeps it as well.
+    const unknown = FeedChangeLenient.parse({
+      ...repoRow,
+      entity: 'futureKind',
+      value: {},
+      mutationId: 'mut-3',
+    })
+    expect(unknown).toMatchObject({ mutationId: 'mut-3' })
+  })
+
+  it('takes the provenance fields from the model INSTANCE in every arm', () => {
+    for (const arm of [...arms, UnknownFeedChange as unknown as Arm]) {
+      for (const key of ['originId', 'causationId', 'mutationId'] as const) {
+        expect(arm.shape[key]).toBe(ChangeProvenanceFields.shape[key])
+      }
+    }
+  })
+
+  it('omits absent provenance instead of writing an undefined key', () => {
+    const [row] = FeedDeltaMessage.parse(delta({ changes: [repoRow] as never })).changes
+    expect(Object.keys(row ?? {})).toEqual(['seq', 'entity', 'entityId', 'op', 'value'])
+  })
+
+  it('a reader without the provenance fields still parses such a row (keys stripped)', () => {
+    // The arm as every build before this change composed it. An older client
+    // meets provenance as unknown keys, and a non-strict object drops them.
+    const oldArm = changeRowArm('entityId', z.literal('repo'), ScopedChangeOp, RepoProjection)
+    const parsed = oldArm.safeParse({ ...repoRow, ...provenance })
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data).toEqual(repoRow)
+  })
+
+  it('leaves the v1 row without provenance', () => {
+    const parsed = MetadataDeltaMessage.parse({
+      type: 'metadataDelta',
+      seq: 5,
+      changes: [
+        { seq: 5, entity: 'repo', id: 'repo_1', op: 'upsert', value: repoRow.value, ...provenance },
+      ],
+    })
+    expect(parsed.changes).toEqual([
+      { seq: 5, entity: 'repo', id: 'repo_1', op: 'upsert', value: repoRow.value },
+    ])
   })
 })
 

@@ -18,6 +18,17 @@
  * calls with their own driver and a small control surface.
  */
 
+/** Disk-less attachment staging, for a family runtime built outside a daemon. */
+export { createMemoryAttachmentStager } from './attachment-stager.js'
+/** Session-layer-less binding records, for a family built outside a daemon. */
+export {
+  createMemoryBindingRecords,
+  createTestEngineOwner,
+  flattenEngineSpawn,
+  type MemoryBindingRecords,
+  type TestEngineSpawn,
+  type TestEngineVerbs,
+} from './binding-records.js'
 export {
   /**
    * Exported for the same reason `assertAttachHonoursOneControlLease` is, and
@@ -35,6 +46,13 @@ export type {
   ConformanceOptions,
   ConformanceTarget,
 } from './conformance/target.js'
+export type {
+  TerminalEvidenceControl,
+  TerminalEvidenceTarget,
+} from './conformance/terminal-evidence.js'
+export { describeTerminalEvidenceConformance } from './conformance/terminal-evidence.js'
+/** Supervisor-less driver slots, for a family runtime built outside a daemon. */
+export { createMemoryDriverSlots } from './driver-slots.js'
 export type { FakeControl, FakeDriver, FakeDriverOptions } from './fake-driver.js'
 export {
   createFakeDriver,
@@ -47,19 +65,5 @@ export {
   defaultAskFor,
   resetFakeRuntime,
 } from './fake-driver.js'
-
-/** Supervisor-less driver slots, for a family runtime built outside a daemon. */
-export { createMemoryDriverSlots } from './driver-slots.js'
-/** Disk-less attachment staging, for a family runtime built outside a daemon. */
-export { createMemoryAttachmentStager } from './attachment-stager.js'
-/** Session-layer-less binding records, for a family built outside a daemon. */
-export {
-  createMemoryBindingRecords,
-  createTestEngineOwner,
-  type MemoryBindingRecords,
-  type TestEngineVerbs,
-} from './binding-records.js'
-
-export { describeTerminalEvidenceConformance } from './conformance/terminal-evidence.js'
-export type { TerminalEvidenceControl, TerminalEvidenceTarget } from './conformance/terminal-evidence.js'
+export { testAccount, testBoundCommand, testHarnessContext } from './harness-context.js'
 export { serverFamilyLaunch } from './server-launch.js'

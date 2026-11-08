@@ -7,7 +7,6 @@
  * authorization question goes to `ctx.access`; none is decided here.
  */
 
-import { asUserId, asIssueId, asSessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import type {
   ContractInput,
@@ -17,7 +16,8 @@ import type {
   workflowPublishContract,
   workflowReviseContract,
 } from '@podium/commands'
-import { unknownRevision, type WorkflowHandlerContext } from './context'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { unknownRevision, type WorkflowHandlerContext, WorkflowRefusal } from './context'
 
 export async function createHandler(
   ctx: WorkflowHandlerContext,
@@ -97,11 +97,11 @@ export async function forkHandler(
   // id used to CONFIRM the revision existed (it resolved, then the workflow
   // read refused with a different message). Both outcomes now leave here with
   // the same string, so a revision id is no longer an oracle.
-  if (!source) throw new Error(unknownRevision(input.revisionId))
+  if (!source) throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   try {
     await access.assertWorkflowRead(caller, source.workflowId)
   } catch {
-    throw new Error(unknownRevision(input.revisionId))
+    throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   }
   return await createHandler(ctx, {
     name: input.name,
@@ -119,7 +119,7 @@ export async function publishHandler(
 ) {
   const { caller, deps, access, engine } = ctx
   const revision = await deps.store.getRevision(input.revisionId)
-  if (!revision) throw new Error(unknownRevision(input.revisionId))
+  if (!revision) throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   const workflow = await deps.store.getWorkflow(revision.workflowId)
   if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
   // ONE decision, where there used to be two. `assertWorkflowWrite` now refuses
@@ -149,11 +149,11 @@ export async function assignHandler(
 ) {
   const { caller, deps, access, engine } = ctx
   const revision = await deps.store.getRevision(input.revisionId)
-  if (!revision) throw new Error(unknownRevision(input.revisionId))
+  if (!revision) throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   try {
     await access.assertWorkflowRead(caller, revision.workflowId)
   } catch {
-    throw new Error(unknownRevision(input.revisionId))
+    throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   }
   // ORDER IS PINNED (POD-730 §1, line 361): the protected-write check runs
   // BEFORE the published-revision rule, so an unauthorized caller learns it is
@@ -162,13 +162,16 @@ export async function assignHandler(
     (input.targetKind === 'global' || input.targetKind === 'repository') &&
     access.principal(caller).role !== 'admin'
   ) {
-    throw new Error(`approval required to change the ${input.targetKind} workflow default`)
+    throw new WorkflowRefusal(
+      'unauthorized',
+      `approval required to change the ${input.targetKind} workflow default`,
+    )
   }
   if (
     (input.targetKind === 'global' || input.targetKind === 'repository') &&
     revision.publishedAt === null
   ) {
-    throw new Error('shared workflow defaults require a published revision')
+    throw new WorkflowRefusal('invalid', 'shared workflow defaults require a published revision')
   }
   if (input.targetKind === 'issue') access.assertIssueScope(caller, asIssueId(input.targetId))
   if (
@@ -177,7 +180,7 @@ export async function assignHandler(
     caller.actor.id !== input.targetId &&
     !caller.overrideScope
   ) {
-    throw new Error('agents may directly assign only their own session')
+    throw new WorkflowRefusal('unauthorized', 'agents may directly assign only their own session')
   }
   // PLACEMENT, at assign time (readiness §3.1.4 M5). Binding a workflow to a
   // session is placing work on whatever machine that session sits on, and `use`
@@ -187,7 +190,10 @@ export async function assignHandler(
     // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
     // the other arm), so the brand is recovered INSIDE the narrowed branch — the
     // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
-    await access.assertMayPlaceOn(caller, await access.machineForSession(asSessionId(input.targetId)))
+    await access.assertMayPlaceOn(
+      caller,
+      await access.machineForSession(asSessionId(input.targetId)),
+    )
   }
   const now = deps.now()
   const binding = await deps.store.setBinding({

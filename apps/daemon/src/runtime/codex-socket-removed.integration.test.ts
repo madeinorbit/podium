@@ -46,6 +46,7 @@ import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { engineEnvBuilder, dialEngineSocket, engineSocketRoot } from './host'
+import { stubHarnessContext } from '../test-support/stub-harness-context'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createSessionEngineScope, engineSocketFile } from '../session/engines.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -237,12 +238,17 @@ describe('a live codex engine whose listener file was removed (POD-4611)', () =>
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: async () => ({ drivable: true as const }),
+        harnessContextFor: async () => context,
         dialSocket: sessionEngines.dialerFor(dialEngineSocket),
       })
-      const error = await host.launch({ sessionId: SESSION, workdir: join(root, 'work') }).then(
-        () => undefined,
-        (err: unknown) => err,
-      )
+      // The session's pinned installation: the rig's stub (POD-6546).
+      const context = stubHarnessContext('codex', join(root, 'bin', 'codex'))
+      const error = await host
+        .launch({ sessionId: SESSION, workdir: join(root, 'work'), harnessContext: context })
+        .then(
+          () => undefined,
+          (err: unknown) => err,
+        )
 
       // ADOPTED, NOT DOUBLED: the survivor is the only engine there has been.
       expect(incarnations()).toEqual([String(enginePid)])

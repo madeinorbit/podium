@@ -7,7 +7,11 @@ const at = '2026-07-18T12:00:00.000Z'
 it('durably fences observation generations and rejects stale checkpoint writes', async () => {
   const store = await openTestStore(':memory:')
   try {
-    const lease = await store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
+    const lease = await store.observationCheckpoints.advanceGeneration(
+      asSessionId('s1'),
+      'codex',
+      'thread-1',
+    )
     expect(lease).toMatchObject({
       sessionId: asSessionId('s1'),
       provider: 'codex',
@@ -43,9 +47,15 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       lastTransitionId: 'snapshot-42',
     }
     await store.observationCheckpoints.save(checkpoint)
-    expect((await store.observationCheckpoints.get(asSessionId('s1')))?.checkpoint).toEqual(checkpoint)
+    expect((await store.observationCheckpoints.get(asSessionId('s1')))?.checkpoint).toEqual(
+      checkpoint,
+    )
 
-    const nextLease = await store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
+    const nextLease = await store.observationCheckpoints.advanceGeneration(
+      asSessionId('s1'),
+      'codex',
+      'thread-1',
+    )
     expect(nextLease.observationGeneration).toBe(2)
     expect(nextLease.checkpoint).toEqual(checkpoint)
     await expect(store.observationCheckpoints.save(checkpoint)).rejects.toThrow(
@@ -97,7 +107,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       disposition: 'unchanged',
       lease: { bindingVersion: 2, observationGeneration: 3, checkpoint: null },
     })
-    await store.sessions.purgeSession(asSessionId('s1'))
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
     expect(await store.observationCheckpoints.get(asSessionId('s1'))).toBeNull()
   } finally {
     await store.close()
@@ -178,4 +188,5 @@ it('keeps exact rebind retries idempotent across repository reopen', async () =>
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { openTestStore } from '../test-support/open-test-store'

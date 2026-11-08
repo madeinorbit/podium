@@ -39,7 +39,9 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
   }
 
   const liveSessionIds = async (registry: SessionRegistry) =>
-    (await registry.modules.sessions.listSessions(undefined, 'rpc')).map((session) => session.sessionId)
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).map(
+      (session) => session.sessionId,
+    )
 
   it('does not tear a session down for a kill the enclosing span rolled back (site 8)', async () => {
     const { store, registry } = await build()
@@ -49,8 +51,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
     expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    await expect(store.transact(async () => {
-        await registry.modules.sessions.killSession({ sessionId })
+    await expect(
+      store.transact(async () => {
+        await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+          sessionId,
+        })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -71,7 +76,9 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
 
     await store.transact(async () => {
-      await registry.modules.sessions.killSession({ sessionId })
+      await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+        sessionId,
+      })
     })
 
     expect(await liveSessionIds(registry)).not.toContain(sessionId)
@@ -80,23 +87,29 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   it('does not delete an issue in memory when the enclosing span rolls back (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
     })
 
-    await expect(store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await expect(
+      store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.deleteIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
     expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeFalsy()
-    expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
+    expect(
+      (await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt,
+    ).toBeFalsy()
   })
 
-  it('does not kill the issue\'s sessions when the enclosing span rolls back (site 6)', async () => {
+  it("does not kill the issue's sessions when the enclosing span rolls back (site 6)", async () => {
     // THE HALF THE ROW MAP DOES NOT COVER, and mutation M14 is how I found that
     // it needed its own test: with the apply arm forced inline, the two issue
     // assertions above still passed, because Group C's staged row layer already
@@ -105,7 +118,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // issue, and that detaches the PTY and every client. It is the irreversible
     // half, and it was running for a delete the enclosing span could roll back.
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,
@@ -117,8 +130,12 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
     expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    await expect(store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await expect(
+      store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.deleteIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -129,14 +146,17 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   it('still deletes when the enclosing span commits (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
     })
 
     await store.transact(async () => {
-      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+      await registry.modules.issueSessionLifecycle.deleteIssue(
+        registry.issues.reports.store.serverWriter,
+        issue.id,
+      )
     })
 
     expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
@@ -144,22 +164,31 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   it('does not restore an issue in memory when the enclosing span rolls back (site 7)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'issue to restore',
       startNow: false,
     })
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
     expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
 
-    await expect(store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await expect(
+      store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.restoreIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
     expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
-    expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
+    expect(
+      (await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt,
+    ).toBeTruthy()
   })
 
   it('does not install runtime sessions for a restore the enclosing span rolled back (site 7)', async () => {
@@ -168,7 +197,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // rolled-back restore left LIVE sessions in the map for rows the database
     // still holds tombstoned.
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,
@@ -178,11 +207,18 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       cwd: '/w',
       issueId: issue.id,
     })
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
     expect(await liveSessionIds(registry)).not.toContain(sessionId)
 
-    await expect(store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await expect(
+      store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.restoreIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')

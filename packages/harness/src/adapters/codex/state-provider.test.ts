@@ -14,6 +14,7 @@ import { asSessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { acceptAgentObservation, type ObservationLease, reduceAgentState } from '../../observer.js'
 import {
   CodexCausalCursorObserver,
@@ -2137,7 +2138,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-1',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events[0]?.kind).toBe('turn_completed')
   })
@@ -2152,7 +2153,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-2',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([
       {
@@ -2178,7 +2179,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-3',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([
       {
@@ -2205,7 +2206,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-question',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([
       {
@@ -2237,7 +2238,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-answered',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([
       {
@@ -2258,7 +2259,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-4',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([
       {
@@ -2276,7 +2277,7 @@ describe('codexBootEvents (resumed session classification)', () => {
     const events = await codexStateProvider.bootEvents!({
       cwd: '/repo/x',
       resumeValue: 'th-5',
-      homeDir: home,
+      account: testAccount('codex', home),
     })
     expect(events).toEqual([{ kind: 'session_started', source: 'poll', confidence: 0.7 }])
   })
@@ -2298,7 +2299,6 @@ describe('findCodexRolloutPath', () => {
   })
 })
 
-
 it.each([
   ['/repo/podium', '/repo/podium'],
   ['C:\\src\\podium', 'c:/SRC/podium'],
@@ -2309,9 +2309,23 @@ it.each([
     const dir = join(sessions, '2026', '10', '06')
     await mkdir(dir, { recursive: true })
     const file = join(dir, 'rollout-2026-10-06T12-00-00-native-thread.jsonl')
-    await writeFile(file, JSON.stringify({ type: 'session_meta', timestamp: '2026-10-06T12:00:00Z', payload: { id: 'native-thread', cwd: reported, source: 'cli', timestamp: '2026-10-06T12:00:00Z' } }) + '\n')
+    await writeFile(
+      file,
+      JSON.stringify({
+        type: 'session_meta',
+        timestamp: '2026-10-06T12:00:00Z',
+        payload: {
+          id: 'native-thread',
+          cwd: reported,
+          source: 'cli',
+          timestamp: '2026-10-06T12:00:00Z',
+        },
+      }) + '\n',
+    )
     expect((await findLiveCodexRollout(sessions, cwd, 0))?.path).toBe(file)
     expect(await findCodexRolloutPath({ homeDir: home, resumeValue: 'native-thread' })).toBe(file)
     expect(await findLiveCodexRollout(sessions, cwd + '-other', 0)).toBeUndefined()
-  } finally { await rm(home, { recursive: true, force: true }) }
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
 })

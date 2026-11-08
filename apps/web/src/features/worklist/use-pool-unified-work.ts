@@ -258,13 +258,14 @@ export function createPoolWorkActions(
     archiveBatchPending: (trees: readonly ArchiveIssueTree[]) =>
       trees.length > 0 &&
       (trees.some((tree) => !tree.queued) ||
-        runtime.outbox
-          .pending()
-          .some(
-            (entry) =>
-              entry.kind === 'issueArchive' &&
-              trees.some((tree) => tree.rootId === (entry.input as { id: string }).id),
-          )),
+        runtime.outbox.pending().some(
+          // An archive is a plain-field edit of the issue record (POD-6405).
+          (entry) =>
+            entry.kind === 'recordEdit' &&
+            (entry.input as { kind?: unknown }).kind === 'issueProjection' &&
+            (entry.input as { patch?: { archived?: unknown } }).patch?.archived === true &&
+            trees.some((tree) => tree.rootId === (entry.input as { id: string }).id),
+        )),
     unarchiveBatch: (trees: readonly ArchiveIssueTree[]) =>
       Promise.all(
         trees.flatMap((tree) =>

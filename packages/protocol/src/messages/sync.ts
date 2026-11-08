@@ -4,6 +4,7 @@ import {
   ChangeCursorSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
+  EffectRecordWire,
   GlobalChangeOpField,
   IssueDepProjection,
   IssueEventWire,
@@ -247,6 +248,11 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
   metadataChangeArm(z.literal('machine'), MachineProjection),
   metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
+  /** A one-shot effect and its standard status (ADR 12 D5 E2, POD-6357): merge,
+   *  file write, scans, clone, interrupt. Visibility class `personal`: readable by
+   *  whoever created it and by the readers of its target. Additive: an older
+   *  build parses these rows as {@link UnknownMetadataChange} and advances. */
+  metadataChangeArm(z.literal('effect'), EffectRecordWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -268,6 +274,7 @@ export const MetadataEntityKind = z.enum([
   'sessionUserState',
   'machine',
   'issueGitState',
+  'effect',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

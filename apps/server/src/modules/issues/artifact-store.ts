@@ -96,6 +96,19 @@ export interface ArtifactSnapshotInput {
   machineId?: MachineId
   sourcePath: string
   extraPaths?: string[]
+  /**
+   * The id to snapshot under (an effect record's, POD-6420): a run of the same
+   * record pulls again into the same dir, replacing what a crashed run left.
+   * Absent: a fresh id.
+   */
+  artifactId?: ArtifactId
+}
+
+/** A staged CLI upload published as an artifact. */
+export interface PublishedUpload {
+  snapshot: ArtifactSnapshot
+  path: string
+  title?: string
 }
 
 export interface ArtifactUploadInput {
@@ -273,13 +286,63 @@ export class IssueArtifactStore {
       }
       return
     }
+    return await this.publishStaged(
+      issueId,
+      dir,
+      meta,
+      asArtifactId(randomBytes(6).toString('hex')),
+    )
+  }
+
+  /**
+   * Publish a complete staged upload under `artifactId` (an effect record's,
+   * POD-6420): its files move into the artifact dir by rename. Undefined when
+   * nothing is staged under `uploadId` (never begun, aborted, swept, or already
+   * published). Incomplete members refuse and leave the staging as it is.
+   */
+  async publishUpload(
+    issueId: IssueId,
+    uploadId: string,
+    artifactId: ArtifactId,
+  ): Promise<PublishedUpload | undefined> {
+    if (!ID_RE.test(issueId) || !ID_RE.test(uploadId)) throw new Error('bad upload ref')
+    const key = `${issueId}/${uploadId}`
+    const previous = this.uploadLocks.get(key)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.uploadLocks.set(key, held)
+    await previous
+    const dir = join(this.baseDir, '.uploads', issueId, uploadId)
+    try {
+      const write = async (): Promise<PublishedUpload | undefined> => {
+        const text = await readFile(join(dir, 'meta.json'), 'utf8').catch(() => undefined)
+        if (text === undefined) return undefined
+        const meta = ArtifactUploadPacket.parse(JSON.parse(text))
+        if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
+        return await this.publishStaged(issueId, dir, meta, artifactId)
+      }
+      return this.writeFence ? await this.writeFence.runWriter(write) : await write()
+    } finally {
+      release()
+      if (this.uploadLocks.get(key) === held) this.uploadLocks.delete(key)
+    }
+  }
+
+  private async publishStaged(
+    issueId: IssueId,
+    dir: string,
+    meta: Extract<ArtifactUploadPacket, { action: 'begin' }>,
+    artifactId: ArtifactId,
+  ): Promise<PublishedUpload> {
     for (const file of meta.files) {
       if ((await stat(join(dir, 'files', file.path))).size !== file.size) {
         throw new Error(`artifact member ${file.path} is incomplete`)
       }
     }
-    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
     const target = this.artifactDir(issueId, artifactId)
+    await rm(target, { recursive: true, force: true })
     await mkdir(dirname(target), { recursive: true })
     await rename(join(dir, 'files'), target)
     await rm(dir, { recursive: true, force: true }).catch(() => {})
@@ -419,8 +482,10 @@ export class IssueArtifactStore {
 
   private async snapshotWritable(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
     // MINT SITE for an ArtifactId — generated here, so the brand is applied here.
-    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
+    const artifactId = o.artifactId ?? asArtifactId(randomBytes(6).toString('hex'))
     const dir = this.artifactDir(o.issueId, artifactId)
+    // A keyed id may hold what an earlier, crashed run of the same record left.
+    if (o.artifactId) await rm(dir, { recursive: true, force: true })
     const machine = o.machineId ? { machineId: o.machineId } : {}
     const abs = (p: string) => resolveMachinePath(o.root, p)
     try {

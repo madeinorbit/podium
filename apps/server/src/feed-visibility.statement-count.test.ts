@@ -19,6 +19,7 @@ import {
   shipLaneId,
 } from '@podium/model'
 import type { EntityRef, VisibilityAnchorPort } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
@@ -128,10 +129,16 @@ interface Fixture {
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   for (let i = 0; i < size; i++) {
-    await store.issues.upsertIssue(issueRow(`iss_${i}`, i + 1))
-    await store.shipping.createOrder(order(`order-${i}`, `iss_${i}`, `repo-${i}`))
-    await store.issues.upsertIssue(issueRow(`shared_${i}`, size + i + 1))
-    await store.shipping.createOrder(order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`iss_${i}`, i + 1))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`order-${i}`, `iss_${i}`, `repo-${i}`),
+    )
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`shared_${i}`, size + i + 1))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'),
+    )
   }
   await store.grants.upsert({
     resourceKind: 'issue',
@@ -239,6 +246,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
               { entity: 'issueDep', entityId: issueDepId('iss_0', 'shared_0', 'blocked-by') },
               { entity: 'shipOrder', entityId: 'order-0' },
               { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-0'), 'local:main') },
+              { entity: 'effect', entityId: 'eff-0' },
             ])
             expect(edges[1]).toBeNull()
             // The departed order's lane still holds tasks, which every member
@@ -266,43 +274,76 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             onBehalfOf: owner,
           })
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',
             '2026-08-12T11:00:00.000Z',
           )
+          // An effect record on every issue: the edge reads only the batch's (POD-6401).
+          for (let i = 0; i < f.size; i++) {
+            await f.store.effects.insert(
+              fixtureWriteScope(),
+              {
+                id: `eff-${i}`,
+                kind: 'issue.merge',
+                target: { kind: 'issue', id: `iss_${i}` },
+                input: {},
+                deadlineAt: undefined,
+                createdBy: null,
+              },
+              1_000,
+            )
+          }
           // The installed world: every issue, a dependency and an order each.
           const rows = Array.from({ length: f.size }, (_, i) => {
             const dep = issueDepId(`iss_${i}`, `shared_${i}`, 'blocked-by')
             return [
               { entity: 'issueProjection', entityId: `iss_${i}`, payload: { id: `iss_${i}` } },
-              { entity: 'issueProjection', entityId: `shared_${i}`, payload: { id: `shared_${i}` } },
+              {
+                entity: 'issueProjection',
+                entityId: `shared_${i}`,
+                payload: { id: `shared_${i}` },
+              },
               { entity: 'issueDep', entityId: dep, payload: { id: dep } },
               {
                 entity: 'shipOrder',
                 entityId: `order-${i}`,
-                payload: { issueId: `iss_${i}`, repoId: `repo-${i}`, destination: 'local:main', targetBranch: 'main', state: 'queued' },
+                payload: {
+                  issueId: `iss_${i}`,
+                  repoId: `repo-${i}`,
+                  destination: 'local:main',
+                  targetBranch: 'main',
+                  state: 'queued',
+                },
               },
               {
                 entity: 'shipOrder',
                 entityId: `shared-order-${i}`,
-                payload: { issueId: `shared_${i}`, repoId: 'repo-shared', destination: 'local:main', targetBranch: 'main', state: i === 0 ? 'cancelled' : 'queued' },
+                payload: {
+                  issueId: `shared_${i}`,
+                  repoId: 'repo-shared',
+                  destination: 'local:main',
+                  targetBranch: 'main',
+                  state: i === 0 ? 'cancelled' : 'queued',
+                },
               },
             ]
           })
             .flat()
-            .map((row) => ({ entity: row.entity, entityId: row.entityId, op: 'upsert' as const, payload: JSON.stringify(row.payload) }))
+            .map((row) => ({
+              entity: row.entity,
+              entityId: row.entityId,
+              op: 'upsert' as const,
+              payload: JSON.stringify(row.payload),
+            }))
           // The kinds are real wire kinds; the literal union is not worth spelling per row.
           await f.store.sync.appendChanges(rows as never, 1_000)
           return f
         },
       },
-      // Audiences; the lane departure's order, owner, audience, lane members
-      // and member rows; the issues' sessions, dependency ids, order ids and
-      // order rows; and the subjects' values. RE-PINNED 12 -> 11 FOR POD-6341:
-      // the departure no longer reads the member issues' grants, since every
-      // member reads every task (design §2.2, §4.1; POD-6288).
-      11,
+      // Shared task rows need no grant query; incoming live-effect projection adds one read.
+      12,
     )
   })
 
@@ -319,6 +360,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
         setup: async (size) => {
           const f = await fixture(size)
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',

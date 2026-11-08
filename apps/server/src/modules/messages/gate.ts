@@ -22,25 +22,28 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type {
+  AccountId,
+  HarnessRefEntry,
   IssueId,
+  MachineId,
   MessageHeld,
   MessageRecordWire,
   SessionId,
   SessionMeta,
-  UserId,
-  MachineId,
-  AccountId,
   ThreadId,
-  HarnessRefEntry,
   TranscriptItemRef,
+  UserId,
 } from '@podium/model'
 import { type MessageDeliveryStatus, spawnedByParentSessionId } from '@podium/model'
-import type { Capability } from '../../issue-authz'
-import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-principal'
-import type { MessageRow } from '../../store'
-import { withReadScope } from '../../store/executor/read-scope'
 import type { MutationLedgerPort } from '@podium/sync'
+import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
+import type { Capability } from '../../issue-authz'
+import type { MessageRow } from '../../store'
+import { spanOpen } from '../../store/executor/executor'
+import { withReadScope } from '../../store/executor/read-scope'
+import type { FrontDoorTransport } from '../front-door'
 import type { IssueService } from '../issues/service'
+import type { SyncWriteEntry } from '../sync-write/entry'
 import {
   type MachineAccess,
   MailAccess,
@@ -48,8 +51,16 @@ import {
   type MailHandlerContext,
   SINGLE_USER_MACHINE_ACCESS,
 } from './handlers/context'
+import type { SpawnBudgetExhausted } from './handlers/spawn-agent'
 import { dispatchMailCommand, isMailProcExposedOn, type MailProcName } from './registry'
 import type { MessageDeliveryService } from './service'
+import {
+  answerAsBefore,
+  isMailWriteProc,
+  mailWriteError,
+  submitAwaitObserved,
+  submitMailWrite,
+} from './sync-write'
 
 export interface MessageGateDeps {
   messages: MessageDeliveryService
@@ -117,17 +128,21 @@ export interface MessageGateDeps {
   } | null>
   /** An agent profile by name or id (POD-6107), for `agent spawn --profile`. */
   findAgentProfile?(ref: string): Promise<{ id: string; name: string } | null>
-  /** The DELIBERATE `--new` issue-create path (never automatic). */
-  createIssue?(input: {
-    ownerUserId: UserId
-    createdByActor: string
-    createdByOnBehalfOf: UserId
-    repoPath: string
-    title: string
-    description?: string
-    parentId?: IssueId
-    origin: 'human' | 'agent'
-  }): Promise<{ id: string }>
+  /** The DELIBERATE `--new` issue-create path (never automatic), written with
+   *  the spawn command's own writer (POD-6602). */
+  createIssue?(
+    writer: NonNullable<MailHandlerContext['writer']>,
+    input: {
+      ownerUserId: UserId
+      createdByActor: string
+      createdByOnBehalfOf: UserId
+      repoPath: string
+      title: string
+      description?: string
+      parentId?: IssueId
+      origin: 'human' | 'agent'
+    },
+  ): Promise<{ id: string }>
   /** The applied-mutation ledger, keyed here by a spawn's `requestId`
    *  (POD-4763): a rerun of `agent spawn` after a lost answer is answered with
    *  the child the first run started. Absent = no dedupe (bare fixtures). */
@@ -144,7 +159,56 @@ export interface MessageGateDeps {
    * so a later genuine re-completion can re-wake once. Optional — absent in
    * partial test harnesses; never required for await correctness.
    */
-  retireNotificationFact?(factKey: string, target: string): void
+  retireNotificationFact?(factKey: string, target: string): unknown
+  /**
+   * THE SYNC WRITE ENTRY POINT (POD-6525). With it, the mail writes go through
+   * `submit` from every transport, with that transport's tag; the gate is their
+   * adapter. Absent (bare fixtures) = every proc dispatches directly.
+   */
+  syncWrite?(): Pick<SyncWriteEntry, 'submitDetailed'> | undefined
+  /**
+   * THE WRITER OF A DIRECT DISPATCH WHOSE CALLER BRINGS NONE (POD-6602). The
+   * served gate has none: every mail write is a sync command (POD-6525), or
+   * runs inside another command's write and is handed that command's writer.
+   * Set only by a gate a test builds by hand, with no entry point.
+   */
+  directWriter?: MailHandlerContext['writer']
+  /**
+   * AN AGENT'S SPAWN AS A `session.launch` RECORD (POD-6525). The spawn's write
+   * creates the record in its own unit of work; the adapter waits for it.
+   * Absent (bare fixtures) = the spawn runs `spawnSession` directly.
+   */
+  spawnRecord?: SpawnRecordPort
+}
+
+/** The `session.launch` record an agent's spawn is (see `MessageGateDeps.spawnRecord`). */
+export interface SpawnRecordPort {
+  /** No daemon can take it now: refused now, as the start always refused it. Reads only. */
+  refuseUnplaceable(
+    principal: CommandPrincipal,
+    input: { machineId?: MachineId; cwd: string; agentKind?: string },
+  ): Promise<void>
+  /** The record, created in the write's unit of work under `sessionId`. */
+  create(
+    writer: NonNullable<MailHandlerContext['writer']>,
+    principal: CommandPrincipal,
+    launch: { sessionId: SessionId; input: Record<string, unknown> },
+  ): Promise<{ effectId: string }>
+  /** Wait for the record to settle: what the start answered, or the start's
+   *  own refusal thrown. */
+  settled(effectId: string): Promise<SpawnSettled>
+}
+
+/** What a settled spawn record answers: the start's result. */
+export interface SpawnSettled {
+  sessionId: string
+  agentId?: string
+  harness?: string
+  model?: string | null
+  effort?: string | null
+  machine?: string
+  machineId?: MachineId
+  promptMessageId?: string
 }
 
 /** The wire shape `podium mail` renders. */
@@ -206,7 +270,9 @@ export class MessageGate {
   private readonly principalForCapability?: (
     capability: Capability,
   ) => CommandPrincipal | Promise<CommandPrincipal>
-  private readonly policyFor?: (principal: CommandPrincipal) =>
+  private readonly policyFor?: (
+    principal: CommandPrincipal,
+  ) =>
     | { ceiling: HumanCeiling; machines: MachineAccess }
     | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 
@@ -218,7 +284,9 @@ export class MessageGate {
       principalForCapability?: (
         capability: Capability,
       ) => CommandPrincipal | Promise<CommandPrincipal>
-      policyFor?: (principal: CommandPrincipal) =>
+      policyFor?: (
+        principal: CommandPrincipal,
+      ) =>
         | { ceiling: HumanCeiling; machines: MachineAccess }
         | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
     },
@@ -278,10 +346,61 @@ export class MessageGate {
     proc: string,
     input: unknown,
     transport: TransportTag = 'relay',
+    /**
+     * The writer of the write this dispatch runs inside (POD-6602): a chat
+     * send's `send` is part of the session command's write, so the row it
+     * stores is written with that command's writer.
+     */
+    writer?: MailHandlerContext['writer'],
   ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    return await withReadScope(async () =>
-      await this.dispatchInScope(capability, overrideScope, proc, input),
+    // A WRITE goes through the sync write entry point (POD-6525): the gate is
+    // this transport's adapter. Not from inside someone else's unit of work
+    // (a chat send's own write dispatches its `send` here), where the handler
+    // runs in that write, directly.
+    const entry = this.deps.syncWrite?.()
+    if (
+      entry !== undefined &&
+      isMailWriteProc(proc) &&
+      isEntryTransport(transport) &&
+      !spanOpen()
+    ) {
+      const principal = await this.principalOf(capability)
+      const submitted = await submitMailWrite(entry, {
+        principal,
+        transport,
+        proc,
+        input,
+        confirmed: overrideScope === true,
+      })
+      if (submitted.reply.outcome !== 'applied') throw mailWriteError(proc, submitted)
+      const contextOf = async () => await this.handlerContext(principal, overrideScope === true)
+      return await answerAsBefore(this.deps, contextOf, proc, input, submitted.reply.result)
+    }
+    // The AWAIT is a wait and stays here; the claim it retires on seeing its
+    // child settle is its own small write on the entry point (POD-6525),
+    // submitted once the wait, and its read scope, are over.
+    if (
+      entry !== undefined &&
+      proc === 'awaitAgent' &&
+      isEntryTransport(transport) &&
+      !spanOpen()
+    ) {
+      const observed: SessionId[] = []
+      const answer = await withReadScope(
+        async () =>
+          await this.dispatchInScope(capability, overrideScope, proc, input, (child) => {
+            observed.push(child)
+          }),
+      )
+      for (const child of observed) {
+        await submitAwaitObserved(entry, await this.principalOf(capability), transport, child)
+      }
+      return answer
+    }
+    return await withReadScope(
+      async () =>
+        await this.dispatchInScope(capability, overrideScope, proc, input, undefined, writer),
     )
   }
 
@@ -308,23 +427,54 @@ export class MessageGate {
     return new Set(visible.map((row) => row.id))
   }
 
-  private async principalOf(capability: Capability): Promise<CommandPrincipal> {
-    return (
-      (await this.principalForCapability?.(capability)) ??
-      (await resolvePrincipalAsync(capability, {
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
-      }))
-    )
+  /** Retire a parent's wake claim on its child (POD-6525: `mail.awaitObserved`'s
+   *  handler, and a direct await's own step). */
+  async retireParentNudge(factKey: string, parentSessionId: string): Promise<void> {
+    await this.deps.retireNotificationFact?.(factKey, parentSessionId)
   }
 
-  private async dispatchInScope(
-    capability: Capability,
-    overrideScope: boolean | undefined,
-    proc: string,
-    input: unknown,
-  ): Promise<unknown> {
-    const principal =
+  /**
+   * THE HANDLER CONTEXT FOR A PRINCIPAL (POD-6525): the caller, the shared
+   * authz under the principal's own human ceiling and machines, and the
+   * gate's ports. A mail write on the entry point builds it here from the
+   * principal the entry point resolved (`inEntry`); a direct dispatch builds
+   * the same one.
+   */
+  async handlerContext(
+    principal: CommandPrincipal,
+    overrideScope: boolean,
+    inEntry = false,
+    /** The write's own writer, for what it creates in its unit (POD-6601). */
+    writer?: MailHandlerContext['writer'],
+  ): Promise<MailHandlerContext> {
+    if (principal.kind === 'system') throw new Error('mail: a system principal has no mailbox')
+    const policy = await this.policyFor?.(principal)
+    const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
+    return {
+      caller: {
+        capability: principal.capability,
+        principal,
+        ...(overrideScope ? { overrideScope: true } : {}),
+      },
+      deps: this.deps,
+      access,
+      ...(inEntry ? { inEntry: true } : {}),
+      ...(writer !== undefined ? { writer } : {}),
+    }
+  }
+
+  /** The trail of a spawn the budget refused (POD-6525): its event, written
+   *  after the write it refused rolled back. Best-effort, as it always was. */
+  async recordSpawnRefusal(refused: SpawnBudgetExhausted): Promise<void> {
+    try {
+      await this.deps.appendEvent?.(refused.event(this.deps.now?.() ?? new Date().toISOString()))
+    } catch {}
+  }
+
+  /** The caller as a principal: the composition root's resolver, else the async
+   *  delegation walk. */
+  private async principalOf(capability: Capability): Promise<CommandPrincipal> {
+    return (
       (await this.principalForCapability?.(capability)) ??
       // THE ASYNC TWIN, not a widened sync resolver. `resolvePrincipalAsync` is
       // the existing sanctioned shape for a delegation walk whose parent lookup
@@ -337,6 +487,19 @@ export class MessageGate {
         parentSessionOf: async (sessionId) =>
           spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
       }))
+    )
+  }
+
+  private async dispatchInScope(
+    capability: Capability,
+    overrideScope: boolean | undefined,
+    proc: string,
+    input: unknown,
+    observed?: (child: SessionId) => void,
+    given?: MailHandlerContext['writer'],
+  ): Promise<unknown> {
+    const writer = given ?? this.deps.directWriter
+    const principal = await this.principalOf(capability)
     const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {
@@ -348,6 +511,8 @@ export class MessageGate {
       caller,
       deps: this.deps,
       access,
+      ...(observed ? { observed } : {}),
+      ...(writer !== undefined ? { writer } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.
     //
@@ -363,6 +528,10 @@ export class MessageGate {
     }
   }
 }
+
+/** The transports with an adapter onto the entry point; a mail contract names no other. */
+const isEntryTransport = (transport: TransportTag): transport is FrontDoorTransport =>
+  transport === 'trpc' || transport === 'cli' || transport === 'mcp' || transport === 'relay'
 
 /** Re-exported for the handlers and the relay arm: the message row shape they
  *  project. Keeps `MessageRow` off every handler's import list. */

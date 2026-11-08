@@ -780,7 +780,14 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     // And every removal that exists claims one of D9 invariant 1's licences
     // (`RemovalLicence`, outbox.ts). Adding a name to this list is a decision,
     // not a formality: argue it back to invariant 1 first, here, in writing.
-    expect(surface.filter((n) => /retire|purge/i.test(n)).sort()).toEqual([
+    expect(surface.filter((n) => /retire|purge|confirm/i.test(n)).sort()).toEqual([
+      // Invariant 1's APPLIED-RETIREMENT arm, by EVIDENCE (ADR 12, POD-6275):
+      // the replica committed rows naming the entry, or a cursor at or past its
+      // receipt, so its truth is in the replica. Licence `covering-truth`, the
+      // same arm as `retireApplied`. `isConfirmable` is its read-only twin and
+      // removes nothing; it is listed because the name check cannot tell.
+      'confirm',
+      'isConfirmable',
       // Invariant 1's USER-ACTION arm. The row goes only after the user's own
       // discard is already durable — two steps, so the decision survives a
       // crash between them.

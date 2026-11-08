@@ -5,6 +5,7 @@
  */
 
 import { actorUser, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -75,7 +76,7 @@ describe('session upsert rebase seam', () => {
     }
 
     try {
-      await sessions.upsertSession(row)
+      await sessions.upsertSession(fixtureWriteScope(), row)
       expect(await sessions.getSession(row.id)).toMatchObject({
         loginHarness: 'codex',
         selectedDriverId: 'codex-app-server',

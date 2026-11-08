@@ -82,6 +82,7 @@
  */
 
 import { createLogger } from '@podium/logger'
+import type { ChangeProvenanceFields } from '@podium/model'
 import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
 import {
   type ChangeLogStore,
@@ -104,6 +105,7 @@ import type {
   AuthorityPort,
   ChangeSubscriber,
   PostCommitFollowUpPort,
+  ProvenancePort,
   TransactPort,
 } from './ports'
 import {
@@ -162,6 +164,12 @@ export interface AuthorityDeps {
   anchors: VisibilityAnchorPort
   /** D14.4's terminal-path bound. Defaults to {@link DEFAULT_RESCOPE_THRESHOLD}. */
   rescopeThreshold?: number
+  /**
+   * The command now appending (ADR 2 D8; POD-6272). Read once per `commit` and
+   * `capture`, never by `reconcile`. Unset means no row is stamped, which is
+   * what every caller outside the write entry point gets.
+   */
+  provenance?: ProvenancePort
 }
 
 /**
@@ -190,10 +198,48 @@ interface ScopedSubscription {
 
 const ABSENT: unique symbol = Symbol('absent')
 
+/**
+ * The DEFINED fields of a provenance group, or `undefined` when it names none.
+ * One place decides "absent stays absent": a field reported or spread as
+ * `undefined` is not a key on the stored row, the broadcast or the read.
+ */
+function definedProvenance(
+  p: ChangeProvenanceFields | undefined,
+): ChangeProvenanceFields | undefined {
+  if (p === undefined) return undefined
+  const out: ChangeProvenanceFields = {}
+  if (p.originId !== undefined) out.originId = p.originId
+  if (p.causationId !== undefined) out.causationId = p.causationId
+  if (p.mutationId !== undefined) out.mutationId = p.mutationId
+  return out.originId === undefined && out.causationId === undefined && out.mutationId === undefined
+    ? undefined
+    : out
+}
+
+/**
+ * Each spec with its provenance group settled: its OWN group when it names any
+ * field (the whole group, so an ambient field is never grafted onto a writer's
+ * explicit provenance), else the ambient one, else none.
+ */
+function stampProvenance(
+  specs: readonly StagedChangeSpec[],
+  ambient: ChangeProvenanceFields | undefined,
+): StagedChangeSpec[] {
+  return specs.map((spec) => {
+    const { originId, causationId, mutationId, ...rest } = spec
+    const own = definedProvenance({ originId, causationId, mutationId })
+    const group = own ?? ambient
+    return group === undefined ? rest : { ...rest, ...group }
+  })
+}
+
 /** A stored payload's value, or {@link ABSENT} for a corrupt one: the same rule
  *  as dedup (`storedKeyOf`), so a row dedup treats as "not there" is not in a
  *  snapshot either. */
-function installedValueOf(entity: MetadataEntityKind, payload: string | null): unknown | typeof ABSENT {
+function installedValueOf(
+  entity: MetadataEntityKind,
+  payload: string | null,
+): unknown | typeof ABSENT {
   if (payload === null || storedKeyOf(entity, payload) === undefined) return ABSENT
   return JSON.parse(payload)
 }
@@ -228,7 +274,9 @@ export class Authority implements AuthorityPort {
   ): Promise<ReadonlyMap<string, unknown>> {
     const out = new Map<string, unknown>()
     if (ids.length === 0) return out
-    for (const row of await this.deps.store.installedStates(ids.map((entityId) => ({ entity, entityId })))) {
+    for (const row of await this.deps.store.installedStates(
+      ids.map((entityId) => ({ entity, entityId })),
+    )) {
       const value = installedValueOf(entity, row.payload)
       if (value !== ABSENT) out.set(row.entityId, value)
     }
@@ -236,6 +284,10 @@ export class Authority implements AuthorityPort {
   }
 
   async commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>> {
+    // The causing command, read ONCE and before the first await, so the answer
+    // is the caller's even if the write awaits into another context.
+    const ambient = this.ambientProvenance()
+
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     await op.authorize?.()
 
@@ -263,7 +315,7 @@ export class Authority implements AuthorityPort {
       }
 
       const result = await op.write()
-      const rows = await this.stage(await op.changes(result))
+      const rows = await this.stage(stampProvenance(await op.changes(result), ambient))
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const
@@ -281,11 +333,12 @@ export class Authority implements AuthorityPort {
   }
 
   async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
+    const stamped = stampProvenance(specs, this.ambientProvenance())
     const eventTime = this.deps.now()
     // The read that decides "unchanged" and the append it decides run in ONE
     // span, so no other writer can append between them.
     const { staged, seqs } = await this.deps.transact(async () => {
-      const staged = await this.stage(specs)
+      const staged = await this.stage(stamped)
       return { staged, seqs: staged.length > 0 ? await this.append(staged, eventTime) : [] }
     })
     return await this.finalize(staged, seqs)
@@ -299,6 +352,9 @@ export class Authority implements AuthorityPort {
    *
    * ONE read of the kind's installed rows, inside the span that appends,
    * answers both questions [POD-6156]. The removes follow seq order.
+   *
+   * No provenance, ambient or otherwise: the Authority reconciles on its own
+   * behalf, so no command caused these rows (POD-6272).
    */
   async reconcile(
     entity: MetadataEntityKind,
@@ -532,8 +588,11 @@ export class Authority implements AuthorityPort {
     preloaded?: ReadonlyMap<string, string>,
   ): Promise<StagedRow[]> {
     const stored =
-      specs.length === 0 ? new Map<string, string>() : (preloaded ?? (await this.storedPayloads(specs)))
-    const storedOf = (spec: StagedChangeSpec) => stored.get(entityOverlayKey(spec.entity, spec.entityId))
+      specs.length === 0
+        ? new Map<string, string>()
+        : (preloaded ?? (await this.storedPayloads(specs)))
+    const storedOf = (spec: StagedChangeSpec) =>
+      stored.get(entityOverlayKey(spec.entity, spec.entityId))
     const rows: StagedRow[] = []
     type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
     const overlay = new Map<string, Overlay>()
@@ -551,7 +610,9 @@ export class Authority implements AuthorityPort {
         rows.push({ spec, payload: json })
         overlay.set(key, { op: 'upsert', json, value: spec.value })
       } else {
-        const present = prior ? prior.op === 'upsert' : storedKeyOf(spec.entity, storedOf(spec)) !== undefined
+        const present = prior
+          ? prior.op === 'upsert'
+          : storedKeyOf(spec.entity, storedOf(spec)) !== undefined
         if (!present) continue
         rows.push({ spec, payload: null })
         overlay.set(key, { op: 'remove' })
@@ -569,13 +630,21 @@ export class Authority implements AuthorityPort {
   private async storedPayloads(specs: readonly StagedChangeSpec[]): Promise<Map<string, string>> {
     const keys = new Map<string, { entity: string; entityId: string }>()
     for (const spec of specs) {
-      keys.set(entityOverlayKey(spec.entity, spec.entityId), { entity: spec.entity, entityId: spec.entityId })
+      keys.set(entityOverlayKey(spec.entity, spec.entityId), {
+        entity: spec.entity,
+        entityId: spec.entityId,
+      })
     }
     const out = new Map<string, string>()
     for (const row of await this.deps.store.installedStates([...keys.values()])) {
       if (row.payload !== null) out.set(entityOverlayKey(row.entity, row.entityId), row.payload)
     }
     return out
+  }
+
+  /** The ambient command's provenance, with undefined fields dropped. */
+  private ambientProvenance(): ChangeProvenanceFields | undefined {
+    return definedProvenance(this.deps.provenance?.current())
   }
 
   private async append(rows: readonly StagedRow[], eventTime: number): Promise<number[]> {
@@ -585,6 +654,8 @@ export class Authority implements AuthorityPort {
         entityId: r.spec.entityId,
         op: r.spec.op,
         payload: r.payload,
+        // Already settled by `stampProvenance`; passed through as stored.
+        ...definedProvenance(r.spec),
       })),
       eventTime,
     )

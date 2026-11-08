@@ -170,13 +170,15 @@ export async function previewUpdateSpace(
         ]
     if (deps.hostsServer) {
       const bytes = await databaseBytes(join(deps.stateDir, 'podium.db'), signal)
-      // New backup plus a database rewrite and WAL working space. Retained
-      // snapshots and .old installs already consume free space; never count on pruning.
+      // Budget one full backup and 10% for typical migration growth/WAL, rather
+      // than assuming every update rewrites the whole database. The per-volume
+      // headroom covers further variation; this is a likely-use preview, not a
+      // worst-case bound. Retained files already consume free space; do not add them.
       if (bytes > 0) {
         allocations.push(
           { path: deps.stateDir, phases: { boot: bytes } },
           // A symlinked database can live on another volume than its sibling backups.
-          { path: join(deps.stateDir, 'podium.db'), phases: { boot: bytes * 2 } },
+          { path: join(deps.stateDir, 'podium.db'), phases: { boot: Math.ceil(bytes * 0.1) } },
         )
       }
     }

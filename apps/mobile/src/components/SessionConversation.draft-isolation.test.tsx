@@ -111,7 +111,6 @@ describe('phone composer draft isolation', () => {
               }),
             },
             answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-            interrupt: { mutate: async () => ({ ok: true }) },
           },
         },
       },

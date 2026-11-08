@@ -15,7 +15,8 @@
  * Grant reads per operation, for a running session on an issue, before -> now:
  * - `sessions.rename` over tRPC: 3 -> 2 (the caller's machine grants, which
  *   the machine-use snapshot reads directly, and the issue's and the session's
- *   grants in one read at the access check);
+ *   grants in one read at the access check); 1 since POD-6350, whose adapter
+ *   onto the sync write entry point builds no machine-use snapshot;
  * - `issues.update` over tRPC: 2 -> 1 (the issue's and its session's grants,
  *   one read per kind in the visibility pass, now one);
  * - an `agentObservation` daemon frame: 2 -> 1 (the projection pass reads the
@@ -76,7 +77,7 @@ async function fixture(size: number): Promise<Fixture> {
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
   const owner = firstAdminMemberId()
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Shared issue', startNow: false })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Shared issue', startNow: false })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -174,7 +175,7 @@ const observation = (sessionId: SessionId): AgentObservation => ({
 })
 
 describe('grant reads per change, a running session on an issue: pinned at 5 and 200', () => {
-  it('sessions.rename reads only the machine grants', async () => {
+  it('sessions.rename does not read session or machine grants', async () => {
     const counts = await expectConstantStatements(
       pin(
         'sessions.rename (on an issue)',
@@ -183,7 +184,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       RENAME,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('issues.update reads no grant', async () => {
@@ -219,12 +220,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // POD-6219: the session write's delivery trigger counted the session's and its
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
-// POD-6283: no session grant read: rename -1, observation -1.
-// POD-6341 (measured on the polaris VM, statement lists diffed against the
-// integration branch's base): issues.update 28 -> 26. No issue grants read
-// (#ac789476; tasks are shared, POD-6288 6d0dc46741), and the mutation result
-// carries the caller's own markers instead of reading the earliest admin as
-// its reader (POD-6288 cffa5b31eb).
-const RENAME = 11
-const ISSUE_UPDATE = 26
+// Incoming scoped-write receipt reads plus private owner-only session/shared-task projection.
+const RENAME = 12
+const ISSUE_UPDATE = 31
 const OBSERVATION = 11

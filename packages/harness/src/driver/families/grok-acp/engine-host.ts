@@ -17,34 +17,23 @@
  * `grep child_process` in this file must stay empty; process mechanics live
  * behind the session-owned `engines` port.
  */
-import {
-  closeSync,
-  fstatSync,
-  openSync,
-  readFileSync,
-  readSync,
-} from 'node:fs'
+
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { grokSessionPaths } from '../../../adapters/grok/instrumentation.js'
 import { grokTranscript } from '../../../adapters/grok/transcript.js'
-import { readEngineHistoryFromGrammar } from '../engine-history.js'
+import { harnessCommand } from '../../../bound-command.js'
+import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
 import {
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,
   harnessVersionDiagnostic,
 } from '../../../version-policy.js'
 import type { ScopeResources } from '../../capabilities.js'
-import type {
-  GrokAcpEndpoint,
-  GrokAcpJournalEntry,
-  GrokAcpRuntimeHost,
-} from './runtime.js'
-import type { GrokAcpTransport } from './client.js'
-import type { GrokVersionDiagnostic } from './version.js'
-import type { GrokEngineFacts } from './engine-facts.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -52,6 +41,10 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf } from '../engine-supervision.js'
+import type { GrokAcpTransport } from './client.js'
+import type { GrokEngineFacts } from './engine-facts.js'
+import type { GrokAcpEndpoint, GrokAcpJournalEntry, GrokAcpRuntimeHost } from './runtime.js'
+import type { GrokVersionDiagnostic } from './version.js'
 
 const log = createLogger('harness:grok-acp-engine-host')
 
@@ -125,6 +118,9 @@ export interface GrokEngineHostDeps {
    * live find that filed this issue.
    */
   homeDir?: string
+  /** Log every inbound ACP frame (the daemon's `PODIUM_GROK_ACP_TRACE=1`).
+   *  A Podium debug switch the supervisor reads, never the engine's env. */
+  traceFrames?: boolean
   now?: () => number
   /** Immutable supervisor ownership stamp for orphan attribution. */
   instanceUuid?: string
@@ -136,18 +132,23 @@ export interface GrokEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context a session runs under when a launch has no spec in hand
+   *  (adopt): see `GrokAcpRuntimeHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   /** How long a SIGTERM stop waits for the child to take its stdin EOF. Shared
    *  with the reap that has to outlast it — arrives as a value rather than
    *  living here twice. */
   gracefulExitMs: number
-  /** Version admission: only the floor can refuse a launch. The supervisor
-   *  owns the probe budget, the memo and the fork; this family owns the
-   *  evaluation (see `evaluateGrokAcpVersionProbe`). */
-  checkVersion(): Promise<GrokAcpProbeVerdict>
+  /** Version admission for the session's installation: only the floor can
+   *  refuse a launch. The supervisor owns the probe budget, the memo and the
+   *  fork; this family owns the evaluation (see `evaluateGrokAcpVersionProbe`). */
+  checkVersion(installation: HarnessInstallation): Promise<GrokAcpProbeVerdict>
 }
 
 /**
@@ -182,7 +183,10 @@ export class GrokEngineLeaseRefused extends Error {
  * an owner cannot summon one at all. Loud, naming the session — a refused
  * launch beats a child no restart could re-adopt.
  */
-function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+function engineOwner(
+  engines: EngineProcessOwner | undefined,
+  sessionId: SessionId,
+): EngineProcessOwner {
   if (!engines) {
     throw new Error(
       `grok engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
@@ -322,7 +326,11 @@ export function createGrokEngineHost(
    * itself is the session owner's: this family signals its held attachment
    * and releases it, and the owner ends the process.
    */
-  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
+  async function terminate(
+    sessionId: SessionId,
+    signal: 'SIGTERM' | 'SIGKILL',
+    held: HeldEngine | undefined,
+  ): Promise<void> {
     engines.delete(sessionId)
     if (held) {
       if (signal === 'SIGTERM') {
@@ -343,14 +351,16 @@ export function createGrokEngineHost(
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
     onRawFrame:
-      process.env.PODIUM_GROK_ACP_TRACE === '1'
+      deps.traceFrames === true
         ? (sessionId, frame) => {
             log.info('Grok ACP inbound frame', { sessionId, frame })
           }
         : undefined,
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+
     async launch(input) {
-      const verdict = await deps.checkVersion()
+      const verdict = await deps.checkVersion(input.harnessContext.installation)
       if (!verdict.drivable) {
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
       }
@@ -360,12 +370,14 @@ export function createGrokEngineHost(
       // The ACP server receives cwd in session/new and session/load. A native
       // --worktree would create a second nested worktree; no SessionSpec sandbox
       // field exists, so GROK_SANDBOX/config remains authoritative.
-      const argv = [deps.facts.command, ...deps.facts.serverArgs]
-      const [command, ...args] = argv
+      // argv[0] is the session's pinned installation (POD-6546), never the
+      // adapter's bare command name.
+      const command = harnessCommand(input.harnessContext, { args: [...deps.facts.serverArgs] })
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
         agentKind: deps.facts.harnessKind,
+        harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
@@ -390,14 +402,13 @@ export function createGrokEngineHost(
           label,
           (
             await owner.startEngine({
-            sessionId: input.sessionId,
-            label,
-            cmd: command ?? deps.facts.command,
-            args,
-            cwd: input.workdir,
-            env,
-            stripEnv: deps.facts.stripEnv,
-          })
+              sessionId: input.sessionId,
+              label,
+              command,
+              cwd: input.workdir,
+              env,
+              stripEnv: deps.facts.stripEnv,
+            })
           ).attachment,
         )
       } catch (err) {
@@ -443,7 +454,8 @@ export function createGrokEngineHost(
       const path = grokSessionPaths({
         cwd: input.workdir,
         sessionId: input.grokSessionId,
-        homeDir: deps.homeDir,
+        // The session's account (POD-6536), the folders its engine writes.
+        homeDir: (await deps.harnessContextFor(input.sessionId)).home,
       }).updatesPath
       let descriptor: number | undefined
       try {
@@ -468,7 +480,8 @@ export function createGrokEngineHost(
       const paths = grokSessionPaths({
         cwd: input.workdir,
         sessionId: input.grokSessionId,
-        homeDir: deps.homeDir,
+        // The session's account (POD-6536), the folders its engine writes.
+        homeDir: (await deps.harnessContextFor(input.sessionId)).home,
       })
       const candidates = [
         ['updates.jsonl', paths.updatesPath],
@@ -522,7 +535,12 @@ export function createGrokEngineHost(
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      return readEngineHistoryFromGrammar(grokTranscript, session, range, deps.homeDir)
+      return readEngineHistoryFromGrammar(
+        grokTranscript,
+        session,
+        range,
+        await deps.harnessContextFor(session.sessionId),
+      )
     },
   }
 }

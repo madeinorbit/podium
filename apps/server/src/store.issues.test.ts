@@ -1,4 +1,5 @@
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId,  } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -115,6 +116,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
   it('persists options/askedBy/askedAt; corrupt options quarantine to null', async () => {
     const store = await openIssueStore()
     await store.issues.upsertIssue(
+      fixtureWriteScope(),
       baseRow({
         needsHuman: true,
         humanQuestion: 'merge?',
@@ -129,6 +131,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
     expect(back.humanQuestionAskedAt).toBe('2026-07-14T00:00:00.000Z')
     // A row literal without the optional fields (legacy shape) reads back null.
     await store.issues.upsertIssue(
+      fixtureWriteScope(),
       baseRow({ id: asIssueId('iss_plain'), seq: 2, needsHuman: true }),
     )
     const plain = (await store.issues.getIssue('iss_plain'))!
@@ -147,7 +150,10 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 async function seedIssues(store: SessionStore, ...ids: string[]): Promise<void> {
   for (const [i, id] of ids.entries()) {
-    await store.issues.upsertIssue(baseRow({ id: asIssueId(id), seq: 100 + i }))
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      baseRow({ id: asIssueId(id), seq: 100 + i }),
+    )
   }
 }
 
@@ -156,6 +162,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     const store = await openIssueStore()
     await seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
     await store.issues.upsertIssue(
+      fixtureWriteScope(),
       baseRow({
         priority: 0,
         type: 'decision',
@@ -182,12 +189,11 @@ describe('IssueRow rich fields round-trip (P1)', () => {
 
   it('defaults are applied for a minimal legacy-style insert', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(baseRow())
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow())
     const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
   })
-
 })
 
 // PER-USER issue state (POD-1076). This used to assert that `read_at` was an
@@ -206,14 +212,22 @@ describe('per-user issue state (POD-1076)', () => {
 
   it('persists all three markers on ONE (userId, issueId) row, per user', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ id: asIssueId('iss_read') }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
-    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      baseRow({ id: asIssueId('iss_untouched'), seq: 2 }),
+    )
 
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
-      readAt: '2026-07-07T00:00:00.000Z',
-      pinnedAt: '2026-07-08T00:00:00.000Z',
-    })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_read'),
+      {
+        readAt: '2026-07-07T00:00:00.000Z',
+        pinnedAt: '2026-07-08T00:00:00.000Z',
+      },
+    )
     expect(
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),
     ).toEqual({
@@ -229,12 +243,16 @@ describe('per-user issue state (POD-1076)', () => {
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
-      readAt: '2026-07-09T00:00:00.000Z',
-    })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_read'),
+      {
+        readAt: '2026-07-09T00:00:00.000Z',
+      },
+    )
     expect(
-      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))
-        ?.pinnedAt,
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))?.pinnedAt,
     ).toBe('2026-07-08T00:00:00.000Z')
 
     // ANOTHER user's slice is empty for the SAME issue.
@@ -242,20 +260,30 @@ describe('per-user issue state (POD-1076)', () => {
       await store.issues.getIssueUserState(asUserId('user:other'), asIssueId('iss_read')),
     ).toBeUndefined()
     expect(
-      (await store.issues.loadIssueUserStates(asUserId('user:other'), [asIssueId('iss_read')])).get('iss_read'),
+      (await store.issues.loadIssueUserStates(asUserId('user:other'), [asIssueId('iss_read')])).get(
+        'iss_read',
+      ),
     ).toBeUndefined()
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
-      readAt: null,
-      pinnedAt: null,
-    })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_read'),
+      {
+        readAt: null,
+        pinnedAt: null,
+      },
+    )
     expect(
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),
     ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
-    await expect(store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
+    await expect(
+      store.issues.setIssueUserState(fixtureWriteScope(), asUserId(''), asIssueId('iss_read'), {
+        readAt: 't',
+      }),
     ).rejects.toThrow(/no user id/)
     await store.close()
   })
@@ -266,9 +294,9 @@ describe('issue soft-delete persistence', () => {
     const store = await openIssueStore()
     expect(issueColumns(store).has('deleted_at')).toBe(true)
     const deletedAt = '2026-07-13T10:00:00.000Z'
-    await store.issues.upsertIssue(baseRow({ deletedAt }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ deletedAt }))
     expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBe(deletedAt)
-    await store.issues.upsertIssue(baseRow())
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow())
     expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBeNull()
   })
 })
@@ -283,6 +311,7 @@ describe('needs_human data layer (P4)', () => {
   it('persists needsHuman + humanQuestion round-trip', async () => {
     const store = await openIssueStore()
     await store.issues.upsertIssue(
+      fixtureWriteScope(),
       baseRow({ id: asIssueId('iss_x'), needsHuman: true, humanQuestion: 'which API key?' }),
     )
     const got = (await store.issues.getIssue('iss_x'))!
@@ -293,6 +322,7 @@ describe('needs_human data layer (P4)', () => {
   it('defaults needsHuman=false / humanQuestion=null when unset', async () => {
     const store = await openIssueStore()
     await store.issues.upsertIssue(
+      fixtureWriteScope(),
       baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }),
     )
     const y = (await store.issues.getIssue('iss_y'))!
@@ -565,7 +595,7 @@ describe('subscriptions store (Phase B)', () => {
   it('listMatchingSubscriptions reads relationship sources by their anchor subscriber', async () => {
     const store = await openIssueStore()
     const session = (id: string, issueId: string) =>
-      store.sessions.upsertSession({
+      store.sessions.upsertSession(fixtureWriteScope(), {
         id,
         ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
@@ -594,7 +624,7 @@ describe('subscriptions store (Phase B)', () => {
     await session('ses_on_p', 'iss_p')
     await session('ses_on_q', 'iss_q')
     await session('ses_gone', 'iss_p')
-    await store.sessions.softDeleteSessions(['ses_gone'], 't', 'user' as never)
+    await store.sessions.softDeleteSessions(fixtureWriteScope(), ['ses_gone'], 't', 'user' as never)
     const rel = (id: string, over: Partial<import('./store').Subscription>) =>
       store.events.addSubscription(sub({ id, createdAt: id, ...over }))
     await rel('r1', { subscriberKind: 'issue', subscriberId: 'iss_p' })
@@ -636,7 +666,9 @@ describe('subscriptions store (Phase B)', () => {
     await store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
     expect(await store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
     expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(false)
-    expect(await matching(store, { events: ['issue.closed'], anchorIssueIds: ['iss_p'] })).toEqual([])
+    expect(await matching(store, { events: ['issue.closed'], anchorIssueIds: ['iss_p'] })).toEqual(
+      [],
+    )
     expect(await store.events.setSubscriptionEnabled('sub_t', true)).toBe(true)
     expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(true)
     // Unknown id → no row updated.

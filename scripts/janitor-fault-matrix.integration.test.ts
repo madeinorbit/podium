@@ -10,6 +10,7 @@ import {
   type MaintenanceHandshakeReply,
   type MessageExpiryObservation,
 } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { MaintenanceService } from '../apps/server/src/modules/maintenance/service'
 import type { MessageRow, SessionStore } from '../apps/server/src/store'
@@ -83,7 +84,7 @@ describe.each([
   it('retries the deterministic command and commits the transition exactly once', async () => {
     const store = await openTestStore(':memory:')
     const message = dueMessage(`msg_${boundary}`)
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     const server = maintenance(store)
     let crash = true
     const service = new JanitorService({
@@ -169,7 +170,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
     const dbPath = join(dir, 'podium.db')
     let store = await openTestStore(dbPath)
     const message = dueMessage('msg_restart')
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     let server = maintenance(store)
     let restarted = false
     const service = new JanitorService({

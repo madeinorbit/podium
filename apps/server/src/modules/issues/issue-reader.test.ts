@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { makeFeedVisibility } from '../../feed-visibility'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
@@ -65,7 +66,7 @@ async function setup() {
   stores.push(store)
   // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
   await store.repos.addRepo('/r', store.hostMachineId)
-  await store.issues.upsertIssue(issueRow({ ownerUserId: alice }))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ ownerUserId: alice }))
   return { store }
 }
 
@@ -74,7 +75,7 @@ async function setup() {
 async function replaceIssue(store: SessionStore, row: IssueRow) {
   await store.transact(async () => {
     await store.issues.deleteIssue(row.id)
-    await store.issues.upsertIssue(row)
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
   })
 }
 
@@ -102,7 +103,7 @@ describe('issue authority', () => {
     expect(await allowed(alice)).toBe(true)
     expect(await allowed(bob)).toBe(true)
     // Existing policy does not filter soft deletion at this low-level seam.
-    await store.issues.upsertIssue(issueRow({ ownerUserId: bob, deletedAt: '2026-09-11' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ ownerUserId: bob, deletedAt: '2026-09-11' }))
     expect(await allowed(alice)).toBe(true)
     await store.issues.deleteIssue('iss_x')
     expect(await allowed(alice)).toBe(false)
@@ -137,7 +138,7 @@ it('reads the database and returns private copies (POD-6195)', async () => {
   expect([...(await readIssues(store.issues, ['iss_x', 'absent', 'iss_x'])).keys()]).toEqual(['iss_x'])
   expect(point).toHaveBeenCalled()
   expect(batch).toHaveBeenCalledOnce()
-  await store.issues.upsertIssue(issueRow({ ownerUserId: bob, title: 'direct write' }))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ ownerUserId: bob, title: 'direct write' }))
   expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('direct write')
   // The returned durable row preserves the original owner on ordinary upsert.
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
@@ -159,8 +160,8 @@ it("reads a save's own writes inside it, and the commit after it", async () => {
 
 it('preserves cwd ordering, archive ambiguity, and lightweight projections', async () => {
   const { store } = await setup()
-  await store.issues.upsertIssue(issueRow({ worktreePath: '/r/work', archived: true }))
-  await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_y'), seq: 2, worktreePath: '/r/work', parentId: asIssueId('iss_x'), stage: 'done' }))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ worktreePath: '/r/work', archived: true }))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_y'), seq: 2, worktreePath: '/r/work', parentId: asIssueId('iss_x'), stage: 'done' }))
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const before = {
     parents: await store.issues.listIssueParentEdges(), closed: await store.issues.closedIssueIdsAmong(['iss_x', 'iss_y']),
@@ -187,7 +188,7 @@ it('reads each issue once per operation, and again after a write (POD-6158)', as
     expect((await readIssues(store.issues, ['iss_x'])).get('iss_x')?.ownerUserId).toBe(alice)
     expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
     expect(reads).toHaveBeenCalledOnce()
-    await store.issues.upsertIssue(issueRow({ title: 'renamed' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ title: 'renamed' }))
     expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('renamed')
     expect(reads).toHaveBeenCalledTimes(2)
   })
@@ -208,7 +209,7 @@ it('orders by repo-path bytes like SQL, and batches folder owners identically (P
   for (const repoPath of [...repos].reverse()) {
     for (const seq of [13, 11, 12]) {
       n += 1
-      await store.issues.upsertIssue(issueRow({
+      await store.issues.upsertIssue(fixtureWriteScope(), issueRow({
         id: asIssueId(`iss_${n}`), repoPath, seq,
         // Every row shares one worktree so the owner is decided by order alone.
         worktreePath: seq === 12 ? '/w/deep' : '/w',

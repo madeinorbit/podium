@@ -11,8 +11,10 @@
  */
 import type { AgentKind, AgentQuotaWire, UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
+import { harnessAccount } from '../harness-context.js'
 import {
   declaredValue,
+  type HarnessEnvironment,
   type HarnessQuotaHistory,
   type HarnessQuotaProbe,
   type HarnessUsageTranscripts,
@@ -22,11 +24,25 @@ import {
   fileBuckets,
   mergeBuckets,
   toSource,
-  windowBuckets,
   type UsageScanCache,
+  windowBuckets,
 } from '../usage-records.js'
 
-export type QuotaFetcher = (deps: { homeDir?: string; now?: number }) => Promise<AgentQuotaWire>
+export type QuotaFetcher = (deps: { now?: number }) => Promise<AgentQuotaWire>
+
+/**
+ * WHICH ACCOUNT AN ACCOUNT READ ANSWERS FOR (POD-6534, design §3.3 "account
+ * scope"). `homeDir` is the account HOME (the daemon's credential home);
+ * `env` is the MACHINE command environment of the current inventory
+ * generation. Every harness's account is built from the two with
+ * `harnessAccount` — the recipe `harnessContext` uses — so usage, quota and
+ * the session child read the same folders. An absent `env` means "no
+ * snapshot": folders come from `homeDir` alone, never from `process.env`.
+ */
+export interface AccountReadScope {
+  homeDir: string
+  env?: HarnessEnvironment
+}
 
 /**
  * Presentational label for a quota agent, read off the manifest so the CLI
@@ -42,14 +58,27 @@ export function quotaAgentLabel(kind: string): string {
   return kind.length > 0 ? kind.charAt(0).toUpperCase() + kind.slice(1) : kind
 }
 
-function defaultQuotaFetchers(): { key: AgentKind; fetch: QuotaFetcher }[] {
+function defaultQuotaFetchers(
+  scope: (() => AccountReadScope | Promise<AccountReadScope>) | undefined,
+): { key: AgentKind; fetch: QuotaFetcher }[] {
   const fetchers: { key: AgentKind; fetch: QuotaFetcher }[] = []
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     const usage = declaredValue(manifest.usage)
     const quota = usage ? declaredValue(usage.quota) : undefined
     if (!quota) continue
     const probe: HarnessQuotaProbe = quota
-    fetchers.push({ key: manifest.kind, fetch: (deps) => probe.fetchQuota(deps) })
+    fetchers.push({
+      key: manifest.kind,
+      fetch: async (deps) => {
+        // No account, no read: an error wire rather than a guess at a home.
+        if (!scope) throw new Error('quota read refused: no account home')
+        const { homeDir, env } = await scope()
+        return probe.fetchQuota({
+          ...deps,
+          account: harnessAccount(manifest.kind, homeDir, env ?? {}),
+        })
+      },
+    })
   }
   return fetchers
 }
@@ -76,6 +105,10 @@ const DEFAULT_TTL_MS = 120_000
 
 export function makeQuotaFetcher(
   opts: {
+    /** The account whose quota is read, asked per fetch so a new inventory
+     *  generation's command env is picked up. Required unless `fetchers` are
+     *  injected; `homeDir` is shorthand for a fixed home with no machine env. */
+    account?: () => AccountReadScope | Promise<AccountReadScope>
     homeDir?: string
     ttlMs?: number
     now?: () => number
@@ -84,7 +117,9 @@ export function makeQuotaFetcher(
 ): { getAgentQuota(refresh?: boolean): Promise<AgentQuotaWire[]> } {
   const ttl = opts.ttlMs ?? DEFAULT_TTL_MS
   const now = opts.now ?? Date.now
-  const fetchers = opts.fetchers ?? defaultQuotaFetchers()
+  const homeDir = opts.homeDir
+  const account = opts.account ?? (homeDir !== undefined ? () => ({ homeDir }) : undefined)
+  const fetchers = opts.fetchers ?? defaultQuotaFetchers(account)
   const cache = new Map<AgentKind, { atMs: number; wire: AgentQuotaWire }>()
   /** One refresh per agent at a time. Three tabs polling past the TTL are three
    *  stale reads and ONE vendor call, not three. */
@@ -97,7 +132,7 @@ export function makeQuotaFetcher(
     const started = (async () => {
       let wire: AgentQuotaWire
       try {
-        wire = await f.fetch({ ...(opts.homeDir ? { homeDir: opts.homeDir } : {}), now: t })
+        wire = await f.fetch({ now: t })
       } catch (e) {
         wire = {
           agent: f.key,
@@ -190,18 +225,24 @@ function dedupeConsecutive(samples: QuotaHistorySampleWire[]): QuotaHistorySampl
  * resets_at moves backwards). Codex history is therefore left to LIVE sampling;
  * its scanner stays exported and tested so re-enabling it is one line.
  */
-export async function scanQuotaHistory(opts: {
-  sinceMs: number
-  machineId: string
-  homeDir?: string
-}): Promise<QuotaHistorySampleWire[]> {
-  const sections: HarnessQuotaHistory[] = []
+export async function scanQuotaHistory(
+  opts: { sinceMs: number; machineId: string } & AccountReadScope,
+): Promise<QuotaHistorySampleWire[]> {
+  const sections: { kind: string; section: HarnessQuotaHistory }[] = []
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     const usage = declaredValue(manifest.usage)
     const history = usage ? declaredValue(usage.history) : undefined
-    if (history) sections.push(history)
+    if (history) sections.push({ kind: manifest.kind, section: history })
   }
-  const scans = await Promise.allSettled(sections.map((section) => section.scan(opts)))
+  const scans = await Promise.allSettled(
+    sections.map(async ({ kind, section }) =>
+      section.scan({
+        sinceMs: opts.sinceMs,
+        machineId: opts.machineId,
+        account: harnessAccount(kind, opts.homeDir, opts.env ?? {}),
+      }),
+    ),
+  )
   const samples = scans.flatMap((scan) => (scan.status === 'fulfilled' ? scan.value : []))
   return dedupeConsecutive(samples.filter((sample) => sample.atMs >= opts.sinceMs))
 }
@@ -213,10 +254,9 @@ export async function scanQuotaHistory(opts: {
  * the sheet its Codex figures, not the Claude ones it already had. The caller
  * has one try/catch and would zero out both.
  */
-export async function scanHostUsage(opts: {
-  sinceMs: number
-  homeDir?: string
-}): Promise<UsageBucketWire[]> {
+export async function scanHostUsage(
+  opts: { sinceMs: number } & AccountReadScope,
+): Promise<UsageBucketWire[]> {
   return (await scanHostUsageSources(opts)).buckets
 }
 
@@ -235,22 +275,20 @@ export async function scanHostUsage(opts: {
  * from its cursor rather than from byte zero. Pass the SAME cache across scans
  * or every walk is a cold one.
  */
-export async function scanHostUsageSources(opts: {
-  sinceMs: number
-  homeDir?: string
-  cache?: UsageScanCache
-}): Promise<{ buckets: UsageBucketWire[]; sources: UsageSourceWire[] }> {
-  const sections: HarnessUsageTranscripts[] = []
+export async function scanHostUsageSources(
+  opts: { sinceMs: number; cache?: UsageScanCache } & AccountReadScope,
+): Promise<{ buckets: UsageBucketWire[]; sources: UsageSourceWire[] }> {
+  const sections: { kind: string; section: HarnessUsageTranscripts }[] = []
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     const usage = declaredValue(manifest.usage)
     const transcripts = usage ? declaredValue(usage.transcripts) : undefined
-    if (transcripts) sections.push(transcripts)
+    if (transcripts) sections.push({ kind: manifest.kind, section: transcripts })
   }
   const scans = await Promise.allSettled([
-    ...sections.map((section) =>
+    ...sections.map(async ({ kind, section }) =>
       section.scan({
         sinceMs: opts.sinceMs,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        account: harnessAccount(kind, opts.homeDir, opts.env ?? {}),
         ...(opts.cache ? { cache: opts.cache } : {}),
       }),
     ),

@@ -73,7 +73,7 @@ async function fixture(size: number): Promise<Fixture> {
   for (let i = 0; i < size; i++) {
     // An explicit parent: create would otherwise probe the repo for its base
     // branch (POD-2065), which the test daemon never answers (3 s per issue).
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: `Issue ${i}`,
       startNow: false,
@@ -100,7 +100,7 @@ async function fixture(size: number): Promise<Fixture> {
   // the first issue, one feed event each: it starts in backlog, so each step
   // alternates planning and backlog and always changes the stage.
   for (let n = 0; n < FEED_WINDOW - size; n++) {
-    await reg.issues.crud.update(issueId!, { stage: n % 2 === 0 ? 'planning' : 'backlog' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issueId!, { stage: n % 2 === 0 ? 'planning' : 'backlog' })
   }
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)
@@ -173,6 +173,13 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // start and immediately before spawn: two user reads in process, one extra
   // over tRPC where the principal's read is already memoized. 33, 37, 58;
   // measured at both sizes, with the per-session loop controls retained below.
+  // POD-6398: over tRPC 51 -> 82, the route is an adapter onto a `session.launch`
+  // effect record: the entry point's dedup read and record, the record's insert,
+  // claim and settlement, their change rows and feed-visibility audience reads,
+  // the waiter's reads of the record, and the writer's row for the act-time
+  // check. Constant at 5 and 200 sessions, as before.
+  // The combined tRPC pin carries both deltas (51 + 7 + 31 = 89);
+  // this merge resolution does not remeasure it.
   it('in process, a draft session in a repo', async () => {
     await expectConstantStatements(draft, 33)
   })
@@ -202,10 +209,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   )
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 58)
+    await expectConstantStatements(trpc, 89)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 58, plantPerSession)
+    await expectArmed(trpc, 89, plantPerSession)
   })
 })

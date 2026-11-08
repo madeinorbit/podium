@@ -3,6 +3,7 @@ import { observer } from '@podium/client-graph/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
+import { submitNow } from '@podium/protocol'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -120,10 +121,16 @@ export const DockShellPanel = observer(function DockShellPanel({
         // the instant paint until this answer lands, then the server wins
         // (POD-4527). Creation stays a normal shell spawn; a mapped-but-dead
         // shell is archived and replaced server-side.
-        const { sessionId } = await trpc.shells.forWorktree.mutate({
-          worktreePath: cwd,
-          ...(machineId ? { machineId } : {}),
-        })
+        // On the sync write entry point (POD-6419): the shell's start is an
+        // effect record, so the id comes back before the shell runs.
+        // LEGACY(remove-after: 2027-03): an older server takes the old route.
+        const input = { worktreePath: cwd, ...(machineId ? { machineId } : {}) }
+        const { sessionId } = await submitNow<{ sessionId: SessionId; created: boolean }>(
+          trpc,
+          'shells.forWorktree',
+          input,
+          { legacy: async () => await trpc.shells.forWorktree.mutate(input) },
+        )
         pendingId.current = sessionId
         // The server wins: rewrite the cache when it disagrees. The orphaned
         // local shell is NOT archived — it may hold a live process and its

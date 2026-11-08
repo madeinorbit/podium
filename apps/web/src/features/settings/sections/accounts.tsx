@@ -1,14 +1,21 @@
+import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { useOpeningView } from '@podium/client-graph/react'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import type { HarnessAgent } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { memberRequest } from '@/features/setup/member-api'
 import { useSettingsSessionPresent } from '../readers'
 import { accountKey, useSettingsRecords } from '../record-readers'
 import { useSettingsClient, useSettingsTrpc } from '../stable-access'
+import { KeySharing, MembersKeys } from './key-sharing'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
 import { UseOnMyMachinesBox } from './use-on-my-machines'
 
@@ -19,7 +26,7 @@ const CLAUDE_OAUTH_ID = 'managed:claude-oauth'
 
 type ManagedProvider = 'anthropic' | 'openai' | 'openrouter'
 
-function managedLabel(a: AccountView): string {
+function managedLabel(a: { id: string; provider: string }): string {
   if (a.id === CLAUDE_OAUTH_ID) return 'Claude subscription (setup-token)'
   return `${providerLabel(a.provider as ManagedProvider)} API key`
 }
@@ -233,9 +240,11 @@ function AccountGroup({
  */
 const ManagedAccountRow = observer(function ManagedAccountRow({
   account,
+  directory,
   onChanged,
 }: {
   account: AccountView
+  directory: MemberDirectory | null
   onChanged: () => void
 }): JSX.Element {
   const trpc = useSettingsTrpc()
@@ -253,6 +262,15 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   // replace it with a managed credential (which IS disconnectable), or remove it
   // where it actually lives.
   const legacy = connected && account.credentialSource === 'legacy'
+  // Another user's key, shared with this viewer (POD-6360). It is not theirs to
+  // disconnect; connecting their own replaces it for their agents.
+  const shared = connected && account.credentialSource === 'shared'
+  // The viewer's own stored key: theirs to share (POD-6390).
+  const own = connected && account.credentialSource === 'stored'
+  const sharedByName =
+    shared && account.sharedBy
+      ? directory?.members.find((member) => member.id === account.sharedBy)?.displayName
+      : undefined
   const label = managedLabel(account)
 
   // The row's own explanation lives under its label (POD-127 F3), never as a
@@ -269,6 +287,11 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
         into agent spawns and it cannot be disconnected here. Replace it to store it as a managed
         account, or clear it under API keys.
       </span>
+    ) : shared && !editing ? (
+      <>
+        Shared with you by {sharedByName ?? 'another user'}, and injected into your agents' spawns.
+        Connect your own to use it instead.
+      </>
     ) : !isOauth && connected && !legacy ? (
       <>
         Injected into agent spawns. The superagent and background LLM roles still read their key
@@ -338,9 +361,9 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
         {connected && !editing ? (
           <div className="flex items-center gap-2.5">
             <StatusConnected identity={account.identity ?? 'connected'} />
-            {legacy ? (
+            {legacy || shared ? (
               <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-                Replace
+                {shared ? 'Use your own' : 'Replace'}
               </Button>
             ) : (
               <>
@@ -418,7 +441,7 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
           </div>
         )}
       </Row>
-      {connected && !legacy && sentTo.length > 0 ? (
+      {own && sentTo.length > 0 ? (
         <p className="max-w-[62ch] pb-2.5 settings-prose">
           Also runs on {sentTo.map((machine) => machine.name).join(', ')}, someone else's{' '}
           {sentTo.length === 1 ? 'machine' : 'machines'} you sent it to.
@@ -455,10 +478,39 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
           </div>
         </div>
       ) : null}
+      {own && !editing && (
+        <KeySharing
+          accountId={account.id}
+          label={label}
+          sharing={account.sharing}
+          directory={directory}
+          currentMemberId={directory?.currentMemberId}
+          onChanged={onChanged}
+        />
+      )}
       {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
     </div>
   )
 })
+
+const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
+
+/**
+ * The member directory, for naming the people a key is shared with. Only an
+ * admin can read it; for a member the read fails and the sharing control offers
+ * what needs no names (only you, everyone, removing people already named).
+ * Its answer is also what tells this screen the viewer is an admin, for the
+ * members' keys list.
+ */
+function useKeyPeople(open: boolean): MemberDirectory | null {
+  const directory = useOpeningView(useWorklistPool(), createDirectory, open)
+  useEffect(() => {
+    if (!directory) return
+    const origin = serverConfig(window.location).httpOrigin
+    void directory.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list'))
+  }, [directory])
+  return directory
+}
 
 /** Accounts & Keys hub (SP-6454 stream B2; managed credentials #216): native CLI
  *  logins on this machine (observed read-only — each CLI's own `login` on the
@@ -480,11 +532,12 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
 
   const native = (accounts ?? []).filter((a) => a.source === 'native')
   const managed = (accounts ?? []).filter((a) => a.source === 'managed')
+  const directory = useKeyPeople(accounts !== undefined)
 
   return (
     <Section
       title="Accounts & Keys"
-      hint="How Podium authenticates your agents to LLMs. These are yours alone: nobody else sees or uses them. Native logins are the CLI logins on the machines you look after. Managed accounts are credentials Podium stores and injects when your agents spawn on your machines, and on someone else's machine only after you send them there."
+      hint="How Podium authenticates your agents to LLMs. Native logins are the CLI logins on the machines you look after. Managed accounts start private; you choose who may use a key. Your connections run on your machines, and on someone else's machine only after you send them there."
     >
       <div className="mt-3 space-y-5">
         <AccountGroup label="Native logins" qualifier="your machines">
@@ -494,9 +547,20 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
         </AccountGroup>
         <AccountGroup label="Managed accounts" qualifier="Podium-held">
           {managed.map((a) => (
-            <ManagedAccountRow key={a.id} account={a} onChanged={refresh} />
+            <ManagedAccountRow key={a.id} account={a} directory={directory} onChanged={refresh} />
           ))}
         </AccountGroup>
+        {directory?.answer && (
+          <MembersKeys
+            directory={directory}
+            labelOf={managedLabel}
+            group={(children) => (
+              <AccountGroup label="Members' keys" qualifier="admin · who may use each">
+                {children}
+              </AccountGroup>
+            )}
+          />
+        )}
       </div>
       <p className="settings-prose mt-3">
         Coming soon — rotating several subscription logins across agents.

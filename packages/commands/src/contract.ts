@@ -536,7 +536,15 @@ export type ContractInput<C extends { readonly input: z.ZodTypeAny }> = z.infer<
  * name in this list belongs to a contract that actually exists. A licence for an
  * undeclared command would silently pre-authorize whoever next used that name.
  */
-export const MACHINE_USE_OFFLINE_EXCEPTIONS: readonly string[] = []
+export const MACHINE_USE_OFFLINE_EXCEPTIONS: readonly string[] = [
+  // ADR 12 D5 E1 (POD-6356): the session lifecycle as desired state is queued
+  // by design (a stop made offline still lands, a late one is refused by its
+  // revision). The edit itself runs nothing: the entry point re-checks the
+  // target, machine `use` included, live at apply, and the server's controller
+  // acts on the committed record through the daemon.
+  'records.session.edit',
+  'records.session.remove',
+]
 
 /**
  * {@link ContractConflictClass}'s members as a VALUE, so the runtime check in

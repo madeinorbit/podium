@@ -42,8 +42,8 @@
  * multi-tenancy.
  */
 
+import { ROW } from './matrix-rows'
 import {
-  asMatrixRowId,
   type GrantRule,
   type MatrixRow,
   type MatrixRowId,
@@ -51,119 +51,7 @@ import {
   SYSTEM_WRITER_RULE,
 } from './ownership'
 
-const id = asMatrixRowId
-
-// Row ids, declared once so `inherits` edges are checkable.
-export const ROW = {
-  instanceId: id('instance-id'),
-  machine: id('machine'),
-  pairingToken: id('pairing-token'),
-  daemonIdentityFile: id('daemon-identity-file'),
-  enrollmentLedger: id('enrollment-ledger'),
-
-  sessionIdentity: id('session-identity'),
-  sessionBinding: id('session-binding'),
-  sessionPlacement: id('session-placement'),
-  sessionLabels: id('session-labels'),
-  sessionReadAt: id('session-read-at'),
-  snooze: id('snooze'),
-  composerDraft: id('composer-draft'),
-  queuedMessages: id('queued-agent-messages'),
-  daemonObservedRuntime: id('daemon-observed-runtime'),
-  sessionObservationBookkeeping: id('session-observation-bookkeeping'),
-  sessionUploads: id('session-uploads'),
-  headlessTurnSpool: id('headless-turn-spool'),
-  offers: id('agent-offers'),
-  sessionLiveEphemeral: id('session-live-ephemeral'),
-  hostMetrics: id('host-metrics'),
-  provenanceEnvelope: id('provenance-envelope'),
-
-  issueCore: id('issue-core'),
-  shippingAggregate: id('shipping-aggregate-family'),
-  issueDocumentFields: id('issue-document-fields'),
-  needsHuman: id('needs-human-group'),
-  issueGraph: id('issue-graph'),
-  issueComments: id('issue-comments'),
-  activityEvents: id('activity-events'),
-  eventSubscriptions: id('event-subscriptions'),
-  subscriptionDeliveries: id('subscription-deliveries'),
-  issueMessages: id('issue-messages'),
-  issueMessageReadAt: id('issue-message-read-at'),
-  artifacts: id('artifacts'),
-
-  conversationRegistry: id('conversation-registry'),
-  segments: id('segments'),
-  blobs: id('blobs'),
-
-  repoPrefix: id('repo-prefix'),
-  harnessDiscoveryCache: id('harness-discovery-cache'),
-  harnessHookSettings: id('harness-hook-settings'),
-  /** The living project spec (pspec v1) — files in a repo, NOT a replicated
-   *  table. Added by POD-385; see the row for why it is `owned-compute`. */
-  pspecComponent: id('pspec-component'),
-  pins: id('pins'),
-  tabOrder: id('tab-order'),
-  /** Sidebar/tab layout shell chrome (POD-1350) — distinct from tab_order's
-   *  session order per worktree. */
-  sidebarTabLayout: id('sidebar-tab-layout'),
-  /** How far a person has read an event stream (POD-1380) — a POSITION in an
-   *  ordered log, not the per-entity `readAt` markers above it. */
-  feedReadCursor: id('feed-read-cursor'),
-  /** Which shell belongs to a person's worktree (POD-4436) — the server-owned
-   *  dock-shell mapping, one row per (user, worktree). */
-  dockShellMapping: id('dock-shell-mapping'),
-
-  preferencesPersonal: id('preferences-personal-keys'),
-  preferencesInstance: id('preferences-instance-keys'),
-  serverSecrets: id('server-owned-secrets'),
-  managedCredentials: id('managed-credentials'),
-  configFeatures: id('config-features'),
-  settingsAuditTrail: id('settings-audit-trail'),
-
-  locks: id('advisory-locks'),
-  approvals: id('approval-requests'),
-  pendingInteractions: id('pending-interactions'),
-  automations: id('automations-and-runs'),
-  // POD-1211's coordination-shaped adoptions. Each is server-internal
-  // bookkeeping the SWEEP found with no row at all; see `serverBookkeeping`
-  // for why they are `personal`-with-no-owner rather than substrate.
-  maintenanceLease: id('maintenance-lease'),
-  maintenanceCommandReceipts: id('maintenance-command-receipts'),
-  stewardState: id('steward-state'),
-  notificationFacts: id('notification-facts'),
-  wakeCooldowns: id('message-wake-cooldowns'),
-  idAllocationCounters: id('id-allocation-counters'),
-  // The workflow surface, as FIVE classes rather than the one row it used to
-  // be (POD-731). The split is not cosmetic: revisions inherit their definition
-  // while runs inherit the ISSUE they advance, and one row cannot carry two
-  // owner rules. See the rows themselves for the rest.
-  workflowDefinitions: id('workflow-definitions'),
-  workflowRevisions: id('workflow-revisions'),
-  workflowBindings: id('workflow-bindings'),
-  agentProfiles: id('agent-profiles'),
-  workflowRuns: id('workflow-runs'),
-
-  messages: id('messages-substrate'),
-  messagingTopics: id('messaging-issue-topics'),
-  superagentState: id('superagent-state'),
-
-  handoffBundle: id('handoff-bundle'),
-
-  changeLog: id('change-log'),
-  feedIdentity: id('feed-identity'),
-  appliedMutations: id('applied-mutations'),
-  clientOutbox: id('client-outbox'),
-  replicaCursor: id('replica-cursor'),
-
-  userAccount: id('user-account'),
-  accountCredential: id('account-credential'),
-  perUserClientSession: id('per-user-client-session'),
-  grantEdge: id('grant-edge'),
-  delegationRecord: id('delegation-record'),
-  telegramChatBinding: id('telegram-chat-binding'),
-  perUserStateFamily: id('per-user-state-family'),
-  recapWatermark: id('recap-watermark'),
-} as const
+export { ROW }
 
 // ---------------------------------------------------------------------------
 // Shared cell values, so a repeated rule cannot drift between rows.
@@ -701,9 +589,9 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     conflictNote:
-      'AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and are now SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
+      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
     tombstone: 'never-delete',
     tombstoneNote:
       'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
@@ -723,6 +611,44 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
       note: 'PHASE 2 MUST HANDLE: follows the session.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.sessionDesiredState,
+    section: 'sessions',
+    title:
+      'Lifecycle as desired state (`desired`, `force`; the spec `revision`, `observedRevision`, `lifecycleFailure`)',
+    sites: [
+      'packages/model/src/entities/session.ts',
+      'apps/server/src/modules/sessions/lifecycle-controller.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'exp-rev',
+    conflictNote:
+      'ADR 12 D5 E1 (POD-6356). `desired`/`force` are SPEC, written through `records.session.edit` against `revision`, the spec revision: only spec edits move it, never a daemon report, so a late stop is refused after a newer start and daemon traffic never makes an edit stale. The server lifecycle controller writes only the observed half (`observedRevision`, `lifecycleFailure`); `status` stays the daemon’s.',
+    tombstone: 'never-delete',
+    tombstoneNote: 'Follows the session tombstone.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.sessionIdentity },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.sessionIdentity },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The edit carries the transport principal’s pair through `sync.submit`; the controller’s acknowledgement is a system write.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'Follows the session: shared and revoked with it.',
     },
     open: [],
   },
@@ -1179,6 +1105,44 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
       'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
   },
   {
+    id: ROW.issuePlainFields,
+    section: 'issues-and-tracker',
+    title:
+      'Issue plain fields (title, brief, acceptance, priority, type, assignee, due, defer, labels, archived, estimate, machine)',
+    sites: [
+      'packages/commands/src/records/kinds.ts',
+      'apps/server/src/modules/records/issue-record.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator', 'agent-session'],
+    replication: 'server-to-clients',
+    conflict: 'field-LWW',
+    conflictNote:
+      'AMENDED by ADR 12 D3 (POD-6405): each field is its OWN group, independent of every other, so an edit of the title never conflicts with one of the priority, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit (D3 condition 1); client clocks never arbitrate. The invariant-heavy fields stay in issue-core at exp-rev: stage transitions and close, the parent link, the agent profile.',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Follows the issue: soft-delete `deletedAt`.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.issueCore },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.issueCore },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'As issue-core: the transport principal’s pair through `sync.submit`.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'Follows the issue: shared and revoked with it.',
+    },
+    open: [],
+  },
+  {
     id: ROW.shippingAggregate,
     section: 'issues-and-tracker',
     title: 'Shipping aggregate family (orders, attempts, steps, holds, delivery receipts)',
@@ -1229,10 +1193,10 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a (fields of the issue row)',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     reservedConflict: { rule: 'op-stream', constraint: OP_STREAM_COMPACTION_CONSTRAINT },
     conflictNote:
-      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. Today’s rule is `exp-rev` (nothing implements op-streams — this issue does not build one). Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
+      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. AMENDED by ADR 12 D3 (POD-6405): until op-streams exist the rule is `field-LWW`, the description its own independent group, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit. Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
     tombstone: 'n/a',
     tombstoneNote: 'Follows the issue tombstone.',
     offline: 'offline-eligible',
@@ -2408,6 +2372,54 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     },
     open: [],
   },
+  {
+    id: ROW.effectRecords,
+    section: 'coordination',
+    title: 'Effect records',
+    sites: [
+      'packages/model/src/entities/effect.ts',
+      '`effects`',
+      'apps/server/src/modules/effects',
+    ],
+    home: 'server',
+    idMinting: 'Device id (`eff_<uuid>`, ADR 12 D4)',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'A state machine (`EffectLifecycle`): a person creates the record `pending`, may ask to cancel it, and may dismiss it once it has ended; every status move is the executor’s, written as a guarded UPDATE on the states the machine allows into the target status, so a second trigger claims nothing.',
+    tombstone: 'soft-delete',
+    tombstoneNote:
+      'Dismissed or pruned records leave the feed as a tombstone (the feed scopes a `remove` after the write, and the audience is read off the target), and are deleted after the feed’s retention window. `failed` and `unknown` stay until dismissed (ADR 12 O5).',
+    offline: 'offline-eligible',
+    secret: 'public',
+    secretNote:
+      'An executor kind publishes only what it declares of its input (a file write publishes path and hash, never the text); the whole input stays on the server.',
+    owner: {
+      kind: 'user',
+      resolves: 'on-behalf-of-human',
+      note: 'The person who asked for the effect (an agent’s on-behalf-of human); everyone who may read its target sees it too.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'inherits',
+      from: ROW.issueCore,
+      note: 'Inherits the TARGET it acts on: an issue, a session, or (creator only, for now) a machine.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'DECLARED: the creating principal’s human; the audience beyond the creator follows the target.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its target.',
+    },
+    open: [],
+  },
   // -------------------------------------------------------------------------
   // Workflows — FOUR ROWS, not one (POD-731; a fifth, execution profiles, went
   // with the table in POD-6114: a step now names an agent profile).
@@ -3385,12 +3397,18 @@ export const OP_STREAM_RESERVED_MEMBERS: readonly MatrixRowId[] = [
 /**
  * The closed membership of the surviving `field-LWW` set (Amendment 1 D10):
  * instance-scope preference keys, plus the composer draft's named interim
- * defect. Everything else that ADR 1 D3 once listed is now per-user state or
+ * defect, plus an issue's plain fields (ADR 12 D3, POD-6405). Everything else that ADR 1 D3 once listed is now per-user state or
  * `exp-rev`.
  */
 export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   ROW.preferencesInstance,
   ROW.composerDraft,
+  // ADR 12 D3 (POD-6405): an issue's plain fields, each its own group, and
+  // its description until op-streams exist.
+  ROW.issuePlainFields,
+  ROW.issueDocumentFields,
+  // ADR 12 D3 (POD-6406): a session's labels, each its own group.
+  ROW.sessionLabels,
 ]
 
 /**

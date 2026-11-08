@@ -1,5 +1,4 @@
 import { commandAccess } from './command-ctx'
-import { seatRefusal } from './service/seat'
 /**
  * THE AGENT-RELAY DISPATCH ARM (POD-418).
  *
@@ -8,8 +7,8 @@ import { seatRefusal } from './service/seat'
  * declared and whose doc comment already called this "the dispatch arm in the
  * composition root". It is the last surface an agent's `podium <verb>` crosses
  * before it reaches a service, and it is emphatically not wiring: it routes
- * router/proc pairs, hand-validates the two inputs that have no contract
- * (`offer.set`, `sessions.title`), applies the scope gates that the allowlist in
+ * router/proc pairs, hand-validates the input that has no contract
+ * (`sessions.title`; `offer.set` has one since POD-6419), applies the scope gates that the allowlist in
  * `relay-gate.ts` deliberately leaves to it, and stitches the issue-prime tail.
  *
  * WHY IT WAS A SECOND JOB. The root's argument is that it decides nothing and
@@ -33,34 +32,42 @@ import { seatRefusal } from './service/seat'
  * duplicates, and these are not.
  */
 
-import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
+import { sessionHandoffInput } from '@podium/commands'
 import {
   asMachineId,
   asSessionId,
   isPersonCapability,
   isSpawnedBy,
-  type SessionMeta,
   type SessionId,
+  type SessionMeta,
+  spawnedByParentSessionId,
 } from '@podium/model'
-import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
+import { SyncSubmitInput, sessionTitleRule } from '@podium/protocol'
+import { resolvePrincipalAsync } from '../../command-principal'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
 import { isGenericClaudeTitle, isTransientTitle } from '../../title-filter'
 import type { ApprovalService } from '../approvals/service'
-import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { LockCommandDispatcher } from '../lock/registry'
 import type { MessageGate } from '../messages/gate'
-import { fleetViewFor, sessionCommandCtx, visibleMachinesFor } from '../sessions/command-ctx'
-import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-plane'
+import {
+  fleetViewFor,
+  lifecycleEditsFor,
+  sessionCommandCtx,
+  visibleMachinesFor,
+} from '../sessions/command-ctx'
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
+import { handoffThroughEffect } from '../sessions/session-handoff-effect'
+import { dispatchSpecRelay, NO_SUCH_SPEC_PROC } from '../specs/relay'
 import type { SpecsService } from '../specs/service'
-import { dispatchWorkflowRpc } from '../workflows/rpc'
+import { dispatchWorkflowRpc, workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
+import { NOT_A_RELAY_WRITE, relayPlainWrite, relaySyncWrite } from '../write-routes/relay'
 import type { IssueCommandDispatcher } from './dispatcher'
-import { NO_SUCH_PROCEDURE } from './relay-gate'
 import type { AgentRelayGateDeps } from './relay-gate'
+import { NO_SUCH_PROCEDURE } from './relay-gate'
 import type { IssueService } from './service'
 
 /**
@@ -74,7 +81,6 @@ export interface AgentRelayDispatchDeps {
   readonly featureStates: () => ReturnType<typeof getFeatureStates>
   readonly featureEnabled: (id: Parameters<typeof isFeatureEnabled>[0]) => boolean
   readonly issueCommands: IssueCommandDispatcher
-  readonly issueSessionLifecycle: IssueSessionLifecycle
   readonly issues: IssueService
   readonly listRepos: () =>
     | Parameters<typeof fleetViewFor>[2]
@@ -137,11 +143,13 @@ async function sessionTitlePrime(
   // session still showing a placeholder ('Claude Code', a spinner frame, an empty
   // OSC title) contributes nothing an agent could distinguish itself from, so it
   // is skipped rather than listed as noise.
-  const members = (await sessionsSvc
-    .listSessionsForIssue(issue?.worktreePath ?? null, issueId))
-    .filter((s) => s.sessionId !== actorSessionId && !s.archived)
+  const members = (
+    await sessionsSvc.listSessionsForIssue(issue?.worktreePath ?? null, issueId)
+  ).filter((s) => s.sessionId !== actorSessionId && !s.archived)
   // Every unbound member's owner in one indexed read (POD-6155).
-  const owners = await issues.reports.issuesForCwds(members.flatMap((s) => (s.issueId ? [] : [s.cwd])))
+  const owners = await issues.reports.issuesForCwds(
+    members.flatMap((s) => (s.issueId ? [] : [s.cwd])),
+  )
   const siblings = members
     .filter((s) => (s.issueId ?? owners.get(s.cwd) ?? null) === issueId)
     .map((s) => sessionLabel(s))
@@ -158,7 +166,6 @@ export function makeAgentRelayDispatch(
     featureStates,
     featureEnabled,
     issueCommands,
-    issueSessionLifecycle,
     issues,
     listRepos,
     lockCommands,
@@ -172,6 +179,36 @@ export function makeAgentRelayDispatch(
   } = deps
 
   return async (capability, overrideScope, router, proc, input) => {
+    // The relay caller as a principal, resolved when an arm needs one.
+    const relayPrincipal = async () =>
+      await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
+      })
+    // The relay write adapter (`write-routes/relay.ts`, POD-6593): a write whose
+    // registration the relay reaches by name.
+    const writeCall = {
+      router,
+      proc,
+      input,
+      caller: { capability, ...(overrideScope ? { overrideScope } : {}) },
+      modules: modules(),
+      principal: relayPrincipal,
+    }
+    // The sync write entry point's relay adapter (ADR 12 D2, POD-6413). The gate
+    // has bound the relay context onto the envelope's input and checked its
+    // command against the allowlist; the entry point does the rest. The agent's
+    // --outside-scope is its confirmation, as on the direct call.
+    if (router === 'sync') {
+      if (proc !== 'submit') return NO_SUCH_PROCEDURE
+      const envelope = SyncSubmitInput.parse(input)
+      const principal = await relayPrincipal()
+      return await modules().syncWrite.submit(
+        overrideScope === true ? { ...envelope, confirmed: true } : envelope,
+        principal,
+        'relay',
+      )
+    }
     if (router === 'features' && proc === 'state') {
       return await Promise.resolve(featureStates())
     }
@@ -232,20 +269,31 @@ export function makeAgentRelayDispatch(
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
-      return specs.has(proc) ? await specs.invoke(proc, input) : NO_SUCH_PROCEDURE
+      // Writes are plain registrations (POD-6418, POD-6593); reads the service's own.
+      const written = await relayPlainWrite(writeCall)
+      if (written !== NOT_A_RELAY_WRITE) return written
+      const answer = await dispatchSpecRelay(specs, proc, input)
+      return answer === NO_SUCH_SPEC_PROC ? NO_SUCH_PROCEDURE : answer
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
+    // Writes are plain registrations (POD-6593); `status` is the dispatcher's read.
     if (router === 'lock') {
+      const written = await relayPlainWrite(writeCall)
+      if (written !== NOT_A_RELAY_WRITE) return written
       return await lockCommands.dispatch(
         { capability, ...(overrideScope ? { overrideScope } : {}) },
         proc,
         input,
+        relayPrincipal,
       )
     }
     // Unified messaging command surface (#237) [spec:SP-34d7]: podium mail
     // send/inbox/show/reply + the stop-hook's pendingReminders. Authz lives
     // in the gate (session targets: same containment as the sessions arm).
+    // The writes go on through the sync write entry point as relay calls
+    // (POD-6525): the gate is their adapter.
+    // LEGACY(remove-after: 2027-03): this arm's writes, for the CLI's `podium mail` and `agent` commands; removing it breaks them against this server.
     if (router === 'messages') {
       return await messageGate.dispatch(capability, overrideScope, proc, input)
     }
@@ -260,6 +308,9 @@ export function makeAgentRelayDispatch(
         await workflowCallerForCapability(capability, overrideScope),
         proc,
         input,
+        'relay',
+        // A write goes onto the sync write entry point (POD-6418).
+        workflowRelayWrite(modules().syncWrite, relayPrincipal, overrideScope === true),
       )
     }
     // Lazy cross-machine workspace fetch [POD-658]: materialize another
@@ -302,113 +353,14 @@ export function makeAgentRelayDispatch(
         })
       })()
     }
-    // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear. Like
-    // sessions.title, the target is ALWAYS the CALLING session (bound from
-    // the capability, never from input), so no scope gate is needed — a
-    // session is always within its own scope.
+    // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear, a sync write
+    // on the calling session (`sessions/offer-sync-write.ts`, POD-6419).
+    // LEGACY(remove-after: 2027-03): this arm is an older CLI's `podium offer`,
+    // as an adapter onto `submit`; the current CLI sends `sync.submit` itself.
+    // Removing it breaks that CLI's offers against this server.
     if (router === 'offer') {
-      const actorSessionId = capability.actorSessionId
-      if (!actorSessionId) {
-        throw new Error('offer is only callable by a session (no actor bound)')
-      }
-      if (proc === 'clear') {
-        await sessionsSvc.clearOffer(actorSessionId)
-        return await Promise.resolve({ ok: true, cleared: true })
-      }
-      if (proc === 'set') {
-        // D5 (POD-6108): only a session with no coordinator above it may put a
-        // decision in front of the user; every other session asks its coordinator.
-        const seat = await issues.reports.seatFor(actorSessionId)
-        if (seat.kind === 'below') throw new Error(seatRefusal(seat, '`podium offer`'))
-        const raw = (input ?? {}) as Record<string, unknown>
-        const message = typeof raw.message === 'string' ? raw.message.trim() : ''
-        if (!message || message.length > 4_000) {
-          throw new Error('message must contain 1..4000 characters')
-        }
-        if (!Array.isArray(raw.actions)) {
-          throw new Error('actions must be an array')
-        }
-        if (raw.actions.length > 6) {
-          throw new Error('at most 6 actions are allowed')
-        }
-        const actions = raw.actions.map((a, i) => {
-          const rec = (a ?? {}) as Record<string, unknown>
-          const label = typeof rec.label === 'string' ? rec.label.trim() : ''
-          const prompt = typeof rec.prompt === 'string' ? rec.prompt.trim() : ''
-          if (!label || label.length > 80) {
-            throw new Error(`action ${i + 1}: label must contain 1..80 characters`)
-          }
-          if (!prompt || prompt.length > 4_000) {
-            throw new Error(`action ${i + 1}: prompt must contain 1..4000 characters`)
-          }
-          // Feedback-collecting action [spec:SP-c7f1]: the UI asks for
-          // freeform text before sending, appended to the prompt.
-          return rec.input === true ? { label, prompt, input: true } : { label, prompt }
-        })
-        // Issue-artifact references [POD-120]: bare paths, resolved by the
-        // client against the issue panel's artifact list — validated here
-        // only for shape (the artifact may legitimately not exist yet).
-        let artifacts: string[] | undefined
-        if (raw.artifacts !== undefined) {
-          if (!Array.isArray(raw.artifacts)) {
-            throw new Error('artifacts must be an array')
-          }
-          if (raw.artifacts.length > 6) {
-            throw new Error('at most 6 artifacts are allowed')
-          }
-          artifacts = raw.artifacts.map((p, i) => {
-            const path = typeof p === 'string' ? p.trim() : ''
-            if (!path || path.length > 512) {
-              throw new Error(`artifact ${i + 1}: path must contain 1..512 characters`)
-            }
-            return path
-          })
-        }
-        // The agent's OWN issue — explicit attachment first, else cwd
-        // containment (see `capabilityForSession`). Both the retirement guard
-        // and the self-reference nudge below are about that one issue.
-        const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
-        const ownRow = ownIssueId ? await issues.reports.getMeta(ownIssueId) : null
-        const ownRef = ownRow ? await issues.reports.niceRef(ownRow) : null
-        // RETIRE ON CLOSE, IN EITHER ORDER (POD-1072). `retireIssueOffers`
-        // sweeps standing offers when the issue closes, but the common shape is
-        // the reverse: an agent closes and THEN posts its closing offer, which
-        // the sweep has already run past. That offer then stands forever —
-        // finished work still demanding a decision, which is exactly what
-        // POD-290 set out to stop. Refusing to store it is that same
-        // retirement, applied to the one order the sweep cannot reach.
-        // ADVISORY, NOT AN ERROR: this lands at the very end of a long turn and
-        // a closing report must not fail over it, so the reason rides back on
-        // the result instead of throwing.
-        if (ownRow && (ownRow.stage === 'done' || ownRow.closedReason)) {
-          return await Promise.resolve({
-            ok: true,
-            retired: true,
-            notice:
-              `Offer not set: ${ownRef} is already closed, and a closed issue never asks for ` +
-              `a decision. Post the offer BEFORE closing — or, if this is a decision about ` +
-              `NEW work, file that work as its own issue and offer from there.`,
-          })
-        }
-        await sessionsSvc.setOffer({
-          sessionId: actorSessionId,
-          message,
-          actions,
-          ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
-        })
-        // Self-reference nudge (POD-389). The offer headline is the most-read
-        // sentence an agent writes, and ~1 in 4 named the agent's own issue in
-        // it. The rule ships in prime, but prime is injected once per session
-        // and the headline is written at the far end of a long one — so remind
-        // at the moment of the mistake instead. Advisory only: the offer is
-        // already set; the notice just rides back on the result.
-        const notice =
-          ownRef && bareSelfRefCount(message, ownRef) > 0
-            ? selfRefNudge(ownRef, 'offer message')
-            : undefined
-        return await Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
-      }
-      return NO_SUCH_PROCEDURE
+      if (proc !== 'set' && proc !== 'clear') return NO_SUCH_PROCEDURE
+      return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
     }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
@@ -484,28 +436,23 @@ export function makeAgentRelayDispatch(
           )
         })()
       }
-      // The agent names its OWN session (#490) — `podium session title "…"`.
-      // The target is the CALLING session, taken from the capability exactly as
-      // issues.attachSession takes it from the relay context: there is no
-      // sessionId in the input, so an agent CANNOT retitle anyone else's
-      // session, and no scope gate is needed (a session is always in its own
-      // scope). The user's own name is sovereign — the service refuses against
-      // it and hands back a reason instead of throwing.
+      // The agent names its OWN session (#490): `podium session title "…"`, a
+      // sync write on the calling session (`sessions/title-sync-write.ts`,
+      // POD-6601). The target is the caller's own session, from the capability;
+      // this arm is the relay adapter onto `submit`.
       if (proc === 'title') {
-        const actorSessionId = capability.actorSessionId
-        if (!actorSessionId) {
-          throw new Error('sessions.title is only callable by a session (no actor bound)')
-        }
-        const raw = (input ?? {}) as Record<string, unknown>
-        const name = raw.name ?? raw.title
-        if (typeof name !== 'string' || name.trim().length === 0) {
-          throw new Error('name is required')
-        }
-        return await Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
+        return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
       }
       // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
       // No id → self-stop (the calling session). Outside subtree needs
       // --outside-scope; self / same-issue siblings / subtree are free.
+      //
+      // BY DESIRED STATE (POD-6422): the arm keeps its scope gates and its
+      // answer, and writes `desired: stopped` through `records.session.edit` as
+      // the agent; the lifecycle controller acts after the commit and the arm
+      // answers with what it did. A self-stop is the agent's own revision, so the
+      // controller parks and frees but leaves the process alive, and the
+      // relay's after-reply hook ends it once this answer is on the wire.
       if (proc === 'stop') {
         return await (async () => {
           const raw = (input ?? {}) as Record<string, unknown>
@@ -549,11 +496,17 @@ export function makeAgentRelayDispatch(
               }
             }
           }
-          const r = await issueSessionLifecycle.stopSession({
+          const { principal } = await sessionCommandCtx(
+            modules(),
+            capability,
+            overrideScope,
+            'relay',
+          )
+          const r = await lifecycleEditsFor(modules(), principal, overrideScope).desire(
             sessionId,
-            force: raw.force === true,
-            selfStop,
-          })
+            'stopped',
+            raw.force === true,
+          )
           if (!r.ok) throw new Error(r.reason ?? 'stop refused')
           return r
         })()
@@ -573,8 +526,11 @@ export function makeAgentRelayDispatch(
       // returns the substrate's dead_letter. Both are POD-379-pinned.
       /**
        * `sessions.handoff` over the relay (POD-1386) — the SAME schema and the
-       * SAME handler the tRPC procedure uses (`modules/sessions/trpc.ts`
-       * `handoffProcedure`), so this arm is transport and nothing else.
+       * SAME adapter the tRPC procedure uses (`modules/sessions/trpc.ts`
+       * `handoffProcedure`), so this arm is transport and nothing else. Since
+       * POD-6422 that adapter creates a `session.handoff` effect record as the
+       * agent and waits for it. LEGACY(remove-after: 2027-03): the CLI's
+       * `podium session handoff` calls this arm.
        *
        * Deliberately NOT hand-validated: parsing with the contract's own
        * `sessionHandoffInput` is what keeps the two transports from drifting,
@@ -594,27 +550,28 @@ export function makeAgentRelayDispatch(
        */
       if (proc === 'handoff') {
         const parsed = sessionHandoffInput.parse(input)
-        return await issueSessionLifecycle.handoffSession(parsed, {
-          capability,
-          principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay')).principal,
-        })
+        const { principal } = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
+        return await handoffThroughEffect(modules(), principal, parsed)
       }
-      if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
-        return await Promise.resolve(
-          dispatchSessionCommand(
-            // `modules` is a getter, not a value: the root fills the
-            // module set around this construction and the closure only
-            // runs per request, long after.
-            await sessionCommandCtx(modules(), capability, overrideScope, 'relay'),
-            proc,
-            input,
-          ),
-        )
+      // `continue` (POD-6416) and the chat sends (POD-6591) are on the sync
+      // write entry point: this arm is their relay adapter, and the agent's
+      // `--outside-scope` rides as the envelope's confirmation. A send's
+      // refusal keeps the plane's words (`planeGateRefusal`).
+      // LEGACY(remove-after: 2027-03): the CLI's `podium session send` (and an
+      // older CLI's `podium session continue`) call it; removing it breaks them.
+      if (proc === 'continue' || proc === 'sendText' || proc === 'resumeAndSend') {
+        const ctx = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
+        return await relaySyncWrite(writeCall, ctx.principal)
       }
       return NO_SUCH_PROCEDURE
     }
     if (router === 'approvals') {
-      if (proc === 'request') return await Promise.resolve(await approvals.request(input))
+      // An agent's approval request is a sync write on the calling session
+      // (`approvals/request-sync-write.ts`, POD-6603); this arm is the relay
+      // adapter onto `submit`. The gate bound the session and machine on.
+      if (proc === 'request') {
+        return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
+      }
       if (proc === 'get') return await Promise.resolve(await approvals.getFromAgent(input))
       return NO_SUCH_PROCEDURE
     }

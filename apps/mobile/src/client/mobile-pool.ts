@@ -131,6 +131,8 @@ const mobilePool = createMobilePool(typeof __DEV__ !== 'undefined' && __DEV__)
 export const attachMobilePool = mobilePool.host.attach
 /** null while the graph attaches. */
 export const useMobilePool = mobilePool.host.usePool
+/** The pool at the moment of an action, without subscribing the caller. */
+export const useMobilePoolNow = mobilePool.host.usePoolNow
 /** Scalar screen reads share the host's tracking and attachment loading state. */
 export function useMobilePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
   return mobilePool.host.usePoolProjection(read, empty, useProjectionFocus())

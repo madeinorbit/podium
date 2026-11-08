@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import {
   classifyCursorIdleTranscript,
   cursorStateProvider,
@@ -83,7 +84,7 @@ describe('cursorStateProvider', () => {
     const events = await cursorStateProvider.bootEvents?.({
       cwd,
       resumeValue: chatId,
-      homeDir: home,
+      account: testAccount('cursor', home),
     })
     expect(events).toEqual([
       {

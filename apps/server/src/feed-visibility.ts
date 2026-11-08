@@ -58,8 +58,10 @@ import type {
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
+import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
+import type { EffectAudience } from './store/effects'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -72,6 +74,9 @@ type BootstrapReadPhase =
   | 'visibility.conversation.findSessionByResumeValue'
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
+  | 'visibility.effect.audiencesOf'
+  | 'visibility.effect.adminIds'
+  | 'visibility.effect.liveOnTargets'
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
   | 'visibility.grants.listForResources'
@@ -108,6 +113,10 @@ type BootstrapVisibilityPrefetch = {
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
   readonly automationRunOwners: ReadonlyMap<string, UserId | undefined>
+  /** Each asked effect's creator and target, through the tombstone (POD-6357). */
+  readonly effectAudiences: ReadonlyMap<string, EffectAudience>
+  /** The admins who can act, read only when an instance-wide effect is asked (POD-6358). */
+  readonly adminIds: ReadonlySet<string>
 }
 
 type IssueDepSubject = {
@@ -122,6 +131,11 @@ type ShipOrderSubject = {
 
 type ShipLaneSubject = {
   entity: 'shipLane'
+  entityId: string
+}
+
+type EffectSubject = {
+  entity: 'effect'
   entityId: string
 }
 
@@ -279,7 +293,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'shipLane' ||
           entity === 'conversation' ||
           entity === 'automation' ||
-          entity === 'automationRun'
+          entity === 'automationRun' ||
+          // A one-shot effect (POD-6357). `personal`: readable by its creator and
+          // by whoever may read its target, the `mayRead` arm below.
+          entity === 'effect'
         )
           return 'personal'
         return null
@@ -357,6 +374,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             prefetch.automationRunIds.has(ref.entityId) &&
             prefetch.automationRunOwners.get(ref.entityId) === userId
           )
+        }
+        if (ref.entity === 'effect') {
+          // Its creator, and the readers of what it acts on. A machine target
+          // admits the creator alone until the machine kinds define more.
+          const audience = prefetch.effectAudiences.get(ref.entityId)
+          if (audience === undefined) return false
+          // An instance-wide effect (a software update, a server move) is every
+          // admin's and no member's, even a member who started it as an admin.
+          if (INSTANCE_EFFECT_KINDS.has(audience.kind)) return prefetch.adminIds.has(userId)
+          if (audience.createdBy === userId) return true
+          if (audience.targetKind === 'issue') {
+            return mayReadIssueFromSnapshot(userId, audience.targetId, prefetch)
+          }
+          if (audience.targetKind === 'session') return maySeeSession(userId, audience.targetId)
+          return false
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         return false
@@ -466,6 +498,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const resumeValues = new Set<string>()
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
+    const effectIds = new Set<string>()
     for (const ref of refs) {
       if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
@@ -507,8 +540,30 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         automationIds.add(ref.entityId)
       } else if (ref.entity === 'automationRun') {
         automationRunIds.add(ref.entityId)
+      } else if (ref.entity === 'effect') {
+        effectIds.add(ref.entityId)
       }
     }
+    // Effects resolve to their targets before the issue, session and grant reads,
+    // for the reason ship orders do (one read for the whole batch).
+    const effectAudiences: ReadonlyMap<string, EffectAudience> =
+      effectIds.size === 0
+        ? new Map()
+        : await measure(
+            'visibility.effect.audiencesOf',
+            async () => await store.effects.audiencesOf([...effectIds]),
+          )
+    for (const audience of effectAudiences.values()) {
+      if (audience.targetKind === 'issue') issueIds.add(audience.targetId)
+      else if (audience.targetKind === 'session') sessionIds.add(audience.targetId)
+    }
+    // A software update or a server move is every admin's (POD-6358): one read
+    // of the admins, and only for a batch that holds one.
+    const adminIds: ReadonlySet<string> = [...effectAudiences.values()].some((audience) =>
+      INSTANCE_EFFECT_KINDS.has(audience.kind),
+    )
+      ? await measure('visibility.effect.adminIds', async () => await store.users.activeAdminIds())
+      : new Set()
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
@@ -615,6 +670,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       automationOwners,
       automationRunIds,
       automationRunOwners,
+      effectAudiences,
+      adminIds,
     })
   }
 
@@ -645,13 +702,20 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    *                   are never deleted and never change issue), then their
    *                   installed rows by key. The issue and the lane come from
    *                   the installed payload, as they always did.
+   *   effects         the live records on the issues and on their sessions,
+   *                   one read of `idx_effects_target` after the sessions are
+   *                   known (POD-6401): an effect is read by whoever reads its
+   *                   target, so it re-scopes with that target's audience.
    */
   const issueEdgeRows = async (issueIds: readonly string[]) => {
     const sessionsByIssue = new Map<string, SessionRow[]>()
     const depsByIssue = new Map<string, IssueDepSubject[]>()
     const ordersByIssue = new Map<string, ShipOrderSubject[]>()
     const lanesByIssue = new Map<string, ShipLaneSubject[]>()
-    if (issueIds.length === 0) return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    const effectsByIssue = new Map<string, EffectSubject[]>()
+    if (issueIds.length === 0) {
+      return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
+    }
     const wanted = new Set(issueIds)
     const [sessionRows, depRows, orderIds] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
@@ -674,12 +738,42 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       subjects.push({ entity: 'issueDep', entityId: row.entityId })
       depsByIssue.set(dep.fromId, subjects)
     }
-    const orderRows =
+    // Each target's issue, and its place in that issue's list: the issue's own
+    // records first, then each session's in session order.
+    const placeOfTarget = new Map<string, { issueId: string; rank: number }>()
+    for (const id of issueIds) placeOfTarget.set(`issue\u0000${id}`, { issueId: id, rank: 0 })
+    for (const [issueId, sessions] of sessionsByIssue) {
+      for (const [index, session] of sessions.entries()) {
+        placeOfTarget.set(`session\u0000${session.id}`, { issueId, rank: index + 1 })
+      }
+    }
+    const [orderRows, effectRows] = await Promise.all([
       orderIds.length === 0
         ? []
-        : await store.sync.installedStates(
+        : store.sync.installedStates(
             orderIds.map((id) => ({ entity: 'shipOrder' as const, entityId: id })),
-          )
+          ),
+      measure(
+        'visibility.effect.liveOnTargets',
+        async () =>
+          await store.effects.liveOnTargets([
+            ...issueIds.map((id) => ({ kind: 'issue', id })),
+            ...[...sessionsByIssue.values()]
+              .flat()
+              .map((session) => ({ kind: 'session', id: session.id })),
+          ]),
+      ),
+    ])
+    const placed = effectRows.flatMap((row) => {
+      const place = placeOfTarget.get(`${row.targetKind}\u0000${row.targetId}`)
+      return place === undefined ? [] : [{ id: row.id, ...place }]
+    })
+    // A stable sort: within one target, the read's oldest-first order stands.
+    for (const { id, issueId } of placed.sort((a, b) => a.rank - b.rank)) {
+      const subjects = effectsByIssue.get(issueId) ?? []
+      subjects.push({ entity: 'effect', entityId: id })
+      effectsByIssue.set(issueId, subjects)
+    }
     for (const row of [...orderRows].sort((a, b) => a.seq - b.seq)) {
       if (row.payload === null) continue
       const payload = parsedPayload(row.payload) as
@@ -715,7 +809,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         lanesByIssue.set(payload.issueId, lanes)
       }
     }
-    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
   }
 
   /**
@@ -882,6 +976,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             // The lanes of its queued orders: a grant can make a lane readable and a
             // revoke can take the last readable order in it away (POD-4974 O2).
             ...(rows.lanesByIssue.get(ref.entityId) ?? []),
+            // Its effect records and its sessions' (POD-6401): a merge's status is
+            // read by whoever reads the issue, so a grant hands it over at once.
+            ...(rows.effectsByIssue.get(ref.entityId) ?? []),
           ],
         }
       })

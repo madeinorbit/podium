@@ -2,8 +2,9 @@ import type { IssueProjection } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../command-principal'
 import type { IssueCaller } from '../modules/issues/command-ctx'
 import type { IssueAttentionCapability } from '../modules/issues/service'
+import type { IssueWriter, WriterRest } from '../modules/issues/service/types'
 
-export type IssueAttachInput = Parameters<IssueAttentionCapability['attachSession']>[0]
+export type IssueAttachInput = WriterRest<IssueAttentionCapability['attachSession']>[0]
 
 export interface IssueAttachOrchestratorPorts {
   transact<T>(work: () => Promise<T>): Promise<T>
@@ -25,11 +26,20 @@ export class IssueAttachOrchestrator {
     const principal = this.transportPrincipal(caller)
     return await this.ports.transact(
       async () =>
-        await this.ports.attention.attachSession({
+        await this.ports.attention.attachSession(this.commandWriter(caller), {
           ...input,
           principal,
         }),
     )
+  }
+
+  /** The attach's own writer: `issues.attachSession` runs on `sync.submit`, whose
+   *  handler hands it the command's writer (POD-6603). There is no other. */
+  private commandWriter(caller: IssueCaller): IssueWriter {
+    if (caller.writer === undefined) {
+      throw new Error('issue attach runs on sync.submit; it has no writer outside a command')
+    }
+    return caller.writer
   }
 
   private transportPrincipal(caller: IssueCaller): Exclude<CommandPrincipal, { kind: 'system' }> {

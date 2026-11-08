@@ -1,0 +1,115 @@
+/**
+ * THE DERIVED INSTANCE SURFACES (POD-314) — `setup`, `auth` and `telemetry`,
+ * three routers over one `InstanceService`.
+ *
+ * The service is constructed PER REQUEST from the state bundle rather than held
+ * as a module singleton, because its one dependency — the telemetry emitter — is
+ * a property of the assembled server and is absent in tests and in the in-process
+ * MCP caller. Constructing it here keeps `telemetry.preview` returning `null`
+ * in exactly the cases it always did.
+ */
+
+import type { ServerReadiness, UserId } from '@podium/model'
+import { definePlainFamily } from '../plain-command/declare'
+import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
+import { type InstanceAccountStore, InstanceService } from './service'
+
+/**
+ * `auth.*` is per-ACCOUNT after POD-1554, so this service takes the users repository
+ * and the caller's id from `FamilyState` — the id `callerUserId(ctx)` already resolved.
+ * `users` is the ONE member FamilyState gained; the caller was always there.
+ */
+const instanceService = (state: {
+  telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
+  users?: InstanceAccountStore | undefined
+  store?: { settings: import('../../store/settings').SettingsRepository }
+  loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  readiness?: (() => ServerReadiness) | undefined
+  requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
+  caller: { userId: UserId }
+  tunnelHealth?: (() => import('@podium/runtime/tunnel-health').TunnelHealth | null) | undefined
+  connect?: { publicUrlChanged(): void; stableLink?(): string | undefined } | undefined
+  modules?:
+    | {
+        bus: import('../bus').EventBus
+        machines: {
+          refreshFleetChannel(): void | Promise<void>
+          grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
+          completeHostSetup(
+            ownerUserId: UserId,
+            agentExecution: boolean,
+            passwordHash?: string,
+          ): Promise<void>
+        }
+        updates: { refreshTarget(channel: string): Promise<unknown> }
+      }
+    | undefined
+}) =>
+  new InstanceService({
+    emitter: state.telemetry?.emitter as never,
+    settings: state.store?.settings,
+    onSettingsChanged: (previous, next) =>
+      state.modules?.bus.emit('settings.changed', { previous, next }),
+    users: state.users,
+    callerUserId: state.caller.userId,
+    loginRequired: state.loginRequired,
+    // POD-2766: `setup.activate` reads readiness live and refuses anything that is
+    // not activation-pending, so the restart cannot become a general bounce lever.
+    readiness: state.readiness,
+    requestCoordinatorRestart: state.requestCoordinatorRestart,
+    // The bottom layer of the transcript-mirroring decision (PDM-26), read per
+    // call so a Settings write shows up without a restart.
+    transcriptMirrorSetting: async () =>
+      (await state.store?.settings.getSettings())?.transcripts.mirror,
+    completeHostSetup: state.modules
+      ? async (actor, agentExecution, passwordHash) =>
+          await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
+      : undefined,
+    // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
+    onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
+    // POD-5921: Settings → Network shows the bookmarkable link beside the address.
+    tunnelHealth: state.tunnelHealth,
+    stableLink: state.connect?.stableLink ? () => state.connect?.stableLink?.() : undefined,
+    // POD-4179: setup.complete records the host machine's grantee.
+    grantHostMachine: state.modules
+      ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)
+      : undefined,
+    // POD-1882: the fleet default is the channel every unpinned machine follows,
+    // so writing it has to re-resolve their targets and push the new projection.
+    onFleetChannelChanged: state.modules
+      ? async (channel) => {
+          // Order matters: load the new channel's target FIRST, then broadcast.
+          // Broadcasting first would ship the new channel with the old target.
+          await state.modules?.updates.refreshTarget(channel)
+          await state.modules?.machines.refreshFleetChannel()
+        }
+      : undefined,
+  })
+
+/** First-run "make this instance reachable" flow (Tailscale-first). The web setup
+ *  screen reaches these instead of importing @podium/runtime/setup directly,
+ *  which would pull node:fs (via ./config) into the browser bundle. */
+export const SETUP_PLAIN_FAMILY = definePlainFamily({
+  family: 'setup',
+  service: instanceService,
+  commands: SETUP_COMMANDS_TRPC,
+})
+
+/** Manage the human-client login password on an already-configured instance.
+ *  These run under the same /trpc guard, so once a password is set you must be
+ *  logged in to reach them; the CURRENT password is ALSO required for a
+ *  change/disable, which defends against a hijacked session. */
+export const AUTH_PLAIN_FAMILY = definePlainFamily({
+  family: 'auth',
+  service: instanceService,
+  commands: AUTH_COMMANDS_TRPC,
+})
+
+/** Telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
+ *  Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
+ *  `podium telemetry off` are the same switch. */
+export const TELEMETRY_PLAIN_FAMILY = definePlainFamily({
+  family: 'telemetry',
+  service: instanceService,
+  commands: TELEMETRY_COMMANDS_TRPC,
+})

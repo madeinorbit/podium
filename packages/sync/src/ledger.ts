@@ -6,7 +6,12 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit, BaselineFoldPort, PostCommitFollowUpPort } from './authority/ports'
+import type {
+  AuthorityCommit,
+  BaselineFoldPort,
+  PostCommitFollowUpPort,
+  ProvenancePort,
+} from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -19,6 +24,7 @@ import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
+import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from './write-scope'
 
 /** This package runs on BOTH hosts (server and client), so the namespace names
  *  the module and the `role` field on every record names the host — no
@@ -89,9 +95,10 @@ const log = createLogger('sync:ledger')
  * Composed from {@link KernelChangeSpec} (`StagedChangeSpec`) rather than
  * restated (POD-1251): the only intentional difference is the target-id key
  * name — this facade still says `id`, the kernel says `entityId`. Provenance
- * remains optional on the kernel shape and is simply unused by current call
- * sites; it is not stripped, so a future writer can pass it without a second
- * type.
+ * (`originId`, `causationId`, `mutationId`) is optional here as on the kernel
+ * shape, and `toKernelSpec` carries it through unchanged (POD-6272; before that
+ * the facade rebuilt every spec from three keys and dropped it). A spec that
+ * names none is stamped by the Authority from {@link LedgerDeps.provenance}.
  *
  * `toKernelSpec` is the ONE place the two spellings meet.
  */
@@ -134,6 +141,9 @@ export interface LedgerDeps {
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
   listenerPrincipal?: Principal
+  /** The command now appending, passed straight to the Authority — see
+   *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
+  provenance?: ProvenancePort
 }
 
 export interface LedgerBootOptions {
@@ -187,7 +197,13 @@ export class AuthorityArbitrationRejected extends Error {
  * decision in the type instead of an omission nobody notices.
  */
 export interface LedgerCommitOp<T> {
-  write: () => Promise<T>
+  /**
+   * The durable write. It receives the commit's {@link WriteScope}, which the
+   * mutating methods of a synced table's repository require (ADR 12 D9,
+   * POD-6594): a synced table is written only here, inside the commit that
+   * appends its change entry, never beside it.
+   */
+  write: (scope: WriteScope) => Promise<T>
   changes: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
@@ -198,6 +214,18 @@ export interface LedgerCommitOp<T> {
 export interface LedgerCommitResult<T> {
   result: T
   changes: MetadataChange[]
+}
+
+/** {@link Ledger.commit}, {@link Ledger.capture} and {@link Ledger.reconcile}
+ *  bound to one {@link WriteScope} ({@link Ledger.writer}). The scope itself is
+ *  not exposed: code holds it only inside a commit's `write`. */
+export interface LedgerWriter {
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
+  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
+  reconcile(
+    entity: MetadataEntityKind,
+    rows: { id: string; value: unknown }[],
+  ): Promise<MetadataChange[]>
 }
 
 export class Ledger {
@@ -216,6 +244,9 @@ export class Ledger {
   private readonly shutdown = new AbortController()
   private pruneFlight: Promise<void> | undefined
   private pruneRerunRequested = false
+  /** Who may write (ADR 12 D9): every commit and capture names a scope this
+   *  issuer handed out. */
+  private readonly scopes = new WriteScopeIssuer()
 
   constructor(private readonly deps: LedgerDeps) {
     this.authority = new Authority({
@@ -223,6 +254,7 @@ export class Ledger {
       now: deps.now,
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
+      ...(deps.provenance === undefined ? {} : { provenance: deps.provenance }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
@@ -323,10 +355,11 @@ export class Ledger {
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
    */
-  async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+  async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+    this.scopes.check(scope)
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
-      write: op.write,
+      write: async () => await op.write(scope),
       changes: async (result: T) => (await op.changes(result)).map(toKernelSpec),
     })
     if (outcome.outcome !== 'committed') {
@@ -348,11 +381,21 @@ export class Ledger {
   }
 
   /**
+   * THE MINT (ADR 12 D9, POD-6592), handed out once, to the composition root:
+   * the sync write entry point gets its `sync` half, the server's declared
+   * write origins their `system` scopes. Nothing else can make a scope.
+   */
+  takeScopeMint(): WriteScopeMint {
+    return this.scopes.takeMint()
+  }
+
+  /**
    * Capture an explicitly owned mutation with no durable entity-row write to bind
    * to (volatile session view state, an upstream mirror). The caller supplies the
    * exact upserts/removes; this never diffs a full list.
    */
-  async capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
+  async capture(scope: WriteScope, specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
+    this.scopes.check(scope)
     return (await this.authority.capture(specs.map(toKernelSpec))).map(toWireChange)
   }
 
@@ -362,8 +405,27 @@ export class Ledger {
    * diff path — so changes made while the server was down land in the log before
    * the first client reads it.
    */
-  async reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): Promise<MetadataChange[]> {
+  async reconcile(
+    scope: WriteScope,
+    entity: MetadataEntityKind,
+    rows: { id: string; value: unknown }[],
+  ): Promise<MetadataChange[]> {
+    this.scopes.check(scope)
     return (await this.authority.reconcile(entity, rows)).map(toWireChange)
+  }
+
+  /**
+   * The three writes bound to one scope: what a write context hands a handler
+   * or a service, so the scope is chosen once, where the context is made, and
+   * not at every call. Checked here, so a foreign scope fails at binding.
+   */
+  writer(scope: WriteScope): LedgerWriter {
+    this.scopes.check(scope)
+    return {
+      commit: async (op) => await this.commit(scope, op),
+      capture: async (specs) => await this.capture(scope, specs),
+      reconcile: async (entity, rows) => await this.reconcile(scope, entity, rows),
+    }
   }
 
   /** Catch-up read for `sync.changesSince` — null means "fall back to a
@@ -448,8 +510,9 @@ export class Ledger {
 /** This facade's `id` spelling → the kernel's `entityId`. The ONE place the two
  *  vocabularies meet, so the rename POD-306/POD-308 finish is one deletion. */
 function toKernelSpec(spec: EntityChangeSpec): KernelChangeSpec {
-  const base = { entity: spec.entity, entityId: spec.id, op: spec.op }
-  return spec.op === 'upsert' ? { ...base, value: spec.value } : base
+  const { id, value, ...rest } = spec
+  const base = { ...rest, entityId: id }
+  return spec.op === 'upsert' ? { ...base, value } : base
 }
 
 /** The kernel's sequenced change → the pre-cutover wire row. */

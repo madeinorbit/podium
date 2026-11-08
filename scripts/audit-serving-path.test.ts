@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { feedTestPlumbing } from '../apps/server/src/gateway/feed-test-plumbing'
 import { WriteFunnel } from '../apps/server/src/modules/funnel'
@@ -41,7 +42,7 @@ describe('the shipped objects have one serving tail', () => {
 
   it('a REAL edge grants HTTP resume without constructing a pushed world', async () => {
     const plumbing = await feedTestPlumbing()
-    await plumbing.ledger.commit({
+    await testLedgerWriter(plumbing.ledger).commit({
       write: async () => {},
       changes: () => [{ entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
     })

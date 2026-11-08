@@ -53,7 +53,7 @@ describe('issue tracker capability composition', () => {
     expect(new Set(capabilities.map((capability) => capability.store)).size).toBe(1)
 
     expect(await tracker.reports.list()).toEqual([])
-    const created = await tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
+    const created = await tracker.crud.create(tracker.reports.store.serverWriter, { repoPath: '/repo', title: 'one store', startNow: false })
     expect((await tracker.reports.get(created.id))?.title).toBe('one store')
     await deps.store.close()
   })

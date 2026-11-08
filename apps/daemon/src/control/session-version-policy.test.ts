@@ -19,6 +19,11 @@ import { testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, reportHarnessVersionDiagnostic } from './session'
 
+/** The installation each probe answers for (POD-6546: verdicts are cached per
+ *  installation, and the injected probe below ignores which one admission
+ *  passes). */
+const TEST_INSTALLATION = { executable: '/opt/rig/bin/harness', version: '', generation: 0 }
+
 const cases = [
   {
     harness: 'codex',
@@ -99,7 +104,11 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
         : scenario === 'timeout'
           ? 'probe timed out'
           : 'changed banner'
-    const probe = () => row.probe(() => ({ output, ok: scenario !== 'timeout' }))
+    const probe = () =>
+      row.probe(TEST_INSTALLATION, {
+        env: {},
+        probe: () => ({ output, ok: scenario !== 'timeout' }),
+      })
     for (let index = 0; index < 2; index += 1) {
       await launchServerDriverSession(
         ctx,
@@ -148,7 +157,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
         geometry: { cols: 80, rows: 24 },
         requestedDriverId: row.driver,
       } as never,
-      () => row.probe(() => ({ output: row.old, ok: true })),
+      () => row.probe(TEST_INSTALLATION, { env: {}, probe: () => ({ output: row.old, ok: true }) }),
     )
     expect(create).not.toHaveBeenCalled()
     expect(sent).toContainEqual(

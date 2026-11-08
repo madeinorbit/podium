@@ -89,8 +89,11 @@ export const agentProfileCommandsOn = (transport: TransportTag): AgentProfileCom
 export const agentProfileRegistryClassificationErrors = (): string[] =>
   registryClassificationErrors(Object.values(AGENT_PROFILE_COMMANDS_TRPC).map((c) => c.contract))
 
-/** The service plus WHO is asking — identity only, no capability. */
-export function selectAgentProfileState(state: FamilyState): AgentProfileState {
+/** The service plus WHO is asking — identity only, no capability. Selected from
+ *  the part of the family bundle a sync write has (`SyncFamilyState`). */
+export function selectAgentProfileState(
+  state: Pick<FamilyState, 'modules' | 'caller'>,
+): AgentProfileState {
   return {
     profiles: state.modules.agentProfiles,
     caller: { userId: state.caller.userId, actorSessionId: state.caller.actorSessionId ?? null },

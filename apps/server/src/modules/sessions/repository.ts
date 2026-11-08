@@ -1,6 +1,12 @@
-import { bootStage } from '../../boot-timing'
-import type { IssueId, MachineId, SessionId, SessionMeta, SessionUserStateWire } from '@podium/model'
+import type {
+  IssueId,
+  MachineId,
+  SessionId,
+  SessionMeta,
+  SessionUserStateWire,
+} from '@podium/model'
 import { sessionUserStateRowId } from '@podium/model'
+import { bootStage } from '../../boot-timing'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -21,6 +27,7 @@ export type SessionWirePrincipal = SessionStatePrincipal
 import { firstAdminMemberId } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import type { WriteScope } from '@podium/sync'
 import { type BaselineFoldPort, type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
@@ -28,7 +35,10 @@ import type { SessionRow, SessionStore } from '../../store'
 import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import type { SessionLedger } from './lifecycle'
+import type { SessionLedger, SessionWriter } from './lifecycle'
+
+/** A write that lands inside a session commit, with the commit's scope. */
+export type SessionAdditionalWrite = (scope: WriteScope) => void | Promise<void>
 export interface SessionProjectionEvent {
   generation: number
   changes: MetadataChange[]
@@ -37,12 +47,12 @@ export interface SessionProjectionEvent {
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from '@podium/logger'
+import { isResident, type SessionRecordReads, type SessionSubject } from './records'
+import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import { applyRuntimeTurnStateTo, markConversationBound, storedSessionInit } from './session-record'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
-import { isResident, type SessionRecordReads, type SessionSubject } from './records'
 import { type SessionView, wireRecord } from './view'
-import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
 
@@ -93,7 +103,16 @@ export interface SessionRepositoryPorts {
   sessions: Map<SessionId, Session>
   store: SessionStore
   memory: Pick<MemoryService, 'conversationPodiumId'>
-  ledger: SessionLedger
+  /**
+   * THE REPOSITORY'S OWN WRITERS (ADR 12 D9, POD-6601). Every other write is
+   * made with the writer its caller passes: the command's, or the named origin
+   * of the daemon report or server job that asked.
+   *
+   *  - `live`: the live fields (activity, terminal state) captured to the feed,
+   *    and the activity flush (`sessions.live`).
+   *  - `boot`: the boot reconcile and the boot restores (`boot.reconcile`).
+   */
+  writers: { live: SessionWriter; boot: SessionLedger }
   /**
    * Where the committed durable baseline waits for the OUTERMOST commit
    * [POD-3361, spec §3.3 mechanism 1] — the same port and the same seam
@@ -129,7 +148,11 @@ export interface SessionRepositoryPorts {
   /** Sessions read by a durable key, parked ones from the database (POD-6160). */
   records?: Pick<SessionRecordReads, 'referencingIssues'>
   /** Run `fn` with a session resident, restored from its row when parked. */
-  withSession?<T>(sessionId: SessionId, reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
+  withSession?<T>(
+    sessionId: SessionId,
+    reason: string,
+    fn: (session: Session | undefined) => Promise<T>,
+  ): Promise<T>
 }
 
 export class SessionRepository {
@@ -248,7 +271,10 @@ export class SessionRepository {
   private readonly replayingTranscripts = new Map<SessionId, Promise<void>>()
   private readonly liveInstalls = new Map<
     SessionId,
-    { registration: ReturnType<BaselineFoldPort['onCommit']>; fields: readonly (keyof SessionDurableState)[] }[]
+    {
+      registration: ReturnType<BaselineFoldPort['onCommit']>
+      fields: readonly (keyof SessionDurableState)[]
+    }[]
   >()
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
@@ -304,7 +330,8 @@ export class SessionRepository {
     if (!baseline) return
     const fields = new Set(dead.flatMap((install) => install.fields))
     const repaired = { ...session.captureDurableState() } as Record<string, unknown>
-    for (const field of fields) repaired[field] = (baseline as unknown as Record<string, unknown>)[field]
+    for (const field of fields)
+      repaired[field] = (baseline as unknown as Record<string, unknown>)[field]
     session.restoreDurableState(
       repaired as unknown as SessionDurableState,
       this.pendingVolatileSessions.get(session.sessionId)?.preserve,
@@ -326,7 +353,8 @@ export class SessionRepository {
     if (!fold?.spanOpen()) return
     const fields = (Object.keys(installed) as (keyof SessionDurableState)[]).filter(
       (field) =>
-        !preserved?.has(field) && JSON.stringify(installed[field]) !== JSON.stringify(before?.[field]),
+        !preserved?.has(field) &&
+        JSON.stringify(installed[field]) !== JSON.stringify(before?.[field]),
     )
     if (fields.length === 0) return
     const entry = {
@@ -408,7 +436,7 @@ export class SessionRepository {
     issueRelevant = true,
   ): Promise<MetadataChange[]> {
     if (specs.length === 0) return []
-    const changes = await this.ports.ledger.capture(specs)
+    const changes = await this.ports.writers.live.capture(specs)
     this.publishSessionProjection(changes, undefined, issueRelevant)
     return changes
   }
@@ -582,16 +610,21 @@ export class SessionRepository {
 
   /** Rare birth-ref repairs declare affected session rows inside the issue
    * repair's commit. Reattached sessions still follow their birth issue. */
-  async captureReferenceChanges(issueIds: readonly IssueId[]): Promise<void> {
+  async captureReferenceChanges(
+    writer: SessionWriter,
+    issueIds: readonly IssueId[],
+  ): Promise<void> {
     const affected = new Set(issueIds)
     // The sessions whose birth ref names one of these issues, parked ones read
     // from the database (POD-6160).
     const sessions: SessionSubject[] = this.ports.records
       ? await this.ports.records.referencingIssues(issueIds, 'captureReferenceChanges')
-      : [...this.sessions.values()].filter((session) => session.refIssueId && affected.has(session.refIssueId))
+      : [...this.sessions.values()].filter(
+          (session) => session.refIssueId && affected.has(session.refIssueId),
+        )
     if (sessions.length === 0) return
     const pass = await this.view.buildProjectionPass(sessions)
-    await this.ports.ledger.capture(
+    await writer.capture(
       sessions.map((session) => ({
         entity: 'session',
         id: session.sessionId,
@@ -600,7 +633,6 @@ export class SessionRepository {
       })),
     )
   }
-
 
   /**
    * Queue one session's durable writes so a sibling cannot cut or persist
@@ -626,7 +658,10 @@ export class SessionRepository {
    * finishes. The nested write's scope keeps the caller's sessions for the
    * same reason, so a write nested inside it re-enters rather than waiting.
    */
-  private enqueueSessionsWrite<T>(sessionIds: readonly SessionId[], fn: () => Promise<T>): Promise<T> {
+  private enqueueSessionsWrite<T>(
+    sessionIds: readonly SessionId[],
+    fn: () => Promise<T>,
+  ): Promise<T> {
     const held = this.sessionWriteScope.getStore()
     const queued = held ? sessionIds.filter((id) => !held.has(id)) : sessionIds
     if (queued.length === 0) return fn()
@@ -686,8 +721,9 @@ export class SessionRepository {
    * authoritative recency delta clients order the sidebar by.
    */
   async persist(
+    writer: SessionWriter,
     session: Session,
-    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalWrite: SessionAdditionalWrite = async () => {},
     additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
     // NOTHING DURABLE CHANGED, so the draft is the live state [POD-3330]. This
@@ -704,6 +740,7 @@ export class SessionRepository {
     await this.enqueueSessionWrite(session.sessionId, () => {
       this.repairRolledBack(session)
       return this.persistDraftUnlocked(
+        writer,
         session,
         session.captureDurableState(),
         additionalWrite,
@@ -745,36 +782,44 @@ export class SessionRepository {
    * `write` sees this install rather than the snapshot it was cut from.
    */
   async write(
+    writer: SessionWriter,
     session: Session,
     mutate: (draft: SessionDurableState) => void | (() => void | Promise<void>),
-    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalWrite: SessionAdditionalWrite = async () => {},
   ): Promise<void> {
     await this.enqueueSessionWrite(session.sessionId, async () => {
       const draft = this.draft(session)
       const extra = mutate(draft)
-      await this.persistDraftUnlocked(session, draft, extra ?? additionalWrite)
+      await this.persistDraftUnlocked(writer, session, draft, extra ?? additionalWrite)
     })
   }
 
   /** {@link write} for a draft the caller already holds. */
   async persistDraft(
+    writer: SessionWriter,
     session: Session,
     draft: SessionDurableState,
-    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalWrite: SessionAdditionalWrite = async () => {},
   ): Promise<void> {
     await this.enqueueSessionWrite(session.sessionId, () =>
-      this.persistDraftUnlocked(session, draft, additionalWrite),
+      this.persistDraftUnlocked(writer, session, draft, additionalWrite),
     )
   }
 
   /** {@link persistDraft} once this session's write turn is held. */
   private async persistDraftUnlocked(
+    writer: SessionWriter,
     session: Session,
     draft: SessionDurableState,
-    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalWrite: SessionAdditionalWrite = async () => {},
     additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
-    await this.persistDraftsUnlocked([{ session, draft }], additionalWrite, additionalChanges)
+    await this.persistDraftsUnlocked(
+      writer,
+      [{ session, draft }],
+      additionalWrite,
+      additionalChanges,
+    )
   }
 
   /**
@@ -787,12 +832,15 @@ export class SessionRepository {
    * failure restores its own session.
    */
   private async persistDraftsUnlocked(
+    writer: SessionWriter,
     entries: readonly { session: Session; draft: SessionDurableState }[],
-    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalWrite: SessionAdditionalWrite = async () => {},
     additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
     if (entries.length === 0) return
-    const pending = entries.map(({ session }) => this.pendingVolatileSessions.get(session.sessionId))
+    const pending = entries.map(({ session }) =>
+      this.pendingVolatileSessions.get(session.sessionId),
+    )
     // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330], overlayed
     // onto live for fields it did not change [POD-3720]. The row and the
     // declared change are projected from that resolved bag rather than from
@@ -807,21 +855,26 @@ export class SessionRepository {
     let toPersist = entries.map(({ draft }) => draft)
     let changes: MetadataChange[]
     try {
-      const committed = await this.ports.ledger.commit({
-        write: async () => {
-          await additionalWrite()
+      const committed = await writer.commit({
+        write: async (scope) => {
+          await additionalWrite(scope)
           // AFTER additionalWrite: D-txn sites assign into `draft` inside the
           // span. AFTER the previous sibling has installed, because this body
           // runs on the per-session turn [POD-3720].
-          toPersist = entries.map(({ session, draft }) => this.resolvePersistedDraft(session, draft))
+          toPersist = entries.map(({ session, draft }) =>
+            this.resolvePersistedDraft(session, draft),
+          )
           const rows = entries.map(({ session }, index) => session.toRow(toPersist[index]!))
-          if (rows.length === 1) await this.store.sessions.upsertSession(rows[0]!)
-          else await this.store.sessions.upsertSessions(rows)
+          if (rows.length === 1) await this.store.sessions.upsertSession(scope, rows[0]!)
+          else await this.store.sessions.upsertSessions(scope, rows)
         },
         changes: async () => {
           const extra = await additionalChanges()
           const pass = await this.view.buildProjectionPass(
-            entries.map(({ session }, index) => ({ ...toPersist[index]!, sessionId: session.sessionId })),
+            entries.map(({ session }, index) => ({
+              ...toPersist[index]!,
+              sessionId: session.sessionId,
+            })),
           )
           const specs = [...extra]
           for (const [index, { session }] of entries.entries()) {
@@ -883,8 +936,14 @@ export class SessionRepository {
           cwd: session.cwd,
         })
       }
-      const preserved = raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined
-      this.trackLiveInstall(session.sessionId, this.durableBaselineFor(session.sessionId), persisted, preserved)
+      const preserved =
+        raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined
+      this.trackLiveInstall(
+        session.sessionId,
+        this.durableBaselineFor(session.sessionId),
+        persisted,
+        preserved,
+      )
       session.installDurableState(persisted, preserved)
       this.commitDurableBaseline(session.sessionId, persisted)
     })
@@ -903,7 +962,10 @@ export class SessionRepository {
    * written stays unwritten; it would otherwise fail every tick for every
    * session. Returns the sessions that failed, with their errors.
    */
-  async persistBatch(sessions: readonly Session[]): Promise<Map<SessionId, unknown>> {
+  async persistBatch(
+    writer: SessionWriter,
+    sessions: readonly Session[],
+  ): Promise<Map<SessionId, unknown>> {
     const failed = new Map<SessionId, unknown>()
     if (sessions.length === 0) return failed
     try {
@@ -911,6 +973,7 @@ export class SessionRepository {
         sessions.map((session) => session.sessionId),
         () =>
           this.persistDraftsUnlocked(
+            writer,
             sessions.map((session) => ({ session, draft: session.captureDurableState() })),
           ),
       )
@@ -929,7 +992,7 @@ export class SessionRepository {
     }
     for (const session of sessions) {
       try {
-        await this.persist(session)
+        await this.persist(writer, session)
       } catch (err) {
         log.error('session write failed', { sessionId: session.sessionId, err })
         failed.set(session.sessionId, err)
@@ -944,7 +1007,7 @@ export class SessionRepository {
    *  silently, which is exactly what the branch merge would have shipped. */
   async persistActivityIfWritable(session: Session): Promise<boolean> {
     if (this.store.transferFenceActive) return false
-    await this.persist(session)
+    await this.persist(this.ports.writers.live, session)
     return true
   }
 
@@ -969,7 +1032,10 @@ export class SessionRepository {
         due.push({ session, version: this.dirtyActivitySessions.get(sessionId) })
       }
       if (due.length === 0 || this.store.transferFenceActive) return
-      const failed = await this.persistBatch(due.map(({ session }) => session))
+      const failed = await this.persistBatch(
+        this.ports.writers.live,
+        due.map(({ session }) => session),
+      )
       for (const { session, version } of due) {
         if (failed.has(session.sessionId)) continue
         if (this.dirtyActivitySessions.get(session.sessionId) === version) {
@@ -986,12 +1052,12 @@ export class SessionRepository {
   /** Materialize one persisted row without exposing it until the caller installs it.
    *  Restored tombstones always come back as exited: deletion killed their runtime,
    *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
-  async sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore', hasRuntimeTranscript = true): Promise<Session | null> {
-    const init = storedSessionInit(
-      r,
-      mode,
-      r.ownerUserId ?? (await firstAdminMemberId(this.store)),
-    )
+  async sessionFromStoredRow(
+    r: SessionRow,
+    mode: 'boot' | 'restore',
+    hasRuntimeTranscript = true,
+  ): Promise<Session | null> {
+    const init = storedSessionInit(r, mode, r.ownerUserId ?? (await firstAdminMemberId(this.store)))
     if (!init) {
       log.warn('skipping a persisted session with an invalid agentKind', {
         sessionId: r.id,
@@ -1031,11 +1097,12 @@ export class SessionRepository {
 
   /** Apply a session's stored runtime transcript items to its terminal. */
   private async replayRuntimeTranscript(session: Session): Promise<void> {
-    const events = (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId)) ?? []
+    const events =
+      (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId)) ?? []
     const lastReset = events.findLastIndex((event) => event.t === 'transcript-reset')
-    const items = events.slice(Math.max(0, lastReset)).flatMap(
-      (event) => runtimeTranscriptDeltaFromEvent(event)?.items ?? [],
-    )
+    const items = events
+      .slice(Math.max(0, lastReset))
+      .flatMap((event) => runtimeTranscriptDeltaFromEvent(event)?.items ?? [])
     if (items.length > 0 || lastReset >= 0) {
       session.terminal.applyRuntimeDelta(items, { reset: lastReset >= 0 })
     }
@@ -1074,7 +1141,7 @@ export class SessionRepository {
   async prepareStoredSessionInstall(
     session: Session,
     offers: Awaited<ReturnType<SessionStore['sessions']['listOffers']>>,
-  ): Promise<{ write(): Promise<void>; apply(): void }> {
+  ): Promise<{ writes: boolean; write(scope: WriteScope): Promise<void>; apply(): void }> {
     const offer = offers[session.sessionId]
     const staleOffer = !!offer && session.terminal.lastInputAtMs > Date.parse(offer.createdAt)
     session.offer = staleOffer ? undefined : offer
@@ -1086,8 +1153,9 @@ export class SessionRepository {
       )
     }
     return {
-      write: async () => {
-        if (staleOffer) await this.store.sessions.clearOffer(session.sessionId)
+      writes: staleOffer,
+      write: async (scope: WriteScope) => {
+        if (staleOffer) await this.store.sessions.clearOffer(scope, session.sessionId)
       },
       apply: () => {
         this.registerSession(session)
@@ -1102,7 +1170,13 @@ export class SessionRepository {
     offers: Awaited<ReturnType<SessionStore['sessions']['listOffers']>>,
   ): Promise<void> {
     const install = await this.prepareStoredSessionInstall(session, offers)
-    await install.write()
+    // Only a stale offer is written: the boot's own account, in one commit.
+    if (install.writes) {
+      await this.ports.writers.boot.commit({
+        write: async (scope) => await install.write(scope),
+        changes: () => [],
+      })
+    }
     install.apply()
   }
 
@@ -1168,12 +1242,22 @@ export class SessionRepository {
   async backfillBirthRefs(): Promise<void> {
     const places = await this.store.repos.prefixedPlaces()
     // Logged so a deployment shows whether the fallback ever runs.
-    if (places === 'everywhere') log.info('boot ref backfill reads every ref-less session: a repo prefix no registered root explains')
-    const candidates = places === 'everywhere'
-      ? await this.store.sessions.sessionsWithoutRef()
-      : await this.store.sessions.refBackfillCandidates(places)
+    if (places === 'everywhere')
+      log.info(
+        'boot ref backfill reads every ref-less session: a repo prefix no registered root explains',
+      )
+    const candidates =
+      places === 'everywhere'
+        ? await this.store.sessions.sessionsWithoutRef()
+        : await this.store.sessions.refBackfillCandidates(places)
     for (const row of candidates) {
-      const probe = { refIssueId: null, refDraft: null, issueId: row.issueId ?? undefined, cwd: row.cwd, machineId: row.machineId }
+      const probe = {
+        refIssueId: null,
+        refDraft: null,
+        issueId: row.issueId ?? undefined,
+        cwd: row.cwd,
+        machineId: row.machineId,
+      }
       if (!(await this.view.prepareRefAllocation(probe as unknown as SessionDurableState))) continue
       const allocate = async (session: Session | undefined) => {
         if (!session) return
@@ -1181,7 +1265,8 @@ export class SessionRepository {
         // transaction, so it has to assign into the state `toRow` reads.
         const draft = this.draft(session)
         const additionalWrite = await this.view.prepareRefAllocation(draft)
-        if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
+        if (additionalWrite)
+          await this.persistDraft(this.ports.writers.boot, session, draft, additionalWrite)
       }
       const resident = this.sessions.get(row.id)
       if (resident || !this.ports.withSession) await allocate(resident)
@@ -1202,7 +1287,11 @@ export class SessionRepository {
     // The running rows, and every headless one: a headless session is resident
     // for as long as its row exists (its thread is driven turn by turn, and a
     // failed establish, which marks it exited, is retried on machine attach).
-    const running = await this.store.sessions.sessionsWithStatuses(['starting', 'live', 'reconnecting'])
+    const running = await this.store.sessions.sessionsWithStatuses([
+      'starting',
+      'live',
+      'reconnecting',
+    ])
     const runningIds = new Set(running.map((r) => r.id))
     const storedRows = [
       ...running,
@@ -1253,9 +1342,13 @@ export class SessionRepository {
       }
       const turnState = runtimeTurnStates.get(r.id)
       if (turnState) applyRuntimeTurnStateTo(session, turnState)
-      if (r.status !== session.status) await this.persist(session)
+      if (r.status !== session.status) await this.persist(this.ports.writers.boot, session)
     }
-    log.info('boot session recovery breakdown', { sessions: storedRows.length, rowReadMs, installMs })
+    log.info('boot session recovery breakdown', {
+      sessions: storedRows.length,
+      rowReadMs,
+      installMs,
+    })
     bootStage('sessions row recovery', rowsStarted)
     const baselineStarted = performance.now()
     await this.backfillBirthRefs()
@@ -1291,7 +1384,7 @@ export class SessionRepository {
     const sessions = await this.listSessionsForBootBaseline()
     bootStage('sessions baseline listing', listStarted)
     const reconcileStarted = performance.now()
-    const recovered = await this.ports.ledger.reconcile(
+    const recovered = await this.ports.writers.boot.reconcile(
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
@@ -1303,7 +1396,8 @@ export class SessionRepository {
       (await this.store.users.list()).filter((user) => !user.disabledAt).map((user) => user.id),
     )
     const stateRows = await this.store.sessions.listSessionUserStateRows(undefined, this.now())
-    const priors = ((await this.ports.ledger.authority?.snapshot('sessionUserState')) ?? []) as SessionUserStateWire[]
+    const priors = ((await this.ports.writers.boot.authority?.snapshot('sessionUserState')) ??
+      []) as SessionUserStateWire[]
     // The sessions that still exist, read from the table (POD-6160: a parked
     // session is not in memory).
     const named = await this.store.sessions.getSessions([
@@ -1320,7 +1414,7 @@ export class SessionRepository {
       if (!markers.has(id) && live.has(prior.sessionId) && activeUsers.has(prior.userId))
         markers.set(id, { userId: prior.userId, sessionId: prior.sessionId, readAt: null })
     }
-    await this.ports.ledger.reconcile(
+    await this.ports.writers.boot.reconcile(
       'sessionUserState',
       [...markers].map(([id, value]) => ({ id, value })),
     )

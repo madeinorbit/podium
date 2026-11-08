@@ -65,7 +65,8 @@
         "$TURBO_ROOT$/packages/working-mark/src/**",
         "$TURBO_ROOT$/scripts/archive-web-sourcemaps.ts",
         "$TURBO_ROOT$/scripts/precompress-dist.ts",
-        "$TURBO_ROOT$/scripts/web-bundle-budget.ts",
+        "$TURBO_ROOT$/scripts/web-bundle-correctness.ts",
+        "$TURBO_ROOT$/scripts/web-bundle-duplicates.ts",
         "$TURBO_ROOT$/apps/web/test/web-bundle-boundaries.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
       ],

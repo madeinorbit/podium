@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { StatTick } from '@podium/harness/store'
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/durable'
@@ -26,9 +27,9 @@ vi.mock('../../../packages/harness/src/adapters/codex/owned-rollout.js', async (
         platform: 'darwin',
         inspect: async (command, args) => {
           os.calls++
-          if (command === '/bin/ps') return `${args[1]} 1 ${os.started}\n`
-          if (command === '/usr/bin/pgrep') return ''
-          if (command === '/usr/sbin/lsof')
+          if (command === 'ps') return `${args[1]} 1 ${os.started}\n`
+          if (command === 'pgrep') return ''
+          if (command === 'lsof')
             return (
               `p${args[3]}\0\n` +
               (os.paths.get(Number(args[3])) ?? []).map((path, i) => `f${i}\0n${path}\0\n`).join('')
@@ -58,6 +59,7 @@ async function setup(reattach: boolean, redirected = false, untrusted = false) {
   await mkdir(sessions, { recursive: true })
   if (untrusted) {
     const installed = await ensurePodiumCodexHooks({
+      homeDir: dirname(nativeHome),
       codexHome: nativeHome,
       verifiedVersion: 'codex-cli 0.162.0',
     })
@@ -130,7 +132,13 @@ async function setup(reattach: boolean, redirected = false, untrusted = false) {
     {
       seedOnFrame: false,
       ...(reattach ? {} : { startedAtMs: now }),
-      ...(redirected ? { env: { CODEX_HOME: nativeHome } } : {}),
+      // The session's pinned context names its Codex folder; a redirected
+      // session's context points CODEX_HOME at the account folder.
+      harnessContext: testHarnessContext({
+        kind: 'codex',
+        home,
+        ...(redirected ? { env: { CODEX_HOME: nativeHome } } : {}),
+      }),
     },
   )
   async function rollout(text: string) {
@@ -140,7 +148,9 @@ async function setup(reattach: boolean, redirected = false, untrusted = false) {
       {
         type: 'session_meta',
         payload: {
-          id, cwd: '/same/repo', source: 'cli',
+          id,
+          cwd: '/same/repo',
+          source: 'cli',
           timestamp: new Date(originalStartedAt).toISOString(),
         },
       },
@@ -211,7 +221,10 @@ describe('hookless owned Codex transcript flow', () => {
     { scenario: 'fresh without hooks', reattach: false, untrusted: false },
     { scenario: 'fresh with untrusted hooks', reattach: false, untrusted: true },
     { scenario: 'surviving 0.3.0 session', reattach: true, untrusted: false },
-  ])('recovers $scenario and streams after acknowledged binding', async ({ reattach, untrusted }) => {
+  ])('recovers $scenario and streams after acknowledged binding', async ({
+    reattach,
+    untrusted,
+  }) => {
     const f = await setup(reattach, false, untrusted)
     const own = await f.rollout('original history')
     os.paths.set(101, [own.path])

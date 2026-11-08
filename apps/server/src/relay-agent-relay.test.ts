@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
@@ -28,7 +28,10 @@ function attachRelayDaemon(
   machineId: string,
   transport: (msg: ControlMessage) => void,
 ): Promise<void> {
-  return registry.gateway.attachDaemon(machineId, confirmingRetirement(registry, machineId, transport))
+  return registry.gateway.attachDaemon(
+    machineId,
+    confirmingRetirement(registry, machineId, transport),
+  )
 }
 
 // Capture the agentRelayResult the registry sends back to a machine. attachDaemon registers
@@ -90,10 +93,20 @@ describe('server agent relay handler (P1b)', () => {
     await attachRelayDaemon(registry, machineId, () => {})
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)
-    A = await registry.issues.crud.create({ repoPath, title: 'epic root', startNow: false })
-    await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'epic root',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-1-a',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
-    B = await registry.issues.crud.create({ repoPath, title: 'unrelated', startNow: false })
+    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'unrelated',
+      startNow: false,
+    })
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
@@ -125,7 +138,7 @@ describe('server agent relay handler (P1b)', () => {
    */
   it('flags an offer headline that names the agent own issue, and stays silent otherwise', async () => {
     const ownRef = await registry.issues.reports.niceRef(
-      await registry.issues.reports.get(A.id) as { repoPath: string; seq: number },
+      (await registry.issues.reports.get(A.id)) as { repoPath: string; seq: number },
     )
     const setOffer = async (requestId: string, message: string) => {
       const reply = captureReply(registry, machineId)
@@ -171,14 +184,16 @@ describe('server agent relay handler (P1b)', () => {
       return await reply
     }
     const offerOf = async () =>
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sA)?.offer
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sA,
+      )?.offer
 
     const before = await setOffer('ir-offer-open')
     expect((before.result as { retired?: boolean }).retired).toBeUndefined()
     expect((await offerOf())?.message).toBe('Merged and closed — next?')
 
     // The close sweep takes the standing offer with it (POD-290) …
-    await registry.issues.crud.close(A.id)
+    await registry.issues.crud.close(registry.issues.reports.store.serverWriter, A.id)
     expect(await offerOf()).toBeUndefined()
 
     // … and the one posted afterwards never lands at all.
@@ -196,20 +211,26 @@ describe('server agent relay handler (P1b)', () => {
    * command to ask it with; the coordinator itself, with nobody above, may offer.
    */
   it('refuses an offer from a session below a coordinator and names where to ask', async () => {
-    const child = await registry.issues.crud.create({
+    const child = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath,
       title: 'phase child',
       startNow: false,
       parentId: asIssueId(A.id),
     })
-    await registry.issues.crud.update(child.id, { worktreePath: '/r/.worktrees/issue-2-child' })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, child.id, {
+      worktreePath: '/r/.worktrees/issue-2-child',
+    })
     const sChild = (
       await registry.modules.sessions.createSession({
         cwd: '/r/.worktrees/issue-2-child',
         agentKind: 'shell',
       })
     ).sessionId
-    await registry.issues.crud.setCoordinator(A.id, asSessionId(sA))
+    await registry.issues.crud.setCoordinator(
+      registry.issues.reports.store.serverWriter,
+      A.id,
+      asSessionId(sA),
+    )
     const ref = await registry.issues.reports.niceRef(
       (await registry.issues.reports.get(A.id)) as { repoPath: string; seq: number },
     )
@@ -229,10 +250,46 @@ describe('server agent relay handler (P1b)', () => {
     const below = await setOffer('ir-offer-below', sChild)
     expect(below.ok).toBe(false)
     expect(below.error).toContain(`coordinator of ${ref}`)
-    expect(below.error).toContain(`podium mail send --to ${ref} --body "…" --expect-response --outside-scope`)
+    expect(below.error).toContain(
+      `podium mail send --to ${ref} --body "…" --expect-response --outside-scope`,
+    )
 
     const top = await setOffer('ir-offer-top', sA)
     expect(top.ok).toBe(true)
+  })
+
+  it('an agent merge through the relay runs as an effect record, as that agent (POD-6394)', async () => {
+    const wf = registry.modules.issues.gitWorkflow
+    const issue = await wf.projectionNow(A.id)
+    const landed = vi.spyOn(wf, 'branchLanded').mockResolvedValue(false)
+    const action = vi
+      .spyOn(wf, 'action')
+      .mockResolvedValue({ ok: true, output: 'Fast-forward', issue })
+    try {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-merge',
+        sessionId: asSessionId(sA),
+        router: 'issues',
+        proc: 'action',
+        input: { id: A.id, kind: 'merge' },
+      })
+      const r = await reply
+      expect(r.ok).toBe(true)
+      expect(r.result).toMatchObject({ ok: true, output: 'Fast-forward' })
+      const effectIds = (await store.sync.changesSince(0))
+        .filter((row) => row.entity === 'effect')
+        .map((row) => row.entityId)
+      expect(new Set(effectIds).size).toBe(1)
+      const record = await store.effects.get(effectIds[0] as string)
+      expect(record?.status).toBe('succeeded')
+      expect(record?.actor).toBe(`session:${sA}`)
+      expect(record?.target).toEqual({ kind: 'issue', id: A.id })
+    } finally {
+      landed.mockRestore()
+      action.mockRestore()
+    }
   })
 
   it('override lets a scoped op write outside its subtree', async () => {
@@ -478,11 +535,13 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('scope-gates direct messages to a session on another issue', async () => {
-    const target = (await registry.modules.sessions.createSession({
-      cwd: '/r/other',
-      agentKind: 'shell',
-      issueId: asIssueId(B.id),
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: '/r/other',
+        agentKind: 'shell',
+        issueId: asIssueId(B.id),
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -498,11 +557,13 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('delivers an explicitly overridden direct session message', async () => {
-    const target = (await registry.modules.sessions.createSession({
-      cwd: '/r/other',
-      agentKind: 'shell',
-      issueId: asIssueId(B.id),
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: '/r/other',
+        agentKind: 'shell',
+        issueId: asIssueId(B.id),
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -521,10 +582,12 @@ describe('server agent relay handler (P1b)', () => {
   it('rejects a message to an ISSUELESS target session from a non-parent (#237)', async () => {
     // No issue to gate on must not mean no gate: only the operator or the
     // target's own parent (spawnedBy) may message an issueless session.
-    const target = (await registry.modules.sessions.createSession({
-      cwd: '/nowhere/unrelated',
-      agentKind: 'shell',
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: '/nowhere/unrelated',
+        agentKind: 'shell',
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -541,11 +604,13 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('lets the PARENT message its issueless child session (#237)', async () => {
-    const target = (await registry.modules.sessions.createSession({
-      cwd: '/nowhere/unrelated',
-      agentKind: 'shell',
-      spawnedBy: `session:${sA}`,
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: '/nowhere/unrelated',
+        agentKind: 'shell',
+        spawnedBy: `session:${sA}`,
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -610,16 +675,30 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
-    A = await registry.issues.crud.create({ repoPath, title: 'stop root', startNow: false })
-    await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-stop-a' })
+    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'stop root',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-stop-a',
+    })
     wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
-    B = await registry.issues.crud.create({ repoPath, title: 'unrelated stop', startNow: false })
-    await registry.issues.crud.update(B.id, { worktreePath: '/r/.worktrees/issue-stop-b' })
-    sA = (await registry.modules.sessions.createSession({
-      cwd: wtA,
-      agentKind: 'shell',
-      issueId: asIssueId(A.id),
-    })).sessionId
+    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'unrelated stop',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, B.id, {
+      worktreePath: '/r/.worktrees/issue-stop-b',
+    })
+    sA = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        issueId: asIssueId(A.id),
+      })
+    ).sessionId
     // stop free/unsaved paths call rpc.repoOp — stub clean so tests stay hermetic.
     const rpc = (
       registry.modules.sessions as unknown as {
@@ -665,16 +744,206 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     // this agentRelayResult is sent (finalizeDeferredStopKill).
     expect(r.result).toMatchObject({ ok: true, deferredKill: true })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sA)?.status,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sA,
+      )?.status,
     ).toMatch(/hibernated|exited/)
   })
 
-  it('same-issue sibling stop is free (no outside-scope)', async () => {
-    const sibling = (await registry.modules.sessions.createSession({
+  /**
+   * Every frame on the relay's machine and on the session's own, in one order,
+   * resolved with the relay's answer to `requestId` (POD-6422).
+   */
+  const recordUntilReply = async (sessionId: string) => {
+    // The session is live on the relay's machine, as an agent calling it is.
+    await attachRelayDaemon(registry, machineId, () => {})
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId: asSessionId(sessionId),
+      cmd: 'sh',
       cwd: wtA,
       agentKind: 'shell',
-      issueId: asIssueId(A.id),
-    })).sessionId
+      geometry: { cols: 80, rows: 24 },
+    })
+    const sessionMachine = String(
+      (await registry.modules.sessions.sessionById(asSessionId(sessionId)))?.machineId,
+    )
+    const frames: ControlMessage[] = []
+    let replyAt = -1
+    const reply = new Promise<RelayResult>((resolve) => {
+      void attachRelayDaemon(registry, machineId, (msg) => {
+        frames.push(msg)
+        if (msg.type === 'agentRelayResult') {
+          replyAt = frames.length - 1
+          resolve(msg)
+        }
+      })
+    })
+    if (sessionMachine !== machineId) {
+      await attachRelayDaemon(registry, sessionMachine, (msg) => frames.push(msg))
+    }
+    const retiredAt = () =>
+      frames.findIndex(
+        (m) =>
+          (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+      )
+    return { frames, reply, replyAt: () => replyAt, retiredAt }
+  }
+
+  it('a self-stop is its own desired state: parked before the reply, ended only after it (POD-6422)', async () => {
+    const entry = vi.spyOn(registry.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(registry.modules.issueSessionLifecycle, 'stopSession')
+    const seen = await recordUntilReply(sA)
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-self-desired',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+    const r = await seen.reply
+    expect(r.ok).toBe(true)
+    expect(r.result).toMatchObject({ ok: true, deferredKill: true })
+    // Written as the agent, on its own session; acted on by the controller.
+    const edit = entry.mock.calls.find(([env]) => env.command === 'records.session.edit')
+    expect(edit?.[0].input).toMatchObject({ id: sA, patch: { desired: 'stopped' } })
+    expect(edit?.[1]).toMatchObject({ kind: 'agent', agentSessionId: sA })
+    expect(
+      (await registry.modules.sessions.desiredStateOf(asSessionId(sA)))?.lifecycle,
+    ).toMatchObject({ desired: 'stopped', byAgent: sA })
+    expect(service).toHaveBeenCalledWith(expect.objectContaining({ sessionId: sA, selfStop: true }))
+    // Nothing reached the process before the answer; the after-reply hook ends it.
+    expect(seen.retiredAt() === -1 || seen.retiredAt() > seen.replyAt()).toBe(true)
+    for (let i = 0; i < 200 && seen.retiredAt() === -1; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(seen.retiredAt()).toBeGreaterThan(seen.replyAt())
+  })
+
+  it('a self-stop over unsaved work is refused with the same words, and nothing is parked (POD-6422)', async () => {
+    const rpc = (
+      registry.modules.sessions as unknown as {
+        rpc: { repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }> }
+      }
+    ).rpc
+    rpc.repoOp = async () => ({ ok: true, output: '## issue-stop-a\n M src/a.ts\n' })
+    const seen = await recordUntilReply(sA)
+    const before = (await registry.modules.sessions.sessionById(asSessionId(sA)))?.status
+    expect(before).toBe('live')
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-self-dirty',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+    const r = await seen.reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/refusing stop: unsaved changes in the working tree/)
+    expect(r.error).toContain('M src/a.ts')
+    expect((await registry.modules.sessions.sessionById(asSessionId(sA)))?.status).toBe(before)
+    const lifecycle = (await registry.modules.sessions.desiredStateOf(asSessionId(sA)))?.lifecycle
+    expect(lifecycle?.failure?.reason).toMatch(/^refusing stop: unsaved changes/)
+    expect(seen.retiredAt()).toBe(-1)
+  })
+
+  it('a peer stop is the sibling’s desired state, written by the agent; never a direct stop (POD-6422)', async () => {
+    const sibling = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        issueId: asIssueId(A.id),
+      })
+    ).sessionId
+    const entry = vi.spyOn(registry.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(registry.modules.issueSessionLifecycle, 'stopSession')
+    const reply = captureReply(registry, machineId)
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-peer-desired',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: sibling },
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+    expect(r.result).not.toHaveProperty('deferredKill', true)
+    const edit = entry.mock.calls.find(([env]) => env.command === 'records.session.edit')
+    expect(edit?.[0].input).toMatchObject({ id: sibling, patch: { desired: 'stopped' } })
+    expect((await registry.modules.sessions.desiredStateOf(sibling))?.lifecycle).toMatchObject({
+      desired: 'stopped',
+      byAgent: sA,
+    })
+    expect(service).toHaveBeenCalledTimes(1)
+    expect(service.mock.calls[0]?.[0]).not.toHaveProperty('selfStop')
+    expect((await registry.modules.sessions.sessionById(sibling))?.status).toMatch(
+      /hibernated|exited/,
+    )
+  })
+
+  it('issues.stop by a member stops its sibling by desired state, and itself only after the reply', async () => {
+    attachRelayDaemon(registry, machineId, () => {})
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId: asSessionId(sA),
+      cmd: 'sh',
+      cwd: wtA,
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const sibling = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        issueId: asIssueId(A.id),
+      })
+    ).sessionId
+    const entry = vi.spyOn(registry.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(registry.modules.issueSessionLifecycle, 'stopIssue')
+    const statusOf = async (id: string) =>
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === id,
+      )?.status
+    const reply = captureReply(registry, machineId)
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'issue-stop-self',
+      sessionId: asSessionId(sA),
+      router: 'issues',
+      proc: 'stop',
+      input: { id: A.id },
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+    expect(r.result).toMatchObject({ ok: true, deferredKill: true })
+    expect(service).not.toHaveBeenCalled()
+    expect(await statusOf(sibling)).toMatch(/hibernated|exited/)
+    const edits = () =>
+      entry.mock.calls
+        .filter(([env]) => env.command === 'records.session.edit')
+        .map(([env]) => (env.input as { id: string }).id)
+    // After the reply is on the wire: its own desired `stopped`, as itself.
+    for (let i = 0; i < 200 && !edits().includes(sA); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(edits()).toEqual([sibling, sA])
+    for (let i = 0; i < 200 && !/hibernated|exited/.test(String(await statusOf(sA))); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(await statusOf(sA)).toMatch(/hibernated|exited/)
+  })
+
+  it('same-issue sibling stop is free (no outside-scope)', async () => {
+    const sibling = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        issueId: asIssueId(A.id),
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -690,11 +959,13 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
 
   it('unrelated issue session stop is rejected without --outside-scope', async () => {
     const wtB = (await registry.issues.reports.get(B.id))?.worktreePath as string
-    const target = (await registry.modules.sessions.createSession({
-      cwd: wtB,
-      agentKind: 'shell',
-      issueId: asIssueId(B.id),
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: wtB,
+        agentKind: 'shell',
+        issueId: asIssueId(B.id),
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -711,11 +982,13 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
 
   it('unrelated issue session stop succeeds with --outside-scope', async () => {
     const wtB = (await registry.issues.reports.get(B.id))?.worktreePath as string
-    const target = (await registry.modules.sessions.createSession({
-      cwd: wtB,
-      agentKind: 'shell',
-      issueId: asIssueId(B.id),
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: wtB,
+        agentKind: 'shell',
+        issueId: asIssueId(B.id),
+      })
+    ).sessionId
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -730,10 +1003,12 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   })
 
   it('issueless unrelated stop needs --outside-scope; succeeds with it', async () => {
-    const target = (await registry.modules.sessions.createSession({
-      cwd: '/nowhere',
-      agentKind: 'shell',
-    })).sessionId
+    const target = (
+      await registry.modules.sessions.createSession({
+        cwd: '/nowhere',
+        agentKind: 'shell',
+      })
+    ).sessionId
     const blocked = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
@@ -795,15 +1070,23 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   }
 
   const nameOf = async (sessionId: SessionId): Promise<string | undefined> =>
-    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )?.name
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
-    A = await registry.issues.crud.create({ repoPath, title: 'Agent relay epic', startNow: false }) as typeof A
-    await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    A = (await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'Agent relay epic',
+      startNow: false,
+    })) as typeof A
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-1-a',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     // Two sessions on the SAME issue — siblings in the sidebar, which is exactly the
     // situation a session title has to disambiguate.
@@ -834,7 +1117,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('REFUSES to overwrite a name the user set — with a reason, not a throw', async () => {
-    await registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId: asSessionId(sA),
       name: 'Mike’s pet session',
     })
@@ -864,7 +1147,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('primes an UNNAMED session to title itself, listing its siblings', async () => {
-    await registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId: asSessionId(sB),
       name: 'Merge lock lease expiry',
     })
@@ -879,7 +1162,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('primes a session on a prompt-titled real issue to retitle the issue', async () => {
-    await registry.issues.crud.update(A.id, {
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
       title: 'Please investigate why task naming stopped working correctly',
     })
 
@@ -889,7 +1172,10 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('says nothing about titles once the session HAS a name', async () => {
-    await registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Already named' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId: asSessionId(sA),
+      name: 'Already named',
+    })
 
     const prime = String((await relay(asSessionId(sA), 'issues', 'prime', { repoPath })).result)
     expect(prime).not.toContain('This session has no name')
@@ -898,10 +1184,12 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('says nothing about titles when the session has no issue to sit under', async () => {
-    const loose = (await registry.modules.sessions.createSession({
-      cwd: '/elsewhere',
-      agentKind: 'shell',
-    })).sessionId
+    const loose = (
+      await registry.modules.sessions.createSession({
+        cwd: '/elsewhere',
+        agentKind: 'shell',
+      })
+    ).sessionId
     const prime = String((await relay(loose, 'issues', 'prime', { repoPath })).result)
     expect(prime).not.toContain('This session has no name')
   })
@@ -937,15 +1225,19 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   }
 
   const offerOf = async (sessionId: SessionId) =>
-    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.offer
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )?.offer
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
-    sA = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
-    sB = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }))
+      .sessionId
+    sB = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }))
+      .sessionId
   })
   afterEach(async () => {
     for (const r of registries.splice(0)) await r.dispose()

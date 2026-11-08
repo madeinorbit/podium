@@ -15,32 +15,13 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import {
+  AGENT_MANIFESTS,
+  CLIENT_TERMINAL_HARNESSES,
+  clientTerminalFor,
+  manifestFor,
+} from '@podium/harness'
 import type { OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
-import {
-  createMemoryBindingRecords,
-  createTestEngineOwner,
-  type MemoryBindingRecords,
-} from '@podium/harness/driver/testing'
-import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
-import { asSessionId, type SessionId } from '@podium/model'
-import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
-import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
-import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attributeMemory, type ProcSample } from '../memory-breakdown'
-import {
-  CLIENT_TERMINAL_INPUT_MAX_BYTES,
-  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
-  type ClientTerminalKind,
-  clientTerminalLabel,
-  createClientTerminalsFor,
-  createOpencodeClientTerminals,
-  requireClientTerminalLabel,
-  WARM_TTL_MS,
-} from './opencode-attach'
-import { SessionRegistry } from '../session/registry.js'
-import { createSessionClientScope, type ClientProcessOwner } from '../session/clients.js'
-import { testSessions } from '../session/testing.js'
 import {
   createOpencodeEngineHost,
   type EngineAttachment,
@@ -51,7 +32,41 @@ import {
   opencodeFlavor,
   opencodeScopeLabel,
 } from '@podium/harness/driver/host'
+import {
+  createMemoryBindingRecords,
+  createTestEngineOwner,
+  type MemoryBindingRecords,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
+import { asSessionId, type SessionId } from '@podium/model'
+import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
+import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
+import type { BuiltinHarnessKind } from '@podium/protocol'
+import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { attributeMemory, type ProcSample } from '../memory-breakdown'
+import { type ClientProcessOwner, createSessionClientScope } from '../session/clients.js'
+import { SessionRegistry } from '../session/registry.js'
+import { testSessions } from '../session/testing.js'
 import { engineClientTerminals } from './host'
+import {
+  CLIENT_TERMINAL_INPUT_MAX_BYTES,
+  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
+  type ClientTerminalKind,
+  clientTerminalLabel,
+  createClientTerminalsFor,
+  createOpencodeClientTerminals,
+  requireClientTerminalLabel,
+  WARM_TTL_MS,
+} from './opencode-attach'
+
+/** The session's pinned harness context (POD-6546): a client terminal runs the
+ *  session's executable, never the harness's bare name. */
+const testClientContext = async (_sessionId: string, target: { kind: string; driverId?: string }) =>
+  testHarnessContext({
+    kind: target.kind as BuiltinHarnessKind,
+    executable: `/opt/rig/bin/${target.driverId === 'opencode2-server' ? 'opencode2' : target.kind}`,
+  })
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
@@ -226,8 +241,8 @@ function harness(opts: HarnessOptions = {}) {
     spawnClient: async (o) => {
       state.spawns.push({
         label: o.label,
-        cmd: o.cmd,
-        args: o.args ?? [],
+        cmd: o.command.cmd,
+        args: [...o.command.args],
         ...(o.cols !== undefined ? { cols: o.cols } : {}),
         ...(o.rows !== undefined ? { rows: o.rows } : {}),
         ...(o.env ? { env: o.env } : {}),
@@ -256,6 +271,7 @@ function harness(opts: HarnessOptions = {}) {
     hasClientMaster: opts.hasMaster ?? (() => false),
   }
   const terminals = createOpencodeClientTerminals({
+    harnessContext: testClientContext,
     sessions,
     clients,
     ...(opts.sizeEvent ? { sizeEvent: opts.sizeEvent } : {}),
@@ -267,6 +283,19 @@ function harness(opts: HarnessOptions = {}) {
     releaseStream: (streamId) => state.released.push(streamId),
   })
   return { terminals, state, sessions }
+}
+
+/**
+ * What an attach client's boundary deletes: the harness's inherited
+ * credentials, then the operator folder selectors (POD-6604) the client's env
+ * does not carry, so the daemon's own copies cannot come back.
+ */
+function clientStrip(kind: 'opencode' | 'codex' | 'grok'): readonly string[] {
+  const manifest = AGENT_MANIFESTS[kind]
+  return [
+    ...manifest.inventory.foreignCredentialEnv,
+    ...(manifest.environment.operatorSelectors ?? []),
+  ]
 }
 
 describe('the client terminal a server-family attach produces', () => {
@@ -300,7 +329,7 @@ describe('the client terminal a server-family attach produces', () => {
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     // REMOVED, not blanked: an empty ANTHROPIC_API_KEY is still a set one, and
     // the point is that the client resolves as if the daemon never carried it.
-    expect(spawn.stripEnv).toEqual(AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv)
+    expect(spawn.stripEnv).toEqual(clientStrip('opencode'))
     expect(spawn.env?.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
@@ -395,6 +424,7 @@ describe('the client terminal a server-family attach produces', () => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -656,6 +686,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -685,6 +716,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -711,6 +743,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -738,6 +771,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -821,9 +855,7 @@ describe('the client terminal a server-family attach produces', () => {
     ] as const) {
       const { terminals, state } = harness()
       await terminals.attach({ sessionId: SESSION, target: launchTarget })
-      expect(state.spawns[0]?.stripEnv, `${kind} client strip list`).toEqual(
-        AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv,
-      )
+      expect(state.spawns[0]?.stripEnv, `${kind} client strip list`).toEqual(clientStrip(kind))
     }
     // And the codex list is the reconciled one, named so a silent narrowing back
     // to the three it used to carry fails here rather than in a billing report.
@@ -846,7 +878,7 @@ describe('the client terminal a server-family attach produces', () => {
 
     expect(state.spawns[0]).toMatchObject({
       label: 'podium-oc2-attach-11111111-1111-4111-8111-111111111111',
-      cmd: 'opencode2',
+      cmd: '/opt/rig/bin/opencode2',
       env: { OPENCODE_DB: '/instance/state/opencode2.db' },
     })
   })
@@ -864,13 +896,20 @@ describe('the client terminal a server-family attach produces', () => {
     })
     expect(codex.state.spawns[0]).toMatchObject({
       label: requireClientTerminalLabel(SESSION, 'codex'),
-      cmd: 'codex',
+      cmd: '/opt/rig/bin/codex',
       env: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
       // No `-c sandbox_workspace_write.*`: Codex refuses any permission
       // override on a `--remote` resume ("Permission overrides are not
       // supported when resuming a remote task."); the app-server owns the
       // thread's sandbox.
-      args: ['resume', '-C', '/work/codex', 'thread-9', '--remote', 'unix:///instance/runtime/codex-9.sock'],
+      args: [
+        'resume',
+        '-C',
+        '/work/codex',
+        'thread-9',
+        '--remote',
+        'unix:///instance/runtime/codex-9.sock',
+      ],
     })
     expect(codex.state.spawns[0]?.args.join(' ')).not.toMatch(/sandbox|approval|permissions/)
 
@@ -881,7 +920,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     expect(grok.state.spawns[0]).toMatchObject({
       label: requireClientTerminalLabel(SESSION, 'grok'),
-      cmd: 'grok',
+      cmd: '/opt/rig/bin/grok',
       args: ['--resume', 'grok-9'],
       stripEnv: ['XAI_API_KEY'],
     })
@@ -928,6 +967,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -951,13 +991,17 @@ describe('warm-parking', () => {
     await expect(attaching).rejects.toThrow(/closed while it was starting/)
     expect(clients[0]?.disposed).toBe(true)
     expect(clients[0]?.writes).toEqual([])
-    expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode'), requireClientTerminalLabel(SESSION, 'opencode')])
+    expect(reclaimed).toEqual([
+      requireClientTerminalLabel(SESSION, 'opencode'),
+      requireClientTerminalLabel(SESSION, 'opencode'),
+    ])
   })
 
   it('never drains a stale completion into a replacement generation', async () => {
     const resolvers: Array<(client: DurableAttachment) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -1044,6 +1088,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
       clients: {
@@ -1110,7 +1155,9 @@ describe('warm-parking', () => {
 
     await terminals.close(SESSION)
 
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
   })
 
   it('parks a client that was still STARTING when the viewer switched away', async () => {
@@ -1124,6 +1171,7 @@ describe('warm-parking', () => {
     })
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -1160,6 +1208,7 @@ describe('warm-parking', () => {
     const frames: { streamId: string; data: Uint8Array }[] = []
     let spawnCount = 0
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
       clients: {
@@ -1200,7 +1249,9 @@ describe('warm-parking', () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
     expect(state.clients[0]?.disposed).toBe(true)
   })
 
@@ -1221,7 +1272,9 @@ describe('warm-parking', () => {
     terminals.viewers(SESSION, false)
     // Past the warm TTL: the server orders the close.
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
     expect(state.clients[0]?.disposed).toBe(true)
     // THE AGENT IS UNTOUCHED: the entry survives, only the client policy retires.
     const owned = sessions.get(SESSION)
@@ -1237,7 +1290,9 @@ describe('warm-parking', () => {
     expect(state.spawns).toHaveLength(0)
     expect(terminals.reclaimable()).toBe(1)
     await terminals.close(SESSION)
-    return vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    return vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
   })
 
   it('does not adopt what is not there, and does not fork to find out on teardown', async () => {
@@ -1309,6 +1364,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
         frames: () => {},
@@ -1419,6 +1475,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
         frames: () => {},
@@ -1595,11 +1652,14 @@ function engineHost(
   }
   return createOpencodeEngineHost({
     flavor: OC_FLAVOR,
-    stageAttachment: async () => { throw new Error('attachments are not under test') },
+    stageAttachment: async () => {
+      throw new Error('attachments are not under test')
+    },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     // Production always holds the engine under podium-host; the default owner
     // hands back the attachment built above, so adopt exercises the adopt →
     // client-terminal path it was written for (POD-4511). Tests that need
@@ -1806,7 +1866,10 @@ describe('a client terminal states its size through the size event', () => {
 
   it('is BORN at the size the daemon answers with, and states it once', async () => {
     const { sizes, sizeEvent } = stated()
-    const { terminals, state } = harness({ sizeEvent, birthGeometry: () => ({ cols: 203, rows: 51 }) })
+    const { terminals, state } = harness({
+      sizeEvent,
+      birthGeometry: () => ({ cols: 203, rows: 51 }),
+    })
     // ARMED: nothing is stated until the attach actually spawns.
     expect(sizes).toEqual([])
 
@@ -1901,6 +1964,7 @@ describe('the client terminal lives in the host, reached through the session-own
       hasMasterSync: hostAdapter.hasMasterSync,
     }
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       // The relay reaches the host only through the session-owned scope: the
       // recording durable below is wrapped, never passed through.
@@ -1932,7 +1996,11 @@ describe('without a session client scope there are no client terminals (POD-3917
     // The deliberate answer to the one real decision: `undefined` in means
     // `undefined` out — never a durable object the daemon never selected.
     expect(
-      createClientTerminalsFor(undefined, { frames: () => {}, sessions: testSessions() }),
+      createClientTerminalsFor(undefined, {
+        frames: () => {},
+        sessions: testSessions(),
+        harnessContext: testClientContext,
+      }),
     ).toBeUndefined()
   })
 
@@ -1944,6 +2012,7 @@ describe('without a session client scope there are no client terminals (POD-3917
         hasClientMaster: () => false,
       },
       {
+        harnessContext: testClientContext,
         sessions: testSessions(),
         frames: () => {},
       },

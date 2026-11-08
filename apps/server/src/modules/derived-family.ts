@@ -61,7 +61,7 @@ import { syncFeedPrincipal } from '../sync/route-support'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { UserId } from '@podium/model'
 import type { Principal } from '@podium/protocol'
-import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
+import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import { type PrivateResourceAccess, privateResourceAccess } from '../private-resources'
@@ -221,6 +221,13 @@ export interface FamilyState {
    *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
    *  than throwing when it is absent. */
   readonly discovery?: Context['discovery']
+  /**
+   * Who is asking, whole, for a family whose write is a record created AS the
+   * caller through the entry point (`interactions.answer` creates a
+   * `session.answer` effect record, POD-6415). The entry point decides on it;
+   * the handler only passes it on, so this is not a decision made here.
+   */
+  readonly principal: Context['principal']
   /** The superagent service. On the bundle because it is a request-context
    *  service like the others and two reads need it; it is NOT on
    *  `RegistryModules`, which is why it is named here rather than selected
@@ -273,12 +280,12 @@ export interface DerivedQuery<Svc> {
 // biome-ignore lint/suspicious/noExplicitAny: see the note above — the service
 // parameter is deliberately unconstrained here so it stays inferrable from the
 // selector; each family's registry pins it with `satisfies`.
-type AnyDerivedCommand = {
+export type AnyDerivedCommand = {
   readonly contract: AnyCommandContract
   readonly handler: (...args: any[]) => unknown
 }
 // biome-ignore lint/suspicious/noExplicitAny: as above.
-type AnyDerivedQuery = {
+export type AnyDerivedQuery = {
   readonly input: z.ZodTypeAny
   readonly exposure: readonly TransportTag[]
   readonly run: (...args: any[]) => unknown
@@ -348,6 +355,12 @@ export interface DerivedFamily<
   readonly enforceRoleFloor?: boolean
 }
 
+/** A family as the query builder reads it: its queries and their service. */
+export type DerivedQueryFamily<Svc, Q extends Record<string, AnyDerivedQuery>> = Omit<
+  DerivedFamily<Svc, Record<never, AnyDerivedCommand>, Q>,
+  'commands'
+>
+
 // ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
@@ -365,7 +378,7 @@ export interface DerivedFamily<
  * at runtime is the "green gate that stopped looking" failure mode, and it looks
  * identical to a procedure nobody happened to call.
  */
-function assertSurfaceMatchesDeclarations(
+export function assertSurfaceMatchesDeclarations(
   family: string,
   commands: Record<string, AnyDerivedCommand>,
   queries: Record<string, AnyDerivedQuery>,
@@ -475,56 +488,36 @@ export const familyState = (ctx: Context): FamilyState => ({
   feedPrincipal: syncFeedPrincipal(ctx.principal),
   privateAccess: privateResourceAccessFor(ctx),
   discovery: ctx.discovery,
+  principal: ctx.principal,
   superagent: ctx.superagent,
 })
 
-async function requireRoleFloor(
-  ctx: Context,
-  name: string,
-  contract: AnyCommandContract,
-): Promise<void> {
-  if (contract.policy.roleFloor !== 'admin' || ctx.principal?.kind === 'system') return
-  const role = await ctx.registry.sessionStore.users.roleOf(callerUserId(ctx))
-  if (role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: `${name} requires an admin account` })
-  }
-}
-
-export function derivedFamilyProcedures<
-  Svc,
-  C extends Record<string, AnyDerivedCommand>,
-  Q extends Record<string, AnyDerivedQuery>,
->(spec: DerivedFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
+/**
+ * A family's QUERIES, built from its query table. Its writes are not built here
+ * (ADR 12 D9, POD-6593): every write route is generated from a registration by
+ * `write-routes/`, and a family composes those routes beside these and checks
+ * the whole surface with {@link assertSurfaceMatchesDeclarations}.
+ */
+export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerivedQuery>>(
+  spec: DerivedQueryFamily<Svc, Q>,
+): QueryProcedures<Q> {
   const built: Record<string, unknown> = {}
-
-  for (const [name, command] of Object.entries(spec.commands)) {
-    if (!command.contract.exposure.includes('trpc')) continue
-    built[name] = t.procedure
-      .input(command.contract.input)
-      // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
-      // the handler, and the handler never sees a ctx. `input` is erased at this
-      // point because the table is heterogeneous — each pairing is checked where
-      // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(async ({ ctx, input }) => {
-        if (spec.enforceRoleFloor)
-          await requireRoleFloor(ctx, `${spec.family}.${name}`, command.contract)
-        return await command.handler(spec.service(familyState(ctx)), input)
-      })
-  }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
+    // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
+    // the query, and the query never sees a ctx.
     built[name] = t.procedure
       .input(query.input)
       .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
   }
 
-  assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)
-  return built as FamilyProcedures<C, Q>
+  assertSurfaceMatchesDeclarations(spec.family, {}, spec.queries, built)
+  return built as QueryProcedures<Q>
 }
 
 /**
- * A QUERY-ONLY SURFACE — the same builder with an empty contract table.
+ * A QUERY-ONLY SURFACE — the same builder over the state bundle itself.
  *
  * Most of what `router.ts` still declares is reads: routers whose writes another
  * issue already derived (`superagent`, `specs`, `settings`, `automations`,
@@ -533,18 +526,10 @@ export function derivedFamilyProcedures<
  * every derived family — same state bundle, same both-directions membership
  * check — rather than a second, laxer one, because a query-only shortcut is
  * exactly where a mutation would eventually be added without anyone noticing.
- *
- * The empty commands table is written out rather than defaulted, so "this family
- * has no writes" is a statement rather than an omission.
  */
 export function queryProcedures<Q extends Record<string, AnyDerivedQuery>>(
   family: string,
   queries: Q,
 ): QueryProcedures<Q> {
-  return derivedFamilyProcedures({
-    family,
-    service: (state) => state,
-    commands: {},
-    queries,
-  }) as QueryProcedures<Q>
+  return derivedFamilyProcedures({ family, service: (state) => state, queries })
 }

@@ -17,7 +17,7 @@ import '@/test-support/mock-core-store-handle'
  * can.
  */
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
-import { createDraftAgent } from '@podium/client-core'
+import { draftLaunchEffect } from '@podium/client-core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -365,42 +365,34 @@ describe('cold-start runtime driver choice', () => {
 
 describe('driver override reaches the wire through the real spawn path', () => {
   // The component hands `requestedDriverId` to `store.spawnDraftAgent`, which
-  // wraps `createDraftAgent` (optimism.ts) — the network half that forwards
+  // wraps `draftLaunchEffect` (optimism.ts) — the network half that forwards
   // ONLY that field onto `sessions.create`. A spread of a conditional object
   // is not excess-property-checked, so a wrong field name here compiles and
   // is then silently dropped on the wire: exactly the defect this issue fixes.
   // This guard pins the second half of the chain (store arg → wire field);
   // the component tests above pin the first half (Driver chip → store arg).
-  it('forwards requestedDriverId to sessions.create, and omits it when absent', async () => {
-    const create = vi.fn(async () => ({}))
-    const trpc = {
-      sessions: { create: { mutate: create } },
-    } as unknown as Parameters<typeof createDraftAgent>[0]['trpc']
+  it('forwards requestedDriverId to the launch, and omits it when absent', () => {
+    // POD-6408: a draft start is a session.launch effect; its input is what the
+    // server's `sessions.create` code runs with.
     const target = { path: '/work/podium', repoPath: '/work/podium', placement: 'allowed' as const }
-
-    await createDraftAgent({
-      trpc,
+    const driven = draftLaunchEffect({
+      effectId: 'eff_00000000-0000-4000-8000-000000000001',
       sessionId: asSessionId('session-driver'),
       issueId: asIssueId('issue-driver'),
       target,
       agentKind: 'opencode',
       requestedDriverId: 'opencode-server',
     })
-    expect(create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ requestedDriverId: 'opencode-server' }),
-    )
+    expect(driven.input).toMatchObject({ requestedDriverId: 'opencode-server' })
 
-    create.mockClear()
-    await createDraftAgent({
-      trpc,
+    const headed = draftLaunchEffect({
+      effectId: 'eff_00000000-0000-4000-8000-000000000002',
       sessionId: asSessionId('session-headed'),
       issueId: asIssueId('issue-headed'),
       target,
       agentKind: 'opencode',
     })
-    expect(create).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
-    )
+    expect(headed.input).not.toHaveProperty('requestedDriverId')
   })
 })
 

@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId, firstAdminMemberId, type RepoId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory, createResolvedMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
@@ -50,7 +51,7 @@ const HOST = asMachineId('7a0f1b64-2c33-4a5d-9e10-0b1c2d3e4f50')
  */
 async function seedLegacyDb(path: string): Promise<void> {
   // Let the migration chain build the schema, then close and write behind it.
-  ;await (await openTestStore(path, HOST)).close()
+  await (await openTestStore(path, HOST)).close()
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
@@ -95,7 +96,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     // covers every machine column in the schema, which is what
     // `store/machines-sentinel-scan.test.ts` pins.
     const path = tmpDb()
-    ;await (await openTestStore(path, HOST)).close()
+    await (await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
       INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
@@ -207,13 +208,21 @@ describe('machine authentication requires an explicit identity', () => {
 
   it('authenticates the explicitly named machine and refuses an incorrect token', async () => {
     const placed = asMachineId('explicit-fleet-machine')
-    const authenticateDaemon = vi.fn((frame) => frame.machineId === placed && frame.token === 'machine-token'
-      ? { ok: true as const, machineId: placed, name: 'self-hosted' }
-      : { ok: false as const, reason: 'invalid credential' })
+    const authenticateDaemon = vi.fn((frame) =>
+      frame.machineId === placed && frame.token === 'machine-token'
+        ? { ok: true as const, machineId: placed, name: 'self-hosted' }
+        : { ok: false as const, reason: 'invalid credential' },
+    )
     const machines = { authenticateDaemon }
-    const directory = createMachineDirectory({ authenticateDaemon: async frame => authenticateDaemon(frame) })
-    expect(await directory.verifyMachineToken('machine-token', placed)).toMatchObject({ machine: placed })
-    expect(createResolvedMachineDirectory(machines).verifyMachineToken('machine-token', placed)).toMatchObject({ machine: placed })
+    const directory = createMachineDirectory({
+      authenticateDaemon: async (frame) => authenticateDaemon(frame),
+    })
+    expect(await directory.verifyMachineToken('machine-token', placed)).toMatchObject({
+      machine: placed,
+    })
+    expect(
+      createResolvedMachineDirectory(machines).verifyMachineToken('machine-token', placed),
+    ).toMatchObject({ machine: placed })
     expect(await directory.verifyMachineToken('wrong', placed)).toBeNull()
   })
 })
@@ -222,8 +231,14 @@ describe('composition threads deployment identity explicitly', () => {
   it('derives fleet and durable-session namespaces from the constructor parameter', async () => {
     const store = await openTestStore(':memory:', HOST)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'blue' })
-    await store.machines.upsertMachine({ id: HOST, name: 'host', hostname: 'host', tokenHash: 'test',
-      ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
+    await store.machines.upsertMachine({
+      id: HOST,
+      name: 'host',
+      hostname: 'host',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
+    })
     await store.machines.setServiceAssignment(HOST, { server: true, agentExecution: true })
     await registry.modules.machines.attach(HOST, () => {})
 
@@ -235,11 +250,14 @@ describe('composition threads deployment identity explicitly', () => {
     const session = await store.sessions.getSession(sessionId)
     expect(session?.durableLabel).toBe('podium-blue-' + sessionId)
 
-    const headless = await registry.modules.sessions.headless.createHeadlessSession({
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/w',
-    })
+    const headless = await registry.modules.sessions.headless.createHeadlessSession(
+      registry.modules.superagentTurnsWriter,
+      {
+        ownerUserId: firstAdminMemberId(),
+        agentKind: 'claude-code',
+        cwd: '/w',
+      },
+    )
     expect((await store.sessions.getSession(headless.sessionId))?.durableLabel).toBe(
       'podium-blue-' + headless.sessionId,
     )
@@ -253,8 +271,9 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     const store = await openTestStore(':memory:', HOST)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      await expect(registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' }))
-        .rejects.toThrow('no assigned and available daemon')
+      await expect(
+        registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' }),
+      ).rejects.toThrow('no assigned and available daemon')
       expect(await store.sessions.loadSessions()).toEqual([])
     } finally {
       await registry.dispose()
@@ -293,7 +312,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     await expect(
       // @ts-expect-error machineId is REQUIRED (POD-318) — this is the compile-time
       // half of the same guarantee the runtime throw below is the other half of.
-      store.sessions.upsertSession(row),
+      store.sessions.upsertSession(fixtureWriteScope(), row),
     ).rejects.toThrow()
     await store.close()
   })

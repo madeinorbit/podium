@@ -54,27 +54,37 @@ import type { BootstrapChunk, ChangeEnvelope, ServerFrame } from '@podium/sync/r
 type WireChange = FeedChangeRow
 
 /**
- * One change row.
+ * One change row, positive state only: target, op and payload.
  *
- * NO PROVENANCE, and that is a real gap rather than an omission — say so here
- * rather than let a reader infer it from an absent field. ADR 2 D8 puts
- * `originId` / `causationId` / `mutationId` on the envelope, and the kernel's
- * `ChangeEnvelope` has all three; the v2 WIRE change row does not carry them yet
- * (`packages/protocol/src/messages/feed.ts` — `changeRowArm('entityId', …)`).
- *
- * The consequence is bounded and worth naming: outbox retirement by
- * `causationId` cannot fire from a frame, so a client's own command retires on
- * its command ACK rather than on the frame that confirms it. That is the
- * pre-cutover behaviour, unchanged, and it is why POD-376's comparison basis
- * excludes provenance from its digest — the two paths legitimately carry
- * different provenance for the same row, because on this wire neither carries
- * any.
+ * This is the whole envelope for a BOOTSTRAP row. Bootstrap rows stay
+ * provenance-free by design: the install cursor covers every write they contain,
+ * so nothing needs to recognise a command in them, and a provenance key copied
+ * from `change_latest` would name a command that may have retired long ago.
  */
 function toEnvelope(change: WireChange): ChangeEnvelope {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return change.op === 'upsert'
     ? { ...base, op: 'upsert', payload: change.value }
     : { ...base, op: change.op }
+}
+
+/**
+ * One DELTA row, with the command that caused it (ADR 2 D8, POD-6274).
+ *
+ * `originId` / `causationId` / `mutationId` ride the v2 delta row
+ * (`packages/protocol/src/messages/feed.ts`) onto the kernel's
+ * `ChangeEnvelope`, which is what lets the Replica recognise a client's own
+ * write coming back in a frame and retire its outbox entry in the same commit.
+ * Absent fields stay absent: an older server sends none, and an `undefined` key
+ * would make the envelope compare unequal to a hand-built one.
+ */
+function toDeltaEnvelope(change: WireChange): ChangeEnvelope {
+  return {
+    ...toEnvelope(change),
+    ...(change.originId === undefined ? {} : { originId: change.originId }),
+    ...(change.causationId === undefined ? {} : { causationId: change.causationId }),
+    ...(change.mutationId === undefined ? {} : { mutationId: change.mutationId }),
+  }
 }
 
 /** A `feedDelta` as the kernel's rung-0 acceptance rule reads it. */
@@ -88,7 +98,7 @@ export function toDeltaFrame(
     fromSeq: message.fromSeq,
     seq: message.seq,
     minAvailableSeq: message.minAvailableSeq,
-    changes: message.changes.map(toEnvelope),
+    changes: message.changes.map(toDeltaEnvelope),
   }
 }
 

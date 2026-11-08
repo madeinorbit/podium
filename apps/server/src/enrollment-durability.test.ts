@@ -203,7 +203,10 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     const before = readFileSync(w.enrollment.path, 'utf8')
     await w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
     const row = await w.store.machines.getMachine(machineId)
-    expect(row).toMatchObject({ id: machineId, ownerUserId: OWNER, revokedAt: expect.any(String) })
+    expect(row).toMatchObject({ id: machineId, revokedAt: expect.any(String) })
+    // Custody is a grant edge, not a machine column (POD-4151); revocation retains it
+    // for audit and replacement authorization (`removeAllForResource(..., true)`).
+    expect(await w.store.machines.custodian(machineId)).toBe(OWNER)
     expect(readFileSync(w.enrollment.path, 'utf8')).toBe(before)
     expect(await hello(w.machines, machineId, token)).toEqual(DENIED)
     expect(await hello(service(w.store), machineId, token)).toEqual(DENIED)

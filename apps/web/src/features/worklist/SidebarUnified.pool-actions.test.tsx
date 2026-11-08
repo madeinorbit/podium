@@ -21,7 +21,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { spreadSortKeys } from '@podium/model'
+import { parseIssueUserStateRowId, spreadSortKeys } from '@podium/model'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
@@ -205,6 +205,36 @@ function value(id = TARGET) {
   expect(result).toBeDefined()
   if (result === undefined || result === LOADING) throw new Error('Expected resident row')
   return result
+}
+/** An archive: a plain-field edit of the issue record (POD-6405); this server
+ *  has no sync.submit, so it reaches `issues.update`. */
+function isArchive(entry: { kind: string; input: unknown }): boolean {
+  const input = entry.input as { kind?: unknown; patch?: { archived?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueProjection' &&
+    input.patch?.archived === true
+  )
+}
+/** An un-archive: the plain-field edit `archived: false` (POD-6405). */
+function isRestore(entry: { kind: string; input: unknown }): boolean {
+  const input = entry.input as { kind?: unknown; patch?: { archived?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueProjection' &&
+    input.patch?.archived === false
+  )
+}
+function isMarkRead(entry: {
+  kind: string
+  input: unknown
+}): entry is { kind: 'recordEdit'; input: { id: string } } {
+  const input = entry.input as { kind?: unknown; patch?: { readAt?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueUserState' &&
+    input.patch?.readAt !== undefined
+  )
 }
 async function request(name: string, id = TARGET) {
   await waitFor(() =>
@@ -776,11 +806,15 @@ describe('real pool row mutations and receipts', () => {
     expect(referenceState(runtime).outboxDeadLetters).toHaveLength(1)
   })
 
-  it('retains an accepted rename until the echo, composes a later edit and rewinds only that edit', async () => {
+  // How long an applied write paints is the outbox entry's (POD-6279), and this
+  // fixture's compatibility queue retires on the reply: the echo lands first here.
+  it('composes a later edit over an accepted rename and rewinds only that edit', async () => {
     const fixture = await mount()
     act(() => actions.renameIssue(TARGET, 'Accepted title'))
+    expect(value().title).toBe('Accepted title')
     const first = await request('issues.update')
     await act(async () => {
+      patchIssue(fixture, TARGET, { title: 'Accepted title' })
       first.resolve({ ok: true })
     })
     await waitFor(() => expect(outcomes.some((o) => o.type === 'applied')).toBe(true))
@@ -791,9 +825,6 @@ describe('real pool row mutations and receipts', () => {
       expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2),
     )
     const second = requests.filter((r) => r.procedure === 'issues.update')[1]!
-    await act(async () => {
-      patchIssue(fixture, TARGET, { title: 'Accepted title' })
-    })
     expect(value().title).toBe('Second pending title')
     await settle()
     await refuse(second)
@@ -873,8 +904,14 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(folded)
     await settle()
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
-    for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
-      await accept(await request('issues.markRead', (queued.input as { id: string }).id))
+    // A mark-read is a record edit of my own issue row (POD-6404); this server has
+    // no sync.submit, so it reaches `issues.markRead`.
+    for (const queued of runtime.outbox
+      .pending()
+      .filter((entry): entry is typeof entry & { input: { id: string } } => isMarkRead(entry)))
+      await accept(
+        await request('issues.markRead', parseIssueUserStateRowId(queued.input.id).entityId),
+      )
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
     fireEvent.click(await screen.findByTestId('bring-back'))
     const bringBack = await request('issues.setTucked')
@@ -939,7 +976,7 @@ describe('real pool row mutations and receipts', () => {
         requests,
       }),
     ).not.toContain('synthetic-5')
-    const write = await request('issues.archive', 'synthetic-5')
+    const write = await request('issues.update', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).not.toContain('synthetic-5')
     await settle()
@@ -1099,6 +1136,18 @@ describe('real pool row mutations and receipts', () => {
   it('hands the pool-resolved session to the same shared Handoff menu command', async () => {
     features.handoff = true
     await mount((fixture) => {
+      // A move is a `session.handoff` effect record (POD-6422): this server
+      // takes it on the sync write entry point.
+      Object.assign(fixture.api, {
+        sync: {
+          submit: {
+            mutate: (input: Record<string, unknown>) =>
+              new Promise((resolve, reject) =>
+                requests.push({ procedure: 'sync.submit', input, resolve, reject }),
+              ),
+          },
+        },
+      })
       fixture.patch('session', 'synthetic-session-11', {
         machineId: 'source',
         harnessHandoff: true,
@@ -1133,10 +1182,20 @@ describe('real pool row mutations and receipts', () => {
     await menu()
     fireEvent.click(await item('Handoff'))
     fireEvent.click(await item('Synthetic target'))
-    const write = await request('sessions.handoff', 'synthetic-session-11')
-    expect(write.input).toEqual({ sessionId: 'synthetic-session-11', machineId: 'target' })
-    // Handoff retains the shared menu's existing direct command semantics.
-    expect(runtime.outbox.pending()).toHaveLength(0)
+    await waitFor(() =>
+      expect(requests.filter((r) => !r.settled && r.procedure === 'sync.submit')).toHaveLength(1),
+    )
+    const write = requests.find((r) => !r.settled && r.procedure === 'sync.submit')!
+    expect(write.input).toMatchObject({
+      command: 'effects.create',
+      input: {
+        kind: 'session.handoff',
+        target: { kind: 'session', id: 'synthetic-session-11' },
+        input: { machineId: 'target' },
+      },
+    })
+    // The old direct route is not called any more.
+    expect(requests.filter((r) => r.procedure === 'sessions.handoff')).toHaveLength(0)
     await act(async () => write.reject(new Error('Synthetic handoff refusal')))
     await settle()
   })
@@ -1158,14 +1217,14 @@ describe('real pool row mutations and receipts', () => {
     expect(
       runtime.outbox
         .pending()
-        .filter((entry) => entry.kind === 'issueArchive')
+        .filter(isArchive)
         .map((entry) => (entry.input as { id: string }).id)
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(0)
     await settle()
-    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
-      await refuse(await request('issues.archive', (entry.input as { id: string }).id))
+    for (const entry of runtime.outbox.pending().filter(isArchive))
+      await refuse(await request('issues.update', (entry.input as { id: string }).id))
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
     await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
   })
@@ -1181,12 +1240,12 @@ describe('real pool row mutations and receipts', () => {
     )
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive')) {
+    for (const entry of runtime.outbox.pending().filter(isArchive)) {
       expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(
         true,
       )
       const id = (entry.input as { id: string }).id
-      const write = await request('issues.archive', id)
+      const write = await request('issues.update', id)
       await act(async () => patchIssue(fixture, id, { archived: true }))
       await accept(write)
     }
@@ -1207,12 +1266,25 @@ describe('real pool row mutations and receipts', () => {
       }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    const restores = runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')
+    // The restores are plain-field edits too (POD-6405).
+    const restores = runtime.outbox
+      .pending()
+      .filter(
+        (entry) =>
+          entry.kind === 'recordEdit' &&
+          (entry.input as { patch?: { archived?: unknown } }).patch?.archived === false,
+      )
     expect(
       restores
         .map((entry) => entry.input)
         .sort((a, b) => (a as { id: string }).id.localeCompare((b as { id: string }).id)),
-    ).toEqual([TARGET, 'synthetic-5'].map((id) => ({ id, patch: { archived: false } })))
+    ).toEqual(
+      [TARGET, 'synthetic-5'].map((id) => ({
+        kind: 'issueProjection',
+        id,
+        patch: { archived: false },
+      })),
+    )
     await settle()
     expect(
       sidebarView(pool!)
@@ -1270,8 +1342,8 @@ describe('real pool row mutations and receipts', () => {
     expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    const archive = await request('issues.archive', 'synthetic-5')
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    const archive = await request('issues.update', 'synthetic-5')
+    expect(runtime.outbox.pending().filter(isRestore)).toHaveLength(0)
     // Model the server's whole cascade before accepting the parent command.
     await act(async () => {
       for (const id of ids) patchIssue(fixture, id, { archived: true })
@@ -1284,9 +1356,9 @@ describe('real pool row mutations and receipts', () => {
     expect(
       runtime.outbox
         .pending()
-        .filter((entry) => entry.kind === 'issueUpdate')
+        .filter(isRestore)
         .map((entry) => entry.input),
-    ).toEqual(ids.map((id) => ({ id, patch: { archived: false } })))
+    ).toEqual(ids.map((id) => ({ kind: 'issueProjection', id, patch: { archived: false } })))
     for (const id of ids)
       expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
     expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
@@ -1311,13 +1383,13 @@ describe('real pool row mutations and receipts', () => {
     expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     // A newer archive from another control must not be overwritten by an old Undo.
     await act(async () => actions.archiveIssue('synthetic-6'))
-    const parentArchive = await request('issues.archive', 'synthetic-5')
+    const parentArchive = await request('issues.update', 'synthetic-5')
     await act(async () => {
       for (const id of ['synthetic-5', 'synthetic-6']) patchIssue(fixture, id, { archived: true })
     })
     await accept(parentArchive)
-    await accept(await request('issues.archive', 'synthetic-6'))
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    await accept(await request('issues.update', 'synthetic-6'))
+    expect(runtime.outbox.pending().filter(isRestore)).toHaveLength(0)
     expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
   })
 
@@ -1326,8 +1398,8 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    await refuse(await request('issues.archive', 'synthetic-5'))
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    await refuse(await request('issues.update', 'synthetic-5'))
+    expect(runtime.outbox.pending().filter(isRestore)).toHaveLength(0)
     expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
   })
 
@@ -1367,7 +1439,7 @@ describe('real pool row mutations and receipts', () => {
       target: { value: 'Only responsive' },
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Archive all 1 closed task' }))
-    const archive = await request('issues.archive')
+    const archive = await request('issues.update')
     await act(async () => patchIssue(fixture, TARGET, { archived: true }))
     await accept(archive)
     expect(await screen.findByTestId('work-filter-empty')).toBeTruthy()

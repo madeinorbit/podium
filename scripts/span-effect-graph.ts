@@ -264,12 +264,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'IssueAttachPorts.transact',
   },
   {
-    file: 'apps/server/src/modules/messages/service.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MessagesDeps.transact',
-  },
-  {
     // The sync adapter's port over the store's transaction [POD-3338 for the
     // port, POD-3416 for what it carries]. It IS an opener: the server fills it
     // with the nesting-safe runtime helper over the executor's connection, so a
@@ -334,6 +328,16 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'IssueLedger.commit',
   },
   {
+    // The sessions service's narrow face on the same writer, for the reason the
+    // entry above gives. Before POD-6592 its calls resolved through to
+    // `Ledger.commit`; the port now holds a scoped `LedgerWriter`, so it is named
+    // here in its own right.
+    file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts',
+    symbol: 'commit',
+    body: { props: ['write', 'changes'] },
+    label: 'SessionLedger.commit',
+  },
+  {
     file: 'apps/server/src/modules/funnel.ts',
     symbol: 'run',
     body: { props: ['write'] },
@@ -379,13 +383,13 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 130,
+    line: 132,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 115,
-    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above.',
+    line: 122,
+    why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 121; POD-6592's write-scope import moved it.)",
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',
@@ -569,6 +573,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The messages repository's own write callback, handed to its write funnel [POD-4764]; every caller's query is declared in the same file and is checked there, exactly as CommittedRows.query is.",
   },
+  'apps/server/src/store/effects.ts#EffectsRepository.query': {
+    kind: 'opaque',
+    why: "The effects repository's own write callback, handed to its write funnel [POD-6357]; every caller's query is declared in the same file and is checked there, exactly as MessagesRepository.query is.",
+  },
+  'apps/server/src/store/effects.ts#EffectFeedCapture.EffectFeedCapture': {
+    kind: 'contained',
+    why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
   'apps/server/src/store/messages.ts#MessagesRepository.fail': {
     kind: 'opaque',
     why: "The status move a failure runs beside its sender's notice [POD-4778], handed to the repository's own failWith; every such move is declared in the same file, through its write funnel, and is checked there, exactly as MessagesRepository.query is.",
@@ -592,6 +604,22 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
     why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'packages/sync/src/ledger.ts#LedgerWriter.capture': {
+    kind: 'contained',
+    why: "A scoped capture [POD-6592]: `Ledger.capture` bound to one write scope. It appends the declared changes to the change log inside the caller's own transaction, and subscriber delivery waits for the outermost commit because relay.ts wires `AuthorityDeps.postCommit` (ledger §A row 3; the immediate arm stays adjudicated at its own span root, authority.ts). A rollback takes the appended rows with it and nothing outside the process saw them.",
+  },
+  'packages/sync/src/ledger.ts#LedgerWriter.reconcile': {
+    kind: 'contained',
+    why: "A scoped reconcile [POD-6592]: `Ledger.reconcile` bound to one write scope, contained for the reason `LedgerWriter.capture` gives. The message feed's boot reconcile and the issue git-state and projection reconciles run it inside a span on purpose, so the read and the diff are one unit.",
+  },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.arbitrate': {
+    kind: 'contained',
+    why: 'Wraps a writer in the issue revision arbitration (IssueAuthorityArbitration.wrap, POD-6594): it returns a writer and does no I/O itself; the commit it later makes is analysed at its own call.',
+  },
+  'apps/server/src/modules/issues/service/types.ts#IssueLedger.reconcile': {
+    kind: 'contained',
+    why: "The issues service's narrow face on its scoped writer's reconcile [POD-6592]; contained for the reason `LedgerWriter.reconcile` gives.",
   },
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',
@@ -1091,6 +1119,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "the commit's own changes body — the twin of `AuthorityCommit.write` above and of `Ledger.changes` below. It is a SPAN ROOT in its own right: `Authority.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down both bodies are analysed as roots of their own.",
   },
+  'packages/sync/src/ledger.ts#LedgerCommitOp.write': {
+    kind: 'opaque',
+    why: "the commit's own write body, now called by `Ledger.commit` with its write scope (`write: () => op.write(scope)`, POD-6594) rather than handed on as is. It is a SPAN ROOT in its own right: `Ledger.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down its body is analysed there, the twin of `AuthorityCommit.write`.",
+  },
   'packages/sync/src/ledger.ts#Ledger.changes': {
     kind: 'opaque',
     why: "the commit's own changes body; it is a SPAN ROOT in its own right",
@@ -1127,6 +1159,24 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
   },
+  'apps/server/src/modules/sessions/repository.ts#SessionAdditionalWrite.SessionAdditionalWrite': {
+    kind: 'opaque',
+    why: "the named type of `additionalWrite` above (POD-6601: it takes the commit's write scope). The same callback, supplied at the call site and analysed there.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.write': {
+    kind: 'opaque',
+    why: "a prepared stored-session install's write (`prepareStoredSessionInstall`): the one stale-offer clear it holds, which the boot runs inside its own commit (POD-6601). Its body is written down in that method and analysed there.",
+  },
+  'apps/server/src/modules/sessions/session-teardown.ts#SessionTeardownPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for an unresumable parked session, with each sender's notice, inside the park's own commit (POD-5284, POD-6602): database rows only; the notices' delivery waits for that commit.",
+    },
+  'apps/server/src/modules/sessions/session-kill.ts#SessionKillPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for the removed session, and writes each sender's notice, inside the removal's own transaction (POD-4816): database rows only, and a removal that cannot end its messages does not commit.",
+    },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
     kind: 'opaque',
     why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',

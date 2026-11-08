@@ -20,7 +20,8 @@ import {
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
-import type { ConversationBinding, SessionRow } from '../../store'
+import type { ConversationBinding, SessionLifecycleRow, SessionRow } from '../../store'
+import { NO_LIFECYCLE } from '../../store/types'
 import {
   applyObservationCheckpointTo,
   durableStateFromInit,
@@ -136,6 +137,8 @@ export interface SessionInit {
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
   /** Event time of the last kernel OOM kill observed in this session's scope. */
   oomKilledAt?: string | null
+  /** The lifecycle as desired state (POD-6356); absent = nothing recorded. */
+  lifecycle?: SessionLifecycleRow
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -200,6 +203,9 @@ export interface SessionDurableState {
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
   oomKilledAt: string | undefined
   workState: WorkState | undefined
+  /** Desired state, spec revision and the controller's acknowledgement
+   *  (POD-6356). Replaced whole on every change, never mutated in place. */
+  lifecycle: SessionLifecycleRow
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode: number | undefined
@@ -356,6 +362,7 @@ export class Session {
    */
   oomKilledAt: string | undefined
   workState: WorkState | undefined
+  lifecycle: SessionLifecycleRow = NO_LIFECYCLE
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
@@ -546,6 +553,7 @@ export class Session {
     this.stopReason = d.stopReason
     this.oomKilledAt = d.oomKilledAt
     this.workState = d.workState
+    this.lifecycle = d.lifecycle
     this.status = d.status
     this.exitCode = d.exitCode
     this.spawnFailure = d.spawnFailure
@@ -866,6 +874,7 @@ export class Session {
       stopReason: this.stopReason,
       oomKilledAt: this.oomKilledAt,
       workState: this.workState,
+      lifecycle: this.lifecycle,
       cmd: this.cmd,
       status: this.status,
       exitCode: this.exitCode,
@@ -940,6 +949,7 @@ export class Session {
     this.stopReason = state.stopReason
     this.oomKilledAt = state.oomKilledAt
     this.workState = state.workState
+    this.lifecycle = state.lifecycle
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
     this.exitCode = state.exitCode
@@ -1023,6 +1033,7 @@ export class Session {
       stoppedAt: d.stoppedAt ?? null,
       stopReason: d.stopReason ?? null,
       oomKilledAt: d.oomKilledAt ?? null,
+      lifecycle: d.lifecycle,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       agentProfileId: this.agentProfileId ?? null,

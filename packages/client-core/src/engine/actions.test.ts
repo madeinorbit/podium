@@ -1,5 +1,13 @@
 import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
-import { asIssueId, asMutationId, asSessionId } from '@podium/model'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  layoutRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
@@ -31,9 +39,24 @@ function nestedKeys(value: unknown): string[] {
   return Object.entries(value).flatMap(([key, nested]) => [key, ...nestedKeys(nested)])
 }
 
+const ME = asUserId('u-1')
+/** My read state on an issue or a session: a record edit of my own row (POD-6404). */
+const myIssue = (id: string, patch: object) => ({
+  kind: 'recordEdit',
+  input: { kind: 'issueUserState', id: issueUserStateRowId(ME, asIssueId(id)), patch },
+})
+const mySession = (id: SessionId, patch: object) => ({
+  kind: 'recordEdit',
+  input: { kind: 'sessionUserState', id: sessionUserStateRowId(ME, id), patch },
+})
+
 function harness(
-  layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] } = {},
+  layout: { seed?: LayoutSnapshot; fetch?: () => Promise<LayoutSnapshot> } = {},
   hub?: { reportTabRelease: (sessionId: SessionId) => void },
+  extra: {
+    sessionRevision?: (id: SessionId) => number | undefined
+    launchPainted?: (id: SessionId) => boolean
+  } = {},
 ) {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
@@ -86,7 +109,7 @@ function harness(
   const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
     queued.push({ kind, input })
     const entry = {
-      mutationId: asMutationId(`m-`),
+      mutationId: asMutationId(`m-${queued.length}`),
       kind,
       input,
       queuedAt: queued.length,
@@ -95,6 +118,15 @@ function harness(
     return entry
   })
   const dismissOffer = vi.fn(async (_input: unknown) => ({}))
+  const submit = vi.fn(async (_envelope: unknown) => ({
+    outcome: 'applied',
+    result: {},
+    receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+    replayed: false,
+  }))
+  // The old controller fetched `layout.get` at boot and after every applied
+  // layout command. Nothing may call it now: the base is the replica's.
+  const layoutGet = vi.fn(layout.fetch ?? (async () => ({})))
   const router = {
     current: () => ({
       view: 'tasks',
@@ -106,27 +138,25 @@ function harness(
     navigate: (route: unknown) => navigated.push(route),
   } as unknown as Router
   const runtime = {
+    userId: ME,
     api: {
-      layout: { get: { query: async () => ({}) } },
+      layout: { get: { query: layoutGet } },
       superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
       sessions: {
         kill: { mutate: vi.fn(async () => ({})) },
         dismissOffer: { mutate: dismissOffer },
       },
+      sync: { submit: { mutate: submit } },
     } as unknown as PodiumClientApi,
     hub: (hub ?? {}) as SocketHub,
     outbox: {
       enqueue,
       pending: () => pending,
       awaiting: () => awaiting,
-      retireAwaiting: vi.fn(),
     } as unknown as EngineOutbox,
     router,
     notices: { error: (message: string) => errors.push(message), info: vi.fn() } as StoreNotices,
     ...(layout.seed !== undefined ? { layoutSeed: layout.seed } : {}),
-    ...(layout.installed !== undefined
-      ? { onLayoutBaseInstalled: (snapshot: LayoutSnapshot) => layout.installed?.push(snapshot) }
-      : {}),
     state: () => state,
     navigate: (intent: NavigationIntent) => {
       const plan = planNavigation(state as unknown as EngineState, router.current(), intent, {
@@ -154,6 +184,7 @@ function harness(
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
+    ...extra,
   } as unknown as EngineActionRuntime<PodiumClientApi>
   const navigation = fixtureNavigation({
     issues: () => state.issueProjections as IssueProjection[],
@@ -166,13 +197,45 @@ function harness(
     },
   })
   Object.assign(state, { navigation })
+  const actions = createEngineActions(runtime)
+  const without = (list: OutboxEntry[], entry: OutboxEntry): void => {
+    const at = list.indexOf(entry)
+    if (at >= 0) list.splice(at, 1)
+  }
   return {
-    actions: createEngineActions(runtime),
+    actions,
     dismissOffer,
+    submit,
     enqueue,
     pending,
     awaiting,
-    retireAwaiting: runtime.outbox.retireAwaiting as ReturnType<typeof vi.fn>,
+    layoutGet,
+    /** The newest queued entry. */
+    queuedEntry: (): OutboxEntry => {
+      const entry = pending.at(-1)
+      if (entry === undefined) throw new Error('nothing queued')
+      return entry
+    },
+    /** The server's reply came back: the kernel moves the entry from pending to
+     *  awaiting and the outbox notifies (runtime: `outboxChanged`). */
+    reply: (entry: OutboxEntry): void => {
+      without(pending, entry)
+      awaiting.push(entry)
+      actions.replicatedLayout.outboxChanged()
+    },
+    /** The replica committed truth covering the entry: rows and retirement land
+     *  in one commit, then the row and outbox listeners run. */
+    confirm: (entry: OutboxEntry, base: LayoutSnapshot): void => {
+      without(awaiting, entry)
+      actions.replicatedLayout.replace(base)
+      actions.replicatedLayout.outboxChanged()
+    },
+    /** A refusal: the entry leaves the outbox without covering truth. */
+    drop: (entry: OutboxEntry): void => {
+      without(pending, entry)
+      without(awaiting, entry)
+      actions.replicatedLayout.outboxChanged()
+    },
     errors,
     queued,
     navigated,
@@ -230,6 +293,43 @@ describe('engine action ownership boundary', () => {
     expect(h.state().transcriptReveal).toBeNull()
   })
 
+  it('answers a question as a session.answer record created at once, never queued (POD-6415)', async () => {
+    const h = harness()
+
+    const id = await h.actions.answerSession(sessionId, {
+      via: 'menu',
+      interactionId: 'ask-1',
+      choices: [{ optionIndices: [2] }],
+    })
+
+    expect(id).toMatch(/^eff_/)
+    // Online-only: an answer that reached the server later would land on a
+    // later menu, so it is never in the durable queue.
+    expect(h.queued).toEqual([])
+    expect(h.submit).toHaveBeenCalledTimes(1)
+    expect(h.submit.mock.calls[0]?.[0]).toMatchObject({
+      command: 'effects.create',
+      input: {
+        id,
+        kind: 'session.answer',
+        target: { kind: 'session', id: sessionId },
+        input: { via: 'menu', interactionId: 'ask-1', choices: [{ optionIndices: [2] }] },
+      },
+    })
+  })
+
+  it('a refused answer rejects in words, and nothing is queued', async () => {
+    const h = harness()
+    h.submit.mockResolvedValueOnce({
+      outcome: 'rejected',
+      refusal: { kind: 'target-not-found' },
+    } as never)
+    await expect(h.actions.answerSession(sessionId, { via: 'menu', skip: true })).rejects.toThrow(
+      /answer the question/,
+    )
+    expect(h.queued).toEqual([])
+  })
+
   it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {
     const h = harness()
 
@@ -284,13 +384,15 @@ describe('engine action ownership boundary', () => {
 
     expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
     expect(h.actions.replicatedLayout.get('dockTab')).toBe('files')
+    // One key each: a record edit of my layout row (POD-6404).
+    const myLayout = (key: string, value: unknown) => ({
+      kind: 'recordEdit',
+      input: { kind: 'userLayout', id: layoutRowId(ME, key), patch: { value } },
+    })
     expect(h.queued).toEqual([
-      { kind: 'layoutSet', input: { values: { superOpen: '1' } } },
-      { kind: 'layoutSet', input: { values: { dockTab: 'files' } } },
-      {
-        kind: 'layoutSet',
-        input: { values: { panelMode: JSON.stringify({ [sessionId]: 'native' }) } },
-      },
+      myLayout('superOpen', '1'),
+      myLayout('dockTab', 'files'),
+      myLayout('panelMode', JSON.stringify({ [sessionId]: 'native' })),
     ])
   })
 
@@ -316,23 +418,6 @@ describe('engine action ownership boundary', () => {
 
     expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('false')
     await vi.waitFor(() => expect(h.queued).toHaveLength(1))
-  })
-
-  it('reports authoritative bases for persistence, never the seed or unconfirmed optimism', async () => {
-    // What may be written back is exactly what the authority said. A seed
-    // round-trip is pointless, and persisting an unaccepted local write would
-    // let it survive a reload as though the server had taken it.
-    const installed: LayoutSnapshot[] = []
-    const h = harness({ seed: { 'sidebar.section.pinned': 'true' }, installed })
-
-    expect(installed).toEqual([])
-
-    h.actions.replicatedLayout.set('superOpen', '1')
-    await vi.waitFor(() => expect(h.queued).toHaveLength(1))
-    expect(installed).toEqual([])
-
-    h.actions.replicatedLayout.replace({ 'sidebar.section.pinned': 'false' })
-    expect(installed).toEqual([{ 'sidebar.section.pinned': 'false' }])
   })
 
   it('drops a non-layout key from the seed rather than projecting it', () => {
@@ -366,10 +451,7 @@ describe('engine action ownership boundary', () => {
     h.actions.replicatedLayout.set('superOpen', '1')
     await Promise.resolve()
     await Promise.resolve()
-    const denied = h.pending.shift()
-    expect(denied).toBeDefined()
-
-    h.actions.replicatedLayout.commandDropped(denied!)
+    h.drop(h.queuedEntry())
 
     expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
   })
@@ -379,50 +461,114 @@ describe('engine action ownership boundary', () => {
     h.actions.replicatedLayout.set('superOpen', '1')
     await Promise.resolve()
     await Promise.resolve()
-    const accepted = h.pending.shift()
-    expect(accepted).toBeDefined()
-    h.awaiting.push(accepted!)
-
-    expect(h.actions.replicatedLayout.commandApplied(accepted!)).toBe(true)
-    h.actions.replicatedLayout.reconcile({}, [accepted!.mutationId])
-
-    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
-    expect(h.retireAwaiting).toHaveBeenCalledWith(accepted!.mutationId)
-  })
-
-  it('holds an accepted layout value across a stale feed snapshot', async () => {
-    const h = harness()
-    h.actions.replicatedLayout.set('superOpen', '1')
-    await Promise.resolve()
-    await Promise.resolve()
-    const accepted = h.pending.shift()
-    expect(accepted).toBeDefined()
-    h.awaiting.push(accepted!)
-
-    expect(h.actions.replicatedLayout.commandApplied(accepted!)).toBe(true)
-    h.actions.replicatedLayout.reconcile({ superOpen: '1' }, [accepted!.mutationId])
-
-    h.actions.replicatedLayout.replace({ superOpen: '0' })
+    const accepted = h.queuedEntry()
+    h.reply(accepted)
     expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
 
-    // The next matching feed snapshot releases the guard; later snapshots are
-    // then allowed to represent a real newer-device change.
-    h.actions.replicatedLayout.replace({ superOpen: '1' })
-    h.actions.replicatedLayout.replace({ superOpen: '0' })
-    expect(h.actions.replicatedLayout.get('superOpen')).toBe('0')
-  })
-
-  it('suppresses old-scope layout overlays on rescope while keeping the command recoverable', async () => {
-    const h = harness()
-    h.actions.replicatedLayout.set('superOpen', '1')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    h.actions.replicatedLayout.rescope({ dockTab: 'git' })
+    h.confirm(accepted, {})
 
     expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
-    expect(h.actions.replicatedLayout.get('dockTab')).toBe('git')
-    expect(h.pending).toHaveLength(1)
+  })
+
+  describe('paint comes from live outbox entries only (ADR 12, POD-6278)', () => {
+    // There is no hold, no ignore-list and no refetch. A key's value is the
+    // replica's base, then every layout entry still in the outbox (pending and
+    // applied, in queue order), then temporary paint. An entry leaves the
+    // outbox when the replica commits the truth that covers it (POD-6277), so
+    // its paint ends in the very commit that installs that truth.
+    const FOLDER = 'sidebar.section.nulldisk'
+    const enqueued = async (): Promise<void> => {
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    function deferred<T>() {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>((r) => {
+        resolve = r
+      })
+      return { promise, resolve }
+    }
+
+    it('folder toggles alternate set and clear across a confirmed clear (the nulldisk sequence)', async () => {
+      // The proven defect: an applied `layoutClear` was held until a `layout.get`
+      // reconcile, and every collapse re-expanded the folder. Here the boot
+      // fetch's answer was taken BEFORE the clear landed and arrives after it.
+      const late = deferred<LayoutSnapshot>()
+      const h = harness({ seed: { [FOLDER]: '1' }, fetch: () => late.promise })
+      const layout = h.actions.replicatedLayout
+      const toggle = (): void => {
+        if (layout.get(FOLDER) === undefined) layout.set(FOLDER, '1')
+        else layout.clear(FOLDER)
+      }
+      const boot = layout.hydrate()
+
+      toggle() // expand
+      await enqueued()
+      const clear = h.queuedEntry()
+      h.reply(clear)
+      expect(layout.get(FOLDER)).toBeUndefined()
+      h.confirm(clear, {})
+      late.resolve({ [FOLDER]: '1' })
+      await boot
+      expect(layout.get(FOLDER)).toBeUndefined()
+
+      toggle() // collapse
+      expect(layout.get(FOLDER)).toBe('1')
+      await enqueued()
+      const set = h.queuedEntry()
+      h.reply(set)
+      h.confirm(set, { [FOLDER]: '1' })
+      expect(layout.get(FOLDER)).toBe('1')
+
+      toggle() // expand again
+      expect(layout.get(FOLDER)).toBeUndefined()
+      expect(h.queued.map((q) => q.kind)).toEqual(['recordRemove', 'recordEdit', 'recordRemove'])
+      expect(h.layoutGet).not.toHaveBeenCalled()
+    })
+
+    it('an applied layout write paints until its entry retires, then the base shows the server value', async () => {
+      const h = harness({ seed: { superOpen: '0' } })
+      const layout = h.actions.replicatedLayout
+      layout.set('superOpen', '1')
+      await enqueued()
+      const entry = h.queuedEntry()
+
+      h.reply(entry)
+      expect(layout.get('superOpen')).toBe('1')
+      // Truth that does not cover the entry yet: the entry keeps painting.
+      layout.replace({ superOpen: '0', dockTab: 'git' })
+      await layout.hydrate()
+      expect(layout.get('superOpen')).toBe('1')
+      expect(layout.get('dockTab')).toBe('git')
+
+      h.confirm(entry, { superOpen: '1', dockTab: 'git' })
+      expect(layout.get('superOpen')).toBe('1')
+      // Retired: nothing of the entry is left to hold a later truth back.
+      layout.replace({ superOpen: '0', dockTab: 'git' })
+      expect(layout.get('superOpen')).toBe('0')
+      expect(h.layoutGet).not.toHaveBeenCalled()
+    })
+
+    it("another device's later write shows once my entry retires", async () => {
+      // A boot fetch answered before the other device wrote is a second base
+      // writer with no cursor; it must not paint over the replica's truth.
+      const late = deferred<LayoutSnapshot>()
+      const h = harness({ seed: { dockTab: 'chat' }, fetch: () => late.promise })
+      const layout = h.actions.replicatedLayout
+      const boot = layout.hydrate()
+      layout.set('dockTab', 'files')
+      await enqueued()
+      const mine = h.queuedEntry()
+      h.reply(mine)
+
+      // The other device wrote after me: one frame covers my write and theirs.
+      h.confirm(mine, { dockTab: 'git' })
+      expect(layout.get('dockTab')).toBe('git')
+      late.resolve({ dockTab: 'files' })
+      await boot
+      expect(layout.get('dockTab')).toBe('git')
+      expect(h.layoutGet).not.toHaveBeenCalled()
+    })
   })
 
   it('fails closed for a device-local key without touching the Outbox', () => {
@@ -598,7 +744,10 @@ describe('pane scalars follow the layout', () => {
 
 describe('tucking the task on screen leaves it (POD-2293)', () => {
   const issue = (id: string, parentId?: string) =>
-    ({ id: asIssueId(id), ...(parentId ? { parentId: asIssueId(parentId) } : {}) }) as unknown as IssueProjection
+    ({
+      id: asIssueId(id),
+      ...(parentId ? { parentId: asIssueId(parentId) } : {}),
+    }) as unknown as IssueProjection
   const seeded = (selected = 'root') => {
     const h = harness()
     h.seed({
@@ -617,7 +766,8 @@ describe('tucking the task on screen leaves it (POD-2293)', () => {
 
     await h.actions.setIssueTucked('root', true)
 
-    expect(h.queued.at(-1)).toMatchObject({ kind: 'issueSetTucked', input: { id: 'root', tucked: true } })
+    // The tuck is a record edit of my own row (POD-6404).
+    expect(h.queued.at(-1)).toMatchObject(myIssue('root', { tuckedAt: expect.any(String) }))
     expect(h.state().selectedIssueId).toBeNull()
     // The worktree stays: clearing it would hand over to the worktree fallback.
     expect(h.state().selectedWorktree).toBe('/wt')
@@ -789,8 +939,8 @@ describe('navigation read command coalescing', () => {
     const last = h.actions.markIssueRead('issue-1', '2026-10-29T12:00:01.000Z')
     await Promise.all([first, last])
     expect(h.queued).toEqual([
-      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:00.000Z' } },
-      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:01.000Z' } },
+      myIssue('issue-1', { readAt: '2026-10-29T12:00:00.000Z' }),
+      myIssue('issue-1', { readAt: '2026-10-29T12:00:01.000Z' }),
     ])
   })
 
@@ -805,11 +955,25 @@ describe('navigation read command coalescing', () => {
     const last = read(sessionId, '2026-10-29T12:00:01.000Z')
     await unread(sessionId)
     await Promise.all([first, last])
-    expect(h.queued.map((entry) => entry.kind)).toEqual(
-      kind === 'issue'
-        ? ['issueMarkRead', 'issueMarkUnread']
-        : ['sessionMarkRead', 'sessionMarkUnread'],
-    )
+    const mine = kind === 'issue' ? myIssue : mySession
+    expect(h.queued).toEqual([
+      mine(sessionId, { readAt: '2026-10-29T12:00:00.000Z' }),
+      mine(sessionId, { readAt: null }),
+    ])
+  })
+
+  it('writes no read mark for a session that is only a start’s paint (POD-6622)', async () => {
+    // The server has no row under the painted id, so the mark would be refused
+    // ("Couldn't save session read status"); the paint already reads as read.
+    let painted = true
+    const h = harness({}, undefined, { launchPainted: (id) => painted && id === sessionId })
+    await h.actions.markSessionRead(sessionId)
+    await h.actions.markSessionRead(sessionId, '2026-11-08T09:06:00.000Z')
+    expect(h.queued).toEqual([])
+    // The row has landed: the same press marks it.
+    painted = false
+    await h.actions.markSessionRead(sessionId, '2026-11-08T09:07:00.000Z')
+    expect(h.queued).toEqual([mySession(sessionId, { readAt: '2026-11-08T09:07:00.000Z' })])
   })
 
   it('shares the reaction and click read until its optimistic overlay is published', async () => {
@@ -821,9 +985,11 @@ describe('navigation read command coalescing', () => {
     const duplicateSession = h.actions.markSessionRead(sessionId)
     expect(duplicate).toBe(first)
     expect(duplicateSession).toBe(session)
+    // A press without a cursor marks what this device has seen: now, or the
+    // row's later activity (POD-6404).
     expect(h.queued).toEqual([
-      { kind: 'issueMarkRead', input: { id: issueId } },
-      { kind: 'sessionMarkRead', input: { sessionId } },
+      myIssue(issueId, { readAt: expect.any(String) }),
+      mySession(sessionId, { readAt: expect.any(String) }),
     ])
     await Promise.all([first, session])
     await h.actions.markIssueRead(issueId)
@@ -843,5 +1009,46 @@ describe('S5 gesture batch', () => {
     })
     expect(order).toEqual(['inside'])
     expect(h.navigated).toHaveLength(1)
+  })
+})
+
+describe('session lifecycle as edits of the session record (POD-6399)', () => {
+  const sessionEdit = (input: unknown) =>
+    input as { kind: string; id: string; patch: unknown; expectedRevision?: number }
+
+  it('stop, hibernate and resume queue records.session edits against the replica revision', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => 4 })
+    expect(await h.actions.endSession(sessionId)).toEqual({ ok: true })
+    await h.actions.hibernateSession(sessionId)
+    expect(await h.actions.resurrectSession(sessionId)).toEqual({ ok: true })
+    const edits = h.queued.filter((q) => q.kind === 'recordEdit').map((q) => sessionEdit(q.input))
+    expect(edits.map((e) => [e.kind, e.id, e.patch])).toEqual([
+      ['session', sessionId, { desired: 'stopped' }],
+      ['session', sessionId, { desired: 'hibernated' }],
+      ['session', sessionId, { desired: 'running' }],
+    ])
+    expect(edits.every((e) => e.expectedRevision === 4)).toBe(true)
+  })
+
+  it('a second edit queued behind an unconfirmed one names the revision the first will make', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => 2 })
+    h.pending.push({
+      mutationId: asMutationId('m-earlier'),
+      kind: 'recordEdit',
+      input: { kind: 'session', id: sessionId, patch: { desired: 'stopped' }, expectedRevision: 2 },
+      queuedAt: 0,
+    } as OutboxEntry)
+    await h.actions.endSession(sessionId, true)
+    const edit = sessionEdit(h.queued.filter((q) => q.kind === 'recordEdit').at(-1)?.input)
+    expect(edit).toMatchObject({ patch: { desired: 'stopped', force: true }, expectedRevision: 3 })
+  })
+
+  it('kill removes the session record against its revision', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => undefined })
+    await h.actions.killSession(sessionId)
+    const removes = h.queued
+      .filter((q) => q.kind === 'recordRemove')
+      .map((q) => sessionEdit(q.input))
+    expect(removes).toEqual([{ kind: 'session', id: sessionId, expectedRevision: 1 }])
   })
 })

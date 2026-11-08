@@ -1,11 +1,12 @@
 import { createLogger } from '@podium/logger'
 import { type IssueId, type IssueProjection, isIssueClosed, type UserId } from '@podium/model'
-import type { Ledger } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
 import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
+import type { SessionIssueWorkflowPort } from './sessions/issue-workflow-port'
 import type { SessionLifecycle } from './sessions/lifecycle'
 
 const log = createLogger('server:closed-issue-reaper')
@@ -25,6 +26,9 @@ export interface RestoreIssueResult {
   restoredSessionIds: string[]
 }
 
+/** What an issue delete or restore commits on: the command's own writer. */
+type IssueLifecycleWriter = Pick<LedgerWriter, 'commit' | 'capture'>
+
 export class IssueSessionLifecycle {
   private readonly closedIssueStops = new Map<string, Promise<void>>()
   private closedIssueSweepTimer: ReturnType<typeof setInterval> | undefined
@@ -37,29 +41,48 @@ export class IssueSessionLifecycle {
     private readonly deps: {
       issues: IssueService
       sessions: SessionLifecycle
-      ledger: Pick<Ledger, 'commit'>
+      ledger: Pick<LedgerWriter, 'commit'>
+      /** The issue revision arbitration, applied to a command's own writer. */
+      arbitrate: (writer: IssueLifecycleWriter) => IssueLifecycleWriter
     },
   ) {}
 
+  /**
+   * The issue workflow as the session paths see it. A resume or a resurrect is
+   * the server acting after a commit (the launch run, the lifecycle
+   * controller), so a session's re-home writes the issue as `sessions.lifecycle`
+   * (ADR 12 D9, POD-6601).
+   */
+  private sessionWorkflow(): SessionIssueWorkflowPort {
+    const workflow = this.deps.issues.gitWorkflow
+    return {
+      ensureWorktree: async (...args) => await workflow.ensureWorktree(...args),
+      freeWorktreeKeepBranch: async (...args) => await workflow.freeWorktreeKeepBranch(...args),
+      rehome: async (issueId, where) =>
+        await workflow.rehome(this.deps.sessions.serverWriter, issueId, where),
+      recordSessionGitActivity: async (...args) => await workflow.recordSessionGitActivity(...args),
+    }
+  }
+
   /** Resume a durable conversation under one visible issue/session workflow. */
   async resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
-    return await this.deps.sessions.resumeSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.resumeSession(input, this.sessionWorkflow())
   }
 
   /** Recreate a freed issue worktree before respawning its parked session. */
   async resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
-    return await this.deps.sessions.resurrectSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.resurrectSession(input, this.sessionWorkflow())
   }
 
   /** Park one session and free its worktree without an asynchronous ordering hop. */
   async stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
-    return await this.deps.sessions.stopSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.stopSession(input, this.sessionWorkflow())
   }
 
   /** Stop every issue member before the single final worktree-free pass. */
   async stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
     const issueId = await this.deps.issues.reports.resolveRef(input.issueId)
-    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.sessionWorkflow())
   }
   /**
    * Stop a closed issue through the same no-force path as `podium issue stop`.
@@ -278,12 +301,13 @@ export class IssueSessionLifecycle {
     input: Parameters<SessionLifecycle['handoffSession']>[0],
     caller: HandoffCaller,
   ) {
-    return await this.deps.sessions.handoffSession(input, caller, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.handoffSession(input, caller, this.sessionWorkflow())
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
   async deleteIssue(
+    writer: IssueLifecycleWriter,
     id: string,
     /** Whose sessions the deletion ends (POD-6287, MU-24): the deleter's own.
      *  Another member's session on the task keeps running. Absent, for the
@@ -294,7 +318,10 @@ export class IssueSessionLifecycle {
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), deletedSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        deletedSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
@@ -303,10 +330,10 @@ export class IssueSessionLifecycle {
     )
     const issuePlan = await this.deps.issues.crud.prepareSoftDelete(current.id)
 
-    await this.deps.ledger.commit({
-      write: async () => {
-        await sessionPlan.write()
-        await issuePlan.write()
+    await this.deps.arbitrate(writer).commit({
+      write: async (scope) => {
+        await sessionPlan.write(scope)
+        await issuePlan.write(scope)
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
@@ -342,20 +369,23 @@ export class IssueSessionLifecycle {
   /** Restore an issue and the exact sessions tombstoned by its deletion. Session
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
-  async restoreIssue(id: string): Promise<RestoreIssueResult> {
+  async restoreIssue(writer: IssueLifecycleWriter, id: string): Promise<RestoreIssueResult> {
     // No-op restores return the same normalized shape as committed ones.
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), restoredSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        restoredSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
     const issuePlan = await this.deps.issues.crud.prepareRestore(current.id)
 
-    await this.deps.ledger.commit({
-      write: async () => {
-        await sessionPlan.write()
-        await issuePlan.write()
+    await this.deps.arbitrate(writer).commit({
+      write: async (scope) => {
+        await sessionPlan.write(scope)
+        await issuePlan.write(scope)
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // The same argument as the delete above, in the other direction: the

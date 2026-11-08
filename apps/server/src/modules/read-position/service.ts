@@ -15,18 +15,17 @@ import {
   readPositionRowId,
   type UserId,
 } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 
 export interface ReadPositionServiceDeps {
   readonly cursors: UserReadPositionRepository
-  /**
-   * Write-seam ledger. Cursor rows ride entity kind `userReadPosition` so bootstrap
-   * and delta share one log. Optional only for pure unit tests of storage;
-   * production always wires it.
-   */
-  readonly ledger?: Pick<Ledger, 'capture'>
 }
+
+/** What a read mark is written through: the command's own writer (ADR 12 D9,
+ *  POD-6594). Cursor rows ride entity kind `userReadPosition`, so bootstrap and
+ *  delta share one log. */
+export type ReadPositionCommandWriter = Pick<LedgerWriter, 'commit'>
 
 export class ReadPositionService {
   constructor(private readonly deps: ReadPositionServiceDeps) {}
@@ -42,21 +41,24 @@ export class ReadPositionService {
    * would have to merge itself.
    */
   async advance(
+    writer: ReadPositionCommandWriter,
     userId: UserId,
     streamId: string,
     proposed: StoredReadPosition,
     now: string,
   ): Promise<ReadPositionSnapshot> {
-    const moved = await this.deps.cursors.advance(userId, streamId, proposed, now)
-    if (moved !== null) {
-      await this.publish(userId, streamId, moved)
-    }
+    // One commit: the cursor row and its change entry. A proposal at or behind
+    // the stored position moves nothing and appends nothing.
+    await writer.commit({
+      write: async (scope) =>
+        await this.deps.cursors.advance(scope, userId, streamId, proposed, now),
+      changes: (moved) => (moved === null ? [] : [changeSpec(userId, streamId, moved)]),
+    })
     return await this.deps.cursors.getSnapshot(userId)
   }
+}
 
-  private async publish(userId: UserId, streamId: string, cursor: StoredReadPosition): Promise<void> {
-    const ledger = this.deps.ledger
-    if (!ledger) return
+function changeSpec(userId: UserId, streamId: string, cursor: StoredReadPosition): EntityChangeSpec {
     const value: ReadPositionWire = {
       userId,
       streamId,
@@ -69,6 +71,5 @@ export class ReadPositionService {
       op: 'upsert',
       value,
     }
-    await ledger.capture([spec])
-  }
+    return spec
 }

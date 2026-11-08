@@ -20,7 +20,15 @@ function declaredObserver(manifest: AgentManifest): HarnessObserver {
   return manifest.observer.value
 }
 
-import { acceptAgentObservation, type ObservationLease } from '../../observer.js'
+import type { AgentStateEvent } from '../../agent-state/types.js'
+import { testAccount } from '../../driver/testing/harness-context.js'
+import {
+  acceptAgentObservation,
+  initialAgentState,
+  type ObservationLease,
+  reduceAgentState,
+} from '../../observer.js'
+import { GrokCausalObserver } from './state-causal.js'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
@@ -29,9 +37,6 @@ import {
   observeGrokState,
   translateGrokUpdatePayload,
 } from './state-provider.js'
-import { GrokCausalObserver } from './state-causal.js'
-import { initialAgentState, reduceAgentState } from '../../observer.js'
-import type { AgentStateEvent } from '../../agent-state/types.js'
 
 const text = (value: string) => ({ type: 'text', text: value })
 
@@ -249,7 +254,11 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     const { mtime } = await stat(paths.chatHistoryPath)
 
     await expect(
-      grokStateProvider.bootEvents?.({ cwd, resumeValue: 'g1', homeDir: home }),
+      grokStateProvider.bootEvents?.({
+        cwd,
+        resumeValue: 'g1',
+        account: testAccount('grok', home),
+      }),
     ).resolves.toEqual([
       {
         kind: 'turn_completed',
@@ -274,7 +283,11 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     const { mtime } = await stat(paths.chatHistoryPath)
 
     await expect(
-      grokStateProvider.bootEvents?.({ cwd: sessionCwd, resumeValue: 'g-moved', homeDir: home }),
+      grokStateProvider.bootEvents?.({
+        cwd: sessionCwd,
+        resumeValue: 'g-moved',
+        account: testAccount('grok', home),
+      }),
     ).resolves.toEqual([
       {
         kind: 'turn_completed',
@@ -317,7 +330,11 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     )
 
     await expect(
-      grokStateProvider.bootEvents?.({ cwd, resumeValue: 'g-plan-boot', homeDir: home }),
+      grokStateProvider.bootEvents?.({
+        cwd,
+        resumeValue: 'g-plan-boot',
+        account: testAccount('grok', home),
+      }),
     ).resolves.toMatchObject([
       {
         kind: 'turn_completed',
@@ -2273,7 +2290,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const observer = declaredObserver(grokManifest)(
       {
         cwd,
-        homeDir: home,
+        account: testAccount('grok', home),
         resumeValue: candidate,
         podiumSessionId: asSessionId('podium-rebind'),
         observationLease: {
@@ -2358,7 +2375,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const observer = declaredObserver(grokManifest)(
       {
         cwd,
-        homeDir: home,
+        account: testAccount('grok', home),
         resumeValue: candidate,
         podiumSessionId: asSessionId('podium-rebind-rejected'),
         observationLease: {
@@ -2437,7 +2454,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const observer = declaredObserver(grokManifest)(
       {
         cwd,
-        homeDir: home,
+        account: testAccount('grok', home),
         resumeValue: sessionId,
         podiumSessionId: asSessionId('podium-adapter'),
         observationLease: {
@@ -2525,7 +2542,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const observer = declaredObserver(grokManifest)(
       {
         cwd,
-        homeDir: home,
+        account: testAccount('grok', home),
         resumeValue: sessionId,
         podiumSessionId: asSessionId('podium-hook-wake'),
         observationLease: {
@@ -2651,7 +2668,12 @@ describe('grok legacy Stop-hook cancellation fallback', () => {
     }
     let checkpoint: SessionObservationCheckpointV1 | null = null
     const accept = (observation: AgentObservation): void => {
-      const result = acceptAgentObservation(checkpoint, lease, observation, '2026-09-24T00:00:02.000Z')
+      const result = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observation,
+        '2026-09-24T00:00:02.000Z',
+      )
       if (result.kind === 'rejected') throw new Error(result.rejectionReason)
       checkpoint = result.checkpoint
       causal.acknowledge({
@@ -2668,10 +2690,7 @@ describe('grok legacy Stop-hook cancellation fallback', () => {
 
     // Open the turn the way a live headed session does: hook first.
     expect(
-      causal.observeHook(
-        { hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-fast' },
-        segment,
-      ),
+      causal.observeHook({ hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-fast' }, segment),
     ).toBe(true)
     await waitFor(() => observations.length === 1)
     expect(observations[0]).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
@@ -2721,10 +2740,7 @@ describe('grok legacy Stop-hook cancellation fallback', () => {
       inode: '2',
     }
     expect(
-      causal.observeHook(
-        { hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-stale' },
-        segment,
-      ),
+      causal.observeHook({ hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-stale' }, segment),
     ).toBe(true)
     await waitFor(() => observations.length === 1)
 
@@ -2768,7 +2784,12 @@ describe('grok legacy Stop-hook cancellation fallback', () => {
       },
     })
     const accept = (observation: AgentObservation): void => {
-      const result = acceptAgentObservation(checkpoint, lease, observation, '2026-09-24T00:00:02.000Z')
+      const result = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observation,
+        '2026-09-24T00:00:02.000Z',
+      )
       if (result.kind === 'rejected') throw new Error(result.rejectionReason)
       checkpoint = result.checkpoint
       observer.onObservationAck?.({
@@ -2785,9 +2806,7 @@ describe('grok legacy Stop-hook cancellation fallback', () => {
     try {
       await waitFor(() => observations.length === 1)
       accept(observations[0]!)
-      expect(
-        observer.onHookPayload?.({ hookEventName: 'UserPromptSubmit', sessionId }),
-      ).toBe(true)
+      expect(observer.onHookPayload?.({ hookEventName: 'UserPromptSubmit', sessionId })).toBe(true)
       await waitFor(() => observations.length === 2)
       expect(observations[1]).toMatchObject({
         transitionKind: 'turn_opened',

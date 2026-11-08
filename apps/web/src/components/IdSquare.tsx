@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { issueNumberText, issueRefText, PENDING_ISSUE_NUMBER } from '@podium/protocol'
 import type { CSSProperties, JSX } from 'react'
 import { StatusBadge, type StatusBadgeKind } from '@/lib/motion'
 
@@ -18,6 +19,9 @@ export type IdSquareLabel = {
   full: string
 }
 
+/** `PREFIX-n`; the number is digits, or the pending mark of a new issue (`POD-…`). */
+const IDENTIFIER_RE = new RegExp(`^(.+?)[-_\\s]+(\\d+|${PENDING_ISSUE_NUMBER})$`)
+
 /** Split the current display identifier into the square's two fixed lines.
  *  The server-derived `displayRef` ("POD-78") replaces the bare `#seq`
  *  fallback (POD-85): the square is the row's ONE identity mark, so it must
@@ -26,11 +30,12 @@ export function idSquareLabel(
   issue: Pick<IssueViewModel, 'linearIdentifier' | 'seq'> & { displayRef?: string },
 ): IdSquareLabel {
   const identifier = issue.linearIdentifier?.trim() || issue.displayRef?.trim()
-  const match = identifier?.match(/^(.+?)[-_\s]+(\d+)$/)
+  const match = identifier?.match(IDENTIFIER_RE)
   if (identifier && match?.[1] && match[2]) {
     return { prefix: match[1].toUpperCase(), number: match[2], full: identifier }
   }
-  return { prefix: '#', number: String(issue.seq), full: `#${issue.seq}` }
+  // A new issue's number is pending until the server's row lands (POD-6400).
+  return { prefix: '#', number: issueNumberText(issue.seq), full: issueRefText(issue.seq) }
 }
 
 /** Shared task identity mark, with an optional navigation action. */

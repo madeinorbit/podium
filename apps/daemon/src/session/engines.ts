@@ -34,6 +34,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { withTrailingArgs } from '@podium/harness'
 import type {
   EngineAttachment,
   EngineBindingRecord,
@@ -45,10 +46,10 @@ import type {
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import {
-  scopeUnitName,
   type DurableAdapter,
   type DurableProcess,
   type HostDurableAttachment,
+  scopeUnitName,
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { noDurableBackendRefusal } from '../durable-backend'
@@ -163,7 +164,7 @@ export class SessionEngineScope implements EngineProcessOwner {
   async startEngine(req: EngineSpawnRequest): Promise<EngineHold> {
     if (!(this.options.hostAvailable?.() ?? true)) throw new Error(noDurableBackendRefusal())
     const adapter = engineAdapter(this.durable, req.label)
-    const { retention, listen, sessionId, ...spawn } = req
+    const { retention, listen, sessionId, command, ...spawn } = req
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.
@@ -174,9 +175,15 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(address !== undefined ? { address } : {}),
       }
     }
-    const args = listen && address !== undefined ? [...spawn.args, ...listen.argv(address)] : spawn.args
+    const bound =
+      listen && address !== undefined ? withTrailingArgs(command, listen.argv(address)) : command
     const attachment = toEngineAttachment(
-      await adapter.spawnHeadless({ ...spawn, args, ...retention }),
+      await adapter.spawnHeadless({
+        ...spawn,
+        cmd: bound.cmd,
+        args: [...bound.args],
+        ...retention,
+      }),
     )
     return { attachment, ...(address !== undefined ? { address } : {}) }
   }
@@ -347,9 +354,9 @@ export class SessionEngineScope implements EngineProcessOwner {
   private journalIn(namespace: string): EngineJournal<{ sessionId: SessionId }> {
     const existing = this.journals.get(namespace)
     if (existing) return existing
-    const journal = this.options.journalFor?.(namespace) ?? readingLegacyAddress(
-      createEngineJournal<{ sessionId: SessionId }>({ namespace }),
-    )
+    const journal =
+      this.options.journalFor?.(namespace) ??
+      readingLegacyAddress(createEngineJournal<{ sessionId: SessionId }>({ namespace }))
     this.journals.set(namespace, journal)
     return journal
   }

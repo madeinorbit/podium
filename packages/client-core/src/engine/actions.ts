@@ -10,24 +10,54 @@ import type { SessionView } from '../session-values'
  * single-operator placement.
  */
 
+import { fieldConflict } from '@podium/commands/records'
 import { createLogger } from '@podium/logger'
 import type {
-  AgentKind,
   IssueId,
   LayoutSnapshot,
   MutationId,
   SessionId,
   ThreadId,
-  WorkState} from '@podium/model'
-import { asIssueId, asThreadId } from '@podium/model'
+  UserId,
+  WorkState,
+} from '@podium/model'
+import {
+  asIssueId,
+  asThreadId,
+  issueUserStateRowId,
+  SESSION_INTERRUPT_KIND,
+  sessionUserStateRowId,
+  UNSNOOZE_BACKDATE_MS,
+} from '@podium/model'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
-  type SessionIdentifierResolution} from '@podium/protocol'
+  type SessionIdentifierResolution,
+  submitNow,
+} from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
+import { randomUUID } from '../id'
+import {
+  createRecordsApi,
+  type RecordKind,
+  type RecordPatch,
+  type RecordRef,
+  recordKinds,
+  UNSET,
+} from '../records'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import {
+  issueActionEffect,
+  type LaunchSessionArgs,
+  type SpawnDraftAgentArgs,
+  type SpawnIssueAgentArgs,
+  type StartIssueSession,
+  sessionAnswerEffect,
+  sessionConfigureEffect,
+  sessionHandoffEffect,
+  type TaskSpawnOutcome,
+} from '../spawn-agent'
 import type { Router } from '../ui-state'
 import type {
   DockTab,
@@ -39,7 +69,8 @@ import type {
   RecentFileEntry,
   TabId,
   WorkspaceLayout,
-  WorkspaceMap} from '../values'
+  WorkspaceMap,
+} from '../values'
 import {
   activateTab,
   closePane,
@@ -53,18 +84,21 @@ import {
   resizeSplit,
   splitPane,
   tabIdFor,
-  workspaceKeyFor} from '../values'
+  workspaceKeyFor,
+} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
   discardChatThroughOutbox,
   newChatMessageId,
   type OutboxSettlements,
   outboxChatSends,
-  sendChatThroughOutbox} from './chat-send'
+  sendChatThroughOutbox,
+} from './chat-send'
 import type { NavigationIntent } from './navigation'
 import {
   createReplicatedLayoutController,
-  type ReplicatedLayoutController} from './replicated-layout'
+  type ReplicatedLayoutController,
+} from './replicated-layout'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
@@ -77,7 +111,8 @@ import {
   workspaceFor,
   workspaceKeyForState,
   workspacesPatch,
-  workspaceWritePatch} from './state'
+  workspaceWritePatch,
+} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -146,11 +181,19 @@ export const COMMAND_ACTIONS = [
   'preferPanelMode',
   'writeFileScoped',
   'spawnDraftAgent',
+  'launchSession',
   'spawnIssueAgent',
   'killSession',
   'continueSession',
   'hibernateSession',
   'endSession',
+  'interruptTurn',
+  'configureSession',
+  'handoffSession',
+  'dismissEffect',
+  'startIssueSession',
+  'issueAction',
+  'answerSession',
   'resurrectSession',
   'sendChat',
   'chatSendsFor',
@@ -167,6 +210,7 @@ export const COMMAND_ACTIONS = [
   'markIssueUnread',
   'setIssueTucked',
   'updateIssue',
+  'records',
   'archiveIssue',
   'deleteIssue',
   'closeIssue',
@@ -247,6 +291,24 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
+  /**
+   * The session's spec revision as the replica holds it (POD-6399): what an
+   * edit of its desired state is made against, before this device's own
+   * queued edits of it are counted. Absent: 1.
+   */
+  sessionRevision?(sessionId: SessionId): number | undefined
+  /**
+   * Dismiss a draft start that failed or expired (POD-6408): its session row
+   * never existed, so its Remove takes the launch record off the feed. True when
+   * the session was one.
+   */
+  dismissLaunch?(sessionId: SessionId): boolean
+  /** Whether the session is only a start's paint: the server has no row for
+   *  it (yet), so its per-user row cannot be written (POD-6622). */
+  launchPainted?(sessionId: SessionId): boolean
+  /** The person this store writes for: their per-user rows (read marks,
+   *  snoozes, tucks) are generic edits of rows keyed by them (POD-6404). */
+  readonly userId: UserId
   /** Resolution waiters for queued entries, by id (POD-4762). */
   readonly outboxSettlements: OutboxSettlements
   readonly router: Router
@@ -254,8 +316,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   /** Layout base persisted by an earlier session, for hydrate-first paint
    *  (POD-571). The runtime reads it out of the replica; absent means cold. */
   readonly layoutSeed?: LayoutSnapshot
-  /** Write an authoritative layout base back to durable storage (POD-571). */
-  onLayoutBaseInstalled?(snapshot: LayoutSnapshot): void
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   navigate(intent: NavigationIntent): boolean
@@ -282,10 +342,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * promise that means something. Voiding it here made every issue action resolve
    * a couple of frames before the row moved.
    */
-  write<K extends keyof OutboxKinds & string>(
-    kind: K,
-    input: OutboxKinds[K],
-  ): Promise<void>
+  write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
   revealFileTab(args: {
     tabId: string
     worktreePath?: string
@@ -301,24 +358,16 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     issueId: IssueId
     settled: Promise<boolean>
   }
-  spawnIssueAgent(args: {
-    issueId?: IssueId
-    sessionId?: SessionId
-    mutationId?: MutationId
-    target: SpawnTarget
-    title: string
-    description: string
-    brief?: string
-    parentBranch?: string
-    agentKind: AgentKind
-    model?: string
-    effort?: string
-  }): {
+  launchSession(args: LaunchSessionArgs): { sessionId: SessionId; settled: Promise<boolean> }
+  startIssueSession: StartIssueSession
+  spawnIssueAgent(args: SpawnIssueAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
     mutationId: MutationId
     settled: Promise<boolean>
     outcome: Promise<TaskSpawnOutcome>
+    /** True once the task was filed as a proposal (no agent comes). */
+    proposed: Promise<boolean>
   }
   /**
    * Hold a first chat send until an optimistic spawn's create has reconciled
@@ -434,22 +483,140 @@ function waitForState<T>(
   })
 }
 
+/**
+ * The revision an edit of this session is made against NOW (POD-6399): the
+ * replica's, past every edit of it this device has queued and not yet seen
+ * confirmed, because the server applies them in order and each moves it by one.
+ */
+function sessionRevisionNow(
+  rt: Pick<EngineActionRuntime<PodiumClientApi>, 'outbox' | 'sessionRevision'>,
+  sessionId: SessionId,
+): number {
+  let revision = rt.sessionRevision?.(sessionId) ?? 1
+  for (const entry of [...rt.outbox.pending(), ...rt.outbox.awaiting()]) {
+    if (entry.kind !== 'recordEdit' && entry.kind !== 'recordRemove') continue
+    const input = entry.input as { kind?: unknown; id?: unknown; expectedRevision?: unknown }
+    if (input.kind !== 'session' || input.id !== sessionId) continue
+    if (typeof input.expectedRevision === 'number') {
+      revision = Math.max(revision, input.expectedRevision + 1)
+    }
+  }
+  return revision
+}
+
+/** An `issues.update` patch split by home (POD-6405): the plain fields an issue
+ *  record edit carries, and the keys that keep their command. */
+function splitIssuePatch(patch: Record<string, unknown>): {
+  plain: Record<string, unknown>
+  rest: Record<string, unknown>
+} {
+  const plain: Record<string, unknown> = {}
+  const rest: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (ISSUE_PLAIN_FIELDS.has(key)) plain[key] = value
+    else rest[key] = value
+  }
+  return { plain, rest }
+}
+
+/** Read on first use: the record table is not ready while modules load. */
+let issuePlainFields: ReadonlySet<string> | undefined
+const ISSUE_PLAIN_FIELDS = {
+  has: (name: string): boolean => {
+    issuePlainFields ??= new Set(
+      Object.keys(recordKinds().issueProjection.fields).filter(
+        (field) => fieldConflict(recordKinds().issueProjection, field) === 'field-LWW',
+      ),
+    )
+    return issuePlainFields.has(name)
+  },
+}
+
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  const records = createRecordsApi((kind, input) => rt.write(kind, input))
+  /**
+   * WHAT THE SESSION SHOULD BE, as an edit of its record (ADR 12 D5 E1,
+   * POD-6399): queued, shown at once, replay-safe, and refused by its revision
+   * if a newer edit landed first. The server's controller makes it true; how it
+   * went shows on the session itself (`sessionTransition`), on every device.
+   */
+  const editSessionLifecycle = async (
+    sessionId: SessionId,
+    desired: 'running' | 'stopped' | 'hibernated',
+    force = false,
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    try {
+      await records.edit(
+        { kind: 'session', id: sessionId },
+        { desired, ...(force ? { force: true } : {}) },
+        sessionRevisionNow(rt, sessionId),
+      )
+      return { ok: true }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'unknown error'
+      rt.notices.error(`Couldn't change the session — ${reason}`)
+      return { ok: false, reason }
+    }
+  }
   let transcriptRevealNonce = 0
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
-  const markRead = <K extends 'issueMarkRead' | 'sessionMarkRead'>(
-    kind: K,
+  /** One generic edit of a plain record (ADR 12 D3): it paints at once and
+   *  retires with its outbox entry (POD-6404). Through `records`, which loads
+   *  the declarations first if no outbox open has (POD-6423). */
+  const editRecord = <K extends RecordKind>(
+    ref: RecordRef<K>,
+    patch: RecordPatch<K>,
+  ): Promise<void> => records.edit(ref, patch)
+  const mySessionState = (sessionId: SessionId): RecordRef<'sessionUserState'> => ({
+    kind: 'sessionUserState',
+    id: sessionUserStateRowId(rt.userId, sessionId),
+  })
+  const myIssueState = (id: string): RecordRef<'issueUserState'> => ({
+    kind: 'issueUserState',
+    id: issueUserStateRowId(rt.userId, asIssueId(id)),
+  })
+  /**
+   * The read mark a press without one writes: what this device has seen. It
+   * is now, or the last activity it holds if that is later (a server clock
+   * ahead of this one), so the mark covers every message on screen and the
+   * dot does not come back when the server's row lands.
+   */
+  const coveringReadAt = (activityAt: unknown): string => {
+    const now = new Date().toISOString()
+    return typeof activityAt === 'string' && activityAt > now ? activityAt : now
+  }
+  const sessionActivity = (sessionId: SessionId): unknown => {
+    const session = rt.state().navigation.session(sessionId)
+    return session === NAVIGATION_LOADING ? undefined : session?.lastActiveAt
+  }
+  const issueActivity = (id: string): unknown => {
+    const at = rt.state().navigation.activityAt(id)
+    return at === NAVIGATION_LOADING ? undefined : at
+  }
+  const markRead = (
+    kind: 'issue' | 'session',
     id: string,
-    input: OutboxKinds[K],
+    input: { readonly readAt?: string },
   ): Promise<void> => {
+    // A start still painted has no session on the server, so its read mark
+    // would be refused ("Couldn't save session read status", POD-6622). Its
+    // paint already reads as read; the real row's own visit marks it.
+    if (kind === 'session' && rt.launchPainted?.(id as SessionId) === true) return Promise.resolve()
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
-    const readAt = (input as { readAt?: string }).readAt
+    const readAt = input.readAt
+    const send = (): Promise<void> =>
+      kind === 'session'
+        ? editRecord(mySessionState(id as SessionId), {
+            readAt: readAt ?? coveringReadAt(sessionActivity(id as SessionId)),
+          })
+        : editRecord(myIssueState(id), { readAt: readAt ?? coveringReadAt(issueActivity(id)) })
     if (
       pending &&
       (readAt === pending.readAt || (readAt && pending.readAt && readAt <= pending.readAt))
@@ -459,10 +626,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // observation in order rather than dropping it as a duplicate.
     const write: Promise<void> = (
       pending
-        ? pending.write.then(() =>
-            pendingReads.get(key)?.write === write ? rt.write(kind, input) : undefined,
-          )
-        : Promise.resolve(rt.write(kind, input))
+        ? pending.write.then(() => (pendingReads.get(key)?.write === write ? send() : undefined))
+        : send()
     ).finally(() => {
       if (pendingReads.get(key)?.write === write) pendingReads.delete(key)
     })
@@ -471,12 +636,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   }
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
-    api,
     notices: rt.notices,
+    userId: rt.userId,
     ...(rt.layoutSeed !== undefined ? { seed: rt.layoutSeed } : {}),
-    ...(rt.onLayoutBaseInstalled !== undefined
-      ? { onBaseInstalled: (snapshot) => rt.onLayoutBaseInstalled?.(snapshot) }
-      : {}),
   })
   /**
    * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites
@@ -555,7 +717,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   // Runtime-owned writes (POD-5426 §5): pins, tab order and personal settings
   // are deliberately non-optimistic for pool rows. Their local runtime paint
   // stays here; enqueue failure restores it, and settlement refetches truth in
-  // reconcileActionState. These calls use the same durable outbox as rt.write,
+  // refreshRuntimeOwnedTruth. These calls use the same durable outbox as rt.write,
   // with no second queue or PoolTransactions reducer. Archive's pin cleanup
   // below follows the same rule. Entity edits always use rt.write.
   return {
@@ -736,7 +898,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const arm = () => {
             stopRows?.()
             const navigation = rt.state().navigation
-            stopRows = navigation.watch?.(() => [navigation.issue(issueId), navigation.issueSessions?.(issueId)], listener)
+            stopRows = navigation.watch?.(
+              () => [navigation.issue(issueId), navigation.issueSessions?.(issueId)],
+              listener,
+            )
           }
           arm()
           const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => {
@@ -753,7 +918,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const issue = st.navigation.issue(issueId)
           if (!issue || issue === NAVIGATION_LOADING) return undefined
           const rows = st.navigation.issueSessions?.(issueId)
-          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId) return undefined
+          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId)
+            return undefined
           return rows.find(
             (candidate) =>
               candidate.issueId === issueId &&
@@ -955,9 +1121,18 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     gitCommitDiffFile: ((args) =>
       api.git.commitDiffFile.query(args)) as Store<TApi>['gitCommitDiffFile'],
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
+    launchSession: (args) => rt.launchSession(args),
     spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
     killSession: async (sessionId) => {
-      await api.sessions.kill.mutate({ sessionId }).catch(() => {})
+      // A draft start that never became a session is dismissed, not removed.
+      const dismissed = rt.dismissLaunch?.(sessionId) === true
+      // Kill deletes the session (records.session.remove), against its
+      // revision: a kill queued offline that arrives after a newer start is
+      // refused rather than ending the process the user resumed (POD-6399).
+      if (!dismissed)
+        await records
+          .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
+          .catch(() => {})
       const state = rt.state()
       // A killed session's tabs are views onto something that no longer exists —
       // the one case where a tab goes away without the operator closing it. The
@@ -979,7 +1154,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       })
     },
     continueSession: async (sessionId) => {
-      await api.sessions.continue.mutate({ sessionId }).catch(() => {})
+      // On the sync write entry point (POD-6416). LEGACY(remove-after: 2027-03):
+      // an older server has no `sync.submit` and takes the command's own route.
+      await submitNow(
+        api,
+        'sessions.continue',
+        { sessionId },
+        {
+          legacy: async () => await api.sessions.continue.mutate({ sessionId }),
+        },
+      ).catch(() => {})
       try {
         const settings = await api.settings.get.query()
         if (shouldPromptAutoContinue(settings)) rt.apply({ autoContinuePromptSessionId: sessionId })
@@ -987,41 +1171,79 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     closeAutoContinuePrompt: () => rt.apply({ autoContinuePromptSessionId: null }),
     hibernateSession: async (sessionId) => {
-      await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
+      await editSessionLifecycle(sessionId, 'hibernated')
     },
-    // Clean end [spec:SP-9904]. The server RETURNS its refusals rather than
-    // throwing (POD-379 pins that for the tRPC arm), so a dirty working tree
-    // arrives as `ok: false` with a reason.
-    //
-    // A RETURNED REFUSAL IS NOT TOASTED. It is an answer the caller asked for
-    // and can act on — `guardedEnd` turns "the tree is dirty" into an offer to
-    // force — so notifying here would put an error banner on screen underneath
-    // the dialog resolving it, and would report a failure the operator is about
-    // to convert into a success. Only a THROW is unexpected, and only a throw
-    // notifies. Unlike `resurrectSession`, whose refusal has no second move.
-    endSession: async (sessionId, force) => {
-      try {
-        return await api.sessions.stop.mutate({
-          sessionId,
-          ...(force === true ? { force: true } : {}),
-        })
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'unknown error'
-        rt.notices.error(`Couldn't end the session — ${reason}`)
-        return { ok: false, reason }
-      }
+    // Clean end [spec:SP-9904], as an edit (POD-6399). `ok` means the edit is
+    // queued; a refusal (an unsaved working tree) arrives later as the
+    // session's `lifecycleFailure`, which the session's own bar shows with the
+    // force offer, on every device. Only a call the API refuses outright
+    // notifies here.
+    endSession: async (sessionId, force) =>
+      await editSessionLifecycle(sessionId, 'stopped', force === true),
+    resurrectSession: async (sessionId) => await editSessionLifecycle(sessionId, 'running'),
+    // Stop, scoped to the turn the person saw (POD-6397): a `session.interrupt`
+    // effect record, queued durably. Every device shows it from the record:
+    // Interrupting… until that turn ends, and the Kill offer if it does not.
+    interruptTurn: async (sessionId, args) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', {
+        id,
+        kind: SESSION_INTERRUPT_KIND,
+        target: { kind: 'session', id: sessionId },
+        input: {
+          ...(args.turn !== undefined ? { turn: args.turn } : {}),
+          ...(args.messageId !== undefined ? { messageId: args.messageId } : {}),
+        },
+      })
+      return id
     },
-    resurrectSession: async (sessionId) => {
-      try {
-        const result = await api.sessions.resurrect.mutate({ sessionId })
-        if (!result.ok)
-          rt.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
-        return result
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'unknown error'
-        rt.notices.error(`Couldn't resume the session — ${reason}`)
-        return { ok: false, reason }
-      }
+    // A model or effort change (POD-6523): a `session.configure` effect record,
+    // queued durably. The chip reads its progress and the driver's answer from
+    // the record (`SessionModel.configureChange`), on every device.
+    configureSession: async (sessionId, patch) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', sessionConfigureEffect({ effectId: id, sessionId, ...patch }))
+      return id
+    },
+    // A move to another machine (POD-6422): a `session.handoff` effect record.
+    // The session's pane paints the move from the record until the server's own
+    // overlay takes over (`SessionModel.handingOffTo`).
+    handoffSession: async (sessionId, machineId) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', sessionHandoffEffect({ effectId: id, sessionId, machineId }))
+      return id
+    },
+    dismissEffect: async (id) => await rt.write('effectDismiss', { id }),
+    // An issue's own work as effect records (POD-6526): a session start paints
+    // from its record through the launch paint; the rest are read from their
+    // records by the issue model (`workAction`).
+    startIssueSession: (args) => rt.startIssueSession(args),
+    issueAction: async (issueId, action, opts) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write(
+        'effectCreate',
+        issueActionEffect({
+          effectId: id,
+          issueId,
+          action,
+          ...(opts?.force === true ? { force: true } : {}),
+        }),
+      )
+      return id
+    },
+    // An answer to an agent's question (POD-6415): a `session.answer` effect
+    // record, created at once and never queued. An answer is online-only: one
+    // that reached the server later would land on whatever menu is up by then,
+    // so offline it fails here, and the record's own deadline covers the rest.
+    answerSession: async (sessionId, answer) => {
+      const id = `eff_${randomUUID()}`
+      await submitNow(
+        api,
+        'effects.create',
+        sessionAnswerEffect({ effectId: id, sessionId, answer }),
+        { action: 'answer the question' },
+      )
+      return id
     },
     sendChat: async (input, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
@@ -1036,16 +1258,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     chatSendsFor: (sessionId) => outboxChatSends(rt.outbox, sessionId),
     discardChat: (mutationId) => discardChatThroughOutbox(rt.outbox, mutationId),
-    renameSession: async (sessionId, name) => rt.write('rename', { sessionId, name }),
+    // The session's labels are plain fields of its record (POD-6406): one edit
+    // each, last writer wins per field; an archive marks the work done in the
+    // same edit.
+    renameSession: async (sessionId, name) =>
+      editRecord({ kind: 'session', id: sessionId }, { name }),
     archiveSession: async (sessionId, archived) => {
-      rt.write('setArchived', { sessionId, archived })
-      if (archived) rt.write('setWorkState', { sessionId, workState: 'done' })
-      if (archived) {
+      const write = editRecord(
+        { kind: 'session', id: sessionId },
+        archived ? { archived, workState: 'done' } : { archived },
+      )
+      if (!archived) return await write
+      {
         // Runtime-owned pin cleanup; see the write ownership block above.
         const pins = rt.state().pins
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
+      await write
     },
     // `write`, like its neighbours, since POD-1110. It used to be a
     // bare mutate under `offline: 'direct-only'`, which made "none of these" the
@@ -1058,26 +1288,29 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) =>
       rt.write('dismissOffer', { sessionId, offerCreatedAt }),
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
-      rt.write('setWorkState', { sessionId, workState }),
-    setSnooze: async (sessionId, until) => rt.write('snoozeSet', { sessionId, until }),
-    clearSnooze: async (sessionId) => rt.write('snoozeClear', { sessionId }),
+      editRecord({ kind: 'session', id: sessionId }, { workState: workState ?? UNSET }),
+    // `null` snoozes until the next message; clearing the cell ends the snooze.
+    setSnooze: async (sessionId, until) =>
+      editRecord(mySessionState(sessionId), { snoozedUntil: until }),
+    clearSnooze: async (sessionId) =>
+      editRecord(mySessionState(sessionId), { snoozedUntil: UNSET }),
     markSessionRead: (sessionId, readAt) => {
       if (readAt === undefined) rt.state().navigation.readIntent?.('session', sessionId, true)
-      return markRead('sessionMarkRead', sessionId, { sessionId, ...(readAt ? { readAt } : {}) })
+      return markRead('session', sessionId, readAt ? { readAt } : {})
     },
     markSessionUnread: async (sessionId) => {
-      pendingReads.delete(`sessionMarkRead:${sessionId}`)
+      pendingReads.delete(`session:${sessionId}`)
       rt.state().navigation.readIntent?.('session', sessionId, false)
-      return rt.write('sessionMarkUnread', { sessionId })
+      return editRecord(mySessionState(sessionId), { readAt: null })
     },
     markIssueRead: (id, readAt) => {
       if (readAt === undefined) rt.state().navigation.readIntent?.('issue', id, true)
-      return markRead('issueMarkRead', id, { id, ...(readAt ? { readAt } : {}) })
+      return markRead('issue', id, readAt ? { readAt } : {})
     },
     markIssueUnread: async (id) => {
-      pendingReads.delete(`issueMarkRead:${id}`)
+      pendingReads.delete(`issue:${id}`)
       rt.state().navigation.readIntent?.('issue', id, false)
-      return rt.write('issueMarkUnread', { id })
+      return editRecord(myIssueState(id), { readAt: null })
     },
     /**
      * TUCKING THE TASK ON SCREEN LEAVES IT (POD-2293).
@@ -1103,7 +1336,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * cannot be matched and stays put.
      */
     setIssueTucked: async (id, tucked) => {
-      const written = rt.write('issueSetTucked', { id, tucked })
+      // The server keeps the first tuck's stamp; the paint is this press's.
+      const written = editRecord(myIssueState(id), {
+        tuckedAt: tucked ? new Date().toISOString() : null,
+      })
       // "The task on screen" is the workspace the selection resolves to, the
       // same key the strip is filed under.
       const shown = tucked ? resolvedWorkspaceKey(rt.state()) : null
@@ -1119,13 +1355,38 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or
     // drops on a definitive refusal, and the poison toast is the failure surface.
-    updateIssue: async (id, patch) => rt.write('issueUpdate', { id, patch }),
-    archiveIssue: async (id) => rt.write('issueArchive', { id }),
+    // The plain fields are a generic edit, last writer wins per field
+    // (POD-6405); stage, close, the parent link, the agent and the order keep
+    // `issues.update`, whose rules they carry. Both ride the issue's partition,
+    // in this order.
+    updateIssue: async (id, patch) => {
+      const { plain, rest } = splitIssuePatch(patch as Record<string, unknown>)
+      const writes: Promise<void>[] = []
+      if (Object.keys(plain).length > 0) {
+        writes.push(
+          editRecord({ kind: 'issueProjection', id }, plain as RecordPatch<'issueProjection'>),
+        )
+      }
+      if (Object.keys(rest).length > 0) {
+        writes.push(Promise.resolve(rt.write('issueUpdate', { id, patch: rest })))
+      }
+      await Promise.all(writes)
+    },
+    records,
+    archiveIssue: async (id) => editRecord({ kind: 'issueProjection', id }, { archived: true }),
     deleteIssue: async (id) => rt.write('issueDelete', { id }),
     closeIssue: async (id, reason) => rt.write('issueClose', { id, reason }),
-    deferIssue: async (id, until) => rt.write('issueDefer', { id, until }),
-    undeferIssue: async (id) => rt.write('issueUndefer', { id }),
-    setIssueLabels: async (id, labels) => rt.write('issueSetLabels', { id, labels }),
+    // A cleared `deferUntil` ends a snooze quietly; a past one is an unsnooze,
+    // which floats the row back with its "Unsnoozed" tag (issue #133). The
+    // server backdates from its own clock; this device paints its own.
+    deferIssue: async (id, until) =>
+      editRecord({ kind: 'issueProjection', id }, { deferUntil: until ?? UNSET }),
+    undeferIssue: async (id) =>
+      editRecord(
+        { kind: 'issueProjection', id },
+        { deferUntil: new Date(Date.now() - UNSNOOZE_BACKDATE_MS).toISOString() },
+      ),
+    setIssueLabels: async (id, labels) => editRecord({ kind: 'issueProjection', id }, { labels }),
     setIssuePlacement: async (id, placement, originId) =>
       rt.write('issueSetPlacement', { id, placement, originId }),
     restoreIssue: async (id) => rt.write('issueRestore', { id }),

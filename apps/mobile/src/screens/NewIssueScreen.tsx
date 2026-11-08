@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { observer } from 'mobx-react-lite'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
@@ -7,7 +8,7 @@ import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } fro
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useTrpc } from '../client/hooks'
+import { useStoreActions, useTrpc } from '../client/hooks'
 import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import { PressableScale } from '../components/PressableScale'
@@ -21,7 +22,7 @@ import {
   launchConfigurationPatch,
   launchPlanCanSubmit,
 } from '../lib/launch-configuration'
-import { newTaskInput } from '../lib/new-task'
+import { newTaskInput, newTaskStart } from '../lib/new-task'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const PRIORITIES = [0, 1, 2, 3, 4]
@@ -44,6 +45,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   // inset here).
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
+  const { spawnIssueAgent } = useStoreActions()
   const repositoryPaths = useLaunchRepositoryPaths()
   const repositoriesLoading = repositoryPaths === LOADING
   const repositoriesGone = isGone(repositoryPaths)
@@ -81,15 +83,35 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     setBusy(true)
     setError(null)
     try {
-      const configured = launchConfigurationPatch(launchPlan?.configuration ?? launch)
-      const issue = await trpc.issues.create.mutate(
+      const configuration = launchPlan?.configuration ?? launch
+      const configured = launchConfigurationPatch(configuration)
+      if (startNow) {
+        // An `issue.start` (POD-6421): the pool paints the task and its starting
+        // agent at once, on every device, from the record; its failure shows on
+        // the task's session and as a notice, a proposal as the proposed task.
+        const started = spawnIssueAgent(
+          newTaskStart({
+            repoPath,
+            title,
+            prompt,
+            priority,
+            stage,
+            agentKind: configuration.agentKind,
+            launch: configured,
+          }),
+        )
+        if (!(await started.settled)) throw new Error("Couldn't start the task.")
+        router.replace(`/issue/${encodeURIComponent(started.issueId)}`)
+        return
+      }
+      const issue = await issueWrites(trpc).create.mutate(
         newTaskInput({
           repoPath: repoPath.trim(),
           title: title.trim(),
           prompt,
           type: 'task',
           priority,
-          startNow,
+          startNow: false,
           launch: configured,
         }),
       )

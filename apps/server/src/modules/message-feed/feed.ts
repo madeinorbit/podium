@@ -84,12 +84,12 @@
 import { createLogger } from '@podium/logger'
 import { isMessageRecordAttention, type MessageRecordWire, messageRecordRowId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, Ledger, LedgerWriter } from '@podium/sync'
+import { spawnPromptMessageId } from '../../message-ids'
 import { applyAfterCommit } from '../../store/executor/executor'
 import type { MessageFeedCapture } from '../../store/messages'
 import type { SessionsRepository } from '../../store/sessions'
 import type { MessageRow, SessionRow } from '../../store/types'
-import { spawnPromptMessageId } from '../../message-ids'
 
 const log = createLogger('server:message-feed')
 
@@ -100,7 +100,7 @@ const log = createLogger('server:message-feed')
 export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
-  readonly ledger: Pick<Ledger, 'capture' | 'reconcile' | 'onAppended'>
+  readonly ledger: Pick<LedgerWriter, 'capture' | 'reconcile'> & Pick<Ledger, 'onAppended'>
   /** Which sessions are still live conversations ({@link isLiveConversation}). */
   readonly sessions: Pick<SessionsRepository, 'getSessions'>
   /** What the feed already carries for kind `message` (the Authority's values). */

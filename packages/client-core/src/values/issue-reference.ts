@@ -8,7 +8,7 @@ import {
   issueStatusLabel,
   issueStatusOf,
 } from '@podium/model'
-import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
+import { issueDisplayRef, issueRefText, parseAnyRef } from '@podium/protocol'
 import type { IssueViewModel } from '../values/issue-type'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
@@ -73,7 +73,7 @@ export function canonicalIssueRef(
   issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>,
 ): string {
   if (issue.displayRef && !issue.displayRef.startsWith('#')) return issue.displayRef
-  if (issue.prefix) return `${issue.prefix}-${issue.seq}`
+  if (issue.prefix) return issueRefText(issue.seq, issue.prefix)
   return issueDisplayRef(issue)
 }
 

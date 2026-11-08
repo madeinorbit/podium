@@ -1,8 +1,11 @@
 /** HTTP-only admission over the real Authority, ledger and publisher. */
+
 import type { ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, type ScopedChange } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { toFeedChange } from './feed-serving'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { EdgePeer } from './wire-feed-edge'
 
@@ -32,7 +35,7 @@ const commit = (
   id: string,
   value: unknown,
 ) =>
-  plumbing.ledger.commit({
+  testLedgerWriter(plumbing.ledger).commit({
     write: async () => {},
     changes: () => [{ entity, id, op: 'upsert', value }],
   })
@@ -156,5 +159,60 @@ describe('HTTP-only feed admission', () => {
     await publishPending(p, 0)
     expect(peer.types()).toEqual(['feedResume'])
     expect(p.serving.connectionCount()).toBe(0)
+  })
+})
+
+describe('provenance on v2 rows', () => {
+  const provenance = { originId: 'peer-1', causationId: 'mut-1', mutationId: 'mut-1' }
+  // Built directly, as the Authority hands them over, so this suite does not
+  // depend on how the change log stamps provenance.
+  const caused = {
+    seq: 1,
+    entity: 'session',
+    entityId: 's1',
+    op: 'upsert',
+    value: { sessionId: 's1' },
+    ...provenance,
+  } as unknown as ScopedChange
+  const uncaused = {
+    seq: 2,
+    entity: 'session',
+    entityId: 's2',
+    op: 'remove',
+  } as unknown as ScopedChange
+
+  it('toFeedChange/toWireFrame carry provenance and omit absent keys', async () => {
+    expect(toFeedChange(caused)).toEqual({
+      seq: 1,
+      entity: 'session',
+      entityId: 's1',
+      op: 'upsert',
+      value: { sessionId: 's1' },
+      ...provenance,
+    })
+    expect(Object.keys(toFeedChange(uncaused))).toEqual(['seq', 'entity', 'entityId', 'op'])
+
+    const p = await feedTestPlumbing()
+    const peer = new Peer('live', CLIENT_WIRE_VERSION, true)
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
+    await p.serving.publish(DEVICE_GRADE_PRINCIPAL, {
+      kind: 'batch',
+      throughSeq: 2,
+      changes: [caused, uncaused],
+    })
+    const frame = peer.last('feedDelta') as { changes: Record<string, unknown>[] } | undefined
+    expect(frame?.changes).toEqual([
+      {
+        seq: 1,
+        entity: 'session',
+        entityId: 's1',
+        op: 'upsert',
+        value: { sessionId: 's1' },
+        ...provenance,
+      },
+      { seq: 2, entity: 'session', entityId: 's2', op: 'remove' },
+    ])
+    expect(Object.keys(frame?.changes[1] ?? {})).toEqual(['seq', 'entity', 'entityId', 'op'])
   })
 })

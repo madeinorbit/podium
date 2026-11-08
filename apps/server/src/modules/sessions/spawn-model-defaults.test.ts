@@ -131,16 +131,15 @@ it.each([
   'managed:anthropic',
 ])('preserves the explicit account %s exactly', async (accountId) => {
   const store = await storeWithClaudeDefaults()
-  // A managed account runs only with the starter's own stored connection
-  // (POD-6300): the instance's one member starts this session and has one.
+  // A managed key is used only when the session owner has one (POD-6360).
   if (accountId.startsWith('managed:')) {
-    await store.accounts.upsert({
-      id: asAccountId(accountId),
-      ownerUserId: firstAdminMemberId(),
+    await store.accounts.connect({
+      ownerUserId: await firstAdminMemberId(store),
+      accountKey: asAccountId(accountId),
       provider: 'anthropic',
       kind: 'api-key',
-      credential: 'sk-ant-preserved',
-      identity: 'sk-a…rved',
+      credential: 'sk-ant-explicit',
+      identity: 'x',
       scope: 'role',
       createdAt: 1,
     })

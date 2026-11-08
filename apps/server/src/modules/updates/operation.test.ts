@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { createServer } from 'node:http'
 import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
 import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
-import { createInstalledCoordinatorUpdate } from './installed-restart'
+import { createInstalledCoordinatorUpdate, SupervisorUpdateFailure } from './installed-restart'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
 import {
@@ -1949,6 +1949,39 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect((await h.read()).error?.code).toBe('supervisor-control-endpoint-missing')
     expect((await h.read()).error?.message).toContain('Supervisor control endpoint missing')
+  })
+
+  // POD-6618: the supervisor's slow-boot handover timeout, and the rollback it
+  // then could not do, both reached the download default and withdrew the
+  // target fleet-wide as "couldn't be downloaded" with the new version running.
+  it.each([
+    ['handover-timeout', 'handover-timeout'],
+    ['rollback-refused-migrations', 'handover-failed'],
+    ['daemon-silent', 'handover-failed'],
+    ['update-failed', 'download-failed'],
+  ])('server: names a supervisor verdict %s as %s', async (reasonCode, expected) => {
+    const detail =
+      reasonCode === 'update-failed'
+        ? 'fetch failed'
+        : 'rollback unavailable: this update applied migrations 20261104144533_accounts-per-user-owner — forward-fix required'
+    const h = await harness({
+      machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new SupervisorUpdateFailure(detail, reasonCode)
+      },
+      preflightDatabaseBackup: async () => ({ ok: true }),
+      requestCoordinatorRestart: async () => {},
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const error = (await h.read()).error
+    expect(error?.code).toBe(expected)
+    expect(error?.detail).toContain(detail)
+    if (expected !== 'download-failed') expect(error?.message).not.toMatch(/download/i)
   })
 
   it('server: keeps the cause in the detail without moving the failure code', async () => {

@@ -1,5 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRepository } from './repository'
 import { Session } from './session'
@@ -24,7 +23,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
 
   const makeSession = (index: number): Session =>
     new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId(`flush-${index}`),
       durableLabel: `podium-flush-${index}`,
       agentKind: 'claude-code',
@@ -43,15 +42,24 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     const upserted: string[] = []
     const repo = new SessionRepository({
       sessions,
-      store: { sessions: { upsertSession: async (row: { id: string }) => { upserted.push(row.id) } } },
-      ledger: {
+      store: {
+        sessions: {
+          upsertSession: async (_scope: unknown, row: { id: string }) => {
+            upserted.push(row.id)
+          },
+        },
+      },
+      writers: ((ledger) => ({ live: ledger, boot: ledger }))({
         commit: async ({ write }: { write: () => Promise<void> }) => {
           await write()
           return { changes: [] }
         },
         capture: () => [],
+      }),
+      view: {
+        buildProjectionPass: async () => ({}),
+        wire: async (session: Session) => ({ sessionId: session.sessionId }),
       },
-      view: { buildProjectionPass: async () => ({}), wire: async (session: Session) => ({ sessionId: session.sessionId }) },
       now: () => Date.now(),
       broadcastSessions: vi.fn(),
       flushBroadcasts: vi.fn(),
@@ -68,13 +76,13 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
 
     let reentered = false
     const original = repo.persistBatch.bind(repo)
-    const spy = vi.spyOn(repo, 'persistBatch').mockImplementation(async (sessions) => {
+    const spy = vi.spyOn(repo, 'persistBatch').mockImplementation(async (writer, sessions) => {
       if (!reentered) {
         reentered = true
         // Re-enter in the window between the write and `clearActivityDirty`.
         await repo.flushActivity()
       }
-      return original(sessions)
+      return original(writer, sessions)
     })
 
     await repo.flushActivity()

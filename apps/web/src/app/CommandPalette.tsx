@@ -66,6 +66,7 @@ import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
+import { useSessionHandoff } from '@/lib/session-handoff'
 import { useFeature } from '@/lib/use-feature'
 import { normalizeTitle, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -324,7 +325,9 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     resurrectSession,
     startBtw,
     spawnDraftAgent,
+    startIssueSession,
   } = useCommandLaunchActions()
+  const handOff = useSessionHandoff()
   const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
@@ -526,15 +529,24 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
           undeferIssue,
           setIssueLabels,
           restoreIssue,
+          startIssueSession,
           setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
           setView: (view) => setView(view),
           // Closing goes to the shared guard, not straight to the store action
           // (POD-1114) — the palette must not be the one route that closes a
           // task without showing what is still unresolved.
           requestClose: (reason) => onRequestClose(issueMenuData.first, reason),
+          // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
           handoff: (machineId) => {
             const sessionId = issueMenuData.handoff?.sessionId
-            if (sessionId) void trpc.sessions.handoff.mutate({ sessionId, machineId })
+            if (!sessionId) return
+            const session = selectedSessions.find((s) => s.sessionId === sessionId)
+            handOff(sessionId, machineId, {
+              session: session ? sessionDisplayName(session) : sessionId,
+              machine:
+                issueMenuData.handoff?.options.find((o) => o.value === machineId)?.label ??
+                machineId,
+            })
           },
         }),
       )

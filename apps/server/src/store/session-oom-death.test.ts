@@ -17,6 +17,7 @@
 
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -77,11 +78,17 @@ const row = (id: string, extra: Partial<SessionRow>): SessionRow => ({
 describe('an OOM death, durably', () => {
   it('writes a session the kernel killed instead of throwing on the stop-reason CHECK', async () => {
     // The regression: `stopReason: 'oom'` reaching the column at all.
-    await sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }),
+    )
   })
 
   it('keeps the kill time, and keeps the column inside its own vocabulary', async () => {
-    await sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }),
+    )
     const back = await sessions.getSession(asSessionId('sess-oom'))
 
     expect(back?.oomKilledAt).toBe(DIED_AT)
@@ -99,7 +106,10 @@ describe('an OOM death, durably', () => {
   it('leaves an ordinary exit with no kill recorded', async () => {
     // The admission that pairs with the assertion above: the column is not
     // simply always set, so the previous test measures something.
-    await sessions.upsertSession(row('sess-clean', { stopReason: 'exited', exitCode: 0 }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-clean', { stopReason: 'exited', exitCode: 0 }),
+    )
     const back = await sessions.getSession(asSessionId('sess-clean'))
     expect(back?.oomKilledAt).toBeNull()
     expect(back?.stopReason).toBe('exited')

@@ -20,10 +20,10 @@
  * the kernel does not own the tables, and the adapter does not own the semantics.
  */
 
-import type { MetadataEntityKind } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
-import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
+import type { ChangeProvenanceFields } from '@podium/model'
+import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type { FeedScopingGrade } from '../feed/visibility'
+import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
 import type {
   ChangeLogReadRow,
   ChangeLogWriteRow,
@@ -112,6 +112,28 @@ export type TransactPort = <T>(fn: () => Promise<T>) => Promise<T>
  * pass has consumed the resolved snapshot.
  */
 export type PostCommitFollowUpPort = (step: () => Promise<void>, label: string) => void
+
+/**
+ * WHICH COMMAND IS APPENDING NOW (ADR 2 D8, ADR 12; POD-6272).
+ *
+ * The write entry point opens a provenance scope around each command's handler
+ * (in the caller's async context, so two calls in one HTTP batch cannot see each
+ * other's). The Authority reads it ONCE per `commit`/`capture`, at the call, and
+ * stamps every row it appends with the answer. `reconcile` never reads it: a
+ * boot diff is the Authority acting on its own behalf, and has no causing command.
+ *
+ * A spec that names any provenance field of its own keeps its own group whole;
+ * the ambient answer fills only rows that named none. `undefined` (no scope
+ * open) stamps nothing, and a field reported as `undefined` is not written, so
+ * an absent field stays an absent key all the way to the reader.
+ *
+ * Provenance never feeds dedup: a no-op write under a new mutation id still
+ * appends nothing (the reply's receipt confirms those writes, ADR 12).
+ */
+export interface ProvenancePort {
+  /** The provenance of the command now appending, read once per commit/capture in the caller's async context. */
+  current(): ChangeProvenanceFields | undefined
+}
 
 /**
  * The seam the BASELINE FOLD hangs off [POD-3328, spec §3.3 mechanism 1].

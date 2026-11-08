@@ -6,11 +6,11 @@ import { asSessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { SessionRegistry } from './relay'
 import { inProcessMachinePrincipal } from './gateway/daemon-mux'
+import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 // Agent action offer [spec:SP-c7f1] — service-level set/replace/clear, meta
 // surfacing, persistence across a restart, and clear-on-turn (queue path).
@@ -35,7 +35,9 @@ const OFFER = {
 }
 
 async function metaOffer(reg: SessionRegistry, sessionId: string) {
-  return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.offer
+  return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+    (s) => s.sessionId === sessionId,
+  )?.offer
 }
 
 describe('agent action offer [spec:SP-c7f1]', () => {
@@ -49,13 +51,17 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
 
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
     const surfaced = await metaOffer(reg, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
     expect(typeof surfaced?.createdAt).toBe('string')
 
-    await reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+      sessionId,
+      message: 'Ready to land',
+      actions: [],
+    })
     expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
     expect((await metaOffer(reg, sessionId))?.actions).toEqual([])
   })
@@ -63,26 +69,39 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('carries artifact references [POD-120] on meta and across a restart', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     const artifacts = ['e2e/header-after.png', 'docs/proposal.md']
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+      sessionId,
+      ...OFFER,
+      artifacts,
+    })
     expect((await metaOffer(reg, sessionId))?.artifacts).toEqual(artifacts)
     await reg.dispose()
 
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     expect((await metaOffer(reg2, sessionId))?.artifacts).toEqual(artifacts)
 
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
-    await reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg2.modules.sessions.setOffer(reg2.modules.sessions.serverWriter, {
+      sessionId,
+      ...OFFER,
+    })
     expect((await metaOffer(reg2, sessionId))?.artifacts).toBeUndefined()
     await reg2.dispose()
 
-    const reg3 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg3 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     expect((await metaOffer(reg3, sessionId))?.artifacts).toBeUndefined()
     await reg3.dispose()
   })
@@ -94,8 +113,8 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    await reg.modules.sessions.clearOffer(sessionId)
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
+    await reg.modules.sessions.clearOffer(reg.modules.sessions.serverWriter, sessionId)
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
@@ -119,26 +138,57 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       const first = (await metaOffer(reg, sessionId))?.createdAt as string
 
       // A stamp nobody posted is not a licence to clear whatever is standing.
-      expect(await reg.modules.sessions.dismissOffer(sessionId, '1999-01-01T00:00:00.000Z')).toBe(false)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          sessionId,
+          '1999-01-01T00:00:00.000Z',
+        ),
+      ).toBe(false)
       expect((await metaOffer(reg, sessionId))?.createdAt).toBe(first)
 
       vi.setSystemTime(new Date('2026-08-12T10:00:05.000Z'))
-      await reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        message: 'Ready to land',
+        actions: [],
+      })
       const second = (await metaOffer(reg, sessionId))?.createdAt as string
       expect(second).not.toBe(first)
 
       // The click aimed at the FIRST offer arrives late; the second survives it.
-      expect(await reg.modules.sessions.dismissOffer(sessionId, first)).toBe(false)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          sessionId,
+          first,
+        ),
+      ).toBe(false)
       expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
 
-      expect(await reg.modules.sessions.dismissOffer(sessionId, second)).toBe(true)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          sessionId,
+          second,
+        ),
+      ).toBe(true)
       expect(await metaOffer(reg, sessionId)).toBeUndefined()
       // Dismissing nothing is a no-op, not a throw.
-      expect(await reg.modules.sessions.dismissOffer(sessionId, second)).toBe(false)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          sessionId,
+          second,
+        ),
+      ).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -172,13 +222,22 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('dismisses the offer of a session the server does not hold in memory', async () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const gone = asSessionId('dismiss-me-not-in-memory')
-      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId: gone,
+        ...OFFER,
+      })
       const stamp = await reg.sessionStore.sessions.offerCreatedAt(gone)
       expect(stamp).toBeTypeOf('string')
 
       // The TRUE is the claim. An assertion that merely awaited the call would
       // have passed against the defect just as happily.
-      expect(await reg.modules.sessions.dismissOffer(gone, stamp as string)).toBe(true)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          gone,
+          stamp as string,
+        ),
+      ).toBe(true)
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
     })
 
@@ -191,9 +250,18 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('refuses a stamp that does not name the standing offer, durably too', async () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const gone = asSessionId('refuse-me-not-in-memory')
-      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId: gone,
+        ...OFFER,
+      })
 
-      expect(await reg.modules.sessions.dismissOffer(gone, '1999-01-01T00:00:00.000Z')).toBe(false)
+      expect(
+        await reg.modules.sessions.dismissOffer(
+          reg.modules.sessions.serverWriter,
+          gone,
+          '1999-01-01T00:00:00.000Z',
+        ),
+      ).toBe(false)
       // The offer the click did not name is still standing.
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
     })
@@ -213,7 +281,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const gone = asSessionId('never-had-an-offer-at-all')
       const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
 
-      await reg.modules.sessions.clearOffer(gone)
+      await reg.modules.sessions.clearOffer(reg.modules.sessions.serverWriter, gone)
 
       expect(deleted).not.toHaveBeenCalled()
       deleted.mockRestore()
@@ -251,7 +319,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       reg.modules.sessions.flushBroadcasts()
       return { reg, sessionId, cursor: (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor }
     }
@@ -261,7 +332,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       // The hot path must not pay the durable stamp read: memory answered, so
       // the row is never consulted. Every frequent caller lands here.
       const stampRead = vi.spyOn(reg.sessionStore.sessions, 'offerCreatedAt')
-      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(
+        reg.modules.sessions.serverWriter,
+        asSessionId(sessionId),
+      )
       reg.modules.sessions.flushBroadcasts()
       expect(stampRead).not.toHaveBeenCalled()
       stampRead.mockRestore()
@@ -282,9 +356,14 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const { reg, sessionId, cursor } = await seeded()
       const live = (reg as any).modules.sessions.sessions.get(sessionId)
       expect(live.clearOffer()).toBe(true) // memory only — the row survives
-      expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+      expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf(
+        'string',
+      )
 
-      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(
+        reg.modules.sessions.serverWriter,
+        asSessionId(sessionId),
+      )
       reg.modules.sessions.flushBroadcasts()
 
       expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
@@ -305,27 +384,41 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('retires a row that boot could not parse into an in-memory offer', async () => {
       const dir = trackTmp('podium-offer-')
       const file = join(dir, 'store.db')
-      const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+      const reg = await SessionRegistry.create(await openTestStore(file), undefined, {
+        instanceId: 'default',
+      })
       await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       await reg.dispose()
 
       const db = openDatabase(file)
       db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{not json', sessionId)
       db.close()
 
-      const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+      const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+        instanceId: 'default',
+      })
       // Boot dropped it from memory but left the row standing.
       expect(await metaOffer(reg2, sessionId)).toBeUndefined()
-      expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+      expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf(
+        'string',
+      )
 
-      await reg2.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg2.modules.sessions.clearOffer(
+        reg2.modules.sessions.serverWriter,
+        asSessionId(sessionId),
+      )
       reg2.modules.sessions.flushBroadcasts()
-      expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
+      expect(
+        await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId)),
+      ).toBeUndefined()
       await reg2.dispose()
     })
 
@@ -343,7 +436,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
       const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
 
-      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(
+        reg.modules.sessions.serverWriter,
+        asSessionId(sessionId),
+      )
       reg.modules.sessions.flushBroadcasts()
       expect(deleted).not.toHaveBeenCalled()
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
@@ -363,12 +459,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
       const gone = asSessionId('a-session-not-in-memory')
 
-      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId: gone,
+        ...OFFER,
+      })
       reg.modules.sessions.flushBroadcasts()
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
 
-      await reg.modules.sessions.clearOffer(gone)
+      await reg.modules.sessions.clearOffer(reg.modules.sessions.serverWriter, gone)
       reg.modules.sessions.flushBroadcasts()
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
@@ -378,16 +477,20 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('persists the offer across a restart (reload from the same store file)', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
     await reg.dispose()
 
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     const surfaced = await metaOffer(reg2, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
@@ -397,13 +500,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('boot reconciliation: user input after the offer drops it on reload', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
     const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
     await reg.dispose()
 
@@ -416,7 +521,9 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     )
     db.close()
 
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     expect(await metaOffer(reg2, sessionId)).toBeUndefined()
     await reg2.dispose()
 
@@ -435,8 +542,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    await reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
+    await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
+    await reg.modules.sessions.queueText({
+      writer: reg.modules.sessions.serverWriter,
+      sessionId,
+      text: 'do the thing',
+    })
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
@@ -464,7 +575,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       return { reg, sessionId, createdAt }
     }
@@ -540,7 +654,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         sessionId,
         state: working(plusMinute(createdAt)),
       })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       await typeIntoPty(reg, sessionId, createdAt)
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
@@ -563,7 +680,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
       const observe = (observation: AgentObservation) =>
@@ -669,7 +789,9 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a provider-origin turn consumes it only after the user typed', async () => {
       const withoutTyping = await seed('codex')
       await withoutTyping.observe(withoutTyping.turnOpened('provider'))
-      expect((await metaOffer(withoutTyping.reg, withoutTyping.sessionId))?.message).toBe(OFFER.message)
+      expect((await metaOffer(withoutTyping.reg, withoutTyping.sessionId))?.message).toBe(
+        OFFER.message,
+      )
 
       const withTyping = await seed('codex')
       await typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
@@ -683,6 +805,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a mail delivery neither clears the offer nor counts as input evidence', async () => {
       const { reg, sessionId, observe, turnOpened } = await seed('codex')
       await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId: asSessionId(sessionId),
         text: 'a message from another agent',
         inputOrigin: 'mail',
@@ -695,6 +818,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a chat send still clears it on the way in', async () => {
       const { reg, sessionId } = await seed('codex')
       await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId: asSessionId(sessionId),
         text: 'carry on',
       })
@@ -704,7 +828,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a turn that opened BEFORE the offer cannot consume it', async () => {
       const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const early = turnOpened('human')
-      await observe({ ...early, receivedAt: shift(createdAt, -30), providerAt: shift(createdAt, -30) })
+      await observe({
+        ...early,
+        receivedAt: shift(createdAt, -30),
+        providerAt: shift(createdAt, -30),
+      })
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
@@ -768,7 +896,6 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   })
 })
 
-
 describe('offer retirement across awaited owner notification', () => {
   it.each([false, true])('clears only the original offer (replacement: %s)', async (replace) => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -789,7 +916,10 @@ describe('offer retirement across awaited owner notification', () => {
         agentKind: 'shell',
         cwd: '/p',
       })
-      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
+        sessionId,
+        ...OFFER,
+      })
       await vi.waitFor(async () =>
         expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message),
       )
@@ -821,7 +951,7 @@ describe('offer retirement across awaited owner notification', () => {
         vi.setSystemTime(new Date('2026-09-07T12:00:30.000Z'))
         // Both offers precede the event and input timestamps. Only identity,
         // not the existing event-time guard, can distinguish the replacement.
-        await reg.modules.sessions.setOffer({
+        await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, {
           sessionId,
           message: 'Replacement must survive',
           actions: [],

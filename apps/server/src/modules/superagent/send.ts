@@ -14,6 +14,7 @@ export function superagentFrom(ownerUserId: UserId): MessageSender {
     delegationRef: SUPERAGENT_AGENT_IDENTITY,
   }
 }
+import type { MessageWriter } from '../messages/writer'
 
 /**
  * WHAT THE SUPERAGENT TYPES INTO A SESSION IS ITS MESSAGE (POD-4846).
@@ -27,14 +28,17 @@ export function superagentFrom(ownerUserId: UserId): MessageSender {
  */
 export function superagentSender(
   messages: Pick<MessageDeliveryService, 'send'>,
-  ownerUserId: UserId,
+  /** The superagent's own writer (`superagent.tools`, POD-6602). */
+  writer: MessageWriter,
+  ownerUserId: UserId | undefined,
 ): (input: {
   sessionId: SessionId
   text: string
   messageId?: string
 }) => Promise<{ ok: boolean; reason?: string }> {
   return async ({ sessionId, text, messageId }) => {
-    const r = await messages.send(superagentFrom(ownerUserId), {
+    if (!ownerUserId) return { ok: false, reason: 'unknown superagent thread' }
+    const r = await messages.send(writer, superagentFrom(ownerUserId), {
       ...(messageId ? { messageId } : {}),
       to: { kind: 'session', id: sessionId },
       kind: 'message',

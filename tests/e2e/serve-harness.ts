@@ -28,6 +28,8 @@ import {
   type ConversationDiscoveryCache,
   type LaunchOptions,
   type LaunchSpec,
+  manifestFor,
+  shellCommand,
 } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
 import {
@@ -294,19 +296,30 @@ const launch = (kind: AgentKind, requested: LaunchOptions): LaunchSpec => {
       ? { ...requested, model: CLAUDE_MODEL }
       : requested
   if (SILENT_START_MS > 0) {
-    return withHarnessChildEnv({
-      cmd: process.execPath,
-      args: [
-        '-e',
-        // Silent, then a prompt and a live process: the panel must show the
-        // wait for the first stretch and get out of the way for the second.
-        `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
-      ],
-      cwd: REPO_ROOT,
-    })
+    return withHarnessChildEnv(
+      shellCommand({
+        cmd: process.execPath,
+        args: [
+          '-e',
+          // Silent, then a prompt and a live process: the panel must show the
+          // wait for the first stretch and get out of the way for the second.
+          `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
+        ],
+        cwd: REPO_ROOT,
+      }),
+    )
   }
   if (kind === 'shell' || REAL_AGENTS) {
-    const spec = agentLaunchCommand(kind, opts)
+    // The daemon's launch seam hands a label-only context (no inventory), so a
+    // real agent here runs the harness's own CLI name from the e2e PATH: test
+    // tooling standing in for the inventory, never production.
+    const spec =
+      kind === 'shell'
+        ? agentLaunchCommand(kind, opts)
+        : shellCommand({
+            ...agentLaunchCommand(kind, opts),
+            cmd: manifestFor(kind)?.inventory.executable.names[0] ?? kind,
+          })
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This
     // documented automation bypass is test-only and never changes production trust.
     if (REAL_AGENTS && kind === 'codex') {
@@ -317,11 +330,13 @@ const launch = (kind: AgentKind, requested: LaunchOptions): LaunchSpec => {
     }
     return withHarnessChildEnv(spec)
   }
-  return withHarnessChildEnv({
-    cmd: process.execPath,
-    args: [KEYECHO_CLI, '--mode', 'both'],
-    cwd: KEYECHO_PKG,
-  })
+  return withHarnessChildEnv(
+    shellCommand({
+      cmd: process.execPath,
+      args: [KEYECHO_CLI, '--mode', 'both'],
+      cwd: KEYECHO_PKG,
+    }),
+  )
 }
 
 /**
@@ -571,12 +586,19 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
 let daemon = await startDaemon(daemonOptions)
 const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
 if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: QUEUE_POSITION_ISSUE_TITLE,
-    startNow: false,
-  })
-  server.registry.modules.issues.crud.update(issue.id, { stage: 'in_progress' })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: QUEUE_POSITION_ISSUE_TITLE,
+      startNow: false,
+    },
+  )
+  server.registry.modules.issues.crud.update(
+    server.registry.modules.issues.reports.store.serverWriter,
+    issue.id,
+    { stage: 'in_progress' },
+  )
   const principal = inProcessMachinePrincipal(hostMachineId())
   const subjects: Array<{ agentKind: AgentKind; label: string; idleAfterMs: number }> = [
     { agentKind: 'codex', label: 'POD-2920 A1b codex-headless', idleAfterMs: 40_000 },
@@ -607,7 +629,10 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
         `PODIUM_E2E_QUEUE_POSITION: ${subject.agentKind} inventory never arrived — ${String(lastError)}`,
       )
     }
-    await server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
+    await server.registry.modules.sessions.renameSession(
+      server.registry.modules.sessions.serverWriter,
+      { sessionId, name: subject.label },
+    )
     let live = false
     for (let attempt = 0; attempt < 80 && !live; attempt++) {
       live = server.registry.modules.sessions.sessions.get(sessionId)?.status === 'live'
@@ -656,11 +681,14 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
 // `requireAgent`, which THROWS (and takes the whole harness down) for a harness
 // that is not installed on the host, and codex often is not.
 if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: 'Panel lifecycle arbitration',
-    startNow: false,
-  })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: 'Panel lifecycle arbitration',
+      startNow: false,
+    },
+  )
   // The daemon's harness INVENTORY reaches the server asynchronously after
   // `startDaemon` returns, and `createSession` resolves the machine through
   // `requireAgent`, which throws `<kind> is not installed on machine '<host>'`
@@ -689,10 +717,13 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
       `PODIUM_E2E_PANEL_LIFECYCLE: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({
-    sessionId,
-    name: 'Lifecycle panel subject',
-  })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    {
+      sessionId,
+      name: 'Lifecycle panel subject',
+    },
+  )
   // NO hand-sent `bind` frame. `createSession` already makes the server MINT a
   // SessionBinding and the daemon launch the keyecho jig for a claude-code kind;
   // a synthetic bind on top of that overwrites the minted binding, and the
@@ -736,11 +767,14 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
  * first constructed grid names its own source.
  */
 if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: 'Terminal sizing subject',
-    startNow: false,
-  })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: 'Terminal sizing subject',
+      startNow: false,
+    },
+  )
   // Same inventory race as PODIUM_E2E_PANEL_LIFECYCLE above — retry, do not assume.
   let sessionId: SessionId | undefined
   let lastError: unknown
@@ -764,7 +798,10 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
       `PODIUM_E2E_TERMINAL_SIZING: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Sizing panel subject' })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    { sessionId, name: 'Sizing panel subject' },
+  )
   const principal = inProcessMachinePrincipal(hostMachineId())
   await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'agentState',
@@ -805,11 +842,14 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
 // Nothing about that is reproducible on a fresh session: with no verdict to be
 // stale, the old order and the new one agree.
 if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: 'Stale verdict under a send',
-    startNow: false,
-  })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: 'Stale verdict under a send',
+      startNow: false,
+    },
+  )
   // Same inventory race as PANEL_LIFECYCLE above, same answer: retry rather than
   // let `requireAgent` take the harness down.
   let sessionId: SessionId | undefined
@@ -834,7 +874,10 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
       `PODIUM_E2E_STALE_VERDICT: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Stale verdict subject' })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    { sessionId, name: 'Stale verdict subject' },
+  )
   const principal = inProcessMachinePrincipal(hostMachineId())
   // `idle` + `question` is what `agentBadge` turns into `needs answer`, and the
   // tail into "Waiting for your answer". Stamped an hour ago, because the point
@@ -855,11 +898,14 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
 // browser spec opens the real AgentPanel, which must render both files as one
 // transcript and keep the wake action visible.
 if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: 'Completed transcript incarnation',
-    startNow: false,
-  })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: 'Completed transcript incarnation',
+      startNow: false,
+    },
+  )
   let sessionId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
@@ -882,10 +928,13 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
       `PODIUM_E2E_TRANSCRIPT_INCARNATION: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({
-    sessionId,
-    name: 'Incarnation chain subject',
-  })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    {
+      sessionId,
+      name: 'Incarnation chain subject',
+    },
+  )
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
     live = server.registry.modules.sessions.sessions.get(sessionId)?.status === 'live'
@@ -959,7 +1008,11 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
       `PODIUM_E2E_TRANSCRIPT_INCARNATION: hibernate refused — ${hibernated.reason ?? 'unknown'}`,
     )
   }
-  await server.registry.modules.issues.crud.close(issue.id, 'done')
+  await server.registry.modules.issues.crud.close(
+    server.registry.modules.issues.reports.store.serverWriter,
+    issue.id,
+    'done',
+  )
 }
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   await server.registry.modules.sessions.createSession({
@@ -982,11 +1035,14 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
 // onBehalfOf=<the delegating human> — two DIFFERENT values, which is the only
 // arrangement in which a collapsed renderer is visibly wrong.
 if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
-  const issue = await server.registry.modules.issues.crud.create({
-    repoPath: REPO_ROOT,
-    title: 'Session attribution rows',
-    startNow: false,
-  })
+  const issue = await server.registry.modules.issues.crud.create(
+    server.registry.modules.issues.reports.store.serverWriter,
+    {
+      repoPath: REPO_ROOT,
+      title: 'Session attribution rows',
+      startNow: false,
+    },
+  )
   // The daemon's harness INVENTORY reaches the server asynchronously after
   // `startDaemon` returns, so `createSession` throws `<kind> is not installed`
   // until it lands and takes the whole harness down with it — the same race the
@@ -1013,10 +1069,13 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       `PODIUM_E2E_SESSION_ATTRIBUTION: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({
-    sessionId: parentId,
-    name: 'Attribution host',
-  })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    {
+      sessionId: parentId,
+      name: 'Attribution host',
+    },
+  )
   // WAIT FOR THE PARENT'S BINDING, WHICH IS NOT A RETRY (POD-1526).
   //
   // `createSession` for an AGENT principal SUCCEEDS synchronously and then fails
@@ -1059,7 +1118,10 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if ((await statusOf(candidate)) === 'exited') {
-      await server.registry.modules.sessions.setArchived({ sessionId: candidate, archived: true })
+      await server.registry.modules.sessions.setArchived(
+        server.registry.modules.sessions.serverWriter,
+        { sessionId: candidate, archived: true },
+      )
       continue
     }
     childId = candidate
@@ -1069,10 +1131,13 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       'PODIUM_E2E_SESSION_ATTRIBUTION: no delegated child survived its spawn, so there is no delegated pair to render',
     )
   }
-  await server.registry.modules.sessions.renameSession({
-    sessionId: childId,
-    name: 'Delegated worker',
-  })
+  await server.registry.modules.sessions.renameSession(
+    server.registry.modules.sessions.serverWriter,
+    {
+      sessionId: childId,
+      name: 'Delegated worker',
+    },
+  )
 }
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,

@@ -1,6 +1,17 @@
 /**
- * THE DERIVED CLOUD SURFACE (POD-314) — the five writes from `CLOUD_CONTRACTS`,
+ * THE CLOUD SURFACE (POD-314): the five writes from `CLOUD_CONTRACTS`,
  * `capabilities` and `runtime` from the query table.
+ *
+ * ON THE PLAIN PATH (ADR 12 D8, POD-6417). A cloud write changes nothing in
+ * this server's database: the runtime lives on the cloud control plane, and the
+ * provider is the network. So each runs through the plain entry (front door,
+ * then the handler, online only, never recorded), not `sync.submit`. The one
+ * synced write among them, `moveSession`'s local hibernate, is sent through
+ * `sync.submit` as the caller once the runtime exists (`records.session`,
+ * `desired: hibernated`).
+ *
+ * Stop and wake as edits of a desired state (ADR 12 D5 E1) need a cloud runtime
+ * RECORD, which does not exist yet; until it does they are plain commands.
  *
  * The service is constructed PER REQUEST because its provider comes from the
  * context: `ctx.cloud` is absent on deployments with no cloud runtime, and
@@ -8,24 +19,13 @@
  * method has to remember it.
  */
 
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
+import { CLOUD_PLAIN_FAMILY } from './plain-family'
 import { CLOUD_QUERIES } from './queries'
-import { CLOUD_COMMANDS_TRPC } from './registry'
-import { CloudService } from './service'
+import type { CLOUD_COMMANDS_TRPC } from './registry'
 
 export type CloudProcedures = FamilyProcedures<typeof CLOUD_COMMANDS_TRPC, typeof CLOUD_QUERIES>
 
-/** THE DERIVED PROCEDURES, spread into `router.ts`'s `cloud` router. */
 export const cloudFamilyProcedures = (): CloudProcedures =>
-  derivedFamilyProcedures({
-    family: 'cloud',
-    service: (state) =>
-      new CloudService({
-        provider: state.cloud,
-        sessions: state.modules.sessions,
-        repos: state.repos,
-        store: state.store,
-      }),
-    commands: CLOUD_COMMANDS_TRPC,
-    queries: CLOUD_QUERIES,
-  })
+  plainFamilyProcedures(CLOUD_PLAIN_FAMILY, CLOUD_QUERIES)

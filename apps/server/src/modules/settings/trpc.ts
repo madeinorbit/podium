@@ -17,9 +17,7 @@ import { familyState } from '../derived-family'
  *    client scrub that stops the blob carrying secrets at all.
  *  - `telegramSetupStart` / `telegramSetupPoll` — a stateful pairing ceremony
  *    over a third-party API, not a settings write with a payload. Named in the
- *    contract table's own note and counted by `scripts/audit-settings-commands.ts`
- *    as the two hand-written writes this family still allows, so the exception
- *    is visible rather than assumed.
+ *    contract table's own note, so the exception is visible rather than assumed.
  *
  * ---------------------------------------------------------------------------
  * MEMBERSHIP IS READ OFF THE TABLE, IN BOTH DIRECTIONS
@@ -42,10 +40,25 @@ import { describeError } from '@podium/logger'
 import type { UserId } from '@podium/model'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { type Context, mods, t } from '../../trpc'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import { type Context, type mods, t } from '../../trpc'
+import {
+  assertPlainContract,
+  type PlainCommandRefusal,
+  runPlainCommand,
+} from '../plain-command/entry'
+import { plainRefusalError } from '../plain-command/family'
+import { type PlainContractRegistration, trpcRequest } from '../plain-command/registry'
+import type { DetailedSubmit } from '../sync-write/entry'
+import { plainRoute } from '../write-routes/plain'
+import { syncRoute } from '../write-routes/sync'
 import { redactErrorMessage } from './audit'
-import { onBehalfOfUser } from '../../command-principal'
-import { settingsAuthzDeps, settingsAuthzFailure } from './authz'
+import {
+  SECRET_SURFACE_ABSENT,
+  type SettingsAuthzDeps,
+  settingsAuthzDeps,
+  settingsAuthzFailure,
+} from './authz'
 import {
   isSettingsCommandExposedOn,
   SETTINGS_COMMANDS_TRPC,
@@ -53,6 +66,7 @@ import {
   settingsCommandsOn,
   settingsProcKey,
 } from './registry'
+import { type SyncedSettingsWrite, settingsWriteRefusal } from './sync-write'
 
 /**
  * A READ is served as a QUERY, DERIVED from `policy.action` (POD-421).
@@ -114,13 +128,29 @@ async function runSettingsCommand(
   ctx: Context,
   input: unknown,
 ): Promise<unknown | Promise<unknown>> {
-  const deps = await settingsAuthzDeps(ctx)
   // ONE `familyState(ctx).modules`, used for both the trail and the handler. Two calls would be
   // two `router-triple-access` sites where one is needed, and the audit
   // repository is deliberately NOT reached out of `familyState(ctx).store`:
   // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
   // transport never touches the store.
-  const service = familyState(ctx).modules.settings
+  return await settingsCommandWith(
+    name,
+    await settingsAuthzDeps(ctx),
+    familyState(ctx).modules.settings,
+    input,
+  )
+}
+
+/** The settings service as the gate, the handler and the trail use it. */
+export type SettingsCommandService = ReturnType<typeof mods>['settings']
+
+/** {@link runSettingsCommand} over resolved dependencies, without a request context. */
+export async function settingsCommandWith(
+  name: SettingsCommandName,
+  deps: SettingsAuthzDeps,
+  service: SettingsCommandService,
+  input: unknown,
+): Promise<unknown> {
   const record = async (outcome: 'applied' | 'refused', error?: string): Promise<void> => {
     await service.recordCommand({
       command: name,
@@ -205,13 +235,204 @@ async function runSettingsCommand(
   return result
 }
 
+/**
+ * THE PLAIN SETTINGS COMMANDS (ADR 12 D8, POD-6360): the secret pair, the presence
+ * read and the Telegram ceremony. Their data is not synced, so they take the plain
+ * path: the shared front door (coarse check, then parse), then the family's gate,
+ * handler and trail inside the plain scope.
+ *
+ * Read off the contract rather than listed: a settings command a client may
+ * queue (`offline-eligible`: `updatePersonal`, `updateInstance`) is not plain and
+ * keeps the family's own path until it moves onto the sync write entry point.
+ */
+export const isPlainSettingsCommand = (name: SettingsCommandName): boolean =>
+  SETTINGS_COMMANDS_TRPC[name].contract.delivery.class !== 'offline-eligible'
+
+/**
+ * A FRONT-DOOR REFUSAL IN THIS FAMILY'S TERMS. The family's own gate decides the
+ * error when it refuses too; otherwise (an agent acting for an admin, say: the
+ * human's role passes, the agent's capability does not) the refusal is FORBIDDEN,
+ * except for the presence read, which refuses as absent for the reason
+ * `authz.ts` gives: its subject is an existence fact.
+ */
+export function settingsFrontDoorRefusal(
+  name: SettingsCommandName,
+  deps: SettingsAuthzDeps | undefined,
+): TRPCError {
+  const own = deps === undefined ? undefined : settingsAuthzFailure(name, deps)
+  if (own !== undefined) return own
+  const { policy } = SETTINGS_COMMANDS_TRPC[name].contract
+  if (policy.action === 'read' && policy.resource === 'secret') {
+    return new TRPCError({ code: 'NOT_FOUND', message: SECRET_SURFACE_ABSENT })
+  }
+  return new TRPCError({ code: 'FORBIDDEN', message: `${name} is not permitted for this caller` })
+}
+
+/**
+ * One plain settings command. A front-door refusal is recorded on the trail like
+ * every other refusal. Its input is NOT: the coarse check runs before the parse,
+ * so there is no parsed input whose redaction rule applies, and raw input stored
+ * on a refusal is exactly where a secret leaks.
+ *
+ * The dependencies are resolved AFTER the coarse check, because resolving them
+ * asks who the human is, which a principal the front door turns away (a system
+ * principal) does not have. A refusal still gets its family-shaped error.
+ */
+export async function plainSettingsCommandWith(
+  name: SettingsCommandName,
+  principal: CommandPrincipal,
+  resolve: () => Promise<{ deps: SettingsAuthzDeps; service: SettingsCommandService }>,
+  rawInput: unknown,
+): Promise<unknown> {
+  const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  const reply = await runPlainCommand({
+    contract,
+    principal,
+    transport: 'trpc',
+    input: rawInput,
+    run: async (input) => {
+      const { deps, service } = await resolve()
+      return await settingsCommandWith(name, deps, service, input)
+    },
+  })
+  if (reply.outcome === 'applied') return reply.result
+  return await settingsRefused(name, principal, resolve, reply.refusal)
+}
+
+/** A front-door refusal of a plain settings command, recorded on the trail (see
+ *  {@link plainSettingsCommandWith}). */
+async function settingsRefused(
+  name: SettingsCommandName,
+  principal: CommandPrincipal,
+  resolve: () => Promise<{ deps: SettingsAuthzDeps; service: SettingsCommandService }>,
+  refusal: PlainCommandRefusal,
+): Promise<never> {
+  const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  if (refusal.kind === 'invalid') throw plainRefusalError(contract, refusal)
+  if (principal.kind === 'system') {
+    // No human, so no trail principal and no role: the family's own refusal shape,
+    // read off the contract alone.
+    throw settingsFrontDoorRefusal(name, undefined)
+  }
+  const { deps, service } = await resolve()
+  const error = settingsFrontDoorRefusal(name, deps)
+  await service.recordCommand({
+    command: name,
+    outcome: 'refused',
+    principal: deps.principal,
+    input: {},
+    error: error.message,
+  })
+  throw error
+}
+
+const settingsDepsOf = (ctx: Context) => async () => ({
+  deps: await settingsAuthzDeps(ctx),
+  service: familyState(ctx).modules.settings,
+})
+
+const isPlainSettingsWrite = (name: SettingsCommandName): boolean =>
+  isPlainSettingsCommand(name) && SETTINGS_COMMANDS_TRPC[name].contract.policy.action !== 'read'
+
+/**
+ * The plain settings WRITES, registered in `plain-command/commands.ts`. The
+ * presence read is served as a query on the same front door
+ * ({@link plainSettingsCommandWith}); a read has no registration.
+ */
+export const SETTINGS_PLAIN_REGISTRATIONS: readonly PlainContractRegistration[] = (
+  Object.keys(SETTINGS_COMMANDS_TRPC) as SettingsCommandName[]
+)
+  .filter(isPlainSettingsWrite)
+  .map((name) => ({
+    contract: SETTINGS_COMMANDS_TRPC[name].contract,
+    handle: async (ctx, input, source) => {
+      const { deps, service } = await settingsDepsOf(trpcRequest(ctx, source))()
+      return await settingsCommandWith(name, deps, service, input)
+    },
+  }))
+
+/** The input is parsed by the plain entry, after the coarse check. */
+const unparsed = (raw: unknown): unknown => raw
+
+/** A refused or failed settings write as the client receives it: the message
+ *  redacted by the same rule the trail uses (see `fail` above). */
+function asSettingsTrpcError(name: SettingsCommandName, input: unknown, e: unknown): TRPCError {
+  const raw = describeError(e)
+  const safe = redactErrorMessage(name, input, raw)
+  return e instanceof TRPCError && safe === raw
+    ? e
+    : new TRPCError({ code: 'BAD_REQUEST', message: safe })
+}
+
+/**
+ * `settings.updatePersonal` and `settings.updateInstance` — THIN ADAPTERS ONTO
+ * `sync.submit` (POD-6350, POD-6412). LEGACY(remove-after: 2027-03): older apps
+ * queue `updatePersonal` on this route, and the desktop app's bundled web sends
+ * `updateInstance` on it; removing either breaks that client's settings saves.
+ * The gate, the write and the trail are the registration's (`sync-write.ts`), so a
+ * write through either door is checked, deduplicated and recorded once. The route
+ * keeps its wire: the redacted message on a refusal, and the gate's own error when
+ * the gate refused.
+ */
+async function settingsWriteThroughEntry(
+  name: SyncedSettingsWrite,
+  ctx: Context,
+  input: unknown,
+  submit: () => Promise<DetailedSubmit>,
+): Promise<unknown> {
+  let detailed: DetailedSubmit
+  try {
+    detailed = await submit()
+  } catch (e) {
+    throw asSettingsTrpcError(name, input, e)
+  }
+  const { reply, cause } = detailed
+  if (reply.outcome === 'applied') return reply.result
+  if (cause !== undefined) throw asSettingsTrpcError(name, input, cause)
+  const refusal = await settingsWriteRefusal(
+    name,
+    { roleOf: async (user) => await ctx.registry.sessionStore.users.roleOf(user) },
+    ctx.principal,
+  )
+  if (refusal?.error instanceof TRPCError) throw refusal.error
+  throw new TRPCError({ code: 'FORBIDDEN', message: refusal?.message ?? `${name} was refused` })
+}
+
+const isSyncedSettingsWrite = (name: SettingsCommandName): name is SyncedSettingsWrite =>
+  name === 'settings.updatePersonal' || name === 'settings.updateInstance'
+
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
-  const proc = t.procedure.input(contract.input)
-  const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
-    await runSettingsCommand(name, ctx, input)
-  // Derived from the contract, never chosen here — see `IsRead` above.
-  return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
+  if (isPlainSettingsWrite(name)) {
+    return plainRoute(contract.name, {
+      refused: async (refusal, { ctx }) =>
+        await settingsRefused(name, ctx.principal, settingsDepsOf(ctx), refusal),
+    })
+  }
+  if (isSyncedSettingsWrite(name)) {
+    return syncRoute({
+      command: contract,
+      input: contract.input,
+      run: async ({ ctx, input, submit }) =>
+        await settingsWriteThroughEntry(name, ctx, input, submit),
+    })
+  }
+  if (contract.policy.action !== 'read') {
+    throw new Error(`settings: ${name} is a write on neither the plain nor the sync path`)
+  }
+  // A read: the plain presence read on the front door, or the family's own.
+  if (isPlainSettingsCommand(name)) {
+    assertPlainContract(contract)
+    return t.procedure
+      .input(unparsed)
+      .query(
+        async ({ ctx, input }): Promise<unknown> =>
+          await plainSettingsCommandWith(name, ctx.principal, settingsDepsOf(ctx), input),
+      )
+  }
+  return t.procedure
+    .input(contract.input)
+    .query(async ({ ctx, input }): Promise<unknown> => await runSettingsCommand(name, ctx, input))
 }
 
 /** The both-directions exposure check, against the object that will be served. */

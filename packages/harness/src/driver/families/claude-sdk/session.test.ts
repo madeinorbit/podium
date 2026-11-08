@@ -8,6 +8,10 @@
  * and adopts from the journal after a restart.
  */
 
+import { randomUUID } from 'node:crypto'
+import { appendFileSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -16,17 +20,23 @@ import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
   serverFamilyLaunch,
+  testHarnessContext,
 } from '../../testing/index.js'
 
 /** A Claude launch from the facts a test names; `resume` rides beside the spec. */
 function launchOf({
   resume,
   ...facts
-}: Omit<Parameters<typeof serverFamilyLaunch>[0], 'harness' | 'driverId'> & {
+}: Omit<Parameters<typeof serverFamilyLaunch>[0], 'harness' | 'driverId' | 'harnessContext'> & {
   resume?: ResumeRef
 }): ClaudeSdkSessionLaunch {
   return {
-    ...serverFamilyLaunch({ harness: 'claude-code', driverId: 'claude-sdk', ...facts }),
+    ...serverFamilyLaunch({
+      harness: 'claude-code',
+      driverId: 'claude-sdk',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
+      ...facts,
+    }),
     ...(resume ? { resume } : {}),
   }
 }
@@ -64,7 +74,10 @@ function transcript(reads: Array<{ resumeValue: string; limit: number }>) {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return pageHistory(WITNESS, session.resume?.value ?? '', range)
     },
-    archiveTranscript: async () => ({ path: '/tmp/archive.jsonl' }),
+    // Never a shared path: the file watch tails whatever this names (POD-6280).
+    archiveTranscript: async () => ({
+      path: join(tmpdir(), `claude-sdk-test-${randomUUID()}.jsonl`),
+    }),
     readFileBytes: async () => new Uint8Array(),
   }
 }
@@ -95,6 +108,7 @@ function fakeEngine(
   }),
 ): ClaudeEngineHost & { startTurn: ReturnType<typeof vi.fn> } {
   return {
+    harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     bindings: { recorded: () => undefined, bound: vi.fn(), released: vi.fn() },
     startTurn: vi.fn(impl),
     stopEngine: vi.fn(async () => {}),
@@ -587,6 +601,7 @@ describe('Claude SDK daemon host adapter', () => {
    * message the user line itself is what triggers.
    */
   it('delivers the initial prompt as a stream-json user line and opens a live turn', async () => {
+    const sessionFile = join(mkdtempSync(join(tmpdir(), 'claude-sdk-session-')), 'session.jsonl')
     const sent: DaemonMessage[] = []
     const writes: string[] = []
     const dataCbs = new Set<(seq: bigint, data: Buffer) => void>()
@@ -621,6 +636,23 @@ describe('Claude SDK daemon host adapter', () => {
                 // (claude 2.1.284, POD-4836).
                 stdout({ type: 'command_lifecycle', command_uuid: msg.uuid, state: 'queued' })
                 stdout({ type: 'system', subtype: 'init', session_id: claudeSessionId })
+                // The stream's assistant line carries the uuid its file record
+                // gets; the record itself is what the session file holds.
+                const message = {
+                  id: 'msg_fake1',
+                  role: 'assistant',
+                  content: [{ type: 'text', text: 'fifty-six MANGO' }],
+                }
+                stdout({
+                  type: 'assistant',
+                  uuid: 'reply-record',
+                  session_id: claudeSessionId,
+                  message,
+                })
+                appendFileSync(
+                  sessionFile,
+                  `${JSON.stringify({ type: 'assistant', uuid: 'reply-record', sessionId: claudeSessionId, timestamp: new Date().toISOString(), message: { ...message, stop_reason: 'end_turn' } })}\n`,
+                )
                 stdout({ type: 'result', subtype: 'success', result: 'fifty-six MANGO' })
               })
             }
@@ -643,8 +675,9 @@ describe('Claude SDK daemon host adapter', () => {
       supervision: { scopeUnitFor: () => undefined },
       engines: {
         startEngine: async (req) => {
-          const at = req.args.indexOf('--session-id')
-          claudeSessionId = at >= 0 ? (req.args[at + 1] ?? '') : ''
+          const { args } = req.command
+          const at = args.indexOf('--session-id')
+          claudeSessionId = at >= 0 ? (args[at + 1] ?? '') : ''
           return { attachment }
         },
         reattachEngine: async () => {
@@ -658,10 +691,12 @@ describe('Claude SDK daemon host adapter', () => {
       },
       buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
       gracefulExitMs: 50,
-      executablePath: '/bin/claude',
+      harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     })
 
-    const runtime = sessionWorld(sent, [], engine)
+    const runtime = sessionWorld(sent, [], engine, {
+      transcript: { ...transcript([]), archiveTranscript: async () => ({ path: sessionFile }) },
+    })
     await runtime.launch(
       launchOf({
         sessionId: SESSION_ID,
@@ -689,18 +724,32 @@ describe('Claude SDK daemon host adapter', () => {
         .find((event) => event.t === 'turn' && event.ev.ev === 'started')
       expect(turnStarted).toMatchObject({ provenance: 'live', turnEpoch: 1 })
     })
-    // And the answer comes back.
+    // And the answer comes back, as the session file's record: its uuid, its
+    // answer mark, once (POD-6280). Never a second copy built from the stream.
     await vi.waitFor(
       () =>
         expect(sent).toContainEqual(
           expect.objectContaining({
             type: 'transcriptDelta',
             sessionId: SESSION_ID,
-            items: [expect.objectContaining({ role: 'assistant', text: 'fifty-six MANGO' })],
+            items: [
+              expect.objectContaining({
+                id: 'reply-record',
+                role: 'assistant',
+                text: 'fifty-six MANGO',
+                answer: true,
+              }),
+            ],
           }),
         ),
-      { timeout: 2000 },
+      { timeout: 3000 },
     )
+    const replies = sent.flatMap((message) =>
+      message.type === 'transcriptDelta'
+        ? message.items.filter((item) => item.role === 'assistant')
+        : [],
+    )
+    expect(replies.map((item) => item.id)).toEqual(['reply-record'])
     // The journal names the conversation the invocation minted.
     expect(bound).toHaveBeenCalledWith(expect.objectContaining({ claudeSessionId }))
     runtime.dispose()

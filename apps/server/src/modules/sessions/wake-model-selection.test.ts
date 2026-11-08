@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { asAccountId } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { asAccountId, MESSAGE_ID_PREFIX } from '@podium/model'
 import { runSessionCli, type SessionControlClient } from '../../../../cli/src/session-cli'
 import { MODEL_CATALOG_VERSION } from '../../model-catalog'
+import { envelope, submit } from '../sync-write/outbox-test-support'
 import { disposeOracles, makeOracle, type Oracle } from './oracle-support'
 
 afterEach(() => disposeOracles())
@@ -77,7 +79,8 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
       '--model', 'gpt-5.6', '--effort', 'high'], client)
     expect(out).toContain('wake selection: model=gpt-5.6 effort=high')
     expect(out).not.toContain('Warning:')
-    expect(spawns(o)).toHaveLength(1)
+    // The wake is a `session.launch` resume record (POD-6415): it spawns after the send commits.
+    await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
     expect(spawns(o)[0]).toMatchObject({ sessionId, model: 'gpt-5.6', effort: 'high' })
     expect(await o.store.sessions.getSession(sessionId)).toMatchObject({
       requestedModel: 'gpt-5.6', requestedEffort: 'high',
@@ -92,6 +95,7 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
       sessionId, text: 'hello', model: 'gpt-5.6', effort: 'high',
     })
     expect(result.wakeSelection).toEqual({ model: 'gpt-5.6', effort: 'high' })
+    await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
     await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
       type: 'bind', sessionId, cmd: 'codex', cwd: '/p', agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
@@ -119,7 +123,7 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
     await park(o, sessionId)
     await runSessionCli(['resume-and-send', sessionId, '--text', 'hello',
       '--model', 'gpt-6-experimental', '--force-unknown-model'], client)
-    expect(spawns(o)).toHaveLength(1)
+    await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
     expect(spawns(o)[0]?.model).toBe('gpt-6-experimental')
     expect(Object.hasOwn(spawns(o)[0]!, 'effort')).toBe(false)
     expect(await o.store.events.listEventsSince(0, { kinds: ['agent.model_forced'] }))
@@ -154,8 +158,82 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
     await o.call.sessions.resumeAndSend({ sessionId, text: 'hello',
       ...(field === 'model' ? { model: 'gpt-5.6' } : { effort: 'high' }),
     })
-    expect(spawns(o)).toHaveLength(1)
+    await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
     expect(spawns(o)[0]?.[field]).toBe(field === 'model' ? 'gpt-5.6' : 'high')
     expect(Object.hasOwn(spawns(o)[0]!, field === 'model' ? 'effort' : 'model')).toBe(false)
+  })
+})
+
+/** A chat send's mutationId is its message id: `msg_` + UUID. */
+const newMessageId = () => `${MESSAGE_ID_PREFIX}${randomUUID()}`
+
+describe('an explicit wake on the one write path (POD-6415)', () => {
+  const launches = (insert: { mock: { calls: unknown[][] } }) =>
+    insert.mock.calls
+      .map(([row]) => row as { kind: string; input: Record<string, unknown> })
+      .filter((row) => row.kind === 'session.launch')
+
+  it('arrives through sync.submit: one resume record with the choice, one spawn after the commit; a replay starts nothing', async () => {
+    const { o, sessionId } = await setup('settings')
+    await park(o, sessionId)
+    const insert = vi.spyOn(o.store.effects, 'insert')
+    const env = envelope(
+      'sessions.sendText',
+      { sessionId, text: 'hello', model: 'gpt-5.6', effort: 'high' },
+      newMessageId(),
+    )
+
+    const reply = await submit(o, env)
+    expect(reply).toMatchObject({
+      outcome: 'applied',
+      result: { ok: true, wakeSelection: { model: 'gpt-5.6', effort: 'high' } },
+    })
+    expect(launches(insert)).toHaveLength(1)
+    expect(launches(insert)[0]?.input).toMatchObject({
+      agentKind: 'codex',
+      resume: { kind: 'codex-thread', value: 'old-thread' },
+      wake: { model: 'gpt-5.6', effort: 'high' },
+    })
+    await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
+    expect(spawns(o)[0]).toMatchObject({ sessionId, model: 'gpt-5.6', effort: 'high' })
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+    expect(await submit(o, env)).toMatchObject({ outcome: 'applied', replayed: true })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(launches(insert)).toHaveLength(1)
+    expect(spawns(o)).toHaveLength(1)
+  })
+
+  it('a rollback creates no record and spawns nothing', async () => {
+    const { o, sessionId } = await setup('settings')
+    await park(o, sessionId)
+    // The send's own delivery step, inside the unit, fails: the unit rolls back.
+    vi.spyOn(o.reg.modules.messageGate, 'dispatch').mockRejectedValueOnce(new Error('forced rollback'))
+
+    await expect(
+      submit(
+        o,
+        envelope('sessions.sendText', { sessionId, text: 'hello', model: 'gpt-5.6' }, newMessageId()),
+      ),
+    ).rejects.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(spawns(o)).toHaveLength(0)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(0)
+  })
+
+  it('an invalid choice is a definitive refusal in its own words, and queues nothing', async () => {
+    const { o, sessionId } = await setup()
+    await park(o, sessionId)
+    expect(
+      await submit(
+        o,
+        envelope('sessions.sendText', { sessionId, text: 'hello', model: 'gpt-5.7' }, newMessageId()),
+      ),
+    ).toMatchObject({
+      outcome: 'rejected',
+      refusal: { kind: 'invalid', message: expect.stringMatching(/unknown model "gpt-5.7"/) },
+    })
+    expect(spawns(o)).toHaveLength(0)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(0)
   })
 })
