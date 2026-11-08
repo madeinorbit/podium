@@ -34,6 +34,8 @@ import {
   CAP_TOPICS_V1,
   type ClientMessage,
   encode,
+  parseCheckoutTopicId,
+  parseTopicKey,
   type ServerMessage,
   SubscriptionRegistry,
   TOPIC_KINDS,
@@ -94,6 +96,7 @@ export class FakeDaemon {
       machineId: MachineId,
       sample: HostMetricsWire,
       viaTopic: boolean,
+      key?: string,
     ) => void,
     readonly topics: boolean,
   ) {}
@@ -110,10 +113,10 @@ export class FakeDaemon {
     if (this.timers.has(frame.key)) return
     this.timers.set(
       frame.key,
-      setInterval(() => this.sample(), SAMPLE_INTERVAL_MS),
+      setInterval(() => this.sample(frame.key), SAMPLE_INTERVAL_MS),
     )
     // A demanded key is sampled at once, as the daemon's own sampler does.
-    this.sample()
+    this.sample(frame.key)
   }
 
   get watching(): number {
@@ -121,11 +124,15 @@ export class FakeDaemon {
   }
 
   /** One sample now, if anything demands it (or always, on a legacy daemon). */
-  sample(): void {
+  sample(key?: string): void {
     if (!this.connected) return
     if (this.topics && this.timers.size === 0) return
     this.samples += 1
-    this.report(this.machineId, hostSample(++this.n), this.topics)
+    const sample = hostSample(++this.n)
+    if (this.topics)
+      for (const held of key ? [key] : this.timers.keys())
+        this.report(this.machineId, sample, true, held)
+    else this.report(this.machineId, sample, false)
   }
 
   /** The link came up. A new link starts with NO demand (D22). */
@@ -268,17 +275,36 @@ export async function createTopicWorld(
       producer.stop?.(id)
     },
   })
+  const latestProcesses = new Map<
+    string,
+    import('@podium/protocol').TopicPayload<'machine.processes'>
+  >()
+  const extra = (kind: 'checkout.changed' | 'machine.processes') =>
+    daemonTopicProducer({
+      kind,
+      machineOf: (id) =>
+        kind === 'checkout.changed' ? parseCheckoutTopicId(id)?.machineId : asMachineId(id),
+      supportsTopics: () => daemon.connected && daemon.topics,
+      send: (_machine, frame) => daemon.receive(frame),
+      snapshot: (id) => (kind === 'checkout.changed' ? null : latestProcesses.get(id)),
+    })
   const producers: TopicProducers = {
     'machine.condition': counted('machine.condition', {
       snapshot: (id) => conditions.snapshot(asMachineId(id)),
     }),
     'machine.metrics': counted('machine.metrics', metrics),
+    'checkout.changed': counted('checkout.changed', extra('checkout.changed')),
+    'machine.processes': counted('machine.processes', extra('machine.processes')),
     'account.events': counted('account.events', {}),
   }
   topics = new TopicRouting({
     subscriptions,
     clients,
     prepareVisibility: async (): Promise<VisibilityResolver> => ({
+      canSee: (principal, entity) =>
+        principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
+    }),
+    prepareMachineUse: async () => ({
       canSee: (principal, entity) =>
         principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
     }),
@@ -308,18 +334,30 @@ export async function createTopicWorld(
   const ingress = createDaemonTopicIngress({
     producers,
     sinks: {
+      'checkout.changed': (_machine, payload, id) =>
+        topics.publish('checkout.changed', id, payload),
+      'machine.processes': (_machine, payload, id) => {
+        const value = { breakdown: payload as import('@podium/protocol').HostMemoryBreakdown }
+        latestProcesses.set(id, value)
+        topics.publish('machine.processes', id, value)
+      },
       'machine.metrics': (machineId, payload) =>
         installMetrics(machineId, { ...(payload as HostMetricsWire), machineId }),
     },
   })
   daemon = new FakeDaemon(
     MACHINE,
-    (machineId, sample, viaTopic) => {
+    (machineId, sample, viaTopic, key) => {
       if (viaTopic) {
         ingress.onTopicPublish(machineId, {
           type: 'topicPublish',
-          key: topicKey('machine.metrics', machineId),
-          payload: sample,
+          key: key as import('@podium/protocol').TopicKey,
+          payload:
+            parseTopicKey(key ?? '')?.kind === 'checkout.changed'
+              ? null
+              : parseTopicKey(key ?? '')?.kind === 'machine.processes'
+                ? { ...sample, supported: true, agents: [], projects: [], otherBytes: 0 }
+                : sample,
         })
       } else {
         // The pre-topics `hostMetrics` frame: the same sink, the old envelope.

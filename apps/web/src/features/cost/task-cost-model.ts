@@ -1,5 +1,6 @@
+import { type TaskCostView, taskCostView } from '@podium/client-core/values'
+import { type AnswerSignal, focusRefresh } from '@podium/client-graph/answer-refresh'
 import { lazy } from '@podium/mobx-helpers'
-import { taskCostView, type TaskCostView } from '@podium/client-core/values'
 import type { TaskCostComparisonWire } from '@podium/model/browser'
 import { actionBound, observable, observableRef, runInAction } from 'mobx'
 
@@ -17,15 +18,18 @@ export class TaskCostModel {
   private opened = false
   private visible = false
   private generation = 0
-  private timer: ReturnType<typeof setInterval> | undefined
+  private stop: (() => void) | undefined
 
   constructor(
     private readonly read: ReadTaskComparison,
     readonly issueId: string | null,
     private readonly includeSessions = true,
+    readonly refreshSignal: AnswerSignal = focusRefresh,
   ) {}
 
-  @lazy get failed(): boolean { return this.error !== null }
+  @lazy get failed(): boolean {
+    return this.error !== null
+  }
 
   @actionBound open(): void {
     this.opened = true
@@ -34,13 +38,13 @@ export class TaskCostModel {
   @actionBound setVisible(visible: boolean): void {
     if (this.visible === visible) return
     this.visible = visible
-    clearInterval(this.timer)
-    this.timer = undefined
+    this.stop?.()
+    this.stop = undefined
     if (this.opened && visible) {
       void this.refresh()
-      this.timer = setInterval(() => {
-        if (!this.loading) void this.refresh()
-      }, 90_000)
+      this.stop = this.refreshSignal(() => {
+        void this.refresh()
+      })
     }
   }
 
@@ -50,7 +54,10 @@ export class TaskCostModel {
     this.loading = true
     this.error = null
     try {
-      const answer = await this.read({ issueId: this.issueId, includeSessions: this.includeSessions })
+      const answer = await this.read({
+        issueId: this.issueId,
+        includeSessions: this.includeSessions,
+      })
       runInAction(() => {
         if (generation !== this.generation || !this.opened) return
         this.view = taskCostView(answer.task, answer.cohort)
@@ -69,8 +76,8 @@ export class TaskCostModel {
     this.opened = false
     this.visible = false
     this.generation += 1
-    clearInterval(this.timer)
-    this.timer = undefined
+    this.stop?.()
+    this.stop = undefined
     this.view = null
     this.loading = false
     this.error = null

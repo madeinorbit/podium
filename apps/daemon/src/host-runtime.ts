@@ -127,6 +127,7 @@ import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
+import { readMemoryBreakdown } from './control/discovery'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   forwardPicture,
@@ -183,8 +184,6 @@ import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime
 import type { ClientTerminalKind } from './runtime/opencode-attach'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createScopeMonitor } from './runtime/scope-monitor'
-import { createHostMetricsSampling, hostMetricsFrame } from './topics/host-metrics-sampling'
-import { TopicWatchRegistry } from './topics/watch-registry'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { SERVER_GRACEFUL_EXIT_MS } from './runtime/server-teardown-budget'
 import {
@@ -204,6 +203,10 @@ import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './sessi
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { ShippingExecutionPlane } from './shipping/executor'
 import { writeHeadedInput } from './terminal/headed-input.js'
+import { registerCheckoutWatch } from './topics/checkout-watch'
+import { createHostMetricsSampling, hostMetricsFrame } from './topics/host-metrics-sampling'
+import { registerProcessesWatch } from './topics/processes-watch'
+import { TopicWatchRegistry } from './topics/watch-registry'
 import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
@@ -1058,6 +1061,14 @@ export async function createDaemonHostRuntime(args: {
 
   // THE ONE WATCH REGISTRY (ADR 7 Amendment 2 D22). Producers register below.
   const topicWatches = new TopicWatchRegistry()
+  registerCheckoutWatch({ machineId, watches: topicWatches, send })
+  registerProcessesWatch({
+    machineId,
+    watches: topicWatches,
+    send,
+    read: (roots) => readMemoryBreakdown(ctx, roots),
+    onError: (err) => log.warn('process topic sample failed', { err }),
+  })
   const ctx: DaemonContext = {
     send,
     topicWatches,

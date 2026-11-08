@@ -4,7 +4,13 @@
  * routing, fake daemon). The harness is `test-support/topic-conformance.ts`.
  */
 
-import { CAP_TOPICS_V1, TOPIC_KIND_NAMES, type TopicKind, topicKey } from '@podium/protocol'
+import {
+  CAP_TOPICS_V1,
+  checkoutTopicId,
+  TOPIC_KIND_NAMES,
+  type TopicKind,
+  topicKey,
+} from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HIBERNATION_HOLDER, HibernationMetricsDemand } from '../modules/hosts/metrics-demand'
 import {
@@ -24,6 +30,30 @@ import { userClientPrincipal } from './client-principal'
 import type { ClientConn } from './client-registry'
 
 const VALUE_CASES = [
+  {
+    kind: 'checkout.changed',
+    id: checkoutTopicId(MACHINE, '/checkout'),
+    hiddenId: checkoutTopicId(OTHER_MACHINE, '/checkout'),
+    revocable: true,
+    prepare: async (world) => await world.attachDaemon(),
+    produce: async (world) => {
+      world.daemon.sample()
+      await settle()
+    },
+    describeValue: () => 'changed',
+  } satisfies TopicConformanceCase<'checkout.changed'>,
+  {
+    kind: 'machine.processes',
+    id: MACHINE,
+    hiddenId: OTHER_MACHINE,
+    revocable: true,
+    prepare: async (world) => await world.attachDaemon(),
+    produce: async (world) => {
+      world.daemon.sample()
+      await settle()
+    },
+    describeValue: (value) => value.breakdown.sampledAt,
+  } satisfies TopicConformanceCase<'machine.processes'>,
   {
     kind: 'machine.metrics',
     id: MACHINE,

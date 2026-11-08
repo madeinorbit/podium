@@ -1,5 +1,5 @@
 import type { IssueId, MachineId } from '@podium/model/browser'
-import { useEffect, useState } from 'react'
+import { useMachineProcesses } from './use-machine-processes'
 
 export interface ReclaimInventory {
   candidates: Array<{
@@ -25,40 +25,11 @@ export interface ReclaimInventory {
     | { status: 'ready'; recoverableBytes: number; measuredAt: string }
 }
 
-const REFRESH_MS = 5_000
-
+/** Kept as a narrow consumer port; the answer now arrives with machine processes. */
 export function useReclaimInventory(
-  trpc: {
-    hosts: {
-      reclaimInventory: {
-        mutate(input?: { machineId?: MachineId }): Promise<ReclaimInventory>
-      }
-    }
-  },
+  _trpc: unknown,
   machineId?: MachineId,
 ): { inventory: ReclaimInventory | null; error: string | null } {
-  const [inventory, setInventory] = useState<ReclaimInventory | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    const refresh = async (): Promise<void> => {
-      try {
-        const next = await trpc.hosts.reclaimInventory.mutate(machineId ? { machineId } : undefined)
-        if (!alive) return
-        setInventory(next)
-        setError(null)
-      } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : String(err))
-      }
-    }
-    void refresh()
-    const timer = setInterval(() => void refresh(), REFRESH_MS)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [trpc, machineId])
-
-  return { inventory, error }
+  const reading = useMachineProcesses(machineId)
+  return { inventory: reading.inventory, error: reading.reclaimError }
 }

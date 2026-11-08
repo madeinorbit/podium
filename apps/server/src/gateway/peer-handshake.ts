@@ -1,6 +1,6 @@
+import { randomBytes } from 'node:crypto'
 import { asMachineId } from '@podium/model'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
-import { randomBytes } from 'node:crypto'
 /**
  * THE GATEWAY'S HANDSHAKE COMPOSITION ROOT — where `wsServer` meets the shared
  * framing of ADR 5 D3 and the strategy modules of D5.
@@ -14,11 +14,12 @@ import { randomBytes } from 'node:crypto'
  */
 
 import type { MachineId, UserId } from '@podium/model'
-import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
   type AcceptorStep,
+  CAP_CHECKOUT_CHANGED_V1,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_MACHINE_PROCESSES_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
@@ -33,20 +34,21 @@ import {
   helloFromLegacyDaemonFrame,
   isLegacyDaemonFrame,
   legacyReplyFor,
-  type MachinePrincipal,
-  type MachineChallenge,
-  machineRotationTranscript,
-  machineHelloTranscript,
   localVersionSupport,
+  type MachineChallenge,
+  type MachinePrincipal,
+  machineHelloTranscript,
+  machineRotationTranscript,
   negotiateVersion,
   type PeerBuild,
   PeerHello,
   type PeerHelloReply,
 } from '@podium/protocol'
+import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
+  createResolvedMachineDirectory,
   type MachineAuthenticationInput,
   type MachineAuthenticator,
-  createResolvedMachineDirectory,
   type ResolvedMachineAuthenticator,
   resolvedMachineAuthenticator,
 } from './machine-directory'
@@ -132,6 +134,8 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // ADR 7 Amendment 2 (POD-5800): this server sends topicWatch demand and
       // reads topicPublish; a daemon that accepts it samples only on demand.
       CAP_TOPICS_V1,
+      CAP_CHECKOUT_CHANGED_V1,
+      CAP_MACHINE_PROCESSES_V1,
     ],
     transport: {
       endpoint: '/daemon',
@@ -279,19 +283,25 @@ export async function prepareDaemonFrame(
   if (inventoryHello.success && inventoryHello.data.credential.kind === 'machineKey') {
     const hello = inventoryHello.data
     const credential = inventoryHello.data.credential
-    const refuse = (): PreparedDaemonFrame => ({ outcome: { kind: 'rejected',
-      reply: { type: 'peerHelloRejected', reason: 'auth-failed' } } })
+    const refuse = (): PreparedDaemonFrame => ({
+      outcome: { kind: 'rejected', reply: { type: 'peerHelloRejected', reason: 'auth-failed' } },
+    })
     const support = localVersionSupport()
-    if ((hello.peerRole !== undefined && hello.peerRole !== 'machine')
-      || !negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support).ok) return refuse()
+    if (
+      (hello.peerRole !== undefined && hello.peerRole !== 'machine') ||
+      !negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support).ok
+    )
+      return refuse()
     if (!credential.proof) {
       if (prepared.challenged || !prepared.deps.machines.installationId) return refuse()
       prepared.challenged = true
       const challenge: MachineChallenge = {
-        type: 'machineChallenge', machineId: credential.machineHint,
+        type: 'machineChallenge',
+        machineId: credential.machineHint,
         installationId: prepared.deps.machines.installationId,
         connectionId: prepared.deps.connectionId,
-        nonce: randomBytes(32).toString('base64url'), expiresAtMs: Date.now() + 30_000,
+        nonce: randomBytes(32).toString('base64url'),
+        expiresAtMs: Date.now() + 30_000,
       }
       prepared.challenge = challenge
       return { outcome: { kind: 'challenge', reply: challenge } }
@@ -299,18 +309,37 @@ export async function prepareDaemonFrame(
     const challenge = prepared.challenge
     // Consume before any async work, including a failed signature verification.
     delete prepared.challenge
-    if (!challenge || Date.now() >= challenge.expiresAtMs
-      || challenge.machineId !== credential.machineHint
-      || challenge.installationId !== prepared.deps.machines.installationId
-      || challenge.installationId !== credential.proof.installationId
-      || challenge.connectionId !== prepared.deps.connectionId
-      || challenge.connectionId !== credential.proof.connectionId
-      || challenge.nonce !== credential.proof.nonce) return refuse()
+    if (
+      !challenge ||
+      Date.now() >= challenge.expiresAtMs ||
+      challenge.machineId !== credential.machineHint ||
+      challenge.installationId !== prepared.deps.machines.installationId ||
+      challenge.installationId !== credential.proof.installationId ||
+      challenge.connectionId !== prepared.deps.connectionId ||
+      challenge.connectionId !== credential.proof.connectionId ||
+      challenge.nonce !== credential.proof.nonce
+    )
+      return refuse()
     if (credential.rotation) {
-      if (prepared.deps.verifyOnly || !prepared.deps.machines.rotateCredential
-        || !verifyWithMachineKey(credential.rotation.newPublicKey, machineHelloTranscript(challenge), credential.proof.signature)
-        || !await prepared.deps.machines.rotateCredential(asMachineId(credential.machineHint), credential.rotation,
-          machineRotationTranscript(challenge, credential.rotation.newKeyId, credential.rotation.newPublicKey))) return refuse()
+      if (
+        prepared.deps.verifyOnly ||
+        !prepared.deps.machines.rotateCredential ||
+        !verifyWithMachineKey(
+          credential.rotation.newPublicKey,
+          machineHelloTranscript(challenge),
+          credential.proof.signature,
+        ) ||
+        !(await prepared.deps.machines.rotateCredential(
+          asMachineId(credential.machineHint),
+          credential.rotation,
+          machineRotationTranscript(
+            challenge,
+            credential.rotation.newKeyId,
+            credential.rotation.newPublicKey,
+          ),
+        ))
+      )
+        return refuse()
       rotatedPublicKey = credential.rotation.newPublicKey
     }
   }
@@ -343,7 +372,8 @@ export async function prepareDaemonFrame(
   if (requested.type === 'pair' && requested.publicKey === undefined) {
     const version = inventoryHello.success ? inventoryHello.data.build?.appVersion : undefined
     const reply: PeerHelloReply = {
-      type: 'peerHelloRejected', reason: 'auth-failed',
+      type: 'peerHelloRejected',
+      reason: 'auth-failed',
       message: `Daemon ${version ?? 'unknown version'} cannot pair with this server: keypair enrollment is required; install the current daemon and pair again.`,
     }
     const legacy = asLegacyFrame(raw)
@@ -362,7 +392,10 @@ export async function prepareDaemonFrame(
   })
   const outcome = receiveResolvedDaemonFrame(acceptor, raw)
   if (rotatedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {
-    return { acceptor, outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } } }
+    return {
+      acceptor,
+      outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } },
+    }
   }
   return { acceptor, outcome }
 }

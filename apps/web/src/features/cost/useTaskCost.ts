@@ -1,5 +1,7 @@
+import { costRefresh } from '@podium/client-graph/cost-refresh'
 import type { IssueId } from '@podium/model/browser'
 import { useEffect, useMemo } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useTabVisible } from '@/lib/use-polled-query'
 import { TaskCostModel } from './task-cost-model'
@@ -14,15 +16,26 @@ export function useTaskComparison(
   enabled = true,
   includeSessions = true,
 ): TaskCostFeed {
-  const model = useMemo(() => new TaskCostModel(
-    (input) => trpc.cost.taskComparison.query(input), issueId, includeSessions,
-  ), [trpc, issueId, enabled, includeSessions])
+  const pool = useWorklistPool()
+  const signal = useMemo(() => costRefresh(pool, issueId), [pool, issueId])
+  const model = useMemo(
+    () =>
+      new TaskCostModel(
+        (input) => trpc.cost.taskComparison.query(input),
+        enabled ? issueId : null,
+        includeSessions,
+        signal,
+      ),
+    [trpc, issueId, enabled, includeSessions, signal],
+  )
   const visible = useTabVisible()
   useEffect(() => {
     if (enabled) model.open()
     return () => model.close()
   }, [model, enabled])
-  useEffect(() => { model.setVisible(visible) }, [model, visible])
+  useEffect(() => {
+    model.setVisible(visible)
+  }, [model, visible])
   return model
 }
 

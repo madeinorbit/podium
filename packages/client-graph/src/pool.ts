@@ -1,19 +1,22 @@
-import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
-import type { MobileClientSession } from '@podium/protocol'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
+import type { MobileClientSession } from '@podium/protocol'
+
 type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
-import type { MessagePoolRow } from './message-models'
-import type { PendingInteractionWire } from '@podium/protocol'
-import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
-import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
-import { asSessionId } from '@podium/model'
+
+import type { NotificationSession, SessionPhaseChange } from '@podium/client-core/sound'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
-import { ISSUE_JOIN_FIELDS, joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
-import {
-  SETUP_SESSION_SUMMARY_FIELDS,
-  type SetupSession,
-} from './settings-schema'
+import { asSessionId } from '@podium/model'
+import type { PendingInteractionWire } from '@podium/protocol'
+import type { MessagePoolRow } from './message-models'
+import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
 import { readSetupSession } from './settings-views'
+import {
+  type IssueSessionFactReader,
+  type IssueSessionFacts,
+  IssueSessionFactsIndex,
+} from './shared/issue-session-facts'
+import { ISSUE_JOIN_FIELDS, joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   mergePoolSummaries,
   type PoolSourceRows,
@@ -69,21 +72,28 @@ import {
  */
 
 import type { OutboxKinds } from '@podium/client-core/engine'
+import type {
+  AutomationRunWire,
+  AutomationWire,
+  EffectRecordWire,
+  MachineProjection,
+  MachineWire,
+} from '@podium/model'
+import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import {
+  action,
   compareShallow,
   compareStructural,
   type IObservableArray,
   type ObservableMap,
   observable,
   observableRef,
-  action,
   observe,
   runInAction,
   untracked,
 } from 'mobx'
 import { DeadlineClock, deadlineClock } from './clock'
 import { debugName } from './debug-name'
-import { sessionSeats, type SeatRelation } from './session-seats'
 import { headerIds, reseed } from './enumerate'
 import { headerEntities } from './header-entities'
 import {
@@ -93,35 +103,35 @@ import {
   isHeaderEntity,
 } from './header-schema'
 import { referenceViewIfPresent } from './issue-reference'
+import { here, isGone, type Lookup, NOT_VISIBLE, omitGone, REMOVED } from './lookup'
 import {
   type EntityModel,
   type IssueModel,
-  modelClass,
   MODEL_CLASSES,
   type ModelOf,
+  modelClass,
   type SessionModel,
 } from './models'
+import type { NoticeRows } from './notice-schema'
 import type { PreferenceRow } from './preference-schema'
-import type { AutomationRunWire, AutomationWire, EffectRecordWire, MachineProjection, MachineWire } from '@podium/model'
 import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
-import { type Lookup, here, omitGone, isGone, NOT_VISIBLE, REMOVED } from './lookup'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
+import { type SeatRelation, sessionSeats } from './session-seats'
 import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
+import { FeedDiagnostics } from './shared/feed-diagnostics'
 import { relationLinks } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
-import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceWorktree } from './shared/slice-types'
-import { FeedDiagnostics } from './shared/feed-diagnostics'
+import type {
+  LocalsKey,
+  SliceIssue,
+  SliceLocals,
+  SliceSession,
+  SliceWorktree,
+} from './shared/slice-types'
 import type { RowSourceEvent } from './shared/source'
-import {
-  commandFor,
-  type EditPatch,
-  type TxId,
-  type WritableKind,
-  WriteContractError,
-} from './write/commands'
 import {
   createObservableTables,
   ENTITIES,
@@ -132,12 +142,10 @@ import {
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
+import { projectIndex } from './worklist/projects'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
-import type { NoticeRows } from './notice-schema'
-import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
-import { projectIndex } from './worklist/projects'
 import {
   type HeldIssue,
   HIDDEN_ISSUE_FIELDS,
@@ -146,6 +154,13 @@ import {
   VisibleCollection,
   type VisibleInputs,
 } from './worklist/visible'
+import {
+  commandFor,
+  type EditPatch,
+  type TxId,
+  type WritableKind,
+  WriteContractError,
+} from './write/commands'
 
 /**
  * POD-4678 (item 2): lower bound by id in a sorted seat list (default
@@ -256,7 +271,9 @@ export interface PoolRows {
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
   /** Stamped at the row-source boundary: a session target's id (POD-6397). */
-  effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<Record<string, unknown>>
+  effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<
+      Record<string, unknown>
+    >
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>
@@ -272,7 +289,8 @@ export interface LazyMembers {
 export class MobxPool {
   @observableRef accessor sessionDrafts: import('./models').SessionDrafts | undefined = undefined
   @action bindSessionDrafts(drafts: import('./models').SessionDrafts): void {
-    if (this.sessionDrafts && this.sessionDrafts !== drafts) throw new Error('Session drafts already have an owner')
+    if (this.sessionDrafts && this.sessionDrafts !== drafts)
+      throw new Error('Session drafts already have an owner')
     this.sessionDrafts = drafts
   }
 
@@ -292,6 +310,7 @@ export class MobxPool {
   private readonly issueCount = observable.box(0)
   readonly tables: PoolTables
   /** The last addressed phase batch. Replacements are silent; no history scan. */
+  @observableRef accessor issueStageChanges: readonly string[] = []
   readonly sessionPhaseChanges = observable.box<readonly SessionPhaseChange[]>([], { deep: false })
   readonly queries: ReaderQueries
   readonly relations: RelationReader
@@ -357,12 +376,14 @@ export class MobxPool {
     this.sessionFactsIndex = lazy?.issueSessionFact ? undefined : new IssueSessionFactsIndex()
     this.issueSessionFact = lazy?.issueSessionFact ?? this.sessionFactsIndex!.read
     this.issueIdByRef = lazy?.issueIdByRef
-    this.sourcePositionDemand = lazy?.settings === true
-      ? createDemandAtoms<string>((id) => `pool.sourcePosition:${id}`, {
-          onObserved: (id) => this.sourcePositions.set(id, this.coldIndex().position('session', id)),
-          onUnobserved: (id) => this.sourcePositions.delete(id),
-        })
-      : undefined
+    this.sourcePositionDemand =
+      lazy?.settings === true
+        ? createDemandAtoms<string>((id) => `pool.sourcePosition:${id}`, {
+            onObserved: (id) =>
+              this.sourcePositions.set(id, this.coldIndex().position('session', id)),
+            onUnobserved: (id) => this.sourcePositions.delete(id),
+          })
+        : undefined
     this.tables = createObservableTables()
     // POD-5407: the cold index holds every relation and the cold rule's
     // inputs for every row the feed carries. A source's own index is used as
@@ -477,7 +498,9 @@ export class MobxPool {
       deep: false,
       name: debugName(() => 'pool.reads'),
     })
-    this.clock = lazy?.clock ?? (locals.coarseNow === undefined ? deadlineClock : new DeadlineClock(locals.coarseNow))
+    this.clock =
+      lazy?.clock ??
+      (locals.coarseNow === undefined ? deadlineClock : new DeadlineClock(locals.coarseNow))
     this.models = Object.fromEntries(
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
@@ -506,9 +529,11 @@ export class MobxPool {
       // untracked-read: seat-membership-maintenance
       seats: (id) => untracked(() => this.graph.members('issue', id, 'sessions')),
       // untracked-read: seat-session-maintenance
-      session: (id) => untracked(() => omitGone(this.row('session', id, 'peek'))) as SliceSession | undefined,
+      session: (id) =>
+        untracked(() => omitGone(this.row('session', id, 'peek'))) as SliceSession | undefined,
       // untracked-read: seat-issue-maintenance
-      issue: (id) => untracked(() => omitGone(this.row('issue', id, 'peek'))) as SliceIssue | undefined,
+      issue: (id) =>
+        untracked(() => omitGone(this.row('issue', id, 'peek'))) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
       at: (t, due) => this.clock.at(t, due),
     })
@@ -517,7 +542,7 @@ export class MobxPool {
     // functions is replaced after construction (pending changes arrive as
     // rows, from the transaction log). A view reads rows in memory: a row that
     // is not answers undefined, its load queued.
-    const inMemory = (row: Loaded<object>) => row === LOADING ? undefined : row
+    const inMemory = (row: Loaded<object>) => (row === LOADING ? undefined : row)
     const links = relationLinks(this.relations, this.graph.schema)
     this.inputs = {
       links,
@@ -529,9 +554,7 @@ export class MobxPool {
       // An issue answers from its object's cached in-memory read (no table
       // probe per run); other entities from the table.
       present: (entity, id) =>
-        entity === 'issue'
-          ? this.issueObject(id).inMemory
-          : tables[entity].has(id),
+        entity === 'issue' ? this.issueObject(id).inMemory : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
       parts: (id) => worklistView(this).row(this.issueObject(id)),
@@ -550,9 +573,15 @@ export class MobxPool {
       links,
       issueSessionFact: (id, field) => {
         const issue = this.issueObject(id)
-        return (field === 'replicaActivityAt' ? issue.lastActivityAt :
-          field === 'tipActivityAt' ? issue.tipActivityAt :
-          field === 'headlessStaffed' ? issue.headlessStaffed : issue.headlessOccupied) as IssueSessionFacts[typeof field]
+        return (
+          field === 'replicaActivityAt'
+            ? issue.lastActivityAt
+            : field === 'tipActivityAt'
+              ? issue.tipActivityAt
+              : field === 'headlessStaffed'
+                ? issue.headlessStaffed
+                : issue.headlessOccupied
+        ) as IssueSessionFacts[typeof field]
       },
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       // untracked-read: visibility-issue-peek
@@ -622,7 +651,11 @@ export class MobxPool {
   row(entity: 'preference', id: string): Lookup<PreferenceRow>
   row(entity: HeaderEntity, id: string): Lookup<object>
   row(entity: EntityName, id: string, absent: 'peek'): Lookup<object>
-  row<E extends EntityName>(entity: E, id: string, absent: 'summary' | 'summary-fields'): Lookup<Partial<PoolRows[E]>>
+  row<E extends EntityName>(
+    entity: E,
+    id: string,
+    absent: 'summary' | 'summary-fields',
+  ): Lookup<Partial<PoolRows[E]>>
   row<E extends EntityName>(
     entity: E,
     id: string,
@@ -634,8 +667,10 @@ export class MobxPool {
     absent: AbsentRead = 'load',
   ): Lookup<object> {
     if (entity === 'setupSession') return readSetupSession(this, id) ?? NOT_VISIBLE
-    if (isHeaderEntity(entity) && entity !== 'machine') return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
-    if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
+    if (isHeaderEntity(entity) && entity !== 'machine')
+      return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
+    if (!Object.hasOwn(this.tables, entity))
+      return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
     const core = entity as EntityName
     if (core === 'repo') {
       // The stable repo facade observes fields independently. Row presence
@@ -670,14 +705,28 @@ export class MobxPool {
             : residency.read(core, id)
       if (server === undefined) return absent === 'peek' ? NOT_VISIBLE : residency.lookup(core, id)
     }
-    if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)
+    if (
+      (core === 'session' || core === 'issue') &&
+      (core === 'session'
+        ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server
+        : 'repoId' in server)
     ) {
       let view = this.joinedRows.get(server)
       if (!view) {
-        view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ISSUE_JOIN_FIELDS, (kind, key) => {
-          const companion = kind === 'machine' ? here(this.row('machine', key)) : here(this.model('repo', key))?.row
-          return companion === undefined ? undefined : here(companion) as Readonly<Record<string, unknown>> | undefined
-        })
+        view = joinedFields(
+          core,
+          server as Readonly<Record<string, unknown>>,
+          core === 'session' ? SESSION_JOIN_FIELDS : ISSUE_JOIN_FIELDS,
+          (kind, key) => {
+            const companion =
+              kind === 'machine'
+                ? here(this.row('machine', key))
+                : here(this.model('repo', key))?.row
+            return companion === undefined
+              ? undefined
+              : (here(companion) as Readonly<Record<string, unknown>> | undefined)
+          },
+        )
         this.joinedRows.set(server, view)
       }
       return view
@@ -685,7 +734,9 @@ export class MobxPool {
     return server
   }
 
-  get undeletedIssueCount(): number { return this.issueCount.get() }
+  get undeletedIssueCount(): number {
+    return this.issueCount.get()
+  }
 
   /** Source ordering is tracked independently from the named row payload. */
   sourcePosition(entity: 'session', id: string): number | undefined {
@@ -733,7 +784,7 @@ export class MobxPool {
       if (row === LOADING || isGone(row)) return row
     }
     const Model = modelClass(entity)
-    return Model === LOADING ? LOADING : this.object(entity, id, Model) as ModelOf[E]
+    return Model === LOADING ? LOADING : (this.object(entity, id, Model) as ModelOf[E])
   }
 
   /**
@@ -779,19 +830,23 @@ export class MobxPool {
 
   /** The sessions holding an open (asked) pending interaction, in id order: where an exited seat may still ask (POD-2171). */
   sessionsWithOpenInteractions(): readonly string[] {
-    return (this.openInteractionSessions ??= new OpenInteractionSessions(this)).ids
+    this.openInteractionSessions ??= new OpenInteractionSessions(this)
+    return this.openInteractionSessions.ids
   }
   private openInteractionSessions: OpenInteractionSessions | undefined
 
   /** Open (asked) pending interactions addressed to session `id`, and when the earliest was asked: a seat fact (`coordinatedSeat`). */
   sessionOpenInteractions(id: string): SeatInteractions {
-    const membership = omitGone(this.row('noticeSession', id) as Lookup<NoticeRows['noticeSession']>)
+    const membership = omitGone(
+      this.row('noticeSession', id) as Lookup<NoticeRows['noticeSession']>,
+    )
     if (membership === undefined || membership === LOADING) return NO_INTERACTIONS
     let count = 0
     let since: number | null = null
     for (const interaction of membership.interactions) {
       const row = omitGone(this.row('pendingInteraction', interaction))
-      if (row === undefined || row === LOADING || row.sessionId !== id || row.status !== 'asked') continue
+      if (row === undefined || row === LOADING || row.sessionId !== id || row.status !== 'asked')
+        continue
       count++
       const at = Date.parse(row.askedAt)
       if (Number.isFinite(at) && (since === null || at < since)) since = at
@@ -813,7 +868,11 @@ export class MobxPool {
     return exit?.kind
   }
 
-  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING {
+  sessionSeatIds(
+    relation: SeatRelation,
+    issueId: string,
+    archived: boolean,
+  ): readonly string[] | typeof LOADING {
     const partition = sessionSeats(this).partition(relation, issueId)
     return partition === LOADING ? LOADING : archived ? partition.archived : partition.present
   }
@@ -891,7 +950,8 @@ export class MobxPool {
     })
     runInAction(() => {
       headerEntities(this).apply(merged as never)
-      for (const record of records) if (record.value === undefined) this.release('machine', record.id)
+      for (const record of records)
+        if (record.value === undefined) this.release('machine', record.id)
     })
   }
 
@@ -987,7 +1047,9 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
-    const refs = residency.takeReferences().filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
+    const refs = residency
+      .takeReferences()
+      .filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
     const identities = refs.map((ref) => [ref, this.issueIdByRef?.(ref) ?? null] as const)
     const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
     for (const [, id] of identities) {
@@ -1017,41 +1079,62 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
+      const stages: string[] = []
+      if (event.type === 'update')
+        for (const record of event.rows) {
+          if (record.kind !== 'issue') continue
+          const previous = this.tables.issue.get(record.id)
+          const current = record.value as SliceIssue | undefined
+          if (previous && current && previous.stage !== current.stage) stages.push(record.id)
+        }
       const phases: SessionPhaseChange[] = []
-      if (event.type === 'update') for (const record of event.rows) {
-        if (record.kind !== 'session') continue
-        const previous = this.tables.session.get(record.id) as NotificationSession | undefined
-        const current = record.value as NotificationSession | undefined
-        if (!previous || !current) continue
-        if (previous.agentState?.phase === current.agentState?.phase &&
+      if (event.type === 'update')
+        for (const record of event.rows) {
+          if (record.kind !== 'session') continue
+          const previous = this.tables.session.get(record.id) as NotificationSession | undefined
+          const current = record.value as NotificationSession | undefined
+          if (!previous || !current) continue
+          if (
+            previous.agentState?.phase === current.agentState?.phase &&
             previous.agentState?.idle?.kind === current.agentState?.idle?.kind &&
             previous.agentState?.need?.kind === current.agentState?.need?.kind &&
             previous.agentKind === current.agentKind &&
-            previous.headless === current.headless && previous.archived === current.archived) continue
-        phases.push({ sessionId: asSessionId(record.id), previous, current })
-      }
+            previous.headless === current.headless &&
+            previous.archived === current.archived
+          )
+            continue
+          phases.push({ sessionId: asSessionId(record.id), previous, current })
+        }
       if (this.sessionFactsIndex) {
         if (event.type === 'replace') this.sessionFactsIndex.clear()
-        for (const record of event.rows) if (record.kind === 'session')
-          this.sessionFactsIndex.install(record.id, record.value as Record<string, unknown> | undefined)
+        for (const record of event.rows)
+          if (record.kind === 'session')
+            this.sessionFactsIndex.install(
+              record.id,
+              record.value as Record<string, unknown> | undefined,
+            )
       }
       const machineRows = event.rows.filter((record) => record.kind === 'machine')
       if (event.type === 'replace') {
-        const next = new Set(machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
+        const next = new Set(
+          machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
         )
         for (const id of this.companionMachineRows.keys())
           if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
         // Replace tracked companions in place so existing readers keep
         // watching the same observable across publications.
-        for (const id of [...this.companionMachineRows.keys()]) if (!next.has(id)) this.companionMachineRows.delete(id)
+        for (const id of [...this.companionMachineRows.keys()])
+          if (!next.has(id)) this.companionMachineRows.delete(id)
         for (const record of machineRows) {
           if (record.value !== undefined && typeof record.value === 'object')
             this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
         }
-      } else for (const record of machineRows) {
-        if (record.value === undefined) this.companionMachineRows.delete(record.id)
-        else if (typeof record.value === 'object') this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
-      }
+      } else
+        for (const record of machineRows) {
+          if (record.value === undefined) this.companionMachineRows.delete(record.id)
+          else if (typeof record.value === 'object')
+            this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
+        }
       // Feed companions carry replicated display facts without live presence.
       // Merge them over the live rows they accompany: a wholesale replace
       // drops online/availability and every presence reader goes blind until
@@ -1069,25 +1152,42 @@ export class MobxPool {
         if (!live || typeof live !== 'object') return record
         return {
           ...record,
-          value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
+          value: {
+            ...(live as Record<string, unknown>),
+            ...(record.value as Record<string, unknown>),
+          },
         }
       })
       if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
       // Header indexes and the models share the generic machine table. Reseed
       // and update must retain the merged row the applying path just installed.
-      const mergedById = new Map(mergedMachineRows.map(record => [record.id, record]))
+      const mergedById = new Map(mergedMachineRows.map((record) => [record.id, record]))
       const tableRows = machineRows.length
-        ? event.rows.map(record => record.kind === 'machine' ? mergedById.get(record.id)! : record)
+        ? event.rows.map((record) =>
+            record.kind === 'machine' ? mergedById.get(record.id)! : record,
+          )
         : event.rows
       // A feed replacement cannot remove a live-only machine: it owns only
       // replicated companions. The live source still owns those memberships.
-      const reseedRows = event.type === 'replace'
-        ? [...tableRows, ...headerIds(this, 'machine').flatMap(id => {
-            if (mergedById.has(id)) return []
-            const value = this.tables.machine.get(id)
-            return value ? [{ kind: 'machine' as const, id, value: value as RowSourceEvent['rows'][number]['value'] }] : []
-          })]
-        : tableRows
+      const reseedRows =
+        event.type === 'replace'
+          ? [
+              ...tableRows,
+              ...headerIds(this, 'machine').flatMap((id) => {
+                if (mergedById.has(id)) return []
+                const value = this.tables.machine.get(id)
+                return value
+                  ? [
+                      {
+                        kind: 'machine' as const,
+                        id,
+                        value: value as RowSourceEvent['rows'][number]['value'],
+                      },
+                    ]
+                  : []
+              }),
+            ]
+          : tableRows
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
@@ -1097,7 +1197,9 @@ export class MobxPool {
       this.indexSeen = index
       if (event.type === 'replace') {
         referenceViewIfPresent(this)?.resetUnresolved()
-        reseed(this.target, reseedRows, out, this.ownIndex === undefined, entity => this.sources.ownsRecords(entity))
+        reseed(this.target, reseedRows, out, this.ownIndex === undefined, (entity) =>
+          this.sources.ownsRecords(entity),
+        )
         this.graph.reset()
         this.reseatAll()
         this.seatVerdicts.reset()
@@ -1121,17 +1223,20 @@ export class MobxPool {
         if (!fresh) this.graph.publish(delta)
       }
       this.issueCount.set(index.undeleted('issue'))
-      if (this.sourcePositionDemand !== undefined &&
-        (fresh || event.type === 'replace' || this.positionsSeen !== index.positionVersion)) {
+      if (
+        this.sourcePositionDemand !== undefined &&
+        (fresh || event.type === 'replace' || this.positionsSeen !== index.positionVersion)
+      ) {
         this.positionsSeen = index.positionVersion
         // Ordinary publications address only their session ids. A replacement
         // or rebuilt index can move any demanded position, even at the same
         // version; compare those keys without opening the session catalog.
         if (fresh || event.type === 'replace') {
           for (const id of this.sourcePositionDemand.keys()) this.refreshSourcePosition(index, id)
-        } else for (const record of event.rows) {
-          if (record.kind === 'session') this.refreshSourcePosition(index, record.id)
-        }
+        } else
+          for (const record of event.rows) {
+            if (record.kind === 'session') this.refreshSourcePosition(index, record.id)
+          }
       }
       // An attach files its resident sessions as they enter the table
       // (`observe` above); a history row it carries is never visited.
@@ -1149,7 +1254,9 @@ export class MobxPool {
       }
       this.seatVerdicts.flush()
       this.queries.publish(event)
-      for (const record of machineRows) if (record.value === undefined) this.release('machine', record.id)
+      for (const record of machineRows)
+        if (record.value === undefined) this.release('machine', record.id)
+      if (stages.length || event.type === 'replace') this.issueStageChanges = stages
       if (phases.length || event.type === 'replace') this.sessionPhaseChanges.set(phases)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
@@ -1175,7 +1282,6 @@ export class MobxPool {
   /** One locals notification, one action: only the keys it names. */
   applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
     worklistView(this).applyLocals(locals, changed)
-
   }
 
   private refreshSourcePosition(index: ColdQueries, id: string): void {
@@ -1217,7 +1323,9 @@ export class MobxPool {
     this.ownIndex = undefined
   }
 
-  private select(id: string | null): void { worklistView(this).select(id) }
+  private select(id: string | null): void {
+    worklistView(this).select(id)
+  }
 }
 
 /**
@@ -1231,12 +1339,15 @@ class OpenInteractionSessions {
 
   @lazy({ equals: compareShallow })
   get ids(): readonly string[] {
-    const catalog = omitGone(this.pool.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>)
+    const catalog = omitGone(
+      this.pool.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>,
+    )
     if (catalog === undefined || catalog === LOADING) return NO_SESSIONS
     const sessions = new Set<string>()
     for (const interaction of catalog.interactions) {
       const row = omitGone(this.pool.row('pendingInteraction', interaction))
-      if (row !== undefined && row !== LOADING && row.status === 'asked') sessions.add(row.sessionId)
+      if (row !== undefined && row !== LOADING && row.status === 'asked')
+        sessions.add(row.sessionId)
     }
     return sessions.size === 0 ? NO_SESSIONS : [...sessions].sort()
   }

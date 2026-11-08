@@ -23,7 +23,7 @@ type DaemonTopicKind = {
 }[TopicKind]
 
 export type DaemonTopicSinks = {
-  readonly [K in DaemonTopicKind]: (machineId: MachineId, payload: unknown) => void
+  readonly [K in DaemonTopicKind]: (machineId: MachineId, payload: unknown, id: string) => void
 }
 
 export function createDaemonTopicIngress(input: {
@@ -35,6 +35,7 @@ export function createDaemonTopicIngress(input: {
       const ref = parseTopicKey(msg.key)
       if (!ref || !isTopicKind(ref.kind)) return refuse('unknown kind', msg.key)
       const decl = TOPIC_KINDS[ref.kind]
+      if (!decl.id.safeParse(ref.id).success) return refuse('invalid id', msg.key)
       if (decl.producer !== 'daemon' || !('publish' in decl))
         return refuse('not daemon-produced', msg.key)
       if (input.producers[ref.kind].machineOf?.(ref.id) !== machineId) {
@@ -42,7 +43,7 @@ export function createDaemonTopicIngress(input: {
       }
       const parsed = decl.publish.safeParse(msg.payload)
       if (!parsed.success) return refuse('payload does not match the kind', msg.key)
-      input.sinks[ref.kind as DaemonTopicKind](machineId, parsed.data)
+      input.sinks[ref.kind as DaemonTopicKind](machineId, parsed.data, ref.id)
     },
   }
 }

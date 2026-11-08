@@ -1,14 +1,14 @@
-import { GitView } from '@podium/client-graph/git-view'
 import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
+import { GitView } from '@podium/client-graph/git-view'
 import { observer } from '@podium/client-graph/react'
-import type { IssueGitState } from '@podium/model/browser'
-import type { MachineId } from '@podium/model/browser'
+import type { IssueGitState, MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
+import { useCheckoutSignal } from '@/lib/use-checkout-signal'
 import { DiffSheet } from './DiffSheet'
 import { entryBadge, entryTitle, entryTone, type LogEntry, type StatusEntry } from './git-panel'
 
@@ -100,21 +100,23 @@ export const GitPanelView = observer(function GitPanelView({
   machineId?: MachineId
   issue?: GitPanelIssue | undefined
 }): JSX.Element {
+  const refreshSignal = useCheckoutSignal(machineId, cwd)
   const access = useStoreHandle().access
   const { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped } = access
   const view = useMemo(
     () =>
       new GitView(cwd, machineId, {
+        refreshSignal,
         gitStatus,
         gitLog,
         gitCommitFiles,
         gitDiffFile,
         readFileScoped,
       }),
-    [cwd, machineId, gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped],
+    [refreshSignal, cwd, machineId, gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped],
   )
   useEffect(() => {
-    void view.refresh(true)
+    view.open(true)
     return () => view.close()
   }, [view])
   const { status, log, error, now, openShas, commitFiles } = view

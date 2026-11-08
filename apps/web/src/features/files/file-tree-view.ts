@@ -1,13 +1,15 @@
+import { AnswerRefresh, type AnswerSignal } from '@podium/client-graph/answer-refresh'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { action, observable, observableRef, runInAction } from 'mobx'
-import type { MachineId } from '@podium/model'
-import type { Trpc } from '@/app/trpc'
 import { lazy } from '@podium/mobx-helpers'
+import type { MachineId } from '@podium/model'
+import { action, observable, observableRef, runInAction } from 'mobx'
 import { formatAppError } from '@/app/AppErrorPage'
+import type { Trpc } from '@/app/trpc'
 import { compareEntries } from './entry-order'
 
 export type DirectoryEntry = { name: string; isDir: boolean }
 export interface FileTreePorts {
+  refreshSignal?: AnswerSignal
   listDir(input: {
     root: string
     path?: string
@@ -24,11 +26,22 @@ export class FileTreeView {
   @observable accessor error: string | null = null
   readonly search = new RequestAnswer<string[]>()
   private generation = 0
+  private query = ''
+  private readonly refreshes: AnswerRefresh
   constructor(
     readonly root: string,
     private readonly machineId: MachineId | undefined,
     private readonly ports: FileTreePorts,
-  ) {}
+  ) {
+    this.refreshes = new AnswerRefresh(() => this.refreshChanged(), ports.refreshSignal)
+  }
+  open(): void {
+    this.refreshes.open()
+  }
+  private async refreshChanged(): Promise<void> {
+    await Promise.all([this.load(this.root), ...[...this.expanded].map((dir) => this.load(dir))])
+    if (this.query) await this.searchFiles(this.query)
+  }
 
   @lazy get loading(): boolean {
     return this.loadingDirs.size > 0
@@ -78,6 +91,7 @@ export class FileTreeView {
     void this.load(this.root)
   }
   searchFiles(query: string): Promise<void> {
+    this.query = query
     return this.search.load(
       async () =>
         (
@@ -92,6 +106,8 @@ export class FileTreeView {
     )
   }
   @action close(): void {
+    this.refreshes.close()
+    this.query = ''
     ++this.generation
     this.children = {}
     this.expanded.clear()

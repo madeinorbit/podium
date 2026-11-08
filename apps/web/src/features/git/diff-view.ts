@@ -1,9 +1,10 @@
+import { AnswerRefresh, type AnswerSignal } from '@podium/client-graph/answer-refresh'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { action, observable, observableRef, runInAction } from 'mobx'
 import type { MachineId } from '@podium/model'
+import { action, observable, observableRef, runInAction } from 'mobx'
 import type { Trpc } from '@/app/trpc'
-import { parseDiff, type ParsedDiff } from './diff-model'
-import { untrackedDiff, type StatusEntry } from './git-panel'
+import { type ParsedDiff, parseDiff } from './diff-model'
+import { type StatusEntry, untrackedDiff } from './git-panel'
 
 export interface DiffState {
   loading: boolean
@@ -12,6 +13,7 @@ export interface DiffState {
   note?: string
 }
 interface DiffPorts {
+  refreshSignal?: AnswerSignal
   gitDiffFile: (input: {
     machineId?: MachineId
     root: string
@@ -39,21 +41,32 @@ export class DiffView {
   readonly states = observable.map<string, DiffState>(undefined, { deep: false })
   @observableRef accessor totals = { settled: 0, added: 0, removed: 0 }
   private generation = 0
+  private readonly entries = new Map<string, StatusEntry>()
+  private readonly refreshes: AnswerRefresh
   constructor(
     private readonly cwd: string,
     private readonly machineId: MachineId | undefined,
     private readonly ports: DiffPorts,
     private readonly sources?: Record<string, string>,
     private readonly commitSha?: string,
-  ) {}
-  @action async load(entry: StatusEntry): Promise<void> {
-    if (this.states.has(entry.path)) return
+  ) {
+    // Commit diffs are immutable, explicitly stored for this opening.
+    this.refreshes = new AnswerRefresh(async () => {
+      await Promise.all([...this.entries.values()].map((entry) => this.load(entry, true)))
+    }, ports.refreshSignal)
+  }
+  open(): void {
+    if (!this.commitSha) this.refreshes.open()
+  }
+  @action async load(entry: StatusEntry, changed = false): Promise<void> {
+    this.entries.set(entry.path, entry)
+    if (!changed && this.states.has(entry.path)) return
     const generation = this.generation
     const pending = { loading: true }
     this.states.set(entry.path, pending)
     const request = new RequestAnswer<Omit<DiffState, 'loading' | 'error'>>()
     await request.load(async () => {
-      const given = this.sources?.[entry.path]
+      const given = changed ? undefined : this.sources?.[entry.path]
       if (this.commitSha) {
         const result = await this.ports.gitCommitDiffFile({
           machineId: this.machineId,
@@ -92,14 +105,19 @@ export class DiffView {
       if (generation !== this.generation || this.states.get(entry.path) !== pending) return
       const next = { loading: false, error: request.error, ...request.answer }
       this.states.set(entry.path, next)
-      this.totals = {
-        settled: this.totals.settled + 1,
-        added: this.totals.added + (next.parsed?.added ?? 0),
-        removed: this.totals.removed + (next.parsed?.removed ?? 0),
-      }
+      this.totals = [...this.states.values()].reduce(
+        (total, state) => ({
+          settled: total.settled + (state.loading ? 0 : 1),
+          added: total.added + (state.parsed?.added ?? 0),
+          removed: total.removed + (state.parsed?.removed ?? 0),
+        }),
+        { settled: 0, added: 0, removed: 0 },
+      )
     })
   }
   @action close(): void {
+    this.refreshes.close()
+    this.entries.clear()
     ++this.generation
     this.states.clear()
     this.totals = { settled: 0, added: 0, removed: 0 }

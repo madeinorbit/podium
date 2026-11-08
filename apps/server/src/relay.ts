@@ -42,8 +42,12 @@ import type {
   WriteReceipt,
 } from '@podium/protocol'
 import {
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_MACHINE_PROCESSES_V1,
   CAP_TOPICS_V1,
   formatIssueRef,
+  type HostMemoryBreakdown,
+  parseCheckoutTopicId,
   platformTargetFor,
   SERVER_MOVE_CAPABILITY,
   SubscriptionRegistry,
@@ -121,8 +125,9 @@ import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
 import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/metrics-demand'
+import { MachineProcessesTopic } from './modules/hosts/processes-topic'
+import { HOST_COMMANDS_TRPC, memoryBreakdownRoots } from './modules/hosts/registry'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
-import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
@@ -161,6 +166,7 @@ import { FleetLogLevelDirector } from './modules/logs/fleet-director'
 import { FleetLogStore } from './modules/logs/fleet-store'
 import { ClientLogLevelDirector } from './modules/logs/level-director'
 import { LogIngestService } from './modules/logs/service'
+import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
 import { DaemonRpcService } from './modules/machines/rpc'
@@ -1289,6 +1295,18 @@ export class SessionRegistry {
       now: () => this.now(),
       publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
     })
+    const processReadState = () => ({ ...this.modules, repos: fleetRepos })
+    const processTopic = new MachineProcessesTopic({
+      supports: (id) => machines.daemonSupports(id, CAP_MACHINE_PROCESSES_V1),
+      roots: (id) => memoryBreakdownRoots(processReadState(), id),
+      reclaim: (id) =>
+        HOST_COMMANDS_TRPC.reclaimInventory.handler(processReadState(), { machineId: id }),
+      fallback: (id) =>
+        HOST_COMMANDS_TRPC.memoryBreakdown.handler(processReadState(), { machineId: id }),
+      send: (id, frame) => machines.toMachine(id, frame),
+      publish: (id, value) => topics.publish('machine.processes', id, value),
+      onError: (err) => log.warn('process topic failed', { err }),
+    })
     const topicProducers: TopicProducers = {
       'machine.condition': { snapshot: (id) => machineConditions.snapshot(asMachineId(id)) },
       'machine.metrics': daemonTopicProducer({
@@ -1298,6 +1316,14 @@ export class SessionRegistry {
         send: (machineId, frame) => machines.toMachine(machineId, frame),
         snapshot: (id) => topicLate.hosts?.latestFor(asMachineId(id)),
       }),
+      'checkout.changed': daemonTopicProducer({
+        kind: 'checkout.changed',
+        machineOf: (id) => parseCheckoutTopicId(id)?.machineId,
+        supportsTopics: (id) => machines.daemonSupports(id, CAP_CHECKOUT_CHANGED_V1),
+        send: (id, frame) => machines.toMachine(id, frame),
+        snapshot: () => null,
+      }),
+      'machine.processes': processTopic,
       'account.events': {},
     }
     const topics: TopicRouting = new TopicRouting({
@@ -1312,6 +1338,22 @@ export class SessionRegistry {
             })),
           ),
         ),
+      prepareMachineUse: async () => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        return {
+          canSee: (principal, ref) =>
+            principal.kind === 'user' &&
+            'role' in principal &&
+            checkMachineUse(
+              userCommandPrincipal(
+                asUserId(principal.user),
+                principal.role as import('@podium/model').UserRole,
+              ),
+              asMachineId(ref.id),
+              ownership,
+            ) === undefined,
+        }
+      },
       producers: topicProducers,
       now: this.now,
     })
@@ -1332,7 +1374,10 @@ export class SessionRegistry {
       // its machine that is still held (D21).
       topics.machineAttached(machineId)
     })
-    this.bus.on('machine.disconnected', ({ machineId }) => machineConditions.changed(machineId))
+    this.bus.on('machine.disconnected', ({ machineId }) => {
+      machineConditions.changed(machineId)
+      processTopic.unavailable(machineId)
+    })
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       authority: ledger.authority,
@@ -1727,7 +1772,11 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      handingOn?: (writer: MessageWriter, messageId: string, sessionId: SessionId) => Promise<boolean>
+      handingOn?: (
+        writer: MessageWriter,
+        messageId: string,
+        sessionId: SessionId,
+      ) => Promise<boolean>
       spawnPrompt?: (
         writer: MessageWriter,
         input: {
@@ -3512,7 +3561,8 @@ export class SessionRegistry {
         cancel: async (writer, input) => await shippingPort().cancel(writer, input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
-      deleteIssue: async (writer, id, by) => await issueSessionLifecycle.deleteIssue(writer, id, by),
+      deleteIssue: async (writer, id, by) =>
+        await issueSessionLifecycle.deleteIssue(writer, id, by),
       restoreIssue: async (writer, id) => await issueSessionLifecycle.restoreIssue(writer, id),
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
@@ -4288,7 +4338,10 @@ export class SessionRegistry {
             getState: () => state,
             // An answer run after its record committed: the server's own.
             answer: (answerInput) =>
-              sessionsSvc.answerAskUserQuestion({ ...answerInput, writer: sessionsSvc.serverWriter }),
+              sessionsSvc.answerAskUserQuestion({
+                ...answerInput,
+                writer: sessionsSvc.serverWriter,
+              }),
           },
           input,
         )
@@ -4323,13 +4376,15 @@ export class SessionRegistry {
         return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.inbox.deliverInteractionAnswer({ ...input, writer: sessionsSvc.serverWriter }, () =>
-          sessionsSvc.runtimeGateway.answer({
-            sessionId: input.sessionId,
-            interactionId: input.interactionId,
-            principal: { kind: input.principal.kind, ref: input.principal.principalRef },
-            answer: input.answer as unknown as Record<string, unknown>,
-          }),
+        await sessionsSvc.inbox.deliverInteractionAnswer(
+          { ...input, writer: sessionsSvc.serverWriter },
+          () =>
+            sessionsSvc.runtimeGateway.answer({
+              sessionId: input.sessionId,
+              interactionId: input.interactionId,
+              principal: { kind: input.principal.kind, ref: input.principal.principalRef },
+              answer: input.answer as unknown as Record<string, unknown>,
+            }),
         ),
     })
     /**
@@ -4890,6 +4945,10 @@ export class SessionRegistry {
         topics: createDaemonTopicIngress({
           producers: topicProducers,
           sinks: {
+            'checkout.changed': (_machine, payload, id) =>
+              topics.publish('checkout.changed', id, payload),
+            'machine.processes': (_machine, payload, id) =>
+              processTopic.receive(id, payload as HostMemoryBreakdown),
             'machine.metrics': (machineId, payload) => {
               const sample = payload as import('@podium/model').HostMetricsWire
               void Promise.resolve(hosts.onHostMetrics(machineId, sample)).catch((err: unknown) => {

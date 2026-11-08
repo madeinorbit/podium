@@ -40,6 +40,7 @@ import {
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
   isKnownMetadataChange,
+  isTopicKind,
   type MetadataChange,
   type MetadataChangeLenient,
   MIN_CLIENT_WIRE_VERSION,
@@ -50,6 +51,8 @@ import {
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
   type PtyOutputBinaryMetadata,
   parseServerMessageLenient,
+  parseTopicKey,
+  parseTopicPayload,
   presencePayloadWithinBudget,
   type RoomRef,
   type ServerMessage,
@@ -60,9 +63,6 @@ import {
   type TopicKind,
   type TopicPayload,
   type TopicServerMessage,
-  isTopicKind,
-  parseTopicKey,
-  parseTopicPayload,
   type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
@@ -1336,6 +1336,12 @@ export class SocketHub {
       if (fresh) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
       held.onState?.(entry.state)
     }
+  }
+
+  /** Ask a held producer for a fresh snapshot (focus fallback, never a timer). */
+  refreshTopic(kind: TopicKind, id: string): void {
+    const entry = this.subscriptionRegistry.topic(kind, id)
+    if (entry) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
   }
 
   /** The current state of a held key, or undefined when nobody holds it. */

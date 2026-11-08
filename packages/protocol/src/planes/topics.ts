@@ -1,7 +1,14 @@
-import { HostMetricsWire, joinKeyParts, MachineId, splitKeyParts, UserId } from '@podium/model'
+import {
+  HostMetricsWire,
+  IssueId,
+  joinKeyParts,
+  MachineId,
+  splitKeyParts,
+  UserId,
+} from '@podium/model'
 import { z } from 'zod'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '../messages/browser-open'
-import { AttentionEventMessage } from '../messages/host'
+import { AttentionEventMessage, MemoryBreakdownResultMessage } from '../messages/host'
 import { SetLogLevelMessage } from '../messages/logs'
 import { ServerRelocationMessage } from '../messages/server-transfer'
 import type { RoutingKey } from './routing'
@@ -37,7 +44,7 @@ export type TopicProducerSide = (typeof TOPIC_PRODUCERS)[number]
  *   fact, not an execution one — `machine-access.ts`).
  * - `account.self`: the topic id is the principal's own user.
  */
-export const TOPIC_VISIBILITY = ['machine', 'account.self'] as const
+export const TOPIC_VISIBILITY = ['machine', 'machine.use', 'account.self'] as const
 export type TopicVisibility = (typeof TOPIC_VISIBILITY)[number]
 
 /** `machine.condition` — the server's view of the daemon connection. */
@@ -66,6 +73,68 @@ export const AccountEventPayload = z.discriminatedUnion('type', [
   SetLogLevelMessage,
 ])
 export type AccountEventPayload = z.infer<typeof AccountEventPayload>
+
+/** A checkout address has two escaped parts; a path never aliases another machine. */
+export const checkoutTopicId = (machineId: MachineId, path: string): string =>
+  joinKeyParts(':', [machineId, path])
+
+export const parseCheckoutTopicId = (
+  id: string,
+): { machineId: MachineId; path: string } | undefined => {
+  try {
+    const [machine, path] = splitKeyParts(':', id, 2) as [string, string]
+    if (!MachineId.safeParse(machine).success || !path || !/^(\/|[a-zA-Z]:[\\/])/.test(path))
+      return undefined
+    return { machineId: machine as MachineId, path }
+  } catch {
+    return undefined
+  }
+}
+
+export const HostProcessBreakdown = MemoryBreakdownResultMessage.omit({
+  type: true,
+  requestId: true,
+})
+export const ReclaimInventoryPayload = z.object({
+  candidates: z.array(
+    z.object({
+      issueId: IssueId,
+      title: z.string(),
+      worktreePath: z.string(),
+      closedAt: z.string(),
+      machineId: MachineId,
+      present: z.boolean(),
+      protectedReason: z.string().nullable(),
+    }),
+  ),
+  orphans: z.array(
+    z.object({
+      path: z.string(),
+      branch: z.string().nullable(),
+      headSha: z.string().nullable(),
+      machineId: MachineId,
+      repoPath: z.string(),
+    }),
+  ),
+  diagnostics: z.array(
+    z.object({ repoPath: z.string(), machineId: MachineId, reason: z.string() }),
+  ),
+  estimate: z.discriminatedUnion('status', [
+    z.object({
+      status: z.literal('unknown'),
+      recoverableBytes: z.null(),
+      measuredAt: z.null(),
+      error: z.string().optional(),
+    }),
+    z.object({ status: z.literal('measuring'), recoverableBytes: z.null(), measuredAt: z.null() }),
+    z.object({ status: z.literal('ready'), recoverableBytes: z.number(), measuredAt: z.string() }),
+  ]),
+})
+export const MachineProcessesPayload = z.object({
+  breakdown: HostProcessBreakdown,
+  reclaim: ReclaimInventoryPayload.optional(),
+  reclaimError: z.string().optional(),
+})
 
 export interface TopicKindDeclaration {
   readonly style: TopicStyle
@@ -107,6 +176,25 @@ export const TOPIC_KINDS = {
     payload: HostMetricsWire,
     publish: HostMetricsWire,
   },
+  'checkout.changed': {
+    // A signal is a value carrying only the envelope's epoch/seq (ADR 7 D19).
+    style: 'value',
+    producer: 'daemon',
+    visibility: 'machine.use',
+    minIntervalMs: 1_000,
+    id: z.string().refine((id) => parseCheckoutTopicId(id) !== undefined),
+    payload: z.null(),
+    publish: z.null(),
+  },
+  'machine.processes': {
+    style: 'value',
+    producer: 'daemon',
+    visibility: 'machine.use',
+    minIntervalMs: 5_000,
+    id: MachineId,
+    payload: MachineProcessesPayload,
+    publish: HostProcessBreakdown,
+  },
   'account.events': {
     style: 'event',
     producer: 'server',
@@ -128,6 +216,9 @@ export const topicDeclaration = (kind: TopicKind): TopicKindDeclaration => TOPIC
 
 /** Client capability and daemon capability: this peer speaks the topic frames (D23). */
 export const CAP_TOPICS_V1 = 'topics.v1'
+/** Additive daemon producers; topics.v1 alone does not imply these exist. */
+export const CAP_CHECKOUT_CHANGED_V1 = 'topics.checkout-changed.v1'
+export const CAP_MACHINE_PROCESSES_V1 = 'topics.machine-processes.v1'
 
 /** One connection may hold at most this many keys (D21). */
 export const TOPIC_KEYS_PER_CONNECTION_MAX = 1_000
@@ -315,6 +406,8 @@ export const TopicWatchMessage = z.object({
   type: z.literal('topicWatch'),
   key: TopicKeyField,
   on: z.boolean(),
+  /** Producer input is derived by the server, never supplied by a subscriber. */
+  input: z.unknown().optional(),
 })
 export type TopicWatchMessage = z.infer<typeof TopicWatchMessage>
 

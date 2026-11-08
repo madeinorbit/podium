@@ -1,9 +1,10 @@
-import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
-import { issueObserver as observer } from '../../client/issue-observer'
 import { useStoreHandle } from '@podium/client-core/react'
+import { checkoutRefresh } from '@podium/client-graph/answer-refresh'
+import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
   diffRowAccessibilityLabel,
@@ -27,13 +28,17 @@ export const GitReviewSection = observer(function GitReviewSection({
   root: string
   machineId?: MachineId
 }) {
-  const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
+  const {
+    hub,
+    access: { gitStatus, readFileScoped, gitDiffFile },
+  } = useStoreHandle()
+  const refreshSignal = useMemo(() => checkoutRefresh(hub, machineId, root), [hub, machineId, root])
   const view = useMemo(
-    () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }),
-    [root, machineId, gitStatus, readFileScoped, gitDiffFile],
+    () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile, refreshSignal }),
+    [root, machineId, gitStatus, readFileScoped, gitDiffFile, refreshSignal],
   )
   useEffect(() => {
-    void view.refresh()
+    view.open()
     return () => view.close()
   }, [view])
   const header = view.reviewStatus?.header
@@ -173,6 +178,7 @@ const DiffBody = memo(function DiffBody({ state }: { state: ReviewDiffAnswer | u
         <Text style={styles.delCount}>−{parsed.removed}</Text>
       </Text>
       {parsed.rows.slice(0, visibleRows).map((row, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: parsed lines have no identity and DiffLine is stateless.
         <DiffLine key={`${index}:${row.kind}`} row={row} />
       ))}
       {visibleRows < parsed.rows.length ? (

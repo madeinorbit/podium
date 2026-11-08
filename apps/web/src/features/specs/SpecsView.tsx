@@ -1,5 +1,7 @@
-import { AutomationOpening } from '@/app/automation-readers'
 import { machinePathBasename } from '@podium/model/browser'
+import { AutomationOpening } from '@/app/automation-readers'
+import { useAnswerQuery } from '@/lib/use-answer-query'
+import { useCheckoutSignal } from '@/lib/use-checkout-signal'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -62,6 +64,14 @@ function useIsDark(): boolean {
   return useSyncExternalStore(subscribe, () => document.documentElement.classList.contains('dark'))
 }
 
+/** True for server errors that mean "this repo can't be edited from here"
+ *  (as opposed to a transient failure worth keeping the editor open for). */
+const isRepoUnusableError = (err: unknown): boolean =>
+  err instanceof TRPCClientError &&
+  ['FORBIDDEN', 'PRECONDITION_FAILED', 'NOT_FOUND'].includes(
+    (err.data as { code?: string } | undefined)?.code ?? '',
+  )
+
 export function SpecsView(): JSX.Element {
   return (
     <AutomationOpening>
@@ -80,7 +90,16 @@ function SpecsViewBody(): JSX.Element {
   const [repoPath, setRepoPath] = useState<string | null>(null)
   const activeRepo = repoPath && repoPaths.includes(repoPath) ? repoPath : (repoPaths[0] ?? null)
 
-  const [components, setComponents] = useState<SpecMeta[]>([])
+  // Specs are read from the server checkout, even when a repository also
+  // exists on another machine. The request and signal name that same root.
+  const signal = useCheckoutSignal(undefined, activeRepo ?? '')
+  const list = useAnswerQuery<SpecMeta[]>({
+    key: `specs:${activeRepo ?? ''}`,
+    enabled: activeRepo !== null,
+    signal,
+    read: () => trpc.specs.list.query({ repoPath: activeRepo as string }),
+  })
+  const components = list.data ?? []
   const [selectedId, setSelectedId] = useState<string>(ROOT_ID)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[] | null>(null)
@@ -94,28 +113,16 @@ function SpecsViewBody(): JSX.Element {
   const unavailableRef = useRef(false)
   unavailableRef.current = unavailable !== null
 
-  /** True for server errors that mean "this repo can't be edited from here"
-   *  (as opposed to a transient failure worth keeping the editor open for). */
-  const isRepoUnusableError = (err: unknown): boolean =>
-    err instanceof TRPCClientError &&
-    ['FORBIDDEN', 'PRECONDITION_FAILED', 'NOT_FOUND'].includes(
-      (err.data as { code?: string } | undefined)?.code ?? '',
-    )
-
   const refreshTree = useCallback(async (): Promise<void> => {
-    if (!activeRepo) return
-    const list = await trpc.specs.list.query({ repoPath: activeRepo })
-    setComponents(list)
-    setUnavailable(null)
-  }, [trpc, activeRepo])
-
+    list.refresh()
+  }, [list.refresh])
   useEffect(() => {
-    setSelectedId(ROOT_ID)
+    if (activeRepo) setSelectedId(ROOT_ID)
     setUnavailable(null)
-    void refreshTree().catch((err: unknown) => {
-      setUnavailable(err instanceof Error ? err.message : 'Failed to load spec')
-    })
-  }, [refreshTree])
+  }, [activeRepo])
+  useEffect(() => {
+    setUnavailable(list.error)
+  }, [list.error])
 
   // ── Editor: one BlockNote instance, re-fed on selection change. ──────────
   const editor = useCreateBlockNote()

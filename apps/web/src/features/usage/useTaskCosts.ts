@@ -1,33 +1,13 @@
 import { type CostCohort, type TaskCostRowView, taskCostRows } from '@podium/client-core/values'
+import { costRefresh } from '@podium/client-graph/cost-refresh'
 import type { TaskCostRowWire } from '@podium/model/browser'
 import { useMemo } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { resetPolledQueryCache, usePolledQuery } from '@/lib/use-polled-query'
+import { useAnswerQuery } from '@/lib/use-answer-query'
 
-/**
- * The by-task section's feed — every task that has a stored figure, priced.
- *
- * SAME CADENCE AS THE TOKEN TRACE, and not by coincidence: `cost.tasks` reads
- * rows the `usage.summary` harvest itself writes (POD-1858), so a slower poll
- * here would leave the by-task section a window behind the total it is a
- * breakdown of — the one inconsistency this section cannot afford, since its
- * first reading is a share of that total. It is nonetheless its OWN poll rather
- * than a field on the usage answer: the sheet's regions each own their read, and
- * a ranked table of 226 tasks has no business travelling with the hour buckets
- * that the command bar's status strip also reads.
- *
- * Same RPC-poll reasoning as `useUsageFeed` beside it: host telemetry, no
- * server-side entity to replicate, nothing an optimistic overlay could apply to.
- * Tab-lifetime cache, never localStorage.
- */
-
-const REFRESH_MS = 90_000
-const CACHE_KEY = 'cost.tasks'
-
-/** Tests only — the module cache is deliberately process-wide otherwise. */
-export function resetTaskCostsCache(): void {
-  resetPolledQueryCache(CACHE_KEY)
-}
+/** The open by-task answer follows turn ends and issue-stage changes in the pool. */
+export function resetTaskCostsCache(): void {} // Kept for existing test callers; answers have no cache.
 
 export interface TaskCostsFeed {
   /** Null only when this tab has never had an answer: the one cold state. */
@@ -40,9 +20,11 @@ export interface TaskCostsFeed {
 }
 
 export function useTaskCosts(trpc: Trpc): TaskCostsFeed {
-  const query = usePolledQuery<TaskCostRowWire[]>({
-    key: CACHE_KEY,
-    intervalMs: REFRESH_MS,
+  const pool = useWorklistPool()
+  const signal = useMemo(() => costRefresh(pool, null), [pool])
+  const query = useAnswerQuery<TaskCostRowWire[]>({
+    key: 'cost.tasks',
+    signal,
     read: () => trpc.cost.tasks.query(),
   })
   // THE RANKING AND THE COHORT COME OUT OF ONE CALL, deliberately: `taskCostRows`

@@ -1,49 +1,46 @@
-import { requestParentHelloSignature } from '@podium/runtime/parent-control'
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import type { BindingConfirmations } from '@podium/protocol'
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
+import { isNotInConversationCause } from '@podium/model'
+import type { BindingConfirmations } from '@podium/protocol'
 import {
+  CAP_CHECKOUT_CHANGED_V1,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_MACHINE_PROCESSES_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
   CAP_TOPICS_V1,
   createHandshakeDialer,
-  DAEMON_WIRE_VERSION,
-  MIN_DAEMON_WIRE_VERSION,
-  MachineChallenge,
-  type PeerHello,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  DAEMON_WIRE_VERSION,
   DaemonPtyInputMetadata,
   type DaemonPtyOutputBatch,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
   type LocalDaemonAttachment,
+  MachineChallenge,
+  MIN_DAEMON_WIRE_VERSION,
   type PeerBuild,
   type PeerCredential,
+  type PeerHello,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { isNotInConversationCause } from '@podium/model'
 import {
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
-  isDurableRuntimeEvent,
   type DaemonMessage,
+  isDurableRuntimeEvent,
 } from '@podium/protocol/daemon'
-import { stateDir, loadConfig, resolveConnectBaseUrl, saveConfig } from '@podium/runtime/config'
+import { loadConfig, resolveConnectBaseUrl, saveConfig, stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { requestParentHelloSignature } from '@podium/runtime/parent-control'
 import { locateDelayMs, locateServer, proveServer } from '@podium/runtime/server-follow'
-import {
-  applyServerUrl,
-  consumePairCode,
-  fetchTargetAppUrl,
-  wssFrom,
-} from '@podium/runtime/setup'
+import { applyServerUrl, consumePairCode, fetchTargetAppUrl, wssFrom } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
@@ -366,8 +363,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const credential = (): PeerCredential | null => {
     const supervisor = loadSupervisorState(options.identityDir ?? stateDir())
     if (supervisor.enrolledPublicKey) return { kind: 'machineKey', machineHint: deps.machineId }
-    if (options.machineToken) return { kind: 'machineToken', token: options.machineToken, machineHint: deps.machineId }
-    if (identity.token) return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
+    if (options.machineToken)
+      return { kind: 'machineToken', token: options.machineToken, machineHint: deps.machineId }
+    if (identity.token)
+      return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     return null
   }
   const hellos = new WeakMap<ReturnType<typeof createHandshakeDialer>, PeerHello>()
@@ -377,16 +376,34 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     hellos.set(dialer, hello)
     return hello
   }
-  const signChallenge = async (dialer: ReturnType<typeof createHandshakeDialer>, challenge: import('@podium/protocol').MachineChallenge): Promise<PeerHello> => {
+  const signChallenge = async (
+    dialer: ReturnType<typeof createHandshakeDialer>,
+    challenge: import('@podium/protocol').MachineChallenge,
+  ): Promise<PeerHello> => {
     const hello = hellos.get(dialer)
-    if (!hello || hello.credential.kind !== 'machineKey' || challenged.has(dialer)
-      || challenge.machineId !== deps.machineId) throw new Error('unexpected machine key challenge')
+    if (
+      !hello ||
+      hello.credential.kind !== 'machineKey' ||
+      challenged.has(dialer) ||
+      challenge.machineId !== deps.machineId
+    )
+      throw new Error('unexpected machine key challenge')
     challenged.add(dialer)
-    const signature = await requestParentHelloSignature(challenge, { stateDir: options.identityDir ?? stateDir() })
-    return { ...hello, credential: { ...hello.credential, proof: {
-      nonce: challenge.nonce, installationId: challenge.installationId,
-      connectionId: challenge.connectionId, signature,
-    } } }
+    const signature = await requestParentHelloSignature(challenge, {
+      stateDir: options.identityDir ?? stateDir(),
+    })
+    return {
+      ...hello,
+      credential: {
+        ...hello.credential,
+        proof: {
+          nonce: challenge.nonce,
+          installationId: challenge.installationId,
+          connectionId: challenge.connectionId,
+          signature,
+        },
+      },
+    }
   }
 
   const clearOpenDeadline = (generation?: number): void => {
@@ -953,12 +970,22 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     let decoded: unknown
-    try { decoded = JSON.parse(normalizeRawData(raw).toString()) } catch { decoded = undefined }
+    try {
+      decoded = JSON.parse(normalizeRawData(raw).toString())
+    } catch {
+      decoded = undefined
+    }
     const challenge = MachineChallenge.safeParse(decoded)
     if (challenge.success && active) {
-      void signChallenge(dialer, challenge.data).then((hello) => {
-        if (!closing && socket === active && state === 'awaiting-ack') active.send(JSON.stringify(hello))
-      }).catch((error) => { lastSocketError = describeSocketError(error); active.terminate() })
+      void signChallenge(dialer, challenge.data)
+        .then((hello) => {
+          if (!closing && socket === active && state === 'awaiting-ack')
+            active.send(JSON.stringify(hello))
+        })
+        .catch((error) => {
+          lastSocketError = describeSocketError(error)
+          active.terminate()
+        })
       return
     }
     const step = dialer.receive(normalizeRawData(raw).toString())
@@ -1027,6 +1054,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // ADR 7 Amendment 2 (POD-5800): this daemon samples host metrics only on
         // demand (topicWatch) and publishes them as topicPublish.
         CAP_TOPICS_V1,
+        CAP_CHECKOUT_CHANGED_V1,
+        CAP_MACHINE_PROCESSES_V1,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
@@ -1232,12 +1261,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       candidate.on('message', (raw) => {
         if (!dialer || settled) return
         let decoded: unknown
-        try { decoded = JSON.parse(raw.toString()) } catch { decoded = undefined }
+        try {
+          decoded = JSON.parse(raw.toString())
+        } catch {
+          decoded = undefined
+        }
         const challenge = MachineChallenge.safeParse(decoded)
         if (challenge.success) {
-          void signChallenge(dialer, challenge.data).then((hello) => {
-            if (!settled) candidate.send(JSON.stringify(hello))
-          }).catch((error) => finish(socketError(error)))
+          void signChallenge(dialer, challenge.data)
+            .then((hello) => {
+              if (!settled) candidate.send(JSON.stringify(hello))
+            })
+            .catch((error) => finish(socketError(error)))
           return
         }
         const step = dialer.receive(raw.toString())

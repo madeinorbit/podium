@@ -1,14 +1,15 @@
-import { action, observable, observableRef, runInAction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import type { MachineId } from '@podium/model'
-import { RequestAnswer } from './request-answer'
-import { parseStatus, parseLog, parseCommitFiles, type StatusEntry } from './git-panel'
+import { action, observable, observableRef, runInAction } from 'mobx'
+import { AnswerRefresh, type AnswerSignal } from './answer-refresh'
+import { parseCommitFiles, parseLog, parseStatus, type StatusEntry } from './git-panel'
 import {
+  type ParsedDiff,
   parseDiff,
   parseStatus as parseReviewStatus,
   untrackedDiff,
-  type ParsedDiff,
 } from './git-review'
+import { RequestAnswer } from './request-answer'
 
 interface GitResult {
   ok: boolean
@@ -26,6 +27,7 @@ interface GitArgs {
   machineId?: MachineId
 }
 export interface GitViewPorts {
+  refreshSignal?: AnswerSignal
   gitStatus(input: GitArgs): Promise<GitResult>
   gitLog?(input: GitArgs): Promise<GitResult>
   gitCommitFiles?(input: GitArgs & { sha: string }): Promise<GitResult>
@@ -54,11 +56,19 @@ export class GitView {
   @observable accessor openPath: string | null = null
   @observable accessor now = Date.now()
   private generation = 0
+  private readonly refreshes: AnswerRefresh
   constructor(
     readonly root: string,
     readonly machineId: MachineId | undefined,
     private readonly ports: GitViewPorts,
-  ) {}
+  ) {
+    this.refreshes = new AnswerRefresh(() => this.refresh(this.history, true), ports.refreshSignal)
+  }
+  private history = false
+  open(history = false): void {
+    this.history = history
+    this.refreshes.open()
+  }
   private get args(): GitArgs {
     return {
       root: this.root,
@@ -84,10 +94,12 @@ export class GitView {
     )
   }
 
-  @action async refresh(history = false): Promise<void> {
+  @action async refresh(history = false, preserve = false): Promise<void> {
     const generation = ++this.generation
-    this.openPath = null
-    this.diffs = {}
+    if (!preserve) {
+      this.openPath = null
+      this.diffs = {}
+    }
     await this.inventory.load(async () => {
       const [status, log] = await Promise.all([
         this.ports.gitStatus(this.args),
@@ -99,6 +111,11 @@ export class GitView {
     })
     runInAction(() => {
       if (generation === this.generation) this.now = Date.now()
+      if (preserve && this.openPath) {
+        const entry = this.reviewStatus?.entries.find((entry) => entry.path === this.openPath)
+        if (entry) void this.loadDiff(entry)
+        else this.openPath = null
+      }
     })
   }
   @action toggleCommit(sha: string): void {
@@ -175,6 +192,7 @@ export class GitView {
     })
   }
   @action close(): void {
+    this.refreshes.close()
     ++this.generation
     this.inventory.close()
     this.commitFiles = {}

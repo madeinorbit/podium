@@ -21,7 +21,7 @@ import { isTopicKind, parseTopicKey, TOPIC_KINDS, type TopicKind } from '@podium
 const log = createLogger('daemon:topics')
 
 /** Start producing one id; returns the stop. */
-export type TopicWatchStart = (id: string) => () => void
+export type TopicWatchStart = (id: string, input?: unknown) => () => void
 
 export class TopicWatchRegistry {
   private readonly producers = new Map<TopicKind, TopicWatchStart>()
@@ -37,7 +37,7 @@ export class TopicWatchRegistry {
   }
 
   /** Apply the server's desired state for one key. */
-  apply(key: string, on: boolean): void {
+  apply(key: string, on: boolean, input?: unknown): void {
     const ref = parseTopicKey(key)
     if (!ref || !isTopicKind(ref.kind)) {
       log.warn('ignored a watch for an unknown topic', { key })
@@ -54,7 +54,7 @@ export class TopicWatchRegistry {
       return
     }
     try {
-      this.running.set(key, start(ref.id))
+      this.running.set(key, start(ref.id, input))
     } catch (err) {
       log.warn('topic producer failed to start', { key, err })
     }

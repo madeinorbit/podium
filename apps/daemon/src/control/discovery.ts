@@ -272,11 +272,10 @@ async function dirOp(
   })
 }
 
-async function memoryBreakdown(
+export async function readMemoryBreakdown(
   ctx: DaemonContext,
-  requestId: string,
   roots: string[],
-): Promise<void> {
+): Promise<import('@podium/protocol').HostMemoryBreakdown> {
   const memory = sampleHostMemory()
   // One statfs, unlike the /proc walk below it: cheap enough to take on every
   // breakdown, and pointless to gate on `supported`, which is about attribution.
@@ -306,9 +305,7 @@ async function memoryBreakdown(
   const attributed =
     agents.reduce((sum, a) => sum + a.bytes, 0) + projects.reduce((sum, p) => sum + p.bytes, 0)
   const usedBytes = Math.max(0, memory.totalBytes - memory.availableBytes)
-  ctx.send({
-    type: 'memoryBreakdownResult',
-    requestId,
+  return {
     hostname: hostname(),
     sampledAt: new Date().toISOString(),
     supported,
@@ -317,7 +314,7 @@ async function memoryBreakdown(
     agents,
     projects,
     otherBytes: Math.max(0, usedBytes - attributed),
-  })
+  }
 }
 
 async function reclaimDiskEstimate(
@@ -371,7 +368,9 @@ export const discoveryHandlers: Pick<
     void dirOp(ctx, msg.requestId, msg)
   },
   memoryBreakdownRequest: (ctx, msg) => {
-    void memoryBreakdown(ctx, msg.requestId, msg.roots)
+    void readMemoryBreakdown(ctx, msg.roots).then((value) =>
+      ctx.send({ type: 'memoryBreakdownResult', requestId: msg.requestId, ...value }),
+    )
   },
   reclaimDiskEstimateRequest: (ctx, msg) => {
     void reclaimDiskEstimate(ctx, msg.requestId, msg.roots, msg.reclaimRoots)

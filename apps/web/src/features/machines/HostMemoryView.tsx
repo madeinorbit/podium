@@ -24,27 +24,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIssueActionOutcome } from '@/features/issues/issue-action-ending'
 import { useClock } from '@/lib/clock-hooks'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
+import { useMachineProcesses } from './use-machine-processes'
 
 import { useReclaimInventory } from './use-reclaim-inventory'
-
-/** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
-interface Breakdown {
-  hostname: string
-  sampledAt: string
-  supported: boolean
-  memory: HostMemoryWire
-  agents: AgentMemoryWire[]
-  projects: ProjectMemoryWire[]
-  otherBytes: number
-}
-
-const REFRESH_MS = 5_000
 
 const readParkedCount = (pool: MobxPool): number =>
   pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
@@ -178,16 +165,7 @@ function MemoryPanel({
     shallowEqual,
   )
   const hibernation = useHibernationSetting()
-  // Host telemetry, not a row: a `/proc` walk on the daemon host, taken at the
-  // moment of asking. It polls — through the ONE polling utility (POD-1772),
-  // which gates on tab visibility (a hidden pane must not keep a machine walking
-  // `/proc` every 5 s) and keys its cache on the machine, so switching chips can
-  // never paint one host's breakdown under another host's headline.
-  const { data, error } = usePolledQuery<Breakdown>({
-    key: `hosts.memoryBreakdown:${machineId ?? ''}`,
-    intervalMs: REFRESH_MS,
-    read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
-  })
+  const { data, error } = useMachineProcesses(machineId)
 
   const idleSessionCount = useWorklistPoolProjection(readParkedCount, 0)
 

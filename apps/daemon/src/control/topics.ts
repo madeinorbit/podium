@@ -8,6 +8,6 @@ import type { ControlHandlers } from './context'
 
 export const topicHandlers: Pick<ControlHandlers, 'topicWatch'> = {
   topicWatch: (ctx, msg) => {
-    ctx.topicWatches.apply(msg.key, msg.on)
+    ctx.topicWatches.apply(msg.key, msg.on, msg.input)
   },
 }

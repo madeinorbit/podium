@@ -45,20 +45,29 @@ export interface HostCommand {
   readonly handler: HostHandler<any, unknown>
 }
 
+/** The same registered roots for request and topic producers; no client paths. */
+export async function memoryBreakdownRoots(
+  state: Pick<HostState, 'repos' | 'rpc'>,
+  machineId?: import('@podium/model').MachineId,
+): Promise<string[]> {
+  const repoPaths = await state.repos.list(machineId)
+  const { repositories } = await state.rpc.scanRepos(
+    repoPaths,
+    { includeHome: false, maxDepth: 0 },
+    machineId ?? undefined,
+  )
+  const roots = [
+    ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
+  ]
+  return roots
+}
+
 export const HOST_COMMANDS_TRPC = {
   memoryBreakdown: {
     contract: HOST_CONTRACTS.memoryBreakdown,
     handler: (async (state, input) => {
       const machineId = input?.machineId
-      const repoPaths = await state.repos.list(machineId)
-      const { repositories } = await state.rpc.scanRepos(
-        repoPaths,
-        { includeHome: false, maxDepth: 0 },
-        machineId ?? undefined,
-      )
-      const roots = [
-        ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
-      ]
+      const roots = await memoryBreakdownRoots(state, machineId)
       const breakdown = await state.hosts.memoryBreakdown(roots, machineId)
       if (!breakdown) {
         // The M5 refusal the contract's errorConsistency points at: unreachable
@@ -75,7 +84,10 @@ export const HOST_COMMANDS_TRPC = {
     contract: HOST_CONTRACTS.reclaimInventory,
     handler: (async (state, input) => {
       const machineId = input?.machineId
-      const inventory = await state.issues.gitWorkflow.listReclaimableWorktrees(Date.now(), machineId)
+      const inventory = await state.issues.gitWorkflow.listReclaimableWorktrees(
+        Date.now(),
+        machineId,
+      )
       const estimate = await state.hosts.reclaimDiskEstimate(
         inventory.allWorktreePaths,
         inventory.reclaimableDiskPaths,

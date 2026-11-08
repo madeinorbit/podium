@@ -10,68 +10,16 @@ import { machinePathBasename } from '@podium/model'
 import type { MachineId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import {
-  useHeaderActions,
-  usePoolHostAggregate,
-  usePoolPanelMetric,
-} from '@/app/header-data'
-import type { Trpc } from '@/app/trpc'
-import { usePolledQuery } from '@/lib/use-polled-query'
+import { useHeaderActions, usePoolHostAggregate, usePoolPanelMetric } from '@/app/header-data'
 import { cn } from '@/lib/utils'
 import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { HealthPopoverFooter } from './HealthPopover'
 import { useHostLifecycleSettings } from './host-lifecycle-settings'
 import { SEVERITY, TONE_KEY } from './severity'
+import { useMachineProcesses } from './use-machine-processes'
 import { useReclaimInventory } from './use-reclaim-inventory'
 
-/** The daemon's answer, minus the wire plumbing the server already stripped. */
-type Breakdown = Awaited<ReturnType<Trpc['hosts']['memoryBreakdown']['mutate']>>
-
-/**
- * How long a walk stays worth trusting when the panel is OPENED.
- *
- * The width of a glance loop: long enough that closing the panel and opening it
- * again to re-read a row costs nothing, short enough that a number you are
- * watching move — an agent starting, a build filling the box — is never stale in
- * a way that could mislead.
- *
- * It is deliberately NOT the open panel's cadence, which stays at the 5s it has
- * always run at. The two answer different questions: while you are looking, keep
- * the figures live; when you open it again a moment later, do not make a machine
- * re-walk `/proc` to tell you what it just told you. Only the second was ever a
- * problem — a panel that is open is a panel someone is reading.
- */
-const FRESH_MS = 20_000
-
-/** The open panel's own cadence, unchanged since the modal this replaced. */
-const REFRESH_MS = 5_000
-
-/**
- * The machine-load panel: everything this host is spending, in one tier.
- *
- * It opens on hover from the header chip and shows the WHOLE breakdown at once —
- * the three pressure meters, what is eating the memory, the per-session and
- * per-project rows, reclaimable inventory, hibernation + worktree-GC status, and
- * a footer jump to connection detail. It used to hold half of that behind a
- * second click ("click to pin breakdown"): a zoom rung that made the panel's own
- * height a surprise, hid the process list from anyone who only ever hovered, and
- * asked the operator to discover a mode before they could read a number. The
- * panel is a readout; a readout does not have modes.
- *
- * The `/proc` walk behind it runs through the one polling utility, and the panel
- * is why that utility learned `freshForMs`: this is a HOVER surface on a header
- * chip, so sweeping the pointer across the top bar used to place a full process
- * walk on a daemon per pass, and every re-open threw the previous answer away to
- * redraw a loading state over numbers that were two seconds old. An open panel
- * still refreshes every {@link REFRESH_MS}; a re-opened one inside
- * {@link FRESH_MS} asks the machine for nothing. The header's refresh control
- * overrides both; the footer stamps when what you are reading was taken.
- *
- * Reclaim inventory is server-authoritative (POD-2662) and arrives on its own
- * schedule: its hardlink-aware disk walk is backgrounded and polled until cached
- * bytes land, which is why that row says "Counting checkouts…" rather than
- * holding the panel.
- */
+/** Memory and reclaim readings are pushed only while this panel is visible. */
 export function LoadPanel({
   machineId,
   updateNote,
@@ -88,14 +36,7 @@ export function LoadPanel({
   const lifecycle = useHostLifecycleSettings()
   const hibernation = lifecycle?.hibernation ?? null
   const worktreeGc = lifecycle?.worktreeGc ?? null
-  const { data, fetchedAt, pending, failed, error, refresh } = usePolledQuery<Breakdown>({
-    // Everything the read depends on is in the key, or a chip click would paint
-    // one machine's processes under another machine's hostname.
-    key: `hosts.memoryBreakdown:${machineId ?? ''}`,
-    intervalMs: REFRESH_MS,
-    freshForMs: FRESH_MS,
-    read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
-  })
+  const { data, fetchedAt, pending, failed, error, refresh } = useMachineProcesses(machineId)
 
   // Instant headline from the streamed host metric; the breakdown fills in.
   //

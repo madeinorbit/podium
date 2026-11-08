@@ -29,6 +29,8 @@ function fixture() {
       send: (machineId, frame) => watches.push({ machineId, key: frame.key, on: frame.on }),
     }),
     'account.events': {},
+    'checkout.changed': {},
+    'machine.processes': {},
   }
   const topics = new TopicRouting({
     subscriptions,
@@ -145,7 +147,7 @@ describe('daemon topic ingress', () => {
     const sink = vi.fn()
     const ingress = createDaemonTopicIngress({
       producers: f.producers,
-      sinks: { 'machine.metrics': sink },
+      sinks: { 'machine.metrics': sink, 'checkout.changed': vi.fn(), 'machine.processes': vi.fn() },
     })
     const sample = {
       hostname: 'h',
@@ -191,6 +193,8 @@ describe('revocation', () => {
         'machine.condition': { snapshot: () => ({ online: true, since: null }), stop },
         'machine.metrics': {},
         'account.events': {},
+        'checkout.changed': {},
+        'machine.processes': {},
       },
     })
     const sent: ServerMessage[] = []

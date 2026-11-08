@@ -29,6 +29,7 @@ import {
   isTopicKind,
   PlaneRouter,
   type Principal,
+  parseCheckoutTopicId,
   parseTopicKey,
   type RoutingKey,
   type SubscriberId,
@@ -62,6 +63,8 @@ export const TOPIC_RESEND_DELAY_MS = 250
  * lifecycle (machine condition) only answers snapshots.
  */
 export interface TopicProducer {
+  /** Explicit focus/retry on an already held key. */
+  refresh?(id: string): void
   /** The key's subscriber count went 0→1, or its machine reattached while held. */
   start?(id: string): void
   /** The key's subscriber count went 1→0. */
@@ -99,6 +102,7 @@ export interface TopicRoutingDeps {
   readonly prepareVisibility: (
     entities: readonly { readonly kind: string; readonly id: string }[],
   ) => Promise<VisibilityResolver>
+  readonly prepareMachineUse?: () => Promise<VisibilityResolver>
   readonly producers: TopicProducers
   readonly now?: () => number
   readonly timers?: TopicTimers
@@ -201,6 +205,7 @@ export class TopicRouting {
       return
     }
     this.add({ kind, id: ref.id }, subscriberId, conn.principal)
+    if (held) this.deps.producers[kind].refresh?.(ref.id)
     // A repeated subscribe is the client's resubscribe: it always gets a fresh snapshot.
     this.sendSnapshot(subscriberId, routingKey)
   }
@@ -534,6 +539,9 @@ export class TopicRouting {
   ): Promise<boolean[]> {
     const who = (index: number): Principal => (principals?.[index] ?? principal) as Principal
     const machines = refs.filter((ref) => TOPIC_KINDS[ref.kind].visibility === 'machine')
+    const use = refs.some((ref) => TOPIC_KINDS[ref.kind].visibility === 'machine.use')
+      ? await this.deps.prepareMachineUse?.()
+      : undefined
     const resolver =
       machines.length > 0
         ? await this.deps.prepareVisibility(
@@ -545,6 +553,11 @@ export class TopicRouting {
       switch (TOPIC_KINDS[ref.kind].visibility) {
         case 'machine':
           return resolver?.canSee(p, { kind: 'machine', id: ref.id }) === true
+        case 'machine.use': {
+          const machine =
+            ref.kind === 'checkout.changed' ? parseCheckoutTopicId(ref.id)?.machineId : ref.id
+          return machine !== undefined && use?.canSee(p, { kind: 'machine', id: machine }) === true
+        }
         case 'account.self':
           return p.kind === 'user' && String(p.user) === ref.id
         default:
