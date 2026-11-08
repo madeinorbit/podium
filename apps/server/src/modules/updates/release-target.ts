@@ -11,7 +11,7 @@
  *  - whether fetches CARRY MACHINE CREDENTIALS — the dev feed is private, the
  *    release feeds are public.
  *
- * Everything else — parse, pair the desktop build, HEAD every named artifact,
+ * Everything else — parse, check the companion desktop requirement,
  * refuse a non-feed delivery — is channel-identical, which is the whole point:
  * development use becomes the continuous test of the release mechanism.
  */
@@ -24,6 +24,7 @@ import {
   type UpdateTarget as UpdateTargetValue,
   type UpdateTrustRoot,
 } from '@podium/protocol'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import {
   fetchRelease,
   PRIMARY_RELEASE_ORIGIN,
@@ -32,12 +33,12 @@ import {
   type ReleaseOrigin,
   releaseArtifactBase,
   releaseChannelPath,
-  releaseRedirectAllowed,
   releaseUrl,
   resolveReleaseArtifact,
   urlBelongsToReleaseDirectory,
 } from '@podium/runtime/release-origins'
 import { buildSignal } from './build-attempt'
+import { ReleasePublicationPendingError } from './feed-errors'
 
 export type ReleaseUpdateChannel = UpdateChannel
 
@@ -87,7 +88,7 @@ export interface ChannelFeed {
    * the origin makes the refusal happen at resolve time and say what it means.
    *
    * A string prefix is not containment: `…/download/../attacker/…` still starts
-   * with the fence, and `fetch` then issues the HEAD against the escaped host
+   * with the fence, and `fetch` then requests the escaped host
    * path. The comparison is structural so those walk-outs refuse here.
    */
   artifactBase: string
@@ -100,7 +101,7 @@ export interface ChannelFeed {
    */
   headers?: Readonly<Record<string, string>>
   /**
-   * Hosts an artifact HEAD may land on after a redirect. Compared as the
+   * Hosts release downloads may land on after a redirect. Compared as the
    * whole hostname. ABSENT means this feed never redirects — the dev feed,
    * which is this server serving its own artifacts.
    */
@@ -205,6 +206,8 @@ export interface ResolveReleaseTargetOptions {
   fetch?: typeof fetch
   /** Overrides {@link releaseChannelFeed}; REQUIRED for `dev`. */
   feed?: ChannelFeed
+  /** Last successfully resolved advertisement for this channel. */
+  previous?: UpdateTargetValue
 }
 
 async function fetchFeedJson(
@@ -236,7 +239,9 @@ async function fetchFeedJson(
       if (error instanceof SyntaxError)
         throw new Error(`${channel} target unavailable: invalid ${kind} manifest (${detail})`)
       const status = /HTTP (\d+)/.exec(detail)?.[1]
-      throw new Error(
+      const Failure =
+        kind === 'desktop' && status === '404' ? ReleasePublicationPendingError : Error
+      throw new Failure(
         `${channel} target unavailable: ${kind} manifest ${status ? `returned HTTP ${status} (${detail})` : detail}`,
       )
     }
@@ -256,7 +261,9 @@ async function fetchFeedJson(
     throw new Error(`${channel} target unavailable: ${kind} manifest ${detail}`)
   }
   if (!response.ok) {
-    throw new Error(
+    const Failure =
+      kind === 'desktop' && response.status === 404 ? ReleasePublicationPendingError : Error
+    throw new Failure(
       `${channel} target unavailable: ${kind} manifest returned HTTP ${response.status}`,
     )
   }
@@ -426,98 +433,6 @@ export function desktopManifestFeedChannel(raw: unknown): DesktopFeedChannel | u
   return named.length === 1 ? named[0] : undefined
 }
 
-async function assertArtifactsFetchable(
-  channel: ReleaseUpdateChannel,
-  feed: ChannelFeed,
-  artifacts: Array<{ place: string; url: string }>,
-  fetchImpl: typeof fetch,
-): Promise<void> {
-  const allowedHosts = feed.redirectHosts ?? []
-  const maxRedirects = allowedHosts.length > 0 ? RELEASE_ARTIFACT_REDIRECT_HOPS : 0
-  // HEAD proves only that the named URL is reachable now. It cannot prove immutable bytes;
-  // rolling-release artifact names must still include the version they were signed for.
-  await Promise.all(
-    artifacts.map(async ({ place, url }) => {
-      let current = url
-      let redirects = 0
-      for (;;) {
-        let response: Response
-        try {
-          response = await fetchImpl(current, {
-            method: 'HEAD',
-            redirect: 'manual',
-            cache: 'no-store',
-            ...(feed.headers ? { headers: { ...feed.headers } } : {}),
-            signal: buildSignal() ?? AbortSignal.timeout(5_000),
-          })
-        } catch (error) {
-          const detail = describeError(error)
-          throw new Error(`${channel} target unavailable: ${place} artifact ${detail}`)
-        }
-        if (response.status >= 300 && response.status < 400) {
-          if (maxRedirects === 0) {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected; the ` +
-                `${channel} feed does not follow redirects`,
-            )
-          }
-          if (redirects >= maxRedirects) {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected too many times`,
-            )
-          }
-          const location = response.headers.get('location')
-          if (!location) {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected without a Location`,
-            )
-          }
-          let next: URL
-          try {
-            next = new URL(location, current)
-          } catch {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected outside the ` +
-                `${channel} feed (${location})`,
-            )
-          }
-          if (next.protocol !== 'https:') {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected to a non-https URL ` +
-                `(${next.href})`,
-            )
-          }
-          if (next.username !== '' || next.password !== '') {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected outside the ` +
-                `${channel} feed (${next.href})`,
-            )
-          }
-          if (
-            feed.releaseOrigin
-              ? !releaseRedirectAllowed(next, feed.releaseOrigin)
-              : !allowedHosts.includes(next.hostname)
-          ) {
-            throw new Error(
-              `${channel} target unavailable: ${place} artifact redirected outside the ` +
-                `${channel} feed (${next.href})`,
-            )
-          }
-          current = next.href
-          redirects++
-          continue
-        }
-        if (!response.ok) {
-          throw new Error(
-            `${channel} target unavailable: ${place} artifact returned HTTP ${response.status}`,
-          )
-        }
-        return
-      }
-    }),
-  )
-}
-
 /**
  * Resolve one channel's target without weakening its trust path.
  *
@@ -598,6 +513,22 @@ export async function resolveReleaseTarget(
     }
   }
 
+  for (const named of namedArtifacts) {
+    if (artifactUrlBelongsToFeed(named.url, feed.artifactBase)) continue
+    throw new Error(
+      `${channel} target unavailable: ${named.place} artifact is served from outside the ` +
+        `${channel} feed (${named.url})`,
+    )
+  }
+  const resolved = { ...target, trust: feed.trust }
+  // Validate the fresh advertisement's trust and origin before reusing any prior proof.
+  // The full fingerprint also catches same-version republishes and changed minimums.
+  if (
+    options.previous?.version === resolved.version &&
+    updateFingerprint(options.previous) === updateFingerprint(resolved)
+  )
+    return options.previous
+
   // THE DESKTOP LEG CANNOT WITHDRAW THE HEADLESS OFFER (POD-2794).
   //
   // The two payloads are different things for different surfaces on different
@@ -644,17 +575,18 @@ export async function resolveReleaseTarget(
     if (minimumShell !== undefined) {
       const order = compareVersions(desktop.version, minimumShell)
       if (order === null || order < 0) {
-        throw new Error(
+        const reason =
           channel +
-            ' target unavailable: desktop shell ' +
-            desktop.version +
-            ' is below required ' +
-            minimumShell,
-        )
+          ' target unavailable: desktop shell ' +
+          desktop.version +
+          ' is below required ' +
+          minimumShell
+        if (order === null) throw new Error(reason)
+        throw new ReleasePublicationPendingError(reason)
       }
     }
     if (minimumBridge !== undefined && (desktop.bridgeVersion ?? 0) < minimumBridge) {
-      throw new Error(
+      throw new ReleasePublicationPendingError(
         channel +
           ' target unavailable: desktop bridge ' +
           (desktop.bridgeVersion ?? 0) +
@@ -664,17 +596,9 @@ export async function resolveReleaseTarget(
     }
   }
 
-  for (const named of namedArtifacts) {
-    if (artifactUrlBelongsToFeed(named.url, feed.artifactBase)) continue
-    throw new Error(
-      `${channel} target unavailable: ${named.place} artifact is served from outside the ` +
-        `${channel} feed (${named.url})`,
-    )
-  }
-  await assertArtifactsFetchable(channel, feed, namedArtifacts, fetchImpl)
   // STAMPED HERE, from the channel that was asked for — the one place that
   // knows it. Everything downstream (the grant, the daemon, the coordinator's
   // own self-update) reads this rather than inferring a key from a delivery
   // kind or a version string.
-  return { ...target, trust: feed.trust }
+  return resolved
 }

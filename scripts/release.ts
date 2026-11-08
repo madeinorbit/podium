@@ -59,12 +59,8 @@ import { validateReferencedDesktopManifest } from './desktop-release'
 import { timeReleaseBuildSync } from './release-build-timing'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
 import { buildManifest } from './release-manifest'
-<<<<<<< HEAD
 import { publishReleaseMirror } from './release-mirror'
-||||||| parent of 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
-=======
 import { publishReleaseAssets } from './release-upload'
->>>>>>> 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -820,17 +816,17 @@ export function publishPreparedHeadless(p: {
       ...stableReleasePageNotesArgs(notes ? notesFile : undefined),
     ])
   }
-<<<<<<< HEAD
-  publishReleaseMirror({ channel: p.channel, tag: p.tag, files: assets })
-||||||| parent of 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
-=======
   publishReleaseAssets({
     tag: p.tag,
     artifacts: assets,
     manifest: join(p.dir, manifestName),
     aliases: aliases.map((file) => join(p.dir, file)),
   })
->>>>>>> 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
+  publishReleaseMirror({
+    channel: p.channel,
+    tag: p.tag,
+    files: [...assets, join(p.dir, manifestName), ...aliases.map((file) => join(p.dir, file))],
+  })
   console.log(`[release] published ${version} → ${p.channel}`)
 }
 

@@ -1041,8 +1041,9 @@ export class SessionRegistry {
       // state; without one the resolver refuses `dev` by name rather than
       // resolving something else.
       feedPollingEnabled: () => this.store.settings.resolve('updateFeedPolling').value,
-      resolveTarget: async (channel) =>
+      resolveTarget: async (channel, previous) =>
         await resolveReleaseTarget(channel, {
+          ...(previous ? { previous } : {}),
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
         }),
       // `dev` on a source host is the one channel this server both PUBLISHES
