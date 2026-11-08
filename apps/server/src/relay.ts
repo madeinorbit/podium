@@ -4461,7 +4461,7 @@ export class SessionRegistry {
     // Saving a file from the app (POD-6395).
     registerFileWriteEffect({
       modules: () => this.modules,
-      repoPaths: async () => await this.store.repos.listRepoPaths(),
+      repoPaths: async (machineId) => await this.store.repos.listRepoPaths(machineId),
       hostMachineId: this.store.hostMachineId,
     })
     // Scans and clones on a machine (POD-6396).

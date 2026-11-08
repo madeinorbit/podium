@@ -47,6 +47,7 @@ describe('files.write runs as an effect record', () => {
     })
     expect(answer).toEqual({ ok: true, baseHash: '2:9' })
     expect(write).toHaveBeenCalledWith({
+      machineId: o.store.hostMachineId,
       root: '/p',
       path: 'a.txt',
       content: SECRET,
@@ -113,7 +114,7 @@ describe('files.write runs as an effect record', () => {
       ok: true,
       baseHash: '7:3',
     })
-    expect(read).toHaveBeenCalledWith({ root: '/p', path: 'a.txt' })
+    expect(read).toHaveBeenCalledWith({ root: '/p', path: 'a.txt', machineId: o.store.hostMachineId })
   })
 
   it('a timed-out write whose file still has the old snapshot did not land', async () => {
@@ -144,8 +145,8 @@ describe('files.write runs as an effect record', () => {
         {
           id: mintDeviceId('eff_'),
           kind: FILE_WRITE_EFFECT_KIND,
-          target: { kind: 'machine', id: 'some-other-machine' },
-          input: { root: '/p', path: 'a.txt', content: 'x' },
+          target: { kind: 'machine', id: o.store.hostMachineId },
+          input: { machineId: 'some-other-machine', root: '/p', path: 'a.txt', content: 'x' },
         },
         'm-mismatch',
       ),

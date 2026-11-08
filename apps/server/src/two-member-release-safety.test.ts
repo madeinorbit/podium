@@ -3,6 +3,8 @@ import { fixtureWriteScope } from '@podium/sync/testing'
  * for MU-08, disabled module callers, and MU-30 on a machine shared both ways. */
 import {
   asIssueId,
+  asMutationId,
+  mintDeviceId,
   asMachineId,
   asSessionId,
   type UsageBucketWire,
@@ -23,6 +25,38 @@ beforeAll(async () => {
 afterAll(async () => await f?.close())
 afterEach(() => vi.restoreAllMocks())
 const registry = () => f.handle.registry
+
+describe('direct file effects preserve private sessions and machine roots', () => {
+  it('refuses foreign sessions, foreign machines and roots registered only elsewhere', async () => {
+    const bob = (await f.as('bob')).trpc
+    const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
+    await registry().sessionStore.repos.addRepo('/alice-only-effect-root', f.machines.alice)
+    const cases = [
+      { target: { kind: 'session' as const, id: f.sessions.alice }, input: { sessionId: f.sessions.alice, path: 'private.txt', content: 'foreign' } },
+      { target: { kind: 'machine' as const, id: f.machines.alice }, input: { machineId: f.machines.alice, root: REPO_PATH, path: 'private.txt', content: 'foreign' } },
+      { target: { kind: 'machine' as const, id: f.machines.bob }, input: { machineId: f.machines.bob, root: '/alice-only-effect-root', path: 'private.txt', content: 'foreign' } },
+    ]
+    for (const { target, input } of cases) {
+      const id = mintDeviceId('eff_')
+      const reply = await bob.sync.submit.mutate({ mutationId: asMutationId(mintDeviceId('mut_')), command: 'effects.create', version: 1, input: { id, kind: 'file.write', target, input } })
+      expect.soft(reply.outcome).toBe('rejected')
+      expect.soft(await registry().sessionStore.effects.get(id)).toBeUndefined()
+    }
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('permits Bob to save his own session through the same direct effect entry', async () => {
+    const bob = (await f.as('bob')).trpc
+    const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
+    const id = mintDeviceId('eff_')
+    const input = { sessionId: f.sessions.bob, path: 'own-effect.txt', content: 'Bob owns this' }
+    const reply = await bob.sync.submit.mutate({ mutationId: asMutationId(mintDeviceId('mut_')), command: 'effects.create', version: 1, input: { id, kind: 'file.write', target: { kind: 'session', id: f.sessions.bob }, input } })
+    expect(reply.outcome).toBe('applied')
+    await vi.waitFor(() => expect(write).toHaveBeenCalledWith(input))
+    expect((await registry().sessionStore.effects.get(id))?.createdBy).toBe(MEMBERS.bob.id)
+  })
+})
+
 
 it('a disabled explicit owner cannot create a session through the module', async () => {
   const disabledSessionId = asSessionId('disabled-release-owner')

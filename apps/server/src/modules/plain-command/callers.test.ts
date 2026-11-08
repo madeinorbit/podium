@@ -275,11 +275,11 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 27 non-sync commands', () => {
-  it('covers the 27 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(27 + 2) // + settings.updatePersonal/updateInstance, not plain
+describe('every current caller of the 29 non-sync commands', () => {
+  it('covers the 29 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(29 + 2) // accounts.share/keys join the 27 plain commands; two settings writes are queued
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(27)
+    expect(plain).toHaveLength(29)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 
