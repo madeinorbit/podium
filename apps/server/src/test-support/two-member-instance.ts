@@ -360,13 +360,13 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
 
     // TASKS. One per active member, each homed in a worktree on its owner's machine.
     const createTask = async (owner: FixtureMember, machineId: MachineId) => {
-      const task = await registry.issues.crud.create({
+      const task = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: REPO_PATH,
         title: `${owner.name}'s task`,
         startNow: false,
         ownerUserId: owner.id,
       })
-      await registry.issues.crud.update(task.id, {
+      await registry.issues.crud.update(registry.issues.reports.store.serverWriter, task.id, {
         worktreePath: `/wt/${owner.name}-task`,
         machineId,
       })
