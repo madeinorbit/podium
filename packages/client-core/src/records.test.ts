@@ -379,6 +379,9 @@ describe('the executor the compatibility queue calls', () => {
     const error = await execute({ ...input, patch: {}, unset: ['acceptance'] }).catch(
       (e: unknown) => e,
     )
-    expect(classifyRefusal(error)).toEqual({ kind: 'invalid' })
+    expect(classifyRefusal(error)).toEqual({
+      kind: 'invalid',
+      message: 'this server does not serve records.issueProjection.edit',
+    })
   })
 })

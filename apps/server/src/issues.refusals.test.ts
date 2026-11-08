@@ -91,7 +91,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     )
     expect(status).toBe(409)
     expect(body.error).toMatchObject({ message, data: { code: 'CONFLICT', httpStatus: 409 } })
-    expect(refusal).toEqual({ kind: 'conflict' })
+    expect(refusal).toEqual({ kind: 'conflict', message })
   }
 
   it('refuses an already-deleted issue without writing another revision', async () => {
