@@ -1,17 +1,20 @@
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
-import { UpdatesService } from './service'
-import type { UpdateRecoverySnapshot } from './recovery-store'
-import type { WaveMachine } from './wave'
 import { describe, expect, it, vi } from 'vitest'
+import type { UpdateRecoverySnapshot } from './recovery-store'
+import { UpdatesService } from './service'
 import {
   initialRefreshDelayMs,
+  REFRESH_FAILURE_INTERVALS_MS,
   REFRESH_INITIAL_JITTER_MS,
   REFRESH_INITIAL_MIN_MS,
   REFRESH_INTERVAL_MS,
   REFRESH_RETRY_INTERVAL_MS,
+  refreshTargetsOnBoot,
   startTargetRefresh,
+  type TargetRefreshResult,
 } from './target-refresh'
+import type { WaveMachine } from './wave'
 
 /**
  * The schedule is DRIVEN, not waited on: the test holds the armed callback and
@@ -19,6 +22,7 @@ import {
  * 24-hour cadence is not something a clock can be asked to reach.
  */
 function fakeSchedule() {
+  let now = 0
   const armed: { run: () => void; ms: number; canceled: boolean }[] = []
   const schedule = (run: () => void, ms: number): (() => void) => {
     const entry = { run, ms, canceled: false }
@@ -28,6 +32,7 @@ function fakeSchedule() {
     }
   }
   return {
+    now: () => now,
     schedule,
     armed,
     /** Fire the most recently armed callback and settle its async work. */
@@ -36,6 +41,7 @@ function fakeSchedule() {
       if (!entry) throw new Error('nothing armed')
       if (entry.canceled) throw new Error('the armed callback was canceled')
       const before = armed.length
+      now += entry.ms
       entry.run()
       // Yield through a MACROTASK, not `await Promise.resolve()`. The armed
       // callback is `() => { void tick() }` -- production cannot hand a timer a
@@ -55,7 +61,7 @@ function fakeSchedule() {
 describe('startTargetRefresh', () => {
   const build = (
     opts: {
-      refresh?: (channel: UpdateChannel) => Promise<boolean | void>
+      refresh?: (channel: UpdateChannel) => Promise<TargetRefreshResult>
       operationActive?: (channel: UpdateChannel) => Promise<boolean>
     } = {},
   ) => {
@@ -68,6 +74,7 @@ describe('startTargetRefresh', () => {
       },
       operationActive: opts.operationActive ?? (async () => false),
       schedule: clock.schedule,
+      now: clock.now,
       initialDelayMs: 120_000,
     })
     return { ...clock, refreshed, handle }
@@ -137,7 +144,7 @@ describe('startTargetRefresh', () => {
   it('retries soon when a publication is temporarily incomplete', async () => {
     let incomplete = true
     const { fire, armed } = build({
-      refresh: async (channel) => (channel === 'edge' && incomplete ? false : true),
+      refresh: async (channel) => (channel === 'edge' && incomplete ? 'incomplete' : true),
     })
 
     await fire()
@@ -164,6 +171,85 @@ describe('startTargetRefresh', () => {
     expect(refreshed).toEqual(['dev', 'edge', 'stable'])
     expect(armed).toHaveLength(2)
     expect(armed[1]?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
+  })
+
+  it('backs off a failing feed at 2 min, 10 min, then at most once per hour', async () => {
+    const { fire, armed, refreshed } = build({ refresh: async (channel) => channel !== 'edge' })
+    for (const delay of [...REFRESH_FAILURE_INTERVALS_MS, 60 * 60_000, 60 * 60_000]) {
+      await fire()
+      expect(armed.at(-1)?.ms).toBe(delay)
+    }
+    expect(refreshed.filter((channel) => channel === 'stable')).toHaveLength(1)
+    expect(refreshed.filter((channel) => channel === 'dev')).toHaveLength(1)
+    expect(refreshed.filter((channel) => channel === 'edge')).toHaveLength(5)
+  })
+
+  it('resets the back-off after the feed answers and waits a day', async () => {
+    const clock = fakeSchedule()
+    let result: TargetRefreshResult = false
+    startTargetRefresh({
+      channels: ['edge'],
+      refresh: async () => result,
+      operationActive: async () => false,
+      schedule: clock.schedule,
+      now: clock.now,
+      initialDelayMs: 0,
+    })
+    await clock.fire()
+    await clock.fire()
+    expect(clock.armed.at(-1)?.ms).toBe(10 * 60_000)
+    result = true
+    await clock.fire()
+    expect(clock.armed.at(-1)?.ms).toBe(REFRESH_INTERVAL_MS)
+    result = false
+    await clock.fire()
+    expect(clock.armed.at(-1)?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
+  })
+
+  it('seeds the schedule from boot, avoiding another healthy check after two minutes', async () => {
+    const clock = fakeSchedule()
+    const refresh = vi.fn(async () => true)
+    const initialResults = await refreshTargetsOnBoot({ refresh, channels: ['edge', 'stable'] })
+    startTargetRefresh({
+      refresh,
+      channels: ['edge', 'stable'],
+      initialResults,
+      operationActive: async () => false,
+      schedule: clock.schedule,
+      now: clock.now,
+    })
+    expect(clock.armed.at(-1)?.ms).toBe(REFRESH_INTERVAL_MS)
+    expect(refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts a failed boot check as the first back-off attempt', async () => {
+    const clock = fakeSchedule()
+    startTargetRefresh({
+      refresh: async () => false,
+      channels: ['edge'],
+      initialResults: { edge: false },
+      operationActive: async () => false,
+      schedule: clock.schedule,
+      now: clock.now,
+      random: () => 0,
+    })
+    expect(clock.armed.at(-1)?.ms).toBe(2 * 60_000)
+    await clock.fire()
+    expect(clock.armed.at(-1)?.ms).toBe(10 * 60_000)
+  })
+
+  it('disables boot and scheduled reads only when explicitly configured', async () => {
+    const clock = fakeSchedule()
+    const refresh = vi.fn(async () => true)
+    expect(await refreshTargetsOnBoot({ refresh, enabled: false })).toEqual({})
+    startTargetRefresh({
+      refresh,
+      enabled: false,
+      operationActive: async () => false,
+      schedule: clock.schedule,
+    })
+    expect(clock.armed).toHaveLength(0)
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('stop() cancels the armed tick and arms nothing further', async () => {
@@ -198,6 +284,7 @@ describe('startTargetRefresh', () => {
       refresh: vi.fn(async () => {}),
       operationActive: async () => false,
       schedule: clock.schedule,
+      now: clock.now,
       random: () => 0,
     })
     expect(clock.armed[0]?.ms).toBe(REFRESH_INITIAL_MIN_MS)
@@ -287,6 +374,7 @@ describe('scheduled refresh after supervised completion', () => {
       const handle = startTargetRefresh({
         channels: ['dev'],
         schedule: clock.schedule,
+        now: clock.now,
         operationActive: async (channel) => await service.operationActive(channel),
         refresh: (channel) => service.refreshTarget(channel),
       })

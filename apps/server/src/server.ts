@@ -41,6 +41,7 @@ import {
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
+  resolveUpdateFeedPolling,
   resolveUpdateScope,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
@@ -185,7 +186,6 @@ import {
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
-import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -651,6 +651,7 @@ export async function startServer(
   // Fails the boot rather than advertising a UI origin whose browser could never
   // hold this server's session cookie (PDM-26).
   assertAppUrlCompatible(config, process.env)
+  const feedPollingEnabled = resolveUpdateFeedPolling(config, process.env)
   const updateScope = resolveUpdateScope(config, process.env)
   const fleetOnly = updateScope === 'fleet-only'
   ensureInstanceStateIdentity({ instanceId })
@@ -799,7 +800,9 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    ...(role.hub
+      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
+      : {}),
     // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
     servesHub: role.hub,
     installationId: installation.installationId,
@@ -2593,9 +2596,10 @@ export async function startServer(
       recoveryOnly
         ? Promise.resolve()
         : refreshTargetsOnBoot({
-            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+            refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+            enabled: feedPollingEnabled,
           })
-    ).then(async () => {
+    ).then(async (initialResults) => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
       if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
@@ -2606,7 +2610,9 @@ export async function startServer(
         recoveryOnly || rehearsal
           ? { stop: () => {} }
           : startTargetRefresh({
-              refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+              refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+              enabled: feedPollingEnabled,
+              initialResults: initialResults ?? {},
               operationActive: (channel) => registry.modules.updates.operationActive(channel),
               schedule: timerSchedule,
             })

@@ -1040,6 +1040,7 @@ export class SessionRegistry {
       // installation's own feed descriptor, which only the composition root can
       // state; without one the resolver refuses `dev` by name rather than
       // resolving something else.
+      feedPollingEnabled: () => this.store.settings.resolve('updateFeedPolling').value,
       resolveTarget: async (channel) =>
         await resolveReleaseTarget(channel, {
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
@@ -1662,7 +1663,11 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      handingOn?: (writer: MessageWriter, messageId: string, sessionId: SessionId) => Promise<boolean>
+      handingOn?: (
+        writer: MessageWriter,
+        messageId: string,
+        sessionId: SessionId,
+      ) => Promise<boolean>
       spawnPrompt?: (
         writer: MessageWriter,
         input: {
@@ -4190,7 +4195,10 @@ export class SessionRegistry {
             getState: () => state,
             // An answer run after its record committed: the server's own.
             answer: (answerInput) =>
-              sessionsSvc.answerAskUserQuestion({ ...answerInput, writer: sessionsSvc.serverWriter }),
+              sessionsSvc.answerAskUserQuestion({
+                ...answerInput,
+                writer: sessionsSvc.serverWriter,
+              }),
           },
           input,
         )
@@ -4225,13 +4233,15 @@ export class SessionRegistry {
         return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.inbox.deliverInteractionAnswer({ ...input, writer: sessionsSvc.serverWriter }, () =>
-          sessionsSvc.runtimeGateway.answer({
-            sessionId: input.sessionId,
-            interactionId: input.interactionId,
-            principal: { kind: input.principal.kind, ref: input.principal.principalRef },
-            answer: input.answer as unknown as Record<string, unknown>,
-          }),
+        await sessionsSvc.inbox.deliverInteractionAnswer(
+          { ...input, writer: sessionsSvc.serverWriter },
+          () =>
+            sessionsSvc.runtimeGateway.answer({
+              sessionId: input.sessionId,
+              interactionId: input.interactionId,
+              principal: { kind: input.principal.kind, ref: input.principal.principalRef },
+              answer: input.answer as unknown as Record<string, unknown>,
+            }),
         ),
     })
     /**

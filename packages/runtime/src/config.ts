@@ -42,6 +42,7 @@
  * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
  * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
+ * | PODIUM_UPDATE_FEED_POLLING    | config.updateFeedPolling | `resolveUpdateFeedPolling()` — on by default           |
  * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
  * | PODIUM_DEV_ARTIFACT_BASE_URL  | config.publicUrl        | `resolveDevArtifactOrigin()` (source publisher only)   |
  * | PODIUM_DEV_SOURCE_ROOT        | — (env-only opt-in)     | installed development publisher checkout              |
@@ -266,6 +267,8 @@ export const PodiumConfig = z.object({
     .optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
+  /** Automatic release feed reads. Env PODIUM_UPDATE_FEED_POLLING=on|off wins. */
+  updateFeedPolling: z.boolean().optional(),
   /**
    * The FLEET DEFAULT update channel (desktop is always stable). Default 'stable'.
    * It governs this instance's own self-update AND every joined machine that has
@@ -1449,6 +1452,14 @@ export function resolveUpdateFeed(
   return resolveSetting('updateFeed', config, env).value
 }
 
+/** Explicit per-instance release feed polling policy; normal installs poll by default. */
+export function resolveUpdateFeedPolling(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): boolean {
+  return resolveSetting('updateFeedPolling', config, env).value
+}
+
 /** Which machines this instance's updater may replace. See `config.updateScope`. */
 export type UpdateScope = 'all' | 'fleet-only'
 
@@ -1505,6 +1516,7 @@ export const LAYERED_KEYS = [
   'agentHome',
   'updateChannel',
   'updateFeed',
+  'updateFeedPolling',
   'mode',
   'publicUrl',
   'appUrl',
@@ -1532,6 +1544,7 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string | undefined>> = {
   agentHome: 'PODIUM_AGENT_HOME',
   updateChannel: 'PODIUM_UPDATE_CHANNEL',
   updateFeed: 'PODIUM_UPDATE_FEED',
+  updateFeedPolling: 'PODIUM_UPDATE_FEED_POLLING',
   mode: 'PODIUM_MODE',
   publicUrl: 'PODIUM_PUBLIC_URL',
   appUrl: 'PODIUM_APP_URL',
@@ -1561,6 +1574,7 @@ export interface LayeredValues {
   agentHome: string
   updateChannel: FleetUpdateChannel
   updateFeed: string | undefined
+  updateFeedPolling: boolean
   mode: PodiumMode | undefined
   publicUrl: string | undefined
   appUrl: string | undefined
@@ -1820,6 +1834,18 @@ const LAYERED_READERS: {
     file: (config) => config.updateFeed,
     default: () => undefined,
   },
+  updateFeedPolling: {
+    env: (env) =>
+      env.PODIUM_UPDATE_FEED_POLLING === undefined
+        ? undefined
+        : parseEnum(
+            env.PODIUM_UPDATE_FEED_POLLING,
+            ['on', 'off'] as const,
+            'PODIUM_UPDATE_FEED_POLLING',
+          ) === 'on',
+    file: (config) => config.updateFeedPolling,
+    default: () => true,
+  },
   mode: {
     env: (env) =>
       env.PODIUM_MODE === undefined
@@ -2005,6 +2031,7 @@ export const LAYERED_SCOPES = {
   publicUrl: 'bootstrap',
   appUrl: 'bootstrap',
   updateFeed: 'operator',
+  updateFeedPolling: 'operator',
   allowedOrigins: 'operator',
   authMode: 'operator',
   authSignInUrl: 'operator',

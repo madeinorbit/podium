@@ -15,7 +15,6 @@ import {
   JSC_DEFAULT_SAMPLE_US,
   LAYERED_ENV,
   LAYERED_KEYS,
-  PodiumConfig,
   LOGGING_MODE_ENV,
   loadConfig,
   localServerUrl,
@@ -23,14 +22,15 @@ import {
   migrateConfig,
   migrateConfigFile,
   needsSetup,
+  PodiumConfig,
   profileSamplerEnv,
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
   resolveAllowedOrigins,
+  resolveAppUrl,
   resolveAuthMode,
   resolveAuthSignInUrl,
-  resolveAppUrl,
   resolveConnectBaseUrl,
   resolveConnectEnabled,
   resolveConnectProbeKeys,
@@ -54,6 +54,7 @@ import {
   resolveTranscriptLakeSetting,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  resolveUpdateFeedPolling,
   resolveUpdateScope,
   resolveUpdateTarget,
   saveConfig,
@@ -302,6 +303,21 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     ).toBe('http://env')
     expect(resolveUpdateFeed({ updateFeed: 'http://cfg' }, {})).toBe('http://cfg')
     expect(resolveUpdateFeed({}, {})).toBeUndefined()
+  })
+  it('release feed polling defaults on and follows explicit env > config', () => {
+    expect(resolveUpdateFeedPolling({}, {})).toBe(true)
+    expect(resolveUpdateFeedPolling({ updateFeedPolling: false }, {})).toBe(false)
+    expect(
+      resolveUpdateFeedPolling({ updateFeedPolling: true }, { PODIUM_UPDATE_FEED_POLLING: 'off' }),
+    ).toBe(false)
+    expect(
+      resolveUpdateFeedPolling({ updateFeedPolling: false }, { PODIUM_UPDATE_FEED_POLLING: 'on' }),
+    ).toBe(true)
+    expect(() => resolveUpdateFeedPolling({}, { PODIUM_UPDATE_FEED_POLLING: 'auto' })).toThrow(
+      'PODIUM_UPDATE_FEED_POLLING',
+    )
+    saveConfig({ updateFeedPolling: false })
+    expect(loadConfig().updateFeedPolling).toBe(false)
   })
   it('resolveDevArtifactOrigin: env > publicUrl > disabled', () => {
     expect(
