@@ -36,6 +36,7 @@
 import {
   type AnyCommandContract,
   messageMentionsRedactedValue,
+  RECORD_CONTRACTS,
   REDACTED,
   redactReport,
   redactUnknownForLog,
@@ -51,6 +52,20 @@ import {
 /** What a message becomes when it was found to contain redacted material. The
  *  command name is kept — a record naming nothing is not a record. */
 export const REDACTED_MESSAGE = `${REDACTED} (the error text named a redacted value)`
+
+/** The generic edit of my personal settings record (POD-6673). */
+export const USER_PREFERENCES_EDIT = 'records.userPreferences.edit'
+
+/**
+ * The commands this trail records, each redacted by its own contract: the
+ * settings family, and the generic edit that replaced `settings.updatePersonal`
+ * (POD-6673). The change log records the record's new value; it does not
+ * replace this trail, which keeps who asked, for whom, and what was refused.
+ */
+const AUDITED_CONTRACTS: Readonly<Record<string, AnyCommandContract | undefined>> = {
+  ...SETTINGS_CONTRACTS,
+  [USER_PREFERENCES_EDIT]: RECORD_CONTRACTS[USER_PREFERENCES_EDIT],
+}
 
 export interface SettingsAuditPort {
   readonly repo: Pick<SettingsAuditRepository, 'append'>
@@ -75,9 +90,7 @@ export async function recordSettingsCommand(
     error?: string
   },
 ): Promise<void> {
-  const contract = (SETTINGS_CONTRACTS as Record<string, AnyCommandContract | undefined>)[
-    args.command
-  ]
+  const contract = AUDITED_CONTRACTS[args.command]
 
   // FAIL CLOSED ON AN UNKNOWN COMMAND. The derived router cannot reach here with
   // one — the table IS its key set — but a refusal can be recorded before the
@@ -125,7 +138,7 @@ export async function recordSettingsCommand(
  * them into one helper would make the weaker of the two answer for both.
  */
 export function redactErrorMessage(command: string, input: unknown, message: string): string {
-  const contract = (SETTINGS_CONTRACTS as Record<string, AnyCommandContract | undefined>)[command]
+  const contract = AUDITED_CONTRACTS[command]
   if (!contract) return REDACTED_MESSAGE
   return messageMentionsRedactedValue(message, contract, 'input', input)
     ? REDACTED_MESSAGE

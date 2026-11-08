@@ -95,7 +95,7 @@ describe('statement counts of the per-user record writes', () => {
   })
 
   it('a preference edit does not grow with the preferences the table holds', async () => {
-    await expectConstantStatements(preferencesEdit, 13)
+    await expectConstantStatements(preferencesEdit, 14)
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {

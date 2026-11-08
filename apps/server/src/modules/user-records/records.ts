@@ -28,6 +28,7 @@ import {
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { SessionsRepository } from '../../store/sessions'
 import { registerRecordKind } from '../records/generic'
+import { USER_PREFERENCES_EDIT } from '../settings/audit'
 import { SettingsPatchRefused, type SettingsService } from '../settings/service'
 import { SyncWriteRefused } from '../sync-write/entry'
 import type { SyncWriteContext, SyncWriteRegistry, SyncWriteTarget } from '../sync-write/registry'
@@ -38,7 +39,7 @@ export interface UserRecordDeps {
     SessionsRepository,
     'pinnedAt' | 'addPin' | 'removePin' | 'tabOrder' | 'setTabOrder'
   >
-  readonly settings: () => Pick<SettingsService, 'updatePreferences'>
+  readonly settings: () => Pick<SettingsService, 'updatePreferences' | 'recordCommand'>
   /** May this caller read this session? A panel pin names one. */
   readonly canReadSession: (principal: CommandPrincipal, sessionId: string) => Promise<boolean>
   readonly now?: () => string
@@ -184,10 +185,34 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
     return key !== undefined && human !== undefined && key.userId === human ? key : undefined
   }
 
+  // THE SETTINGS AUDIT TRAIL KEEPS ITS ROWS. A personal write is recorded in
+  // `settings_audit_events` as `settings.updatePersonal` was: applied once it
+  // committed (the row commits with the write), refused when the gate refuses.
+  const audit = async (
+    principal: CommandPrincipal,
+    input: unknown,
+    outcome: 'applied' | 'refused',
+    error?: string,
+  ) =>
+    await deps.settings().recordCommand({
+      command: USER_PREFERENCES_EDIT,
+      outcome,
+      principal,
+      input,
+      ...(error !== undefined ? { error } : {}),
+    })
+
   registerRecordKind(registry, USER_PREFERENCES_RECORD, {
-    target: async (_op, id, { principal }) => {
+    target: async (_op, id, { principal }, edited) => {
       const key = ownPreferences(id, principal)
-      return key === undefined ? undefined : own(key.userId)
+      if (key !== undefined) return own(key.userId)
+      await audit(
+        principal,
+        { id, patch: edited?.patch ?? {}, unset: edited?.unset ?? [] },
+        'refused',
+        'not your settings record',
+      )
+      return undefined
     },
     edit: async (ctx, id, patch, _expected, unset) => {
       const { userId } = ownPreferences(id, ctx.principal) ?? gone()
@@ -207,6 +232,7 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
         }
         throw error
       }
+      await audit(ctx.principal, { id, patch, unset }, 'applied')
       return { ok: true }
     },
   })

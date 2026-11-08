@@ -128,6 +128,12 @@ describe('records.pin', () => {
       ),
     )
     expect(refusalOf(reply)?.kind).toBe('unauthorized')
+    // A refusal is an audit fact too.
+    expect(
+      (await o.store.settingsAudit.list()).filter(
+        (row) => row.command === 'records.userPreferences.edit',
+      ),
+    ).toEqual([expect.objectContaining({ outcome: 'refused', actorId: ME })])
   })
 })
 
@@ -228,6 +234,15 @@ describe('records.userPreferences', () => {
       { writes: true },
     )
     expect(await o.store.settings.preferenceRecordFor(ME)).not.toHaveProperty('roles.coding.model')
+
+    // The settings audit trail keeps a row per applied write, attributed to me,
+    // with what I asked for: the change log does not replace it.
+    const trail = (await o.store.settingsAudit.list()).filter(
+      (row) => row.command === 'records.userPreferences.edit',
+    )
+    expect(trail.map((row) => row.outcome)).toEqual(['applied', 'applied', 'applied'])
+    expect(trail.every((row) => row.actorId === ME && row.onBehalfOf === ME)).toBe(true)
+    expect(JSON.stringify(trail.map((row) => row.detail))).toContain('roles.coding.model')
   })
 
   it('a replay runs nothing, and a secret or an instance path is no field of the record', async () => {

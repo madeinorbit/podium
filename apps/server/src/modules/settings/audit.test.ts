@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import { settingsAuditAttribution } from '../../store/settings-audit'
-import { recordSettingsCommand, REDACTED_MESSAGE, redactErrorMessage } from './audit'
+import { REDACTED_MESSAGE, recordSettingsCommand, redactErrorMessage } from './audit'
 
 const HUMAN = firstAdminMemberId()
 const DELEGATOR = asUserId('ada')
@@ -179,7 +179,11 @@ describe('THE ERROR PATH — the place redaction is usually forgotten', () => {
 describe('redactErrorMessage — the WIRE half of the error path', () => {
   it('replaces a message naming the material', () => {
     expect(
-      redactErrorMessage('settings.setSecret', { key: 'apiKeys.openai', value: SECRET }, `bad ${SECRET}`),
+      redactErrorMessage(
+        'settings.setSecret',
+        { key: 'apiKeys.openai', value: SECRET },
+        `bad ${SECRET}`,
+      ),
     ).toBe(REDACTED_MESSAGE)
   })
 
@@ -224,7 +228,7 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
     // which is exactly why a suite run only as a human cannot detect a collapse.
     const p = port()
     await recordSettingsCommand(p, {
-      command: 'settings.updatePersonal',
+      command: 'records.userPreferences.edit',
       outcome: 'applied',
       principal: person,
       input: { values: {} },
