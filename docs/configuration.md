@@ -48,6 +48,7 @@ file keys; later file values are operator overrides and are never re-imported.
 | `PODIUM_AGENT_HOME` | `agentHome` | `$HOME` (named instances isolate) | `resolveAgentHomeDir()` |
 | `PODIUM_UPDATE_CHANNEL` | `updateChannel` | `stable` | `resolveUpdateChannel()` |
 | `PODIUM_UPDATE_FEED` | `updateFeed` | GitHub Releases | `resolveUpdateFeed()` |
+| `PODIUM_UPDATE_FEED_POLLING` | `updateFeedPolling` | `on` | `resolveUpdateFeedPolling()` |
 | `PODIUM_AUTH_MODE` | `auth.mode` | `local` | `resolveAuthMode()` |
 | `PODIUM_AUTH_SIGN_IN_URL` | `auth.signInUrl` | unset (same-origin `/account/sign-in`) | `resolveAuthSignInUrl()` |
 | `PODIUM_MODE` | `mode` | unset (needs setup) | `resolveMode()` |
@@ -62,6 +63,18 @@ file keys; later file values are operator overrides and are never re-imported.
 
 Every one is optional. With none set, an install behaves exactly as it did
 before any of them existed.
+
+### `PODIUM_UPDATE_FEED_POLLING`
+
+Set `off`, or set `"updateFeedPolling": false` in this instance's `config.json`, to
+stop release feed checks at boot, on the daily clock, and through Check now.
+Normal installations default to `on`. This is an operator setting; Podium does
+not infer test status from instance names, ports, or runtime mode.
+
+A source publisher may still resolve its own local development feed when it
+publishes a target. Validation and multi-instance tooling explicitly set `off`;
+tests that exercise a feed can opt in with `on`. Docker update fixtures enable
+polling only after wiring their local release host.
 
 ### `PODIUM_MODE`
 

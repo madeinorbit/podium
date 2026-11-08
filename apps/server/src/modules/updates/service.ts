@@ -74,7 +74,7 @@ export interface UpdatesDeps {
    * the publisher, and that exclusion is what made it the one channel whose
    * resolution path nothing else exercised.
    */
-  resolveTarget?(channel: UpdateChannel): Promise<UpdateTarget>
+  resolveTarget?(channel: UpdateChannel, previous?: UpdateTarget): Promise<UpdateTarget>
   feedPollingEnabled?(): boolean
   /**
    * Does THIS server also mint targets for this channel? True for `dev` on a
@@ -976,7 +976,16 @@ export class UpdatesService {
       return false
     }
     try {
-      const resolved = await this.deps.resolveTarget(channel)
+      const previous = this.target(channel)
+      const resolved = previous
+        ? await this.deps.resolveTarget(channel, previous)
+        : await this.deps.resolveTarget(channel)
+      // An unchanged advertisement has no publication or recovery work to do.
+      if (previous && previous.version === resolved.version && updateFingerprint(previous) === updateFingerprint(resolved)) {
+        this.unavailableReasons.delete(channel)
+        this.recordCheck(channel, { status: 'ok' })
+        return true
+      }
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.

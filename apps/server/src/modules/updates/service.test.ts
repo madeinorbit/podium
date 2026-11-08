@@ -1761,6 +1761,43 @@ describe('target refresh bookkeeping', () => {
     })
   })
 
+  it('allows a local development publisher to resolve its own feed with public polling off', async () => {
+    const resolve = vi.fn(async () => target)
+    const svc = new UpdatesService({ machines: async () => [], send: vi.fn(), now: () => 1000,
+      nextGrantId: () => 'g', concurrency: 1, resolveTarget: resolve, feedPollingEnabled: () => false,
+      locallyPublished: (channel) => channel === 'dev' })
+    expect(await svc.refreshTarget('dev')).toBe(true)
+    expect(await svc.refreshTarget('edge')).toBe(false)
+    expect(resolve.mock.calls).toEqual([['dev']])
+  })
+
+  it('stops unchanged refreshes before producer work while recording the successful check', async () => {
+    const resolve = vi.fn(async () => target)
+    const { svc, advance } = build(resolve)
+    const publish = vi.spyOn(svc, 'setTargetFromProducer')
+    await svc.refreshTarget('stable')
+    expect(publish).toHaveBeenCalledTimes(1)
+    advance(1000)
+    await svc.refreshTarget('stable')
+    expect(resolve).toHaveBeenLastCalledWith('stable', target)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(svc.channelChecks()[0]?.checkedAt).toBe(2000)
+  })
+
+  it('accepts changed digests even if a standing release keeps the same version', async () => {
+    let digest = 'sha256-old'
+    const resolve = async () => ({ version: '1.0.0', critical: false,
+      artifacts: { headless: { delivery: 'feed', platforms: { 'linux-x86_64': {
+        url: 'https://feed.example/a.tar.gz', signature: 'sig', digest,
+      } } } } }) as never
+    const { svc } = build(resolve)
+    const publish = vi.spyOn(svc, 'setTargetFromProducer')
+    await svc.refreshTarget('stable')
+    digest = 'sha256-new'
+    await svc.refreshTarget('stable')
+    expect(publish).toHaveBeenCalledTimes(2)
+  })
+
   it('records when a channel was checked and that it succeeded', async () => {
     const { svc } = build(async () => target)
     expect(await svc.refreshTarget('stable')).toBe(true)
