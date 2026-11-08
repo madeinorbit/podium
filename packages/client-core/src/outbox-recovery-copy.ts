@@ -305,7 +305,10 @@ function describeEffect(input: unknown): QueuedChangeView {
       return { label: 'Change the effort', summary: null }
     }
   }
-  const label = typeof effect?.kind === 'string' ? EFFECT_LABELS[effect.kind] : undefined
+  const label =
+    typeof effect?.kind === 'string' && Object.hasOwn(EFFECT_LABELS, effect.kind)
+      ? EFFECT_LABELS[effect.kind]
+      : undefined
   return { label: label ?? kindLabel('effectCreate'), summary: null }
 }
 

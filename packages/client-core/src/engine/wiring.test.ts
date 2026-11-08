@@ -416,12 +416,13 @@ describe('effect refusals through the executor', () => {
     const api = {
       sync: { submit: { mutate: vi.fn(async () => ({ outcome: 'rejected', refusal })) } },
     }
-    await expect(
-      outboxExecutors(api as never)[kind]({
-        ...SAMPLE[kind],
-        mutationId: asMutationId('m-effect'),
-      }),
-    ).rejects.toMatchObject({
+    const execute = outboxExecutors(api as never)
+    const mutationId = asMutationId('m-effect')
+    const result =
+      kind === 'effectCreate'
+        ? execute.effectCreate({ ...SAMPLE.effectCreate, mutationId })
+        : execute.effectDismiss({ ...SAMPLE.effectDismiss, mutationId })
+    await expect(result).rejects.toMatchObject({
       message: refusal.message,
       refusal,
       data: { code: 'BAD_REQUEST' },

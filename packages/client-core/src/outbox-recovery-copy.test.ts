@@ -67,7 +67,12 @@ describe('describeQueuedChange', () => {
     expect(couldNotSaveNotice('effectDismiss', { id: 'SECRET' })).toBe(
       'Couldn’t dismiss the result',
     )
-    for (const input of [null, {}, { kind: 'internal.future', input: { text: 'SECRET' } }]) {
+    for (const input of [
+      null,
+      {},
+      { kind: 'constructor' },
+      { kind: 'internal.future', input: { text: 'SECRET' } },
+    ]) {
       expect(describeQueuedChange('effectCreate', input)).toEqual({
         label: 'Action',
         summary: null,
