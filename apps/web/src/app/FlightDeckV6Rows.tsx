@@ -43,7 +43,7 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
-  /** Open task details whenever its row or disclosure is activated. */
+  /** Open task details when its row is activated. */
   onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -236,7 +236,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
           >
-            <TaskFold task={task} contentId={controlledIds} onOpenTask={actions.onOpenTask} />
+            <TaskFold task={task} contentId={controlledIds} />
             <span className="flight-v6-ring-control">
               <IssueStatusPicker
                 issue={task.row.status}
@@ -310,11 +310,9 @@ const FlightDeckV6TaskTitle = observer(function FlightDeckV6TaskTitle({
 const TaskFold = observer(function TaskFold({
   task,
   contentId,
-  onOpenTask,
 }: {
   task: FullDeckTask
   contentId: string
-  onOpenTask: FlightDeckV6Actions['onOpenTask']
 }) {
   if (!task.foldable) return <span className="flight-v6-fold" aria-hidden="true" />
   return (
@@ -325,10 +323,7 @@ const TaskFold = observer(function TaskFold({
       aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.title}`}
       aria-expanded={task.open}
       aria-controls={contentId}
-      onClick={() => {
-        onOpenTask(task)
-        task.deck.toggleFold(task.id)
-      }}
+      onClick={() => task.deck.toggleFold(task.id)}
     >
       {task.open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
     </button>

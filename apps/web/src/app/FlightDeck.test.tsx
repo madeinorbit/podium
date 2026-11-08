@@ -361,7 +361,7 @@ describe('task detail picks', () => {
     expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).has('t4')).toBe(false)
   })
 
-  it('opens the issue dock on every session disclosure, including repeated clicks and the caret', async () => {
+  it('opens the issue dock on row picks without navigating on caret disclosure', async () => {
     harness.ui.set(RIGHT_PANEL_KEY, 'issue')
     const details = panelRequests()
     await deck()
@@ -381,7 +381,7 @@ describe('task detail picks', () => {
       fireEvent.click(caret)
     })
     expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
-    expect(details).toEqual(['issue', 'issue', 'issue'])
+    expect(details).toEqual(['issue', 'issue'])
   })
 })
 

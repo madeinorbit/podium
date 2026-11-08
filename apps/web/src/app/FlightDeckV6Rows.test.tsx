@@ -173,12 +173,30 @@ it('issue pointer and keyboard open details and fold; session actions open the e
     fireEvent.click(f.task().querySelector('.flight-v6-fold')!)
   })
   expect(f.agent()).not.toBeNull()
-  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(3)
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(2)
   await act(async () => {
     fireEvent.click(f.task().querySelector('.flight-v6-strip')!)
   })
   expect(f.agent()).toBeNull()
-  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(4)
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(3)
+})
+
+it('caret toggles by pointer, Enter and Space without opening issue details', async () => {
+  const f = await open()
+  const caret = f.ui.getByRole('button', { name: 'Expand Task task' })
+  const keyboard = userEvent.setup()
+  await act(async () => {
+    fireEvent.click(caret)
+  })
+  expect(f.agent()).not.toBeNull()
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  caret.focus()
+  await keyboard.keyboard('{Enter}')
+  expect(f.agent()).toBeNull()
+  await keyboard.keyboard(' ')
+  expect(f.agent()).not.toBeNull()
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
 it('anchors the team-forms step-in card on a collapsed sub-task strip, then on its session rows', async () => {

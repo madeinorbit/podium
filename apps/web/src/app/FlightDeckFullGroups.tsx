@@ -272,28 +272,47 @@ const PhaseHeader = observer(function PhaseHeader({
           onCancel={actions.onRenameDone}
         />
       ) : (
-        <button
-          type="button"
+        // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the contained buttons provide keyboard activation; the handler also covers the row's gaps.
+        <div
           className="flight-full-phase-toggle"
           data-pressable
-          aria-label={`${task.open ? 'Collapse' : 'Expand'} phase ${task.row.title}`}
-          aria-expanded={task.open}
-          aria-controls={contentId}
           onClick={() => {
             actions.onOpenTask(task)
             task.deck.toggleFold(task.id)
           }}
         >
           <span className="flight-full-phase-identity">
-            {task.open ? (
-              <ChevronDown size={12} aria-hidden />
-            ) : (
-              <ChevronRight size={12} aria-hidden />
-            )}
-            <span className="flight-full-phase-index">
-              {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
-            </span>
-            <span className="flight-full-phase-name">{task.row.title}</span>
+            <button
+              type="button"
+              className="flight-full-phase-fold"
+              data-pressable
+              aria-label={`${task.open ? 'Collapse' : 'Expand'} phase ${task.row.title}`}
+              aria-expanded={task.open}
+              aria-controls={contentId}
+              onClick={(event) => {
+                event.stopPropagation()
+                task.deck.toggleFold(task.id)
+              }}
+            >
+              {task.open ? (
+                <ChevronDown size={12} aria-hidden />
+              ) : (
+                <ChevronRight size={12} aria-hidden />
+              )}
+            </button>
+            <button
+              type="button"
+              className="flight-full-phase-body"
+              data-pressable
+              aria-label={`Open phase ${task.row.title}`}
+              aria-expanded={task.open}
+              aria-controls={contentId}
+            >
+              <span className="flight-full-phase-index">
+                {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
+              </span>
+              <span className="flight-full-phase-name">{task.row.title}</span>
+            </button>
           </span>
           <span className="flight-full-phase-hairline" aria-hidden />
           <span className="flight-full-phase-progress">
@@ -315,7 +334,7 @@ const PhaseHeader = observer(function PhaseHeader({
               {counter.done}/{counter.total}
             </span>
           </span>
-        </button>
+        </div>
       )}
     </div>
   )

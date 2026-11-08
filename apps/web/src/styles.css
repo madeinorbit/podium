@@ -14231,8 +14231,11 @@ button.waterfall-fold:hover {
   padding: 3px 6px;
   text-align: left;
 }
-.flight-full-phase-identity > svg {
-  flex: none;
+.flight-full-phase-fold {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
   color: var(--text-faint);
   align-self: start;
   margin-top: 3px;
@@ -14920,12 +14923,20 @@ button.waterfall-fold:hover {
 }
 .flight-full-phase-identity {
   display: grid;
-  grid-template-columns: 12px max-content minmax(0, 1fr);
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: baseline;
   gap: 8px;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
+}
+.flight-full-phase-body {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  text-align: left;
 }
 .flight-full-phase-name {
   min-width: 0;
