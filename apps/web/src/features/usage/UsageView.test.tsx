@@ -235,7 +235,7 @@ describe('UsageView loading', () => {
     expect(screen.getAllByText(/5 replies/).length).toBeGreaterThan(0)
   })
 
-  it('reopens straight into the last readings, with no cold pass and no entrance', async () => {
+  it('reopens cached usage while task costs take a fresh answer', async () => {
     summary.mockResolvedValue({ buckets: [bucket()] })
     const first = render(<UsageView onClose={() => {}} />)
     await act(async () => {})
@@ -246,16 +246,13 @@ describe('UsageView loading', () => {
     summary.mockReturnValue(pending())
     render(<UsageView onClose={() => {}} />)
     expect(body().dataset.cold).toBeUndefined()
-    // The task-cost answer is owned by the new opening; cached usage remains readable.
-    expect(
-      [...body().querySelectorAll('.usage-unfilled')].filter(
-        (slot) => !slot.closest('.usage-tasks'),
-      ),
-    ).toHaveLength(0)
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
     // Already readable, so it gets no entrance — that would be choreography over
     // content the operator can read right now.
     expect(body().dataset.arrive).toBeUndefined()
+    // Task-cost figures and their provenance belong to this opening.
+    await act(async () => {})
+    expect(body().querySelectorAll('.usage-unfilled')).toHaveLength(0)
   })
 
   it('admits a slow refresh only once it has outrun the reveal delay', async () => {
