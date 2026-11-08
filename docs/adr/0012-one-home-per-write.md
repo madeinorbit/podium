@@ -257,7 +257,8 @@ with the reason it lands where it does.
   message, and today they are hidden from change detection, so devices see them stale. Lasting
   state, written at turn end only.
 - Chat message delivery status.
-- Pending interactions, with approvals folded in ★.
+- Pending interactions.
+- Approvals ★, as effect records (D5 E2) with a human `decision` field: an agent's request for a management operation that outlives its session. Amended 2026-11-08 (POD-5620 design 1.8): the earlier "fold into pending interactions" did not fit, because a pending interaction is a harness prompt inside one session.
 - Automation runs, workflow runs ★.
 - Effect record status and stage ★.
 - Issue git state.
