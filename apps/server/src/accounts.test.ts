@@ -159,8 +159,10 @@ describe('accountViews', () => {
   })
 
   it('surfaces the Codex ID-token profile instead of its account id', async () => {
+    // The single-home path reads the home it is given, never an ambient CODEX_HOME.
+    mkdirSync(join(home, '.codex'), { recursive: true })
     writeFileSync(
-      join(codexHome, 'auth.json'),
+      join(home, '.codex', 'auth.json'),
       JSON.stringify({
         tokens: {
           access_token: 'access',
