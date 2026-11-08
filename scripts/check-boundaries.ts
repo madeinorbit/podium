@@ -3430,6 +3430,94 @@ export function checkAsyncBooleanPredicate(file: string, source: string): Violat
  */
 const PROMISE_COMBINATORS = new Set(['all', 'allSettled', 'race', 'any'])
 
+/**
+ * A NESTED WRITE SCOPE OPENED INSIDE A PARALLEL COMBINATOR (POD-6625).
+ *
+ * ```ts
+ * await Promise.all(rows.map(async (m) => await commitMessages(writer, …)))  // refused
+ * for (const m of rows) await commitMessages(writer, …)                     // one at a time
+ * ```
+ *
+ * Inside a unit of work (every `sync.submit` write, POD-6525) a commit — a
+ * module's `commit*` helper, a writer's `commit`, `transact`,
+ * `createOrJoinTransaction`, `unitOfWork` — is a SAVEPOINT on that unit, and
+ * savepoints are a stack: while one branch's savepoint is open, the executor
+ * refuses every other statement on the unit with
+ * `ParallelNestedTransactionError` and the whole write rolls back. Run in
+ * parallel, two branches that each open one collide as soon as there are two
+ * rows; a fixture with one row passes. That is how the live inbox read failed
+ * while its tests stayed green: `mailbox.readInbox` marked each row read in its
+ * own commit under `Promise.all`.
+ *
+ * Plain statements in parallel are fine (they share the unit's frame), and so
+ * is a combinator over top-level transactions outside any unit — but source
+ * text cannot tell the two apart, so a combinator that opens scopes on purpose
+ * says so with a `// DECISION POD-…` marker on its line.
+ *
+ * Unlike the sequential rule above, nested function bodies ARE entered: the
+ * callback handed to `.map` is exactly the code that runs concurrently. The
+ * ceiling, said rather than left to be found: only DIRECT calls are seen. A
+ * branch that reaches a commit through a service method it calls is beyond a
+ * source-text rule; the oracle tests driving each write through the real entry
+ * point and executor are the guard for that.
+ */
+const NESTED_SCOPE_OPENER =
+  /^(?:commit[A-Z]\w*|commit|transact|createOrJoinTransaction|unitOfWork)$/
+
+export function checkParallelNestedScope(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (/\.test\.tsx?$/.test(file)) return []
+  if (!/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(/.test(source)) return []
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const calleeName = (call: ts.CallExpression): string | undefined => {
+    const callee = unwrapTransparentExpression(call.expression)
+    if (ts.isIdentifier(callee)) return callee.text
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text
+    return undefined
+  }
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Promise' &&
+      PROMISE_COMBINATORS.has(node.expression.name.text) &&
+      node.arguments.length > 0
+    ) {
+      const combinator = node.expression.name.text
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+      const openers: string[] = []
+      const scan = (inner: ts.Node): void => {
+        if (ts.isCallExpression(inner)) {
+          const name = calleeName(inner)
+          if (name !== undefined && NESTED_SCOPE_OPENER.test(name)) openers.push(name)
+        }
+        ts.forEachChild(inner, scan)
+      }
+      scan(node.arguments[0] as ts.Node)
+      if (openers.length > 0 && !marked.has(line)) {
+        violations.push({
+          file,
+          specifier: `Promise.${combinator}`,
+          rule: 'parallel-nested-scope',
+          message: `${file}:${line}: 'Promise.${combinator}()' runs branches that each open a write scope ('${[...new Set(openers)].join("', '")}'). Inside a unit of work every such scope is a savepoint on the unit, and savepoints are a stack: with two branches the executor refuses the second with ParallelNestedTransactionError and the whole write rolls back (POD-6625). Open them one at a time (a \`for … of\` with \`await\`). If this combinator only ever runs outside a unit, say so with a '// DECISION POD-…' marker on this line.`,
+        })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 export function checkSequentialPromiseCombinator(file: string, source: string): Violation[] {
   if (!/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(\s*\[/.test(source)) return []
   const violations: Violation[] = []
@@ -4189,6 +4277,7 @@ export function checkFile(
     ...checkProjectionSqlIdentifiers(file, source),
     ...checkAsyncBooleanPredicate(file, source),
     ...checkSequentialPromiseCombinator(file, source),
+    ...checkParallelNestedScope(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
