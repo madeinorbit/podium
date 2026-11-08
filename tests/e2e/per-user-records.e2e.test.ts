@@ -44,7 +44,13 @@ import {
   type UserId,
   userPreferencesRowId,
 } from '@podium/model'
-import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import {
+  CAP_SYNC_HTTP_V1,
+  CAP_TOPICS_V1,
+  CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
+  type ServerMessage,
+} from '@podium/protocol'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { Replica } from '@podium/sync/replica'
 import type { FeedServerFrame } from '@podium/terminal-client'
@@ -200,7 +206,10 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       onDropped: (entry) => dropped.push(entry),
     })
 
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}`, {
+    // The URL and the hello the socket hub sends: the version range and the
+    // HTTP-sync capability a feed client advertises before and after upgrade.
+    const url = `ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&vmin=${MIN_CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`
+    const ws = new WebSocket(url, {
       headers: { authorization: `Bearer ${token}` },
     })
     sockets.push(ws)
@@ -218,6 +227,8 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
             clientId: '',
             viewport: { cols: 80, rows: 24, dpr: 1 },
             wireVersion: CLIENT_WIRE_VERSION,
+            wireVersionMin: MIN_CLIENT_WIRE_VERSION,
+            caps: [CAP_TOPICS_V1, CAP_SYNC_HTTP_V1],
             ...(sink.helloFields() ?? {}),
           }),
         )
