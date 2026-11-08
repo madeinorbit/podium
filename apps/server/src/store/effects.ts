@@ -18,6 +18,7 @@
  */
 
 import {
+  type EffectDecision,
   EffectLifecycle,
   type EffectStatus,
   type EffectTargetKind,
@@ -53,6 +54,14 @@ export interface EffectRow {
   readonly deadlineAt: number | undefined
   readonly attempts: number
   readonly stage: string | undefined
+  /**
+   * A human gate (POD-6674): `awaiting` its person's decision, then `approve` or
+   * `deny`; `undefined` for a kind with no gate. An awaiting record is never
+   * claimed, swept or cancelled: a deny is how it ends unrun.
+   */
+  readonly decision: EffectStoredDecision | undefined
+  /** Who a gated record is routed to; `undefined`: its creator (POD-6674). */
+  readonly deciders: readonly UserId[] | undefined
   readonly startedAt: number | undefined
   readonly finishedAt: number | undefined
   readonly createdBy: UserId | null
@@ -64,6 +73,11 @@ export interface EffectRow {
   readonly deletedAt: number | undefined
 }
 
+/** A gated record's decision as stored: `awaiting` is the wire's `null`. */
+export type EffectStoredDecision = 'awaiting' | EffectDecision
+
+const STORED_DECISIONS: readonly string[] = ['awaiting', 'approve', 'deny']
+
 /** Who an effect's audience is read from, through the tombstone. */
 export interface EffectAudience {
   /** The executor's kind: an instance-wide kind is read by every admin (POD-6358). */
@@ -71,6 +85,8 @@ export interface EffectAudience {
   readonly targetKind: string
   readonly targetId: string
   readonly createdBy: UserId | null
+  /** A gated record's people (POD-6674): they read it too. */
+  readonly deciders?: readonly UserId[] | undefined
 }
 
 /** Run inside the write's transaction with the rows it returned. */
@@ -87,6 +103,14 @@ const parseJson = (text: string | null): unknown => {
 
 const orUndefined = <T>(value: T | null): T | undefined => (value === null ? undefined : value)
 
+/** A stored deciders list; anything but an array of ids reads as none. */
+function decidersOf(text: string | null): readonly UserId[] | undefined {
+  const value = parseJson(text)
+  return Array.isArray(value) && value.every((id) => typeof id === 'string')
+    ? (value as UserId[])
+    : undefined
+}
+
 export function rowToEffect(r: EffectSelect): EffectRow {
   return {
     id: r.id,
@@ -102,6 +126,11 @@ export function rowToEffect(r: EffectSelect): EffectRow {
     deadlineAt: orUndefined(r.deadlineAt),
     attempts: r.attempts,
     stage: orUndefined(r.stage),
+    decision:
+      r.decision !== null && STORED_DECISIONS.includes(r.decision)
+        ? (r.decision as EffectStoredDecision)
+        : undefined,
+    deciders: decidersOf(r.deciders),
     startedAt: orUndefined(r.startedAt),
     finishedAt: orUndefined(r.finishedAt),
     createdBy: r.createdBy,
@@ -119,6 +148,8 @@ const P = (name: string) => sql.placeholder(name)
 const idIs = () => eq(effects.id, param(effects.id, 'id'))
 const live = () => isNull(effects.deletedAt)
 const statusIn = (states: readonly EffectStatus[]) => inArray(effects.status, [...states])
+/** Not waiting for a person (POD-6674): no gate, or one already decided. */
+const notAwaiting = () => sql`(${effects.decision} IS NULL OR ${effects.decision} <> 'awaiting')`
 
 const insertEffect = prepared((db: StoreDrizzle) =>
   db
@@ -130,6 +161,9 @@ const insertEffect = prepared((db: StoreDrizzle) =>
       targetId: P('targetId'),
       inputJson: P('inputJson'),
       status: P('status'),
+      stage: P('stage'),
+      decision: P('decision'),
+      deciders: P('deciders'),
       deadlineAt: P('deadlineAt'),
       createdBy: P('createdBy'),
       actor: P('actor'),
@@ -151,6 +185,7 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
       targetKind: effects.targetKind,
       targetId: effects.targetId,
       createdBy: effects.createdBy,
+      deciders: effects.deciders,
     })
     .from(effects)
     .where(inListOf(effects.id, size))
@@ -245,6 +280,8 @@ const claimEffect = prepared((db: StoreDrizzle) =>
         live(),
         statusIn(EffectLifecycle.allowedFrom('running')),
         eq(effects.cancelRequested, false),
+        // A gated record runs only once its person has approved it.
+        sql`(${effects.decision} IS NULL OR ${effects.decision} = 'approve')`,
       ),
     )
     .returning()
@@ -297,7 +334,86 @@ const cancelPendingEffect = prepared((db: StoreDrizzle) =>
       updatedAt: P('now'),
       revision: sql`${effects.revision} + 1`,
     })
-    .where(and(idIs(), live(), eq(effects.status, 'pending')))
+    // An awaiting approval ends by its person's deny, never by a cancel.
+    .where(and(idIs(), live(), eq(effects.status, 'pending'), notAwaiting()))
+    .returning()
+    .prepare(),
+)
+
+/**
+ * A person's decision on a gated record (POD-6674): once, against the revision
+ * it was shown. `approve` leaves it `pending` for the trigger to claim; `deny`
+ * ends it `cancelled` in the same write. Zero rows: decided already, ended, or
+ * moved since (a stale revision).
+ */
+const decideEffect = preparedFamily((db: StoreDrizzle, decision: EffectDecision) =>
+  db
+    .update(effects)
+    .set(
+      decision === 'approve'
+        ? {
+            decision: 'approve',
+            updatedAt: P('now'),
+            revision: sql`${effects.revision} + 1`,
+          }
+        : {
+            decision: 'deny',
+            status: 'cancelled',
+            stage: null,
+            finishedAt: P('now'),
+            updatedAt: P('now'),
+            revision: sql`${effects.revision} + 1`,
+          },
+    )
+    .where(
+      and(
+        idIs(),
+        live(),
+        eq(effects.status, 'pending'),
+        eq(effects.decision, 'awaiting'),
+        eq(effects.revision, param(effects.revision, 'revision')),
+      ),
+    )
+    .returning()
+    .prepare(),
+)
+
+/** One kind's records waiting for a person, oldest first (`idx_effects_awaiting`). */
+const awaitingOfKind = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(effects)
+    .where(
+      and(
+        eq(effects.kind, param(effects.kind, 'kind')),
+        sql`${effects.decision} = 'awaiting'`,
+        live(),
+      ),
+    )
+    .orderBy(asc(effects.createdAt))
+    .limit(P('limit'))
+    .prepare(),
+)
+
+/**
+ * Rows a migration copied in that the feed has not seen (revision 0,
+ * `idx_effects_unpublished`), moved to revision 1 through the funnel, a batch.
+ */
+const publishCopied = prepared((db: StoreDrizzle) =>
+  db
+    .update(effects)
+    .set({ revision: 1 })
+    .where(
+      inArray(
+        effects.id,
+        db
+          .select({ id: effects.id })
+          .from(effects)
+          // A literal, so the planner can use the partial index.
+          .where(sql`${effects.revision} = 0`)
+          .limit(P('limit')),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -368,7 +484,8 @@ const effectsInStatus = preparedFamily((db: StoreDrizzle, status: 'pending' | 'r
   db
     .select()
     .from(effects)
-    .where(and(eq(effects.status, status), live()))
+    // An awaiting record waits for its person, not for the sweep (POD-6674).
+    .where(and(eq(effects.status, status), live(), notAwaiting()))
     // The index's own order after the equality: no sort.
     .orderBy(asc(effects.deadlineAt))
     .limit(P('limit'))
@@ -430,6 +547,12 @@ export interface NewEffect {
   readonly deadlineAt: number | undefined
   readonly createdBy: UserId | null
   readonly actor?: string | null
+  /** A human gate (POD-6674): the record waits `awaiting` its person's decision. */
+  readonly gated?: boolean
+  /** Its stage from the start (a gated record's `awaiting-approval`). */
+  readonly stage?: string
+  /** Who a gated record is routed to: they read it and are offered the decision. */
+  readonly deciders?: readonly UserId[]
 }
 
 export interface EffectSettlement {
@@ -506,6 +629,9 @@ export class EffectsRepository {
           targetId: effect.target.id,
           inputJson: JSON.stringify(effect.input ?? null),
           status: 'pending',
+          stage: effect.stage ?? null,
+          decision: effect.gated === true ? 'awaiting' : null,
+          deciders: effect.deciders === undefined ? null : JSON.stringify(effect.deciders),
           deadlineAt: effect.deadlineAt ?? null,
           createdBy: effect.createdBy,
           actor: effect.actor ?? null,
@@ -553,6 +679,7 @@ export class EffectsRepository {
           targetKind: row.targetKind,
           targetId: row.targetId,
           createdBy: row.createdBy,
+          deciders: decidersOf(row.deciders),
         })
       }
     }
@@ -628,6 +755,36 @@ export class EffectsRepository {
     return await this.one(
       async () => await stageEffect(this.db).all({ id, stage, now, resultJson }),
     )
+  }
+
+  /**
+   * A person's decision on a gated record, made against `revision` (POD-6674).
+   * `undefined`: not awaiting a decision any more, or moved since.
+   */
+  async decide(
+    _scope: WriteScope,
+    id: string,
+    decision: EffectDecision,
+    revision: number,
+    now: number,
+  ): Promise<EffectRow | undefined> {
+    return await this.one(
+      async () => await decideEffect(this.db, decision).all({ id, revision, now }),
+    )
+  }
+
+  /** One kind's live records waiting for a person, oldest first, at most `limit`. */
+  async listAwaiting(kind: string, limit: number): Promise<EffectRow[]> {
+    return (await awaitingOfKind(this.db).all({ kind, limit })).map(rowToEffect)
+  }
+
+  /**
+   * Put rows a migration copied in on the feed (POD-6674): each one is written
+   * again through the funnel, so its change reaches the log. A bounded batch;
+   * call until it returns none.
+   */
+  async publishCopied(_scope: WriteScope, limit: number): Promise<EffectRow[]> {
+    return await this.write(async () => await publishCopied(this.db).all({ limit }))
   }
 
   /** Cancel: a pending record ends `cancelled`; a running one is flagged for its executor. */

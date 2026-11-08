@@ -13,7 +13,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
+import { APPROVAL_EFFECT_KIND, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,
@@ -1261,8 +1261,38 @@ export class EffectModel extends EntityModel {
   @lazy get unsuccessful(): boolean {
     return this.status === 'failed' || this.status === 'expired' || this.status === 'unknown'
   }
+
+  // A human gate (POD-6674)
+  /** An agent's request for a management operation, which waits for its person. */
+  @lazy get isApproval(): boolean { return this.kind === APPROVAL_EFFECT_KIND }
+  /** Waiting for its person to decide: pending, and nobody has. */
+  @lazy get awaitingDecision(): boolean { return this.decision === null && this.status === 'pending' }
+  /** The request as the agent filed it: the operation and where it came from.
+   *  `op` is checked by the screen that shows it (the catalog grows). */
+  @lazy({ equals: compareStructural }) get approvalRequest(): ApprovalRequestView | undefined {
+    if (!this.isApproval) return undefined
+    const input = this.input as Partial<Record<'op' | 'machineId' | 'sessionId' | 'issueId', unknown>> | null | undefined
+    if (!input || typeof input.sessionId !== 'string' || typeof input.machineId !== 'string') return undefined
+    return {
+      op: input.op,
+      machineId: input.machineId,
+      sessionId: input.sessionId,
+      issueId: typeof input.issueId === 'string' ? input.issueId : null,
+    }
+  }
 }
-export interface EffectModel extends Readonly<Omit<EffectRecordWire, 'id'>>, RelationGetters<'effect'> {}
+
+/** What an approval record asks for (`ApprovalEffectInput`, read structurally). */
+export interface ApprovalRequestView {
+  readonly op: unknown
+  readonly machineId: string
+  readonly sessionId: string
+  readonly issueId: string | null
+}
+export interface EffectModel extends Readonly<Omit<EffectRecordWire, 'id'>>, RelationGetters<'effect'> {
+  /** Stamped at the row-source boundary: the record is routed to the viewer. */
+  readonly forViewer?: boolean
+}
 
 class RepoModel extends EntityModel {
   constructor(id: string, host: ModelHost) {

@@ -198,6 +198,7 @@ export const COMMAND_ACTIONS = [
   'issueAction',
   'answerSession',
   'resurrectSession',
+  'decideApproval',
   'sendChat',
   'chatSendsFor',
   'discardChat',
@@ -1154,6 +1155,13 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     endSession: async (sessionId, force) =>
       await editSessionLifecycle(sessionId, 'stopped', force === true),
     resurrectSession: async (sessionId) => await editSessionLifecycle(sessionId, 'running'),
+    // An agent's request, decided (POD-6674): a generic edit of its effect
+    // record, made against the revision the person was shown. Queued and
+    // painted at once; the first decision wins on the server, and the record's
+    // status follows on every device.
+    decideApproval: async (id, decision, revision) => {
+      await records.edit({ kind: 'effect', id }, { decision }, revision)
+    },
     // Stop, scoped to the turn the person saw (POD-6397): a `session.interrupt`
     // effect record, queued durably. Every device shows it from the record:
     // Interrupting… until that turn ends, and the Kill offer if it does not.

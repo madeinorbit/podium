@@ -15,6 +15,7 @@ import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
+import { decideApproval, fileApproval } from './test-support/approvals'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
@@ -497,7 +498,7 @@ describe('scheduled one-off selection stays equivalent', () => {
   ])('$name', async ({ pick, expected }) => {
     const { reg, store } = await launchHarness({ model: 'claude-opus-4-8', effort: 'high' })
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
-    const request = await reg.modules.approvals.request({
+    const request = await fileApproval(reg, {
       sessionId, machineId: store.hostMachineId,
       op: {
         kind: 'automation-schedule', name: 'Selection compatibility',
@@ -505,7 +506,7 @@ describe('scheduled one-off selection stays equivalent', () => {
         target: { kind: 'fresh', repoPath: '/r', ...pick },
       },
     })
-    expect((await reg.modules.approvals.approve(request.id)).status).toBe('succeeded')
+    expect((await decideApproval(reg, request.id)).status).toBe('succeeded')
     expect(await reg.modules.automations.list()).toEqual([expect.objectContaining(expected)])
   })
 })

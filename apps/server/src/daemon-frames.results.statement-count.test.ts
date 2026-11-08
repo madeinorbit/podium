@@ -18,6 +18,7 @@ import { DAEMON_FRAME_PORTS } from './gateway/daemon-frame-routing'
 import { DaemonRequestBroker, type DaemonRequestKind } from './modules/daemon-request'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import { decideApproval, fileApproval } from './test-support/approvals'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import {
@@ -272,12 +273,12 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     'approvalExecResult',
     async (size) => {
       const f = await fixture(size)
-      const { id } = await f.reg.modules.approvals.request({
+      const { id } = await fileApproval(f.reg, {
         op: { kind: 'update' },
-        sessionId: f.ids[0],
+        sessionId: f.ids[0]!,
         machineId: f.host,
       })
-      await f.reg.modules.approvals.approve(id)
+      await decideApproval(f.reg, id)
       await settle(f.reg)
       return { ...f, approvalId: id }
     },
@@ -297,12 +298,17 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // and the broadcast lists approvals per connected member (POD-6284
   // fad322e0a3), so with no client connected it reads no approvals list
   // (#5db52787).
+  // POD-6674: 12 -> 17. The approval is an effect record on the feed now, so
+  // its settlement is written through the effects funnel and its change reaches
+  // the change log in the same unit (the record read, the guarded settle, and
+  // the log's append and latest-state rows); the broadcast and its approvals
+  // list are gone.
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 12)
+    await expectConstantStatements(approval, 17)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 12, plantPerSession)
+    await expectArmed(approval, 17, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {

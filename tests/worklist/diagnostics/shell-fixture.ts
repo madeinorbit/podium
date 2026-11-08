@@ -32,9 +32,6 @@ export function shellFixture(count = 40) {
     status: index >= 20 ? 'exited' : 'live', agentKind: DEFAULT_HARNESS_AGENT, headless: false, createdAt: stamp,
     lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}-A`, agentState: { phase: 'idle', since: stamp },
   })) as unknown as SessionView[]
-  const approvals = [0, 1].map(index => ({ id: `shell-approval-${index}`, machineId, machineName: 'Synthetic host', sessionId: sessions[index]!.sessionId,
-    issueId: issues[index]!.id, issueSeq: index + 1, issueDisplayRef: `SYN-${index + 1}`, issueTitle: `Synthetic task ${index}`, op: { kind: 'channel', target: 'dev' },
-    status: 'pending', createdAt: stamp, decidedAt: null, resultText: null })) as Store['approvals']
   const fileTabs: Store['fileTabs'] = [{ id: 'shell-file', scope: { kind: 'worktree', root: '/synthetic/project/w1', machineId },
     path: 'readme.md', worktreePath: '/synthetic/project/w1', issueId: issues[1]!.id }]
   const workspace = openTab(openTab(emptyWorkspace(`mission:${issues[0]!.id}`), sessions[0]!.sessionId, { permanent: true }), fileTabs[0]!.id, { permanent: true })
@@ -45,7 +42,7 @@ export function shellFixture(count = 40) {
   const shipLanes: ShipLaneProjection[] = [{ id: shipLaneId(repoId, 'main'), repoId, destination: 'main', trains: [{ orderIds: [shipOrders[0]!.id] }], blockedOrderIds: [] }]
   let state = { view: 'workspace', paneA: sessions[0]!.sessionId, selectedIssueId: issues[1]!.id, selectedWorktree: '/synthetic/project/w1', reposLoaded: true,
     superOpen: true, paletteOpen: true, autoContinuePromptSessionId: sessions[0]!.sessionId, coarseNow: SHELL_NOW,
-    approvals, fileTabs, workspaces: { [workspace.key]: workspace }, sessions, shipOrders, shipLanes,
+    fileTabs, workspaces: { [workspace.key]: workspace }, sessions, shipOrders, shipLanes,
     machines: [{ id: machineId, name: 'Synthetic host', hostname: 'synthetic', online: true, lastSeenAt: stamp }],
     repos: [{ repoId, path: '/synthetic/project', machineId, kind: 'repository', branch: 'main', worktrees: [{ path: '/synthetic/project/w1', branch: 'issue/synthetic-1' }] }],
     workspaceKey: () => { const selected = issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt); return workspaceKeyFor({ missionRootId: selected ? missionRootFor(issues, selected.id)?.id : null, issueId: state.selectedIssueId, worktreePath: state.selectedWorktree }) },
@@ -84,7 +81,7 @@ export function shellFixture(count = 40) {
   live.online(machineId, true)
   const source = new ShellSource(runtime)
   pool.sources.register(SHELL_ENTITIES, source)
-  return { issues, sessions, approvals, fileTabs, shipOrders, shipLanes, pool, live, source, loads, listeners, addressed,
+  return { issues, sessions, fileTabs, shipOrders, shipLanes, pool, live, source, loads, listeners, addressed,
     state: () => state,
     change(patch: Partial<Store>) { state = { ...state, ...patch }; syncHeader(); for (const listener of listeners) listener() },
     lane(value: ShipLaneProjection | undefined, id = shipLanes[0]!.id) {

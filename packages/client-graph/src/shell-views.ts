@@ -210,7 +210,7 @@ function createShellViews(pool: MobxPool) {
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   const window = () => omitGone(pool.row('shellWindow', 'window'))
   const catalog = () => omitGone(pool.row('shellCatalog', 'catalog'))
-  function records<E extends 'shellApproval' | 'shellFile' | 'shellShipLane'>(
+  function records<E extends 'shellFile' | 'shellShipLane'>(
     entity: E,
     ids: readonly string[],
   ): Loaded<ShellRows[E][]> {
@@ -295,10 +295,6 @@ function createShellViews(pool: MobxPool) {
       }),
     )
   }
-  function approvals() {
-    const keys = catalog()
-    return !keys || keys === LOADING ? LOADING : records('shellApproval', keys.approvals)
-  }
   function files() {
     const keys = catalog()
     return !keys || keys === LOADING ? LOADING : records('shellFile', keys.files)
@@ -349,7 +345,6 @@ function createShellViews(pool: MobxPool) {
   }
   return {
     window: windowSnapshot,
-    approvals,
     files,
     lanes,
     sessions,

@@ -129,7 +129,7 @@ await op('workflows.listWorkflows', async () => await store.workflows.listWorkfl
 await op('workflows.listWorkflows(scope)', async () => await store.workflows.listWorkflows({ scope: 'global' as never }))
 await op('automations.list', async () => await store.automations.list())
 await op('interactions.listOpen', async () => await store.interactions.listOpen())
-await op('approvals.listPending', async () => await store.approvals.listPending())
+await op('effects.listAwaiting', async () => await store.effects.listAwaiting('approval', 500))
 await op('events.appendEvent', async () =>
   await store.events.appendEvent({ ts: '2026-10-15T00:00:00.000Z', kind: 'census', subject: 'census' }),
 )

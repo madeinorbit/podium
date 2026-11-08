@@ -89,6 +89,7 @@ it.each([1, 4])('matches the old pending sweep through addressed edits and retir
     sessionUserStates: new Map<string, readonly PendingOverlay[]>(),
     issueProjections: new Map<string, readonly PendingOverlay[]>(),
     issueUserStates: new Map<string, readonly PendingOverlay[]>(),
+    effects: new Map<string, readonly PendingOverlay[]>(),
   }
   const none = new Map<string, readonly PendingOverlay[]>()
   const f = fixture({ pending: { byRow: kind => (maps as Record<string, typeof none>)[kind] ?? none } })

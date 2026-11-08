@@ -1,53 +1,88 @@
 import { randomUUID } from 'node:crypto'
 import { describeError } from '@podium/logger'
 import {
+  APPROVAL_EFFECT_KIND,
+  AWAITING_DECISION_STAGE,
   asMachineId,
   asSessionId,
+  type EffectDecision,
   type IssueId,
   type MachineId,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import {
+  ApprovalEffectInput,
   ApprovalOp,
   type ApprovalWire,
+  approvalStatusOf,
   describeApprovalOp,
-  type LiveServerMessage,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
+import type { LedgerWriter } from '@podium/sync'
+import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import type { EffectRow, EffectsRepository } from '../../store/effects'
+import { withWriteProvenance } from '../../write-provenance'
+import type { EffectExecutor, EffectOutcome, EffectRunContext } from '../effects/registry'
+import { WRITER_NO_LONGER_ALLOWED } from '../effects/writer'
+import { SyncWriteRefused } from '../sync-write/entry'
+import { NO_TARGET, type SyncWriteContext, type SyncWriteTarget } from '../sync-write/registry'
+import { type ApprovalOpPermissionDeps, isRequestPerson, mayRunApprovalOp } from './op-permission'
 
 /**
- * Approval broker [spec:SP-edbb] (#410) — the server half.
+ * Approval broker [spec:SP-edbb] (#410) — the server half. AN APPROVAL IS AN
+ * EFFECT RECORD WITH A HUMAN GATE (POD-6674, ADR 12 D5 E2).
  *
  * Agents INITIATE management ops via the issue relay (`approvals.request`,
  * gated in relay-gate.ts, session+machine bound by the relay context). The
- * operator decides via the web tRPC slice (approve/deny). On approve the
- * OWNING DAEMON executes (approvalExecRequest → the daemon spawns the podium
- * binary) and reports back (approvalExecResult). Every step is appended to the
- * requesting issue's activity log, and the pending set is broadcast to all web
- * clients (plus re-sent on attach) to drive the approval popup.
+ * request is an `effects` row of kind `approval`, written in the command's unit
+ * of work: `pending`, stage `awaiting-approval`, its decision `awaiting`, no
+ * deadline. It reaches every device of the people who may see it on the feed,
+ * like any other effect: its person and the readers of the requesting issue
+ * (or session).
  *
- * NOT the daemon-RPC correlator (POD-318), judged deliberately. The `pending`
- * set here is DURABLE SQLITE rows, not in-memory correlation state: it survives
- * a restart, has no timeout (an approval waits for a human, indefinitely), and
- * its state machine is pending → executing → approved/denied rather than a
- * single settle. `approvalExecResult` is the daemon reporting an outcome the
- * store already knows it is waiting for, not a reply resolving a promise.
+ * The person decides with `records.effect.edit` (`decision`, against the record
+ * revision; see `modules/records/effect-record.ts`), and only they may: the
+ * owner of the requesting session (POD-6284). The first decision wins. A deny
+ * ends the record `cancelled` in the same write. An approve leaves it `pending`
+ * for the one effect trigger, which claims it (`running`, exactly once per
+ * record id) and runs it here:
+ *
+ *  - a server-catalog op (workflow publish and default, a one-off automation)
+ *    runs through the same doors every transport uses, and settles at once;
+ *  - every other op is handed to the OWNING DAEMON (`approvalExecRequest`,
+ *    queued while it is away), and its `approvalExecResult` settles the record.
+ *    The run hands off and leaves the record `running`; the sweep's recovery
+ *    keeps the stall deadline ({@link APPROVAL_EXEC_DEADLINE_MS}) and never
+ *    sends the request again.
+ *
+ * Every step is appended to the requesting issue's activity log, and the
+ * outcome is mailed to the requesting agent when its CLI is no longer waiting.
  */
 
+/** The records an approval reads and writes. */
+export type ApprovalEffectsRepository = Pick<
+  EffectsRepository,
+  'insert' | 'get' | 'listAwaiting' | 'decide' | 'settle' | 'publishCopied'
+>
+
 export interface ApprovalServiceDeps {
-  store: ApprovalsRepository
-  now(): string
+  effects: ApprovalEffectsRepository
+  /** The broker's own writer (`approvals.results`): a daemon's result, and the
+   *  boot step that puts copied rows on the feed. Never inside a command. */
+  writer: Pick<LedgerWriter, 'commit'>
+  /** Epoch milliseconds: record times and the stall clock. */
+  nowMs(): number
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  /** Every connected client, with the member it is signed in as. */
-  clients(): Iterable<{ send(msg: LiveServerMessage): void; principal?: { user: UserId } }>
   /**
    * The requesting session's own owner (POD-6284). An approval belongs to that
-   * person alone: only they see it, in the list and the live broadcast, and only
-   * they decide it. Absent (unit tests that predate it) = no owner filter.
+   * person alone: only they decide it. Absent (unit tests that predate it) = the
+   * record's own person.
    */
   sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
+  /** Whether the person an approval is routed to may still act (an account
+   *  disabled since the decision is refused). Absent: always. */
+  personActive?(userId: UserId): Promise<boolean>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
   sessionIssueId(sessionId: SessionId): IssueId | null | Promise<IssueId | null>
   issueInfo(
@@ -67,59 +102,52 @@ export interface ApprovalServiceDeps {
    * Push the outcome to the requesting agent via issue mail (stop-hook/nudge
    * delivery) — the agent must not have to poll to learn the decision.
    *
-   * `Promise<void>`, NOT `void | Promise<void>` [POD-3806]. This is wired to
-   * a message send (systemIssueNotice, POD-4846; `IssueService.sendMail` then),
-   * which opens its own store transaction, and the union let the composition
-   * root write `void issues.sendMail(...)` — dropping that promise, so under the
-   * async store executor the mail transaction JOINED whatever span the decision was running inside and then died orphaned when
-   * the span closed. `notify` below has always awaited this; the type is what
-   * makes the discarded promise unrepresentable at the wiring.
+   * `Promise<void>`, NOT `void | Promise<void>` [POD-3806]: a mail send opens
+   * its own store transaction, and a discarded promise would join whatever span
+   * the decision was running inside and die orphaned when it closed.
    */
   notifyIssue(issueId: IssueId, body: string): Promise<void>
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
   executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null | Promise<string | null>
   /** True when `machineId` has a live daemon socket RIGHT NOW. The stall deadline
-   *  below runs only while this is true — see {@link ApprovalService.sweepStalledExecutions}. */
+   *  runs only while this is true. Absent: always. */
   hasDaemon?(machineId: MachineId): boolean
-  /** Elapsed-time clock for the stall deadline, separate from `now()` because that one
-   *  yields the ISO string that goes ON the row and this one only ever gets subtracted.
-   *  Both the dispatch that starts a row's clock and the sweep that reads it must come
-   *  from the SAME source, or the deadline measures the gap between two clocks. */
-  nowMs?(): number
+  /**
+   * The operation's own permission (`op-permission.ts`): a decider must hold
+   * it, checked live. Absent (unit fixtures): the request's person alone.
+   */
+  opPermission?: ApprovalOpPermissionDeps
+  /** The principal a person acts as now, for the check when the agent asks. */
+  personPrincipal?(userId: UserId): Promise<CommandPrincipal | undefined>
+  /** Every active admin as they act now: who a request its owner may not run goes to. */
+  activeAdmins?(): Promise<CommandPrincipal[]>
 }
 
 /**
- * How long a daemon-executed approval may sit `executing` with a reachable daemon
- * before the server calls it stalled (POD-2223).
+ * How long a daemon-executed approval may sit `running` with a reachable daemon
+ * before the server says it lost track (POD-2223).
  *
  * Bounded on both sides, and both bounds are load-bearing:
  *   - ABOVE the daemon's own executor ceiling. `runApprovalExec` spawns the podium
  *     binary with `timeout: 300_000` and reports EITHER outcome, so a daemon that is
  *     merely slow always answers inside 5 minutes. 7 gives that two minutes of slack.
  *   - BELOW `APPROVAL_WAIT_MS` (10 min), the window the requesting agent's CLI blocks
- *     for. Firing inside it means the agent's own command prints the real answer and
- *     exits, instead of printing "the request is still live … you will be told the
- *     outcome" — which, for a row nobody will ever answer, is false twice over.
+ *     for, so the agent's own command prints the real answer.
+ * The effect sweep drives it (once a minute), so it fires at 7–8 minutes.
  */
 export const APPROVAL_EXEC_DEADLINE_MS = 7 * 60_000
 
-/** How often {@link ApprovalService.sweepStalledExecutions} should be driven. One
- *  minute keeps the fire window at 7–8 min, still two minutes inside the CLI's wait. */
-export const APPROVAL_STALL_SWEEP_MS = 60_000
+/** The most waiting requests one duplicate check reads. */
+const AWAITING_LIMIT = 500
 
-/** What one member's approvals procedures reach (see `ApprovalService.forCaller`). */
-export interface ApprovalCallerView {
-  listPending(): Promise<ApprovalWire[]>
-  approve(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire>
-  deny(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire>
-}
+/** How many copied rows one boot write republishes. */
+const PUBLISH_BATCH = 100
 
 /**
  * The closed server catalog (POD-6415): the ops the SERVER runs after approval,
  * through the same doors every transport uses (`executeServerOp`). Every other
- * op belongs to the owning daemon. Named here so a decision can tell which one
- * it is WITHOUT running it: a decision is a write, and the op runs after it.
+ * op belongs to the owning daemon.
  */
 export const SERVER_APPROVAL_OPS: ReadonlySet<ApprovalOp['kind']> = new Set([
   'workflow-publish',
@@ -129,35 +157,45 @@ export const SERVER_APPROVAL_OPS: ReadonlySet<ApprovalOp['kind']> = new Set([
 
 export const isServerApprovalOp = (op: ApprovalOp): boolean => SERVER_APPROVAL_OPS.has(op.kind)
 
-/** Why a decision was refused: the approval is unknown, or already decided. */
-export class ApprovalRefusal extends Error {
-  constructor(
-    readonly kind: 'target-not-found' | 'conflict',
-    message: string,
-  ) {
-    super(message)
-    this.name = 'ApprovalRefusal'
-  }
+/** The record's answer: what the op printed, or why it did not run. */
+interface ApprovalResult {
+  readonly resultText: string
 }
 
-/**
- * The unit of work a decision is written in (POD-6415, ADR 12 D2). The
- * decision's own rows (the transition, the activity events) are written in it;
- * everything outside the database runs after it commits:
- *
- *  - `afterCommit`: the exec request to the owning daemon, the outcome mail and
- *    the broadcast. Never on a rollback.
- *  - `executeOnServer`: a server-catalog op, as an `approval.execute` effect
- *    record created in the same unit; its run executes the op
- *    ({@link ApprovalService.runServerOp}).
- *
- * Without one (a direct call: the service's own tests), each step runs at once,
- * as the decision always did.
- */
-export interface ApprovalDecisionUnit {
-  afterCommit(step: () => void | Promise<void>, label: string): void
-  executeOnServer(row: ApprovalRow): Promise<void>
+const MAY_HAVE_RUN =
+  'The server stopped while it ran this operation; it may or may not have run. Check before asking again.'
+
+const STOP_SENT = 'sent to the machine; a stop ends its own podium processes, so no result follows'
+
+const DENIED = 'denied by the operator'
+
+/** The approval behind an effect record, or undefined for any other record. */
+function approvalOf(row: EffectRow): ApprovalEffectInput | undefined {
+  if (row.kind !== APPROVAL_EFFECT_KIND) return undefined
+  const parsed = ApprovalEffectInput.safeParse(row.input)
+  return parsed.success ? parsed.data : undefined
 }
+
+const resultTextOf = (row: EffectRow): string | null => {
+  const text = (row.result as Partial<ApprovalResult> | undefined)?.resultText
+  if (typeof text === 'string') return text
+  if (row.error !== undefined) return row.error.message
+  return row.decision === 'deny' ? DENIED : null
+}
+
+const iso = (ms: number | undefined): string | null =>
+  ms === undefined ? null : new Date(ms).toISOString()
+
+const succeeded = (resultText: string): EffectOutcome => ({
+  status: 'succeeded',
+  result: { resultText } satisfies ApprovalResult,
+})
+
+const failed = (code: string, resultText: string): EffectOutcome => ({
+  status: 'failed',
+  error: { code, message: resultText },
+  result: { resultText } satisfies ApprovalResult,
+})
 
 export class ApprovalService {
   /** When the requesting CLI last polled (it blocks on the decision, so a recent
@@ -169,121 +207,40 @@ export class ApprovalService {
   private static readonly WAITER_LIVE_MS = 15_000
 
   /**
-   * When each in-flight approval's stall clock started — the moment the exec request
-   * was handed to a REACHABLE daemon.
+   * When each handed-off approval's stall clock started: the first sweep that
+   * found its daemon reachable.
    *
-   * It is a clock, not a timestamp, because `toMachine` QUEUES for an offline machine
-   * and flushes on its next attach: a row parked for three days has not been waiting on
-   * anything, and failing it the instant its machine comes back would report a stall for
-   * a frame the daemon has not even seen yet. So the sweep DELETES the entry whenever the
-   * daemon is away and restarts it on the next tick that finds it back — the deadline
-   * only ever measures time a daemon had the frame and stayed silent.
+   * A clock, not a timestamp, because `toMachine` QUEUES for an offline machine
+   * and flushes on its next attach: a record parked for three days has not been
+   * waiting on anything. So the recovery DELETES the entry whenever the daemon is
+   * away and restarts it on the next sweep that finds it back; the deadline only
+   * ever measures time a daemon had the frame and stayed silent.
    *
-   * In memory on purpose. A server restart loses it, the next sweep re-seeds from `now`,
-   * and the only cost is one extra deadline of patience on a row that was already stuck —
-   * the conservative direction. Making it durable would be a column, a migration and a
-   * ledger for an error path measured in minutes.
+   * In memory on purpose. A server restart loses it, the next sweep re-seeds from
+   * now, and the only cost is one extra deadline of patience on a record that was
+   * already stuck: the conservative direction.
    */
   private readonly stallClock = new Map<string, number>()
 
-  /** True while a stall sweep is running — see {@link sweepStalledExecutions}. */
-  private sweepingStalled = false
-
-  /** Rows this server failed for stalling. Kept so a result that arrives ANYWAY can
-   *  correct the record rather than be dropped on a transition that no longer matches
-   *  — being told "it failed" about an op that ran is worse than being told nothing. */
-  private readonly stalled = new Set<string>()
-
   constructor(private readonly deps: ApprovalServiceDeps) {}
 
-  private nowMs(): number {
-    return this.deps.nowMs?.() ?? Date.now()
-  }
-
-  private async toWire(row: ApprovalRow): Promise<ApprovalWire> {
-    const issue = row.issueId ? await this.deps.issueInfo(row.issueId) : null
-    const machineName = await this.deps.machineName(row.machineId)
+  private async toWire(row: EffectRow, approval: ApprovalEffectInput): Promise<ApprovalWire> {
+    const issue = approval.issueId ? await this.deps.issueInfo(approval.issueId) : null
+    const machineName = await this.deps.machineName(approval.machineId)
     return {
       id: row.id,
-      machineId: row.machineId,
+      machineId: approval.machineId,
       ...(machineName ? { machineName } : {}),
-      sessionId: row.sessionId,
-      issueId: row.issueId,
+      sessionId: approval.sessionId,
+      issueId: approval.issueId,
       issueSeq: issue?.seq ?? null,
       issueTitle: issue?.title ?? null,
       ...(issue?.displayRef ? { issueDisplayRef: issue.displayRef } : {}),
-      op: row.op,
-      status: row.status,
-      createdAt: row.createdAt,
-      decidedAt: row.decidedAt,
-      resultText: row.resultText,
-    }
-  }
-  private async row(id: string): Promise<ApprovalRow> {
-    const row = await this.deps.store.get(id)
-    if (!row) throw new Error(`unknown approval request: ${id}`)
-    return row
-  }
-
-  async listPending(): Promise<ApprovalWire[]> {
-    return await Promise.all(
-      (await this.deps.store.listPending()).map(async (r) => await this.toWire(r)),
-    )
-  }
-
-  /** Whether `userId` owns the approval's session. True for everyone while no
-   *  owner lookup is wired (unit tests that predate POD-6284). */
-  private async owns(userId: UserId | undefined, row: ApprovalRow): Promise<boolean> {
-    if (!this.deps.sessionOwnerUserId) return true
-    return userId !== undefined && (await this.deps.sessionOwnerUserId(row.sessionId)) === userId
-  }
-
-  /** The pending approvals of `userId`'s own sessions. */
-  async listPendingFor(userId: UserId | undefined): Promise<ApprovalWire[]> {
-    const rows = await this.deps.store.listPending()
-    const owned = await Promise.all(rows.map(async (row) => await this.owns(userId, row)))
-    return await Promise.all(rows.filter((_, i) => owned[i]).map(async (r) => await this.toWire(r)))
-  }
-
-  /**
-   * The approvals surface as ONE member sees it: their own approvals, decided
-   * only by them. Someone else's approval answers exactly like a missing one.
-   */
-  forCaller(userId: UserId): ApprovalCallerView {
-    const mine = async (id: string): Promise<void> => {
-      const row = await this.deps.store.get(id)
-      if (!row || !(await this.owns(userId, row)))
-        throw new Error(`unknown approval request: ${id}`)
-    }
-    return {
-      listPending: async () => await this.listPendingFor(userId),
-      approve: async (id, unit) => {
-        await mine(id)
-        return await this.approve(id, unit)
-      },
-      deny: async (id, unit) => {
-        await mine(id)
-        return await this.deny(id, unit)
-      },
-    }
-  }
-
-  private async broadcast(): Promise<void> {
-    if (!this.deps.sessionOwnerUserId) {
-      const msg: LiveServerMessage = { type: 'approvalsChanged', pending: await this.listPending() }
-      for (const c of this.deps.clients()) c.send(msg)
-      return
-    }
-    // Per member: one list per signed-in person, never another person's rows.
-    const perUser = new Map<UserId | undefined, LiveServerMessage>()
-    for (const c of this.deps.clients()) {
-      const user = c.principal?.user
-      let msg = perUser.get(user)
-      if (!msg) {
-        msg = { type: 'approvalsChanged', pending: await this.listPendingFor(user) }
-        perUser.set(user, msg)
-      }
-      c.send(msg)
+      op: approval.op,
+      status: approvalStatusOf(row.status, row.decision === 'awaiting' ? null : row.decision),
+      createdAt: new Date(row.createdAt).toISOString(),
+      decidedAt: iso(row.decision === 'deny' ? row.finishedAt : row.startedAt),
+      resultText: resultTextOf(row),
     }
   }
 
@@ -293,41 +250,48 @@ export class ApprovalService {
    * cases a blocked CLI cannot see — it timed out, its session ended, or the op
    * killed its own daemon mid-flight — so a decision is never lost.
    */
-  private async notify(row: ApprovalRow, outcome: string): Promise<void> {
-    if (!row.issueId) return
-    const polled = this.lastPolledAt.get(row.id) ?? 0
+  private async notify(id: string, approval: ApprovalEffectInput, outcome: string): Promise<void> {
+    if (!approval.issueId) return
+    const polled = this.lastPolledAt.get(id) ?? 0
     if (Date.now() - polled < ApprovalService.WAITER_LIVE_MS) return // the CLI reports it
     try {
       await this.deps.notifyIssue(
-        row.issueId,
-        `approval ${row.id} ("${describeApprovalOp(row.op)}"): ${outcome}`,
+        approval.issueId,
+        `approval ${id} ("${describeApprovalOp(approval.op)}"): ${outcome}`,
       )
     } catch {}
   }
 
   private async log(
-    row: ApprovalRow,
+    id: string,
+    approval: ApprovalEffectInput,
     kind: string,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    await this.deps.logEvent(kind, row.issueId, {
-      approvalId: row.id,
-      machineId: row.machineId,
-      sessionId: row.sessionId,
-      op: describeApprovalOp(row.op),
+    await this.deps.logEvent(kind, approval.issueId, {
+      approvalId: id,
+      machineId: approval.machineId,
+      sessionId: approval.sessionId,
+      op: describeApprovalOp(approval.op),
       ...extra,
     })
   }
 
-  /** Relay entry (agent): file a request. Idempotent-ish — an identical op
-   *  already pending for the same machine is returned instead of duplicated,
-   *  so an agent retrying doesn't stack popups. The row and its activity event
-   *  are written in `unit` (the `approvals.request` sync command, POD-6603);
-   *  the broadcast follows its commit. Without one (the service's own tests),
-   *  the broadcast runs at once. */
+  /** The person an approval is routed to: the requesting session's owner now. */
+  private async personOf(row: EffectRow, approval: ApprovalEffectInput): Promise<UserId | null> {
+    if (this.deps.sessionOwnerUserId === undefined) return row.createdBy
+    return (await this.deps.sessionOwnerUserId(approval.sessionId)) ?? row.createdBy
+  }
+
+  /**
+   * Relay entry (agent): file a request, in the `approvals.request` command's
+   * unit of work (POD-6603): the record and its activity event commit together.
+   * Idempotent-ish — an identical op already waiting for the same machine is
+   * returned instead of duplicated, so an agent retrying doesn't stack popups.
+   */
   async request(
     input: unknown,
-    unit?: Pick<ApprovalDecisionUnit, 'afterCommit'>,
+    ctx: { readonly ledger: Pick<LedgerWriter, 'commit'>; readonly principal: CommandPrincipal },
   ): Promise<{ id: string; status: string; message: string }> {
     const raw = (input ?? {}) as Record<string, unknown>
     const op = ApprovalOp.parse(raw.op)
@@ -336,33 +300,59 @@ export class ApprovalService {
     const sessionId = asSessionId(String(raw.sessionId ?? ''))
     const machineId = asMachineId(String(raw.machineId ?? ''))
     if (!sessionId || !machineId) throw new Error('approval request lost its relay context')
-    const dup = (await this.deps.store.listPending()).find(
-      (r) => r.machineId === machineId && JSON.stringify(r.op) === JSON.stringify(op),
-    )
-    if (dup) {
-      return {
-        id: dup.id,
-        status: dup.status,
-        message: `already requested (${dup.id}) — awaiting approval in the Podium UI`,
+    const wanted = JSON.stringify(op)
+    for (const row of await this.deps.effects.listAwaiting(APPROVAL_EFFECT_KIND, AWAITING_LIMIT)) {
+      const waiting = approvalOf(row)
+      if (waiting?.machineId === machineId && JSON.stringify(waiting.op) === wanted) {
+        return {
+          id: row.id,
+          status: 'pending',
+          message: `already requested (${row.id}) — awaiting approval in the Podium UI`,
+        }
       }
     }
-    const row: ApprovalRow = {
-      id: `apr_${randomUUID()}`,
-      machineId,
-      sessionId,
-      issueId: await this.deps.sessionIssueId(sessionId),
-      op,
-      status: 'pending',
-      createdAt: this.deps.now(),
-      decidedAt: null,
-      resultText: null,
+    const issueId = await this.deps.sessionIssueId(sessionId)
+    const approval: ApprovalEffectInput = { op, machineId, sessionId, issueId }
+    const person =
+      (await this.deps.sessionOwnerUserId?.(sessionId)) ?? onBehalfOfUser(ctx.principal)
+    // Who it is routed to: its owner when they may run the op, else the admins
+    // who may. A request nobody could decide is refused now, rather than
+    // waiting forever where no one can act on it.
+    const deciders = await this.decidersFor(person, approval)
+    if (deciders !== undefined && deciders.length === 0) {
+      throw new SyncWriteRefused({
+        kind: 'unauthorized',
+        message:
+          `nobody can approve "${describeApprovalOp(op)}" for this session: neither its owner ` +
+          'nor any admin may run that operation',
+      })
     }
-    await this.deps.store.insert(row)
-    await this.log(row, 'issue.approval_requested')
-    if (unit === undefined) await this.broadcast()
-    else unit.afterCommit(async () => await this.broadcast(), 'approvals.requested')
+    const id = `apr_${randomUUID()}`
+    const now = this.deps.nowMs()
+    await ctx.ledger.commit({
+      write: async (scope) =>
+        await this.deps.effects.insert(
+          scope,
+          {
+            id,
+            kind: APPROVAL_EFFECT_KIND,
+            target: issueId ? { kind: 'issue', id: issueId } : { kind: 'session', id: sessionId },
+            input: approval,
+            // No deadline: an approval waits for its person as long as it takes.
+            deadlineAt: undefined,
+            createdBy: person,
+            actor: attributionOf(ctx.principal).actor,
+            gated: true,
+            stage: AWAITING_DECISION_STAGE,
+            ...(deciders === undefined ? {} : { deciders }),
+          },
+          now,
+        ),
+      changes: () => [],
+    })
+    await this.log(id, approval, 'issue.approval_requested')
     return {
-      id: row.id,
+      id,
       status: 'pending',
       message: `requested — awaiting the operator's decision in the Podium UI`,
     }
@@ -371,9 +361,12 @@ export class ApprovalService {
   /** Read one request's state (no side effects). */
   async get(input: unknown): Promise<ApprovalWire> {
     const id = String((input as Record<string, unknown> | undefined)?.id ?? '')
-    const row = await this.deps.store.get(id)
-    if (!row) throw new Error(`unknown approval request: ${id}`)
-    return await this.toWire(row)
+    const row = id ? await this.deps.effects.get(id) : undefined
+    const approval = row === undefined ? undefined : approvalOf(row)
+    if (row === undefined || approval === undefined) {
+      throw new Error(`unknown approval request: ${id}`)
+    }
+    return await this.toWire(row, approval)
   }
 
   /** RELAY entry for `get`: same read, but it also marks the caller as a live
@@ -386,238 +379,305 @@ export class ApprovalService {
     return w
   }
 
-  /** A decision with no unit of work around it: each step at once (see
-   *  {@link ApprovalDecisionUnit}). */
-  private immediateUnit(): ApprovalDecisionUnit & { flush(): Promise<void> } {
-    const steps: (() => void | Promise<void>)[] = []
-    return {
-      afterCommit: (step) => {
-        steps.push(step)
-      },
-      executeOnServer: async (row) => {
-        await this.runServerOp(row.id)
-      },
-      flush: async () => {
-        for (const step of steps.splice(0)) await step()
-      },
-    }
-  }
-
-  /** The pending row a decision settles, moved to `to`; refused when unknown or decided. */
-  private async decide(id: string, to: 'executing' | 'denied', result?: string): Promise<ApprovalRow> {
-    const row = await this.deps.store.get(id)
-    if (!row) throw new ApprovalRefusal('target-not-found', `unknown approval request: ${id}`)
-    if (!(await this.deps.store.transition(id, 'pending', to, result))) {
-      throw new ApprovalRefusal('conflict', `approval ${id} is not pending (already decided?)`)
-    }
-    return row
+  /** Whether `principal` may decide this record: a person, its routed-to owner. */
+  /**
+   * Whether `principal` may decide this record: a person who is the request's
+   * own (its session's owner, or instance-scoped) AND who may run the operation
+   * itself, read now (`op-permission.ts`).
+   */
+  async mayDecide(row: EffectRow, principal: CommandPrincipal): Promise<boolean> {
+    if (principal.kind !== 'user') return false
+    const approval = approvalOf(row)
+    if (approval === undefined) return false
+    const person = isRequestPerson(principal, await this.personOf(row, approval))
+    // An admin decides any agent's request, as the operator always could, when
+    // they may run its operation.
+    if (!person && principal.capability.role !== 'admin') return false
+    return await this.mayRun(principal, approval)
   }
 
   /**
-   * Operator: approve. The decision is written in `unit`; the op runs after it
-   * commits, through the closed server catalog (an `approval.execute` record) or
-   * on the owning daemon (toMachine queues if it is briefly offline).
+   * The people a new request is routed to: its owner when they may run the op,
+   * otherwise every active admin who may. `undefined`: no permission check is
+   * composed (unit fixtures), so it is its creator's, as before.
    */
-  async approve(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire> {
-    const immediate = unit === undefined ? this.immediateUnit() : undefined
-    const on = unit ?? immediate!
-    const row = await this.decide(id, 'executing')
-    await this.log(row, 'issue.approval_approved')
-    if (isServerApprovalOp(row.op)) {
-      await on.executeOnServer(row)
-      on.afterCommit(async () => await this.broadcast(), 'approvals.broadcast')
+  private async decidersFor(
+    person: UserId | null,
+    approval: ApprovalEffectInput,
+  ): Promise<UserId[] | undefined> {
+    if (this.deps.opPermission === undefined || this.deps.personPrincipal === undefined) {
+      return undefined
+    }
+    const owner = person === null ? undefined : await this.deps.personPrincipal(person)
+    if (owner !== undefined && person !== null && (await this.mayRun(owner, approval))) {
+      return [person]
+    }
+    const admins = (await this.deps.activeAdmins?.()) ?? []
+    const allowed: UserId[] = []
+    for (const admin of admins) {
+      if (admin.kind === 'user' && (await this.mayRun(admin, approval))) allowed.push(admin.user)
+    }
+    return allowed
+  }
+
+  private async mayRun(
+    principal: CommandPrincipal,
+    approval: ApprovalEffectInput,
+  ): Promise<boolean> {
+    const deps = this.deps.opPermission
+    return deps === undefined ? true : await mayRunApprovalOp(deps, principal, approval)
+  }
+
+  /**
+   * A person's decision, in the `records.effect.edit` unit of work: written once,
+   * against the revision it was made on. Approve leaves the record for the
+   * trigger, which runs it after the commit; deny ends it, and the agent is told
+   * after the commit. A decided, ended or moved record is a conflict.
+   */
+  async decide(
+    ctx: SyncWriteContext,
+    row: EffectRow,
+    decision: EffectDecision,
+    revision: number,
+  ): Promise<EffectRow> {
+    const approval = approvalOf(row)
+    if (approval === undefined) throw new SyncWriteRefused({ kind: 'target-not-found' })
+    const now = this.deps.nowMs()
+    const decided = (
+      await ctx.ledger.commit({
+        write: async (scope) =>
+          await this.deps.effects.decide(scope, row.id, decision, revision, now),
+        changes: () => [],
+      })
+    ).result
+    if (decided === undefined) throw new SyncWriteRefused({ kind: 'conflict' })
+    if (decision === 'approve') {
+      await this.log(row.id, approval, 'issue.approval_approved')
     } else {
-      on.afterCommit(async () => {
-        this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
-        // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
-        // early notify below: its row staying `executing` is honest, not stuck.
-        if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
-        // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
-        // decision itself is the last thing we can reliably deliver.
-        if (row.op.kind === 'stop') await this.notify(row, 'approved — executing')
-        await this.broadcast()
-      }, 'approvals.dispatch')
+      await this.log(row.id, approval, 'issue.approval_denied')
+      ctx.afterCommit(async () => await this.notify(row.id, approval, DENIED), 'approvals.denied')
     }
-    await immediate?.flush()
-    return await this.toWire(await this.row(id))
+    return decided
   }
 
-  /**
-   * Run an approved server-catalog op (the `approval.execute` record's run, or a
-   * direct decision's): once, while the row is `executing`. Answers how it ended;
-   * a row no longer executing (already settled) answers its own status.
-   */
-  async runServerOp(id: string): Promise<{ status: ApprovalRow['status']; resultText: string | null }> {
-    const row = await this.row(id)
-    if (row.status !== 'executing') return { status: row.status, resultText: row.resultText }
-    let outcome: { to: 'succeeded' | 'failed'; text: string }
-    try {
-      const serverResult = (await this.deps.executeServerOp?.(row.op, row.sessionId)) ?? null
-      outcome =
-        serverResult === null
-          ? { to: 'failed', text: `the server does not run ${row.op.kind}` }
-          : { to: 'succeeded', text: serverResult }
-    } catch (error) {
-      outcome = { to: 'failed', text: describeError(error) }
+  /** The claimed record's run: the op, once (the runner's claim is per record id). */
+  async run(ctx: EffectRunContext<ApprovalEffectInput>): Promise<EffectOutcome> {
+    const { record, input: approval } = ctx
+    if (record.createdBy !== null && this.deps.personActive !== undefined) {
+      if (!(await this.deps.personActive(record.createdBy))) {
+        return await this.finish(
+          record.id,
+          approval,
+          failed('not-allowed', WRITER_NO_LONGER_ALLOWED),
+        )
+      }
     }
-    await this.settleServerOp(row, outcome.to, outcome.text)
-    return { status: outcome.to, resultText: outcome.text }
-  }
-
-  /** Settle an executing server-catalog row, and tell everyone who waits on it. */
-  async settleServerOp(row: ApprovalRow, to: 'succeeded' | 'failed', text: string): Promise<boolean> {
-    if (!(await this.deps.store.transition(row.id, 'executing', to, text))) return false
-    await this.log(row, to === 'succeeded' ? 'issue.approval_succeeded' : 'issue.approval_failed')
-    await this.notify(row, to === 'succeeded' ? `succeeded — ${text}` : `FAILED — ${text}`)
-    await this.broadcast()
-    return true
-  }
-
-  /** Operator: deny. Terminal; the mail and the broadcast follow the commit. */
-  async deny(id: string, unit?: ApprovalDecisionUnit): Promise<ApprovalWire> {
-    const immediate = unit === undefined ? this.immediateUnit() : undefined
-    const on = unit ?? immediate!
-    const row = await this.decide(id, 'denied', 'denied by the operator')
-    await this.log(row, 'issue.approval_denied')
-    on.afterCommit(async () => {
-      await this.notify(row, 'denied by the operator')
-      await this.broadcast()
-    }, 'approvals.denied')
-    await immediate?.flush()
-    return await this.toWire(await this.row(id))
-  }
-
-  /** One approval row, for the `approval.execute` record's run and recovery. */
-  async rowOf(id: string): Promise<ApprovalRow | undefined> {
-    return (await this.deps.store.get(id)) ?? undefined
-  }
-
-  /** Daemon reply: execution finished. A `stop` op may never report (the daemon
-   *  stops itself) — that row stays 'executing', which is honest. */
-  async onExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): Promise<void> {
-    const row = await this.deps.store.get(msg.requestId)
-    if (!row) return
-    const text = msg.output.slice(0, 4000) || (msg.ok ? 'ok' : `exit ${msg.exitCode ?? '?'}`)
-    this.stallClock.delete(msg.requestId)
-    // A LATE result for a row the deadline already failed (POD-2223). Rare by
-    // construction — the sweep only fires while the daemon is connected, and a daemon
-    // that HAS the frame answers it — but if it happens, the record must move to what
-    // actually occurred. Nothing else re-opens a terminal row.
-    const from = this.stalled.delete(msg.requestId) ? 'failed' : 'executing'
-    const late = from === 'failed'
-    if (
-      !(await this.deps.store.transition(
-        msg.requestId,
-        from,
-        msg.ok ? 'succeeded' : 'failed',
-        text,
-      ))
-    )
-      return
-    await this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
-      exitCode: msg.exitCode,
-      ...(late ? { late: true } : {}),
+    await ctx.stage('executing')
+    if (isServerApprovalOp(approval.op)) {
+      let outcome: EffectOutcome
+      try {
+        const text = (await this.deps.executeServerOp?.(approval.op, approval.sessionId)) ?? null
+        outcome =
+          text === null
+            ? failed('no-executor', `the server does not run ${approval.op.kind}`)
+            : succeeded(text)
+      } catch (error) {
+        outcome = failed('failed', describeError(error))
+      }
+      return await this.finish(record.id, approval, outcome)
+    }
+    // The owning daemon runs it; `toMachine` queues while it is away.
+    this.deps.toMachine(approval.machineId, {
+      type: 'approvalExecRequest',
+      requestId: record.id,
+      op: approval.op,
     })
-    const prefix = late ? 'reported LATE, after the server had given up — ' : ''
-    await this.notify(row, `${prefix}${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
-    await this.broadcast()
+    if (approval.op.kind === 'stop') {
+      // A stop kills the daemon mid-exec: its result may never arrive, so the
+      // decision is the last thing we can reliably deliver.
+      await this.notify(record.id, approval, 'approved — executing')
+      if (this.daemonReachable(approval.machineId)) return succeeded(STOP_SENT)
+    }
+    // The daemon's result settles it (`onExecResult`); the sweep keeps the deadline.
+    return { status: 'running' }
   }
 
   /**
-   * Fail approvals whose daemon took the exec request and never answered (POD-2223).
-   *
-   * WHY THIS EXISTS AT ALL, given the daemon now answers a frame it cannot read: the
-   * daemon arm ships in the same release as the value that needs it, so on the day that
-   * release lands every daemon in the fleet is one WITHOUT the arm — the frame is dropped
-   * by `warnDropped` and no result is ever sent. That is not an edge case, it is the
-   * default state of the world for as long as it takes a fleet to converge, which is the
-   * thing this epic is for. Until every daemon carries the arm, this deadline is the only
-   * thing standing between an operator and a row that says `executing` forever.
-   *
-   * The three exemptions are all about not lying:
-   *   - `stop` kills its own daemon mid-exec, so no result is EXPECTED. Documented as
-   *     honest where it is dispatched, and left alone here.
-   *   - a machine whose daemon is away has its frame QUEUED, not lost: it still runs on
-   *     the next attach. Its clock is reset instead (see {@link stallClock}).
-   *   - a row seen for the first time (a restart, or one already stuck when this shipped)
-   *     starts its clock now rather than being failed on sight.
-   *
-   * Drive it from a timer at {@link APPROVAL_STALL_SWEEP_MS}. Idempotent and cheap.
+   * A `running` approval with no live run: the server stopped mid-run, or the op
+   * was handed to its daemon. Never sent again.
    */
-  async sweepStalledExecutions(now: number = this.nowMs()): Promise<void> {
-    // SINGLE-FLIGHT (POD-3258). The pass is a read-decide-write over
-    // `stallClock`: it reads the executing rows, decides per row against a clock
-    // it also mutates, then reconciles the clock against the rows it just saw.
-    // Two passes interleaved would each see the other's half-written clock — the
-    // reconcile at the bottom deletes every id not in ITS `live` set, so an
-    // overlapping pass would drop the clock entries the first one had just
-    // seeded and restart the deadline for rows that are genuinely stalling.
-    // Skipped, not queued: the sweep is idempotent and the next tick is one
-    // interval away, so a dropped tick costs at most that much deadline
-    // resolution and never a wrong verdict.
-    if (this.sweepingStalled) return
-    this.sweepingStalled = true
-    try {
-      await this.runStalledSweep(now)
-    } finally {
-      this.sweepingStalled = false
+  async recover(ctx: EffectRunContext<ApprovalEffectInput>): Promise<EffectOutcome> {
+    const { record, input: approval } = ctx
+    if (isServerApprovalOp(approval.op)) {
+      await this.log(record.id, approval, 'issue.approval_failed', { lostTrack: true })
+      await this.notify(record.id, approval, `FAILED — ${MAY_HAVE_RUN}`)
+      return { status: 'unknown', error: { code: 'lost-track', message: MAY_HAVE_RUN } }
     }
-  }
-
-  private async runStalledSweep(now: number): Promise<void> {
-    const rows = await this.deps.store.listExecuting()
-    if (rows.length === 0) {
-      this.stallClock.clear()
-      return
+    if (approval.op.kind === 'stop') {
+      // Its frame reaches the daemon on attach; there is no result to wait for.
+      return this.daemonReachable(approval.machineId) ? succeeded(STOP_SENT) : { status: 'running' }
     }
-    const live = new Set<string>()
-    let changed = false
-    for (const row of rows) {
-      if (row.op.kind === 'stop') continue
-      live.add(row.id)
-      // A server-catalog op waits on no daemon: its record runs right after the
-      // decision commits, so one still executing past the deadline is stuck.
-      if (!isServerApprovalOp(row.op) && this.deps.hasDaemon && !this.deps.hasDaemon(row.machineId)) {
-        // Parked, not stalled: the frame is queued for this machine's next attach.
-        this.stallClock.delete(row.id)
-        continue
-      }
-      const since = this.stallClock.get(row.id)
-      if (since === undefined) {
-        this.stallClock.set(row.id, now)
-        continue
-      }
-      if (now - since < APPROVAL_EXEC_DEADLINE_MS) continue
-      if (await this.failStalled(row, now - since)) changed = true
+    if (!this.daemonReachable(approval.machineId)) {
+      // Parked, not stalled: the frame is queued for this machine's next attach.
+      this.stallClock.delete(record.id)
+      return { status: 'running' }
     }
-    for (const id of this.stallClock.keys()) if (!live.has(id)) this.stallClock.delete(id)
-    if (changed) await this.broadcast()
-  }
-
-  /** Move one stalled row to `failed` and tell everyone who was waiting on it. */
-  private async failStalled(row: ApprovalRow, waitedMs: number): Promise<boolean> {
-    const minutes = Math.round(waitedMs / 60_000)
-    if (isServerApprovalOp(row.op)) {
-      const stuck =
-        `the server did not finish this operation after ${minutes} minutes. ` +
-        'It may or may not have run; check before asking again.'
-      if (!(await this.settleServerOp(row, 'failed', stuck))) return false
-      this.stallClock.delete(row.id)
-      return true
+    const now = this.deps.nowMs()
+    const since = this.stallClock.get(record.id)
+    if (since === undefined) {
+      this.stallClock.set(record.id, now)
+      return { status: 'running' }
     }
+    if (now - since < APPROVAL_EXEC_DEADLINE_MS) return { status: 'running' }
+    this.stallClock.delete(record.id)
+    const minutes = Math.round((now - since) / 60_000)
     // Say what is known and no more. The machine may in fact have run the op and lost
-    // its reply, so this must NOT claim nothing happened — it must name the one thing
-    // that is certainly true and the one thing the operator can do about it.
+    // its reply, so this must NOT claim nothing happened.
     const text =
-      `no result from ${(await this.deps.machineName(row.machineId)) ?? row.machineId} after ${minutes} minutes. ` +
+      `no result from ${(await this.deps.machineName(approval.machineId)) ?? approval.machineId} after ${minutes} minutes. ` +
       `Its daemon was connected and did not answer, which usually means that machine's podium ` +
       `predates this operation and dropped the request — check its version, update it, then ask again. ` +
       `The operation may or may not have run; \`podium fleet\` shows what that machine is actually on.`
-    if (!(await this.deps.store.transition(row.id, 'executing', 'failed', text))) return false
+    await this.log(record.id, approval, 'issue.approval_failed', {
+      stalled: true,
+      waitedMs: now - since,
+    })
+    await this.notify(record.id, approval, `FAILED — ${text}`)
+    // `unknown`, not `failed`: a late result still settles it (`onExecResult`).
+    return { status: 'unknown', error: { code: 'stalled', message: text } }
+  }
+
+  private daemonReachable(machineId: MachineId): boolean {
+    return this.deps.hasDaemon?.(machineId) ?? true
+  }
+
+  /** Log and tell the agent how a run ended; the runner writes the status. */
+  private async finish(
+    id: string,
+    approval: ApprovalEffectInput,
+    outcome: EffectOutcome,
+  ): Promise<EffectOutcome> {
+    if (outcome.status === 'succeeded') {
+      await this.log(id, approval, 'issue.approval_succeeded')
+      const text = (outcome.result as ApprovalResult | undefined)?.resultText ?? 'ok'
+      await this.notify(id, approval, `succeeded — ${text}`)
+    } else if (outcome.status === 'failed') {
+      await this.log(id, approval, 'issue.approval_failed')
+      await this.notify(id, approval, `FAILED — ${outcome.error.message}`)
+    }
+    return outcome
+  }
+
+  /**
+   * Daemon reply: execution finished. Settles a running record, or corrects one
+   * the stall deadline gave up on (`unknown`): being told "it may not have run"
+   * about an op that ran is worse than the truth arriving late.
+   */
+  async onExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): Promise<void> {
+    const row = await this.deps.effects.get(msg.requestId)
+    const approval = row === undefined ? undefined : approvalOf(row)
+    if (row === undefined || approval === undefined) return
     this.stallClock.delete(row.id)
-    this.stalled.add(row.id)
-    await this.log(row, 'issue.approval_failed', { stalled: true, waitedMs })
-    await this.notify(row, `FAILED — ${text}`)
-    return true
+    const text = msg.output.slice(0, 4000) || (msg.ok ? 'ok' : `exit ${msg.exitCode ?? '?'}`)
+    const late = row.status === 'unknown'
+    // A stop was settled when its frame reached the daemon; its result is told, not stored.
+    const stopReport = approval.op.kind === 'stop' && row.status === 'succeeded'
+    if (row.status !== 'running' && !late && !stopReport) return
+    if (!stopReport) {
+      const settled = await this.settleAsBroker(row.id, msg.ok, text)
+      if (settled === undefined) return
+    }
+    await this.log(
+      row.id,
+      approval,
+      msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed',
+      {
+        exitCode: msg.exitCode,
+        ...(late ? { late: true } : {}),
+      },
+    )
+    const prefix = late ? 'reported LATE, after the server had given up — ' : ''
+    await this.notify(
+      row.id,
+      approval,
+      `${prefix}${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`,
+    )
+  }
+
+  /** The daemon's outcome, written as the broker under the record's causation. */
+  private async settleAsBroker(
+    id: string,
+    ok: boolean,
+    text: string,
+  ): Promise<EffectRow | undefined> {
+    const now = this.deps.nowMs()
+    const settlement = ok
+      ? { result: { resultText: text } satisfies ApprovalResult }
+      : {
+          error: { code: 'failed', message: text },
+          result: { resultText: text } satisfies ApprovalResult,
+        }
+    return await withWriteProvenance(
+      { causationId: id },
+      async () =>
+        (
+          await this.deps.writer.commit({
+            write: async (scope) =>
+              await this.deps.effects.settle(
+                scope,
+                id,
+                ok ? 'succeeded' : 'failed',
+                settlement,
+                now,
+              ),
+            changes: () => [],
+          })
+        ).result,
+    )
+  }
+
+  /**
+   * Put the approval rows the POD-6674 migration copied in on the feed: each is
+   * written again through the effects funnel, so every device receives it. Run
+   * once at boot; a second run finds nothing.
+   */
+  async publishCopiedRecords(): Promise<number> {
+    let total = 0
+    for (;;) {
+      const batch = (
+        await this.deps.writer.commit({
+          write: async (scope) => await this.deps.effects.publishCopied(scope, PUBLISH_BATCH),
+          changes: () => [],
+        })
+      ).result
+      total += batch.length
+      if (batch.length < PUBLISH_BATCH) return total
+    }
+  }
+
+  /** The `approval` effect kind: the record is the request (see the header). */
+  executor(): EffectExecutor<ApprovalEffectInput> {
+    return {
+      kind: APPROVAL_EFFECT_KIND,
+      input: ApprovalEffectInput,
+      // Never applied: a request is written with no deadline (it waits for its
+      // person as long as it takes). The registry asks every kind for one.
+      deadlineMs: APPROVAL_EXEC_DEADLINE_MS,
+      // Nobody creates one through `effects.create`: an agent asks with
+      // `podium approval` (`approvals.request`).
+      target: async () => undefined,
+      admit: async () => ({
+        kind: 'unauthorized',
+        message: 'an approval is requested with `podium approval`',
+      }),
+      onRecord: async (record, principal): Promise<SyncWriteTarget> =>
+        (await this.mayDecide(record, principal)) ? NO_TARGET : undefined,
+      gate: {
+        decide: async (ctx, record, decision, revision) =>
+          await this.decide(ctx, record, decision, revision),
+      },
+      run: async (ctx) => await this.run(ctx),
+      recover: async (ctx) => await this.recover(ctx),
+    }
   }
 }

@@ -20,7 +20,6 @@ import type {
   ThreadId,
   WorkState,
 } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { ReadPositionPort } from '../read-position'
@@ -146,8 +145,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
   machines: MachineWire[]
-  /** Approval broker [spec:SP-edbb]: pending management-op requests. */
-  approvals: ApprovalWire[]
   /** Pin or unpin a session, issue, worktree or repo: my `pin` record
    *  (POD-6673). Readers read the pool's pin models. */
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
@@ -496,6 +493,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    */
   answerSession: (sessionId: SessionId, answer: SessionAnswer) => Promise<string>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
+  /**
+   * Approve or deny an agent's request (POD-6674): `decision` on its `approval`
+   * effect record, against the record `revision` the person saw. Resolves once
+   * the edit is durable in the outbox; a refusal (decided elsewhere first)
+   * shows on the record and in the outbox's notices.
+   */
+  decideApproval: (id: string, decision: 'approve' | 'deny', revision: number) => Promise<void>
   /**
    * Send one chat message to a session through the durable outbox (POD-4762),
    * keyed by `mutationId` — the message id the composer minted, minted here when

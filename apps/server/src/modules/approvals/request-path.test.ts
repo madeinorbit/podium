@@ -9,55 +9,18 @@
  * census has no direct write left.
  */
 
-import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
 import { envelope, head, rowsOf } from '../sync-write/outbox-test-support'
 import { RELAY_ARMS } from '../write-routes/relay'
+import { agentOnIssue, awaiting, inputOf, relay } from './test-support'
 
 afterEach(() => disposeOracles())
 
-type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
-
-async function relay(
-  o: Oracle,
-  sessionId: SessionId,
-  requestId: string,
-  router: string,
-  proc: string,
-  input: unknown,
-): Promise<RelayResult> {
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
-    type: 'agentRelayRequest',
-    requestId,
-    sessionId,
-    router,
-    proc,
-    input,
-  })
-  const answered = (): RelayResult | undefined =>
-    o.daemon.find(
-      (msg): msg is RelayResult => msg.type === 'agentRelayResult' && msg.requestId === requestId,
-    )
-  await vi.waitFor(() => expect(answered()).toBeDefined())
-  return answered() as RelayResult
-}
-
-/** An agent session in an issue's worktree, so its request logs on the issue. */
-async function agentOnIssue(o: Oracle, title: string): Promise<SessionId> {
-  const writer = o.reg.issues.reports.store.serverWriter
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const issue = await o.reg.issues.crud.create(writer, { repoPath: '/r', title, startNow: false })
-  const slug = title.replace(/\W+/g, '-')
-  await o.reg.issues.crud.update(writer, issue.id, { worktreePath: `/r/.worktrees/${slug}` })
-  const cwd = (await o.reg.issues.reports.get(issue.id))?.worktreePath as string
-  return (await o.reg.modules.sessions.createSession({ cwd, agentKind: 'shell' })).sessionId
-}
-
-const pending = async (o: Oracle) => await o.reg.modules.approvals.listPending()
+const pending = async (o: Oracle) =>
+  (await awaiting(o)).map((row) => ({ id: row.id, ...inputOf(row) }))
 
 /** How many `issue.approval_requested` events name this request. */
 const requested = async (o: Oracle, approvalId: string) =>
@@ -93,12 +56,15 @@ describe('approvals.request on the entry point', () => {
     expect(filed[0]).toMatchObject({ sessionId, machineId: o.store.hostMachineId })
 
     // Provenance: the request is recorded under the envelope's mutationId, and
-    // its activity event once. The approval row is not on the change log (the
-    // pending set is pushed as `approvalsChanged`), so any row the command did
-    // put there carries its causation, and the receipt is at the head.
+    // its activity event once. The approval record is on the change log (an
+    // `effect` row, POD-6674) with the command's causation, and the receipt is
+    // at the head.
     expect(await o.store.sync.getAppliedMutation(env.mutationId)).toBeDefined()
     expect(await requested(o, reply.result.id)).toBe(1)
     const rows = await rowsOf(o, env.mutationId)
+    expect(rows.some((row) => row.entity === 'effect' && row.entityId === reply.result.id)).toBe(
+      true,
+    )
     for (const row of rows) expect(row.causationId).toBe(env.mutationId)
     expect(reply.receipt.seq).toBeGreaterThanOrEqual(Math.max(0, ...rows.map((row) => row.seq)))
     expect(reply.receipt.seq).toBeLessThanOrEqual(await head(o))

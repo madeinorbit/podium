@@ -36,7 +36,6 @@ describe('describeQueuedChange', () => {
     ['machine.update', 'Update the machine'],
     ['repo.clone', 'Clone the repository'],
     ['repo.create', 'Create the repository'],
-    ['approval.execute', 'Run the approved action'],
     ['server.update', 'Update the server'],
     ['server.move', 'Move the server'],
   ])('names the %s effect without echoing its input', (kind, label) => {

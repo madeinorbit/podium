@@ -77,7 +77,6 @@ import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { AccountsRepository } from './store/accounts'
-import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { EffectsRepository } from './store/effects'
@@ -220,7 +219,6 @@ export class SessionStore {
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
   readonly readWatermarks: ReadWatermarksRepository
-  readonly approvals: ApprovalsRepository
   /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
   readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
@@ -418,7 +416,6 @@ export class SessionStore {
       async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
       this.tableWrites,
     )
-    this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries)
     // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it

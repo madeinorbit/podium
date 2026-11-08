@@ -102,9 +102,6 @@ export const SERVER_PLANE_CLASS = {
   // One-shot invalidation (POD-665): NOT re-served on attach — the client
   // already fetches repos at boot, so a missed push is caught by that.
   worktreesChanged: 'stream.live',
-  // Approval-broker snapshot (small pending list) — re-broadcast on change and
-  // on attach; not an oplog entity.
-  approvalsChanged: 'stream.live',
   // Browser-open family (ADR 7 D8, [spec:SP-a43e]).
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',

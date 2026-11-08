@@ -8,6 +8,7 @@ import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/rep
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
+import { pendingApprovals } from './approval-effects'
 import { createWorklistPool } from './create'
 import { requireHere } from './lookup'
 import type { EffectModel, IssueModel, SessionModel } from './models'
@@ -223,6 +224,68 @@ it("a move is the session's latest session.handoff record, naming its machine wh
     stop()
     // Pending and running are one answer: one redraw for each change.
     expect(seen).toEqual([undefined, 'laptop', undefined])
+  } finally {
+    f.dispose()
+  }
+})
+
+/** An agent's approval request (POD-6674), as the feed carries it. */
+const approval = (
+  id: string,
+  options: {
+    createdAt?: string
+    createdBy?: string
+    decision?: 'approve' | 'deny' | null
+    status?: string
+    deciders?: string[]
+  } = {},
+) => ({
+  ...(options.deciders === undefined ? {} : { deciders: options.deciders }),
+  id,
+  kind: 'approval',
+  target: { kind: 'issue', id: 'task' },
+  input: { op: { kind: 'update' }, machineId: 'host', sessionId: 'seat', issueId: 'task' },
+  cancelRequested: false,
+  decision: options.decision === undefined ? null : options.decision,
+  effect: { status: options.status ?? 'pending', attempts: 0, stage: 'awaiting-approval' },
+  createdBy: options.createdBy ?? 'operator',
+  createdAt: options.createdAt ?? stamp,
+  updatedAt: options.createdAt ?? stamp,
+  revision: 1,
+})
+
+it('lists the approvals waiting for the viewer, oldest first, and drops one once decided', () => {
+  const f = fixture([
+    approval('apr_later', { createdAt: later }),
+    approval('apr_first'),
+    // Asked of somebody else: the viewer may read the task, not decide it.
+    approval('apr_theirs', { createdBy: 'someone-else' }),
+    approval('apr_decided', { decision: 'deny', status: 'cancelled' }),
+    // Routed to the admins (its owner may not run it): not the viewer's.
+    approval('apr_admins', { deciders: ['an-admin'] }),
+    // Another member's request their owner may not run, routed to the viewer as an admin.
+    approval('apr_routed', { createdBy: 'someone-else', deciders: ['operator'], createdAt: later }),
+    effect('eff_stop', 'pending'),
+  ])
+  try {
+    const ids = () => pendingApprovals(f.pool).map((model) => model.id)
+    expect(ids()).toEqual(['apr_first', 'apr_later', 'apr_routed'])
+    const first = requireHere(f.pool.model('effect', 'apr_first')) as EffectModel
+    expect(first.approvalRequest).toEqual({
+      op: { kind: 'update' },
+      machineId: 'host',
+      sessionId: 'seat',
+      issueId: 'task',
+    })
+    const seen: string[][] = []
+    const stop = autorun(() => seen.push(ids()))
+    f.publish('apr_first', approval('apr_first', { decision: 'approve' }))
+    expect(ids()).toEqual(['apr_later', 'apr_routed'])
+    stop()
+    expect(seen).toEqual([
+      ['apr_first', 'apr_later', 'apr_routed'],
+      ['apr_later', 'apr_routed'],
+    ])
   } finally {
     f.dispose()
   }

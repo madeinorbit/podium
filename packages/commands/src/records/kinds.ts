@@ -17,6 +17,9 @@
  */
 
 import {
+  EffectDecision,
+  EffectIdField,
+  EffectRecordWire,
   IssueIdField,
   IssueProjection,
   IssueType,
@@ -645,6 +648,74 @@ export const USER_READ_POSITION_RECORD = defineSyncedKind({
   errorConsistency: OWN_ROW_ERRORS,
 })
 
+// ---------------------------------------------------------------------------
+// effect: a human gate's decision (POD-6674)
+// ---------------------------------------------------------------------------
+
+const EFFECT_DECIDE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'none',
+  confirmation: 'none',
+  rationale:
+    'An edit of one record, gated by that record’s own person, read live: an approval is decided only ' +
+    'by the owner of the requesting session (POD-6284), whatever else may read it, and an admin role ' +
+    'adds nothing. Not `manage`: that grade is the role’s, and the routed-to person is routinely an ' +
+    'ordinary member deciding their own agent’s request. No confirmation: this edit IS the ' +
+    'confirmation step the broker exists for.',
+}
+
+/**
+ * The effect record takes ONE generic edit: a gated kind's `decision`. Create,
+ * cancel and dismiss stay the effect commands (`effects.*`), and every status
+ * move stays the executor’s. The decision is written once, against the record’s
+ * revision: the first decision wins, a stale one is refused, and an `approve`
+ * lets the trigger run the record.
+ */
+export const EFFECT_RECORD = defineSyncedKind({
+  kind: 'effect',
+  title: 'effect',
+  wire: EffectRecordWire,
+  ref: EffectIdField,
+  conflict: 'exp-rev',
+  revisionField: 'revision',
+  fields: {
+    decision: spec(EffectDecision, ROW.approvals),
+    revision: status(z.number().int(), ROW.approvals),
+  },
+  ops: {
+    edit: {
+      policy: EFFECT_DECIDE,
+      note: 'Approve or deny an agent’s request, once, as the person it is routed to.',
+    },
+  },
+  visibility: 'personal',
+  exposure: SUBMIT_ONLY,
+  delivery: {
+    ...QUEUED,
+    outboxReconciliation:
+      'QUEUED through the client outbox onto `sync.submit` (ADR 12 D2/D6), like every generic edit. ' +
+      'A decision queued offline is made against the record revision it was shown: if anything ' +
+      'moved the record since (another device decided first), it is refused, never applied to a ' +
+      'request the person did not see. The request’s operation is immutable on the record.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A decision is one word about a record id; it carries no payload and no credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A record the caller may not decide (another person’s approval, a kind with no human gate) ' +
+      'fails exactly as an unknown one.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -656,6 +727,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   TAB_ORDER_RECORD,
   USER_PREFERENCES_RECORD,
   USER_READ_POSITION_RECORD,
+  EFFECT_RECORD,
 ]
 
 /**
@@ -692,10 +764,5 @@ export const NOT_YET_GENERIC: Readonly<
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
     by: 'never (status)',
-  },
-  effect: {
-    reason:
-      'A state machine (`cmd`), not plain data: created, cancelled and dismissed by its own commands (`effects.*`).',
-    by: 'never (effects.*)',
   },
 }

@@ -126,7 +126,14 @@ export interface RowSourceHandle {
 
 /** The pool rows the transaction log repaints: sessions, issues, and POD-6673's
  *  standalone per-user records. */
-export type RepaintKind = 'session' | 'issue' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition'
+export type RepaintKind =
+  | 'session'
+  | 'issue'
+  | 'effect'
+  | 'pin'
+  | 'tabOrder'
+  | 'userPreferences'
+  | 'userReadPosition'
 
 /** What the pool's transaction log reaches through the feed (POD-5431). */
 export interface RowSourceRepaint {
@@ -181,6 +188,8 @@ const OVERLAID: readonly OverlayTarget[] = [
   'pins',
   'tabOrders',
   'userPreferences',
+  // A human gate's decision, painted on its effect record (POD-6674).
+  'effects',
 ]
 
 /**
@@ -446,6 +455,7 @@ export function createRowSource(
       tabOrders: pooled.byRow('tabOrders'),
       userPreferences: pooled.byRow('userPreferences'),
       userReadPositions: pooled.byRow('userReadPositions'),
+      effects: pooled.byRow('effects'),
     }
   }
 
@@ -728,13 +738,27 @@ export function createRowSource(
    * An effect record with its session target stamped flat (POD-6397), so the
    * `effect.session` relation keys on a field like every other relation does.
    */
+  /** One effect row as the pool holds it: server truth with this device's
+   *  pending decision painted on (POD-6674), its target stamped. */
+  function effectOf(id: string, pending: PendingByRow | null): AnyRow | undefined {
+    return effectRow(folded('effects', id, pending))
+  }
+
   function effectRow(raw: AnyRow | undefined): AnyRow | undefined {
     if (!raw) return undefined
+    // Whether the viewer is one it is routed to (POD-6674): an approval reaches
+    // the readers of its issue too, but only its deciders are offered it (its
+    // owner, or the admins when the owner may not run its operation).
+    const viewer = runtime.principal?.userId
+    const deciders = raw['deciders']
+    const forViewer =
+      viewer !== undefined &&
+      (Array.isArray(deciders) ? deciders.includes(viewer) : raw['createdBy'] === viewer)
     const target = raw['target'] as { kind?: unknown; id?: unknown } | undefined
-    if (typeof target?.id !== 'string') return raw
-    if (target.kind === 'session') return { ...raw, sessionId: target.id }
-    if (target.kind === 'issue') return { ...raw, issueId: target.id }
-    return raw
+    if (typeof target?.id !== 'string') return { ...raw, forViewer }
+    if (target.kind === 'session') return { ...raw, sessionId: target.id, forViewer }
+    if (target.kind === 'issue') return { ...raw, issueId: target.id, forViewer }
+    return { ...raw, forViewer }
   }
 
   /**
@@ -784,7 +808,7 @@ export function createRowSource(
       const id = idOf(raw)
       if (!id) return []
       stats.rowsVisited += 1
-      return [{ kind, id, value: kind === 'repo' ? repoRow(id) : kind === 'effect' ? effectRow(raw) : raw }]
+      return [{ kind, id, value: kind === 'repo' ? repoRow(id) : kind === 'effect' ? effectRow(foldRowOverlays(raw, readPending().effects.get(id) ?? NO_OVERLAYS)) : raw }]
     })
   }
 
@@ -947,7 +971,7 @@ export function createRowSource(
       }
       if (address.kind === 'effects') {
         stats.rowsVisited += 1
-        byKey.set(`effect:${address.id}`, { kind: 'effect', id: address.id, value: effectRow(authority('effects', address.id)) })
+        byKey.set(`effect:${address.id}`, { kind: 'effect', id: address.id, value: effectOf(address.id, readPending()) })
         continue
       }
       if (address.kind === 'automations' || address.kind === 'automationRuns') {
@@ -1197,6 +1221,13 @@ export function createRowSource(
         if (value !== held) byKey.set(key, { kind, id, value })
         continue
       }
+      // A human gate's decision, painted on its effect record (POD-6674).
+      if (kind === 'effect') {
+        const held = published.has(key) ? published.get(key) : effectOf(id, null)
+        const value = retain(key, effectOf(id, pending))
+        if (value !== held) byKey.set(key, { kind, id, value })
+        continue
+      }
       const held = published.has(key) ? published.get(key) : resolve(kind, id, null)
       const value = retain(key, resolve(kind, id, pending))
       if (value !== held) byKey.set(key, { kind, id, value })
@@ -1235,6 +1266,8 @@ export function createRowSource(
       case 'tabOrders':
       case 'userPreferences':
         return authority(entity, id)
+      case 'effects':
+        return authority('effects', id)
     }
   }
 
@@ -1252,6 +1285,10 @@ export function createRowSource(
     const pending = readPending()
     for (const kind of OVERLAID) {
       for (const id of pending[kind].keys()) {
+        if (kind === 'effects') {
+          published.set(`effect:${id}`, effectOf(id, pending))
+          continue
+        }
         const row = kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue'
         published.set(`${row}:${id}`, resolve(row, id, pending))
       }

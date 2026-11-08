@@ -36,7 +36,6 @@ import type {
   ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
@@ -64,8 +63,6 @@ export interface EngineState {
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   machines: MachineWire[]
-  /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
-  approvals: ApprovalWire[]
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null
@@ -622,7 +619,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     reposLoaded: false,
     repoDiagnostics: [],
     machines: [],
-    approvals: [],
     view: seed.persisted.view,
     settingsTab: seed.route.settingsTab,
     openIssueId: asIssueIdOrNull(seed.route.issueId),

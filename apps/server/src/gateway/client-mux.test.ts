@@ -280,7 +280,6 @@ describe('the connection lifecycle', () => {
     h.bootstrap.mockImplementation(async (conn) => {
       started.push('bootstrap')
       await bootstrap.promise
-      conn.send({ type: 'approvalsChanged', pending: [] })
       conn.send({ type: 'hostMetricsChanged', hosts: [] })
     })
     const id = attachTestClient(h.mux, (msg) => sent.push(msg))
@@ -316,21 +315,21 @@ describe('the connection lifecycle', () => {
       [],
     )
     expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
-    expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)
+    expect(sent.some((msg) => msg.type === 'hostMetricsChanged')).toBe(false)
     const feedEnd = sent.length
     const firstTask = first === 'sessions' ? sessions : bootstrap
     const secondTask = first === 'sessions' ? bootstrap : sessions
     firstTask.resolve()
     await firstTask.promise
     expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
-      first === 'sessions' ? ['machinesChanged'] : ['approvalsChanged', 'hostMetricsChanged'],
+      first === 'sessions' ? ['machinesChanged'] : ['hostMetricsChanged'],
     )
     secondTask.resolve()
     await secondTask.promise
     expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
       first === 'sessions'
-        ? ['machinesChanged', 'approvalsChanged', 'hostMetricsChanged']
-        : ['approvalsChanged', 'hostMetricsChanged', 'machinesChanged'],
+        ? ['machinesChanged', 'hostMetricsChanged']
+        : ['hostMetricsChanged', 'machinesChanged'],
     )
     h.mux.detachClient(id)
   })
@@ -340,7 +339,7 @@ describe('the connection lifecycle', () => {
     await h.feed.admissionSettled()
     const logs = captureLogs()
     const sessionError = new Error('draft read failed')
-    const bootstrapError = new Error('approval read failed')
+    const bootstrapError = new Error('host snapshot failed')
     vi.mocked(h.ports.sessions.onClientAttached).mockRejectedValue(sessionError)
     h.bootstrap.mockRejectedValue(bootstrapError)
     const sent: ServerMessage[] = []

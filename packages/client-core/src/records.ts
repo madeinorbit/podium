@@ -25,6 +25,7 @@
 
 import type * as Declarations from '@podium/commands/records'
 import type {
+  EFFECT_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
   PIN_RECORD,
@@ -108,6 +109,8 @@ interface RecordKindTable {
   readonly issueUserState: typeof ISSUE_USER_STATE_RECORD
   // One of my layout keys (POD-6404); the layout controller paints it.
   readonly userLayout: typeof USER_LAYOUT_RECORD
+  // A human gate's decision on an effect record: an approval (POD-6674).
+  readonly effect: typeof EFFECT_RECORD
   // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
   // session row until its entry retires.
   readonly session: typeof SESSION_RECORD
@@ -140,6 +143,7 @@ export function recordKinds(): RecordKindTable {
     tabOrder: d.TAB_ORDER_RECORD,
     userPreferences: d.USER_PREFERENCES_RECORD,
     userReadPosition: d.USER_READ_POSITION_RECORD,
+    effect: d.EFFECT_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -272,6 +276,7 @@ export const RECORD_HOMES: {
       | 'tabOrders'
       | 'userPreferences'
       | 'userReadPositions'
+      | 'effects'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -285,6 +290,7 @@ export const RECORD_HOMES: {
     row: (id) => parseIssueUserStateRowId(id).entityId,
   },
   session: { target: 'sessions', row: (id) => id },
+  effect: { target: 'effects', row: (id) => id },
   userLayout: null,
   // Standalone per-user rows (POD-6673): the pool keys each by its feed id.
   pin: { target: 'pins', row: (id) => id },

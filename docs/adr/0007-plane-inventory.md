@@ -211,7 +211,7 @@ Legend: **C/e** control·entity · **C/c** control·command · **C/h** control·
 | `hostMetricsChanged` | S | |
 | `attentionEvent` | S | |
 | `worktreesChanged` | S | Invalidation; not re-served on attach |
-| `approvalsChanged` | S | Pending list; not oplog entity yet |
+| ~~`approvalsChanged`~~ | — | Retired by POD-6674 (2026-11-08): an approval is an `effect` record (kind `approval`) on the feed |
 | `sessionOpenUrl` | S | Browser-open family |
 | `sessionOpenUrlResult` | S | |
 
@@ -385,7 +385,7 @@ stamped from the authenticated client transport; a payload identity is inert.
 
 - Four-value `MessageSyncClass` migrates to plane·class vocabulary (one migration window aliases OK).
 - Handoff chunks as C/c with bulk *mechanics* is subtle — bulk plane remains for standing paged channels (transcripts).
-- `machinesChanged` / `approvalsChanged` stay stream until explicit entity promotion (amend this ADR).
+- `machinesChanged` stays stream until explicit entity promotion (amend this ADR). `approvalsChanged` was promoted by POD-6674: approvals are `effect` records with a human gate (ADR 12 D5 E2).
 
 **Follow-ups (not this leaf)**
 

@@ -67,6 +67,7 @@ async function recordTarget(
   if (row === undefined || row.deletedAt !== undefined) return undefined
   const executor = deps.executors.get(row.kind)
   if (executor === undefined) return undefined
+  if (executor.onRecord !== undefined) return await executor.onRecord(row, ctx.principal)
   return await executor.target(row.target, ctx.principal)
 }
 

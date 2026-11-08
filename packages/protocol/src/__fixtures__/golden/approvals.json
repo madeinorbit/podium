@@ -21,6 +21,150 @@
       "encoded": "\"stable\""
     },
     {
+      "schema": "ApprovalEffectInput",
+      "variant": "minimal",
+      "wire": {
+        "op": {
+          "kind": "update"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"update\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":null}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm0",
+      "wire": {
+        "op": {
+          "kind": "update"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"update\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm1",
+      "wire": {
+        "op": {
+          "kind": "channel",
+          "target": "edge"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"channel\",\"target\":\"edge\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm2",
+      "wire": {
+        "op": {
+          "kind": "stop"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"stop\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm3",
+      "wire": {
+        "op": {
+          "kind": "set-server",
+          "target": "op.target"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"set-server\",\"target\":\"op.target\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm4",
+      "wire": {
+        "op": {
+          "kind": "workflow-publish",
+          "revisionId": "op.revisionId"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"workflow-publish\",\"revisionId\":\"op.revisionId\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm5",
+      "wire": {
+        "op": {
+          "kind": "workflow-set-default",
+          "targetKind": "repository",
+          "targetId": "op.targetId",
+          "revisionId": "op.revisionId"
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"op.targetId\",\"revisionId\":\"op.revisionId\"},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "ApprovalEffectInput",
+      "variant": "full/arm6",
+      "wire": {
+        "op": {
+          "kind": "automation-schedule",
+          "name": "op.name",
+          "runAt": "2026-01-02T03:04:05.000Z",
+          "prompt": "op.prompt",
+          "target": {
+            "kind": "fresh",
+            "repoPath": "op.target.repoPath",
+            "agentKind": "shell",
+            "model": "op.target.model",
+            "effort": "op.target.effort"
+          }
+        },
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+    },
+    {
       "schema": "ApprovalExecRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -289,244 +433,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"automation-schedule\",\"name\":\"name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"target.repoPath\",\"agentKind\":\"shell\",\"model\":\"target.model\",\"effort\":\"target.effort\"}}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "minimal",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": []
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm0",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 1,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "update"
-            },
-            "status": "pending",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":1,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"update\"},\"status\":\"pending\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm1",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 2,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "channel",
-              "target": "edge"
-            },
-            "status": "denied",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":2,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"channel\",\"target\":\"edge\"},\"status\":\"denied\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm2",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 3,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "stop"
-            },
-            "status": "executing",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":3,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"stop\"},\"status\":\"executing\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm3",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 4,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "set-server",
-              "target": "pending[0].op.target"
-            },
-            "status": "succeeded",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":4,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"set-server\",\"target\":\"pending[0].op.target\"},\"status\":\"succeeded\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm4",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 5,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "workflow-publish",
-              "revisionId": "pending[0].op.revisionId"
-            },
-            "status": "failed",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":5,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"workflow-publish\",\"revisionId\":\"pending[0].op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm5",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 6,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "workflow-set-default",
-              "targetKind": "repository",
-              "targetId": "pending[0].op.targetId",
-              "revisionId": "pending[0].op.revisionId"
-            },
-            "status": "failed",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":6,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"pending[0].op.targetId\",\"revisionId\":\"pending[0].op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
-    },
-    {
-      "schema": "ApprovalsChangedMessage",
-      "variant": "full/arm6",
-      "wire": {
-        "type": "approvalsChanged",
-        "pending": [
-          {
-            "id": "pending[0].id",
-            "machineId": "pending[0].machineId",
-            "machineName": "pending[0].machineName",
-            "sessionId": "pending[0].sessionId",
-            "issueId": "pending[0].issueId",
-            "issueSeq": 7,
-            "issueDisplayRef": "pending[0].issueDisplayRef",
-            "issueTitle": "pending[0].issueTitle",
-            "op": {
-              "kind": "automation-schedule",
-              "name": "pending[0].op.name",
-              "runAt": "2026-01-02T03:04:05.000Z",
-              "prompt": "pending[0].op.prompt",
-              "target": {
-                "kind": "fresh",
-                "repoPath": "pending[0].op.target.repoPath",
-                "agentKind": "shell",
-                "model": "pending[0].op.target.model",
-                "effort": "pending[0].op.target.effort"
-              }
-            },
-            "status": "failed",
-            "createdAt": "pending[0].createdAt",
-            "decidedAt": "pending[0].decidedAt",
-            "resultText": "pending[0].resultText"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":7,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"pending[0].op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"pending[0].op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"pending[0].op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"pending[0].op.target.model\",\"effort\":\"pending[0].op.target.effort\"}},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
     },
     {
       "schema": "ApprovalStatus",

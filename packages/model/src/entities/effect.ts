@@ -111,6 +111,27 @@ export type EffectTarget = z.infer<typeof EffectTarget>
 export const EffectIdField = z.string().min(1).brand<'EffectId'>()
 export type EffectId = z.infer<typeof EffectIdField>
 
+/**
+ * A HUMAN GATE'S DECISION (POD-6674). Some effects wait for a person before
+ * they may run: an agent's approval request is an effect record that stays
+ * `pending` until its person decides. The decision is the record's one spec
+ * field, written once (the first decision wins, checked by revision): `approve`
+ * lets the trigger run it, `deny` ends it `cancelled` in the same write.
+ */
+export const EFFECT_DECISIONS = ['approve', 'deny'] as const
+export const EffectDecision = z.enum(EFFECT_DECISIONS)
+export type EffectDecision = z.infer<typeof EffectDecision>
+
+/** The stage of a gated record nobody has decided yet. */
+export const AWAITING_DECISION_STAGE = 'awaiting-approval'
+
+/**
+ * The effect kind of an agent's approval request: a management operation (an
+ * update, a channel switch, a workflow publish…) that waits for its person.
+ * Its input is `ApprovalEffectInput` (`@podium/protocol`).
+ */
+export const APPROVAL_EFFECT_KIND = 'approval'
+
 /** A new effect record's id: `eff_<uuid>`, minted on the device (ADR 12 D4). */
 export const NewEffectId = deviceIdSchema('eff_')
 
@@ -129,6 +150,16 @@ export const EffectRecordWire = z.object({
   result: z.unknown().optional(),
   /** Cancel is an edit (ADR 12 D5): honoured before the run, or at the executor's safe points. */
   cancelRequested: z.boolean(),
+  /**
+   * A gated kind's decision (POD-6674): `null` while it waits for its person,
+   * then `approve` or `deny`. Absent on a kind with no human gate.
+   */
+  decision: EffectDecision.nullable().optional(),
+  /**
+   * Who a gated record is routed to (POD-6674): the people offered its
+   * decision, set when it is asked. Absent: its creator.
+   */
+  deciders: z.array(z.string()).optional(),
   effect: EffectGroup,
   createdBy: z.string().nullable(),
   createdAt: z.string(),

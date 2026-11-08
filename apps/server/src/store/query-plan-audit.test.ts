@@ -145,6 +145,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
     ['running', 'succeeded', 'failed', 'cancelled', 'expired', 'unknown'],
   ],
   ['apps/server/src/store/effects.ts:effectsInStatus', ['pending', 'running']],
+  ['apps/server/src/store/effects.ts:decideEffect', ['approve', 'deny']],
   ['apps/server/src/store/effects.ts:newestOnTargetIn', ['active', 'succeeded']],
   ['apps/server/src/store/effects.ts:liveOnTargetKeys', ['1x1', '2x4', '2x512', '4x512']],
   ['apps/server/src/store/user-layout.ts:layoutRowsPage', ['start', 'after']],
@@ -417,10 +418,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/interactions.ts:openInteractions',
     'Sorts the open interactions only (status index); answered ones are not read.',
-  ],
-  [
-    'apps/server/src/store/approvals.ts:executingApprovals',
-    'Sorts the approvals executing right now (status index): a handful.',
   ],
   [
     'apps/server/src/store/conversations/registry.ts:nativeIdsOf',

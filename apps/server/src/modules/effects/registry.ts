@@ -20,12 +20,12 @@
  * the effect may have happened, so it reads as `unknown`, never as a retry.
  */
 
-import type { EffectTarget } from '@podium/model'
+import type { EffectDecision, EffectTarget } from '@podium/model'
 import type { SyncSubmitRefusal } from '@podium/protocol'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { EffectRow } from '../../store/effects'
-import type { SyncWriteTarget } from '../sync-write/registry'
+import type { SyncWriteContext, SyncWriteTarget } from '../sync-write/registry'
 
 /** How a run ended, as the executor says it. */
 export type EffectOutcome =
@@ -76,6 +76,28 @@ export interface EffectExecutor<In = unknown> {
   readonly input: z.ZodType<In, z.ZodTypeDef, unknown>
   /** What the kind acts on, checked live; `undefined` refuses. */
   target(target: EffectTarget, principal: CommandPrincipal): Promise<SyncWriteTarget>
+  /**
+   * Who may act on an EXISTING record (cancel, dismiss, a gated kind's
+   * decision), when that turns on the record itself rather than its target: an
+   * approval is its person's alone, whoever else may read it (POD-6674).
+   * Absent: `target`, asked of the record's target.
+   */
+  onRecord?(record: EffectRow, principal: CommandPrincipal): Promise<SyncWriteTarget>
+  /**
+   * A HUMAN GATE (POD-6674): the kind's records wait `pending` for a person's
+   * `decision` (`records.effect.edit`), checked by {@link onRecord}. `decide`
+   * writes it in the edit's unit of work, against the revision the person saw,
+   * and answers the record after the write; a decided or moved record refuses.
+   * An approved record is claimed by the trigger like any other.
+   */
+  readonly gate?: {
+    decide(
+      ctx: SyncWriteContext,
+      record: EffectRow,
+      decision: EffectDecision,
+      revision: number,
+    ): Promise<EffectRow>
+  }
   /**
    * Checks that need the parsed input and the target together, at create (in
    * the unit of work, before the record is written): that the input addresses

@@ -1,9 +1,12 @@
+import { here } from '@podium/client-graph/lookup'
+import type { EffectModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
-import { describeApprovalOp, formatLong, issueDisplayRef, submitNow } from '@podium/protocol'
+import { ApprovalOp, describeApprovalOp, formatLong } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useShellActions, useShellApprovals } from './shell-data'
+import { useWorklistPool } from './store-worklist-pool'
 
 /**
  * Approval broker popup [spec:SP-edbb] (#410): an agent asked to run a
@@ -13,69 +16,53 @@ import { useShellActions, useShellApprovals } from './shell-data'
  * render their target, because an approval dialog only protects when the user
  * can see what they're approving.
  *
+ * The request is an `approval` effect record (POD-6674): it shows on every
+ * device of the person it is routed to, after a restart and offline from the
+ * saved copy, and a decision is an edit of that record, queued like any other.
+ * An operation this app version cannot read is shown as such and cannot be
+ * approved from here.
+ *
  * Deliberately NON-modal: a fixed corner card with no overlay/blur, so the
  * user can inspect the requesting session (or anything else) before deciding.
  * There is no dismissal either — the card stays until an explicit approve or
  * deny; an approval must never be decided by an accidental escape/click-away.
  */
 export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | null {
-  const { trpc, navigateToSession } = useShellActions()
   const approvals = useShellApprovals()
-  const [pendingAction, setPendingAction] = useState<'approve' | 'deny' | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const busy = pendingAction !== null
   const current = approvals[0]
   if (!current) return null
+  return <ApprovalCard key={current.id} approval={current} waiting={approvals.length - 1} />
+})
 
-  const decide = async (approve: boolean) => {
+const ApprovalCard = observer(function ApprovalCard({
+  approval,
+  waiting,
+}: {
+  approval: EffectModel
+  waiting: number
+}): JSX.Element | null {
+  const { navigateToSession, decideApproval } = useShellActions()
+  const [pendingAction, setPendingAction] = useState<'approve' | 'deny' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const request = approval.approvalRequest
+  if (!request) return null
+  const op = ApprovalOp.safeParse(request.op)
+  const busy = pendingAction !== null
+
+  const decide = async (decision: 'approve' | 'deny') => {
     if (busy) return
-    setPendingAction(approve ? 'approve' : 'deny')
+    setPendingAction(decision)
     setError(null)
     try {
-      // On the sync write entry point (POD-6415): the decision is written, and
-      // the operation runs after it commits. LEGACY(remove-after: 2027-03): a
-      // server without `sync.submit` takes the old route.
-      const id = current.id
-      if (approve) {
-        await submitNow(
-          trpc,
-          'approvals.approve',
-          { id },
-          {
-            action: 'approve this request',
-            legacy: async () => await trpc.approvals.approve.mutate({ id }),
-          },
-        )
-      } else {
-        await submitNow(
-          trpc,
-          'approvals.deny',
-          { id },
-          {
-            action: 'deny this request',
-            legacy: async () => await trpc.approvals.deny.mutate({ id }),
-          },
-        )
-      }
+      // Against the revision shown: if another device decided first, the
+      // server refuses this one rather than deciding a request twice.
+      await decideApproval(approval.id, decision, approval.revision)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not record the decision. Try again.')
     } finally {
       setPendingAction(null)
     }
   }
-
-  const from = [
-    current.machineName ?? current.machineId,
-    // Prefer the server-stamped nice id (#474); fall back to `#seq` for rows
-    // from a server that predates the field.
-    current.issueDisplayRef != null
-      ? formatLong(current.issueDisplayRef, current.issueTitle ?? '')
-      : current.issueSeq != null
-        ? formatLong(issueDisplayRef({ seq: current.issueSeq }), current.issueTitle ?? '')
-        : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
 
   return (
     <div
@@ -86,16 +73,15 @@ export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | 
       style={{ top: 'calc(env(safe-area-inset-top, 0px) + 3rem)' }}
     >
       <div className="mb-1 text-sm font-semibold">Agent requests approval</div>
-      <div className="mb-2 text-[12px] text-muted-foreground">
-        {from ? `An agent (${from}) wants to:` : 'An agent wants to:'}
-      </div>
+      <RequestedFrom machineId={request.machineId} issueId={request.issueId} />
       <p className="mb-2 rounded-md border bg-muted px-3 py-2 font-mono text-[13px]">
-        {describeApprovalOp(current.op)}
+        {op.success
+          ? describeApprovalOp(op.data)
+          : 'an operation this version of Podium cannot show — update the app to decide it'}
       </p>
-      {approvals.length > 1 ? (
+      {waiting > 0 ? (
         <p className="mb-2 text-[12px] text-muted-foreground">
-          {approvals.length - 1} more request{approvals.length > 2 ? 's' : ''} waiting behind this
-          one.
+          {waiting} more request{waiting > 1 ? 's' : ''} waiting behind this one.
         </p>
       ) : null}
       {error && (
@@ -107,7 +93,7 @@ export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | 
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigateToSession(current.sessionId)}
+          onClick={() => navigateToSession(request.sessionId)}
           disabled={busy}
         >
           Go to session
@@ -119,21 +105,45 @@ export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | 
             disabled={busy}
             pending={pendingAction === 'deny'}
             pendingLabel="Denying…"
-            onClick={() => void decide(false)}
+            onClick={() => void decide('deny')}
           >
             Deny
           </Button>
           <Button
             size="sm"
-            disabled={busy}
+            disabled={busy || !op.success}
             pending={pendingAction === 'approve'}
             pendingLabel="Approving…"
-            onClick={() => void decide(true)}
+            onClick={() => void decide('approve')}
           >
             Approve
           </Button>
         </div>
       </div>
+    </div>
+  )
+})
+
+/** "An agent (machine · issue) wants to:", from the machine and issue models. */
+const RequestedFrom = observer(function RequestedFrom({
+  machineId,
+  issueId,
+}: {
+  machineId: string
+  issueId: string | null
+}): JSX.Element {
+  const pool = useWorklistPool()
+  const machine = pool ? here(pool.model('machine', machineId)) : undefined
+  const issue = pool && issueId ? here(pool.model('issue', issueId)) : undefined
+  const from = [
+    machine?.name ?? machineId,
+    issue ? formatLong(issue.displayRef, issue.title ?? '') : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <div className="mb-2 text-[12px] text-muted-foreground">
+      {from ? `An agent (${from}) wants to:` : 'An agent wants to:'}
     </div>
   )
 })

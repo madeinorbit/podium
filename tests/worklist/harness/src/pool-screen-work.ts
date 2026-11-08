@@ -1,3 +1,4 @@
+import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { headerView } from '@podium/client-graph/header-views'
@@ -539,7 +540,7 @@ async function measureScreenCells(
     add('shell.catalogs', ['AppShell'], () => ({
       machines: shell.machines(),
       repos: shell.repositories(),
-      approvals: shell.approvals(),
+      approvals: pendingApprovals(pool),
       files: shell.files(),
       lanes: shell.lanes(),
       shipping: shell.dock.shipping,

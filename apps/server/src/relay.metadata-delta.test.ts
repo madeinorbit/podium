@@ -281,13 +281,7 @@ describe('SessionRegistry metadata deltas', () => {
     const inbox: ServerMessage[] = []
     attachTestClient(registry.clientGateway, (msg) => inbox.push(msg)) // no hello at all
     // Attachment still sends control-plane snapshots asynchronously.
-    await expect
-      .poll(
-        () =>
-          inbox.some((m) => m.type === 'approvalsChanged') &&
-          inbox.some((m) => m.type === 'machinesChanged'),
-      )
-      .toBe(true)
+    await expect.poll(() => inbox.some((m) => m.type === 'machinesChanged')).toBe(true)
     expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
     const before = inbox.length
     await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'x', startNow: false })

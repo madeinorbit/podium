@@ -7,6 +7,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { observable, runInAction } from 'mobx'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
@@ -93,13 +94,44 @@ fixture.records.set(`shipLane:${lane.id}`, {
   value: lane,
   provenance: { seq: 1 },
 })
+// Two agent requests waiting for this person (POD-6674): `approval` effect
+// records on the feed. The dialog is mounted when the proof asks for it.
+for (const index of [0, 1]) {
+  const id = `apr_synthetic-approval-${index}`
+  fixture.records.set(`effect:${id}`, {
+    entity: 'effect',
+    entityId: id,
+    value: {
+      id,
+      kind: 'approval',
+      target: { kind: 'session', id: `synthetic-session-${index}` },
+      input: {
+        op: { kind: 'channel', target: 'dev' },
+        machineId: 'host-one',
+        sessionId: `synthetic-session-${index}`,
+        issueId: null,
+      },
+      cancelRequested: false,
+      decision: null,
+      effect: { status: 'pending', attempts: 0, stage: 'awaiting-approval' },
+      createdBy: 'shell-test',
+      createdAt: `2026-11-08T10:00:0${index}.000Z`,
+      updatedAt: `2026-11-08T10:00:0${index}.000Z`,
+      revision: 1,
+    },
+    provenance: { seq: 1 },
+  })
+}
+const approvalGate = observable({ shown: false })
+const ApprovalGate = observer(function ApprovalGate() {
+  return approvalGate.shown ? <ApprovalDialog /> : null
+})
 const lifecycle = {
   ...fixture.inputs().lifecycle,
   autoContinue: { enabled: false, promptDismissed: false },
 }
 Object.assign(fixture.api, {
   settings: { get: { query: async () => lifecycle }, updatePersonal: { mutate: async () => ({}) } },
-  approvals: { approve: { mutate: async () => ({}) }, deny: { mutate: async () => ({}) } },
   features: {
     state: {
       query: async () => ({
@@ -229,7 +261,7 @@ function Surfaces() {
           </Profiler>
         </section>
       </div>
-      <ApprovalDialog />
+      <ApprovalGate />
       <AutoContinueDialog />
       <BrowserOpenOverlay />
       <PodiumLinkHost />
@@ -362,21 +394,9 @@ const driver = {
     referenceState(runtime!).setSelectedIssueId(id ? asIssueId(id) : null)
   },
   approvals() {
-    emit(
-      'approvals',
-      [0, 1].map((index) => ({
-        id: `synthetic-approval-${index}`,
-        machineId: 'host-one',
-        machineName: 'Host 1',
-        sessionId: `synthetic-session-${index}`,
-        issueSeq: 1000 + index,
-        issueDisplayRef: `SYN-${1000 + index}`,
-        issueTitle: `Synthetic task ${index}`,
-        op: { kind: 'channel', target: 'dev' },
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      })),
-    )
+    runInAction(() => {
+      approvalGate.shown = true
+    })
   },
   prompt() {
     apply({ autoContinuePromptSessionId: 'synthetic-session-0' })

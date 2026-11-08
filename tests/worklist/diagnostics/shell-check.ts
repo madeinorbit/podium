@@ -115,7 +115,6 @@ export function legacyShellSnapshot(
     pending: 0,
     sections: [
       { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
-      { key: 'approvals', fields: {}, rows: state.approvals.map((value) => row(value.id, value)) },
       { key: 'files', fields: {}, rows: state.fileTabs.map((value) => row(value.id, value)) },
       { key: 'close', fields: closeFields(state.workspaces[key], key, state.fileTabs), rows: [] },
       {
@@ -194,7 +193,6 @@ export function dockSnapshot(views: ReturnType<typeof shellViews>) {
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   const views = shellViews(pool),
     state = views.window(),
-    approvals = views.approvals(),
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
@@ -210,7 +208,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   if (
     !state ||
     state === LOADING ||
-    approvals === LOADING ||
     files === LOADING ||
     close === LOADING ||
     chrome === LOADING ||
@@ -225,11 +222,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     pending: 0,
     sections: [
       { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
-      {
-        key: 'approvals',
-        fields: {},
-        rows: (approvals ?? []).map((value) => row(value.id, value)),
-      },
       { key: 'files', fields: {}, rows: (files ?? []).map((value) => row(value.id, value)) },
       {
         key: 'close',

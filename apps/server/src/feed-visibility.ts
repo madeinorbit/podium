@@ -391,6 +391,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // admin's and no member's, even a member who started it as an admin.
           if (INSTANCE_EFFECT_KINDS.has(audience.kind)) return prefetch.adminIds.has(userId)
           if (audience.createdBy === userId) return true
+          // A gated record's people (POD-6674): an approval its owner may not
+          // run is routed to the admins who may, who may not read its target.
+          if (audience.deciders?.includes(userId as never) === true) return true
           if (audience.targetKind === 'issue') {
             return mayReadIssueFromSnapshot(userId, audience.targetId, prefetch)
           }

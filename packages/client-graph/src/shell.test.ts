@@ -107,7 +107,7 @@ describe('shell pool', () => {
     }
   })
 
-  it('matches window, approval, file, close, chrome, dock, shipping, machine and link inputs', () => {
+  it('matches window, file, close, chrome, dock, shipping, machine and link inputs', () => {
     const f = shellFixture()
     try {
       expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
@@ -136,7 +136,7 @@ describe('shell pool', () => {
         expect(report).toMatchObject({
           differences: 1,
           pending: 0,
-          first: { sectionIndex: 9, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
+          first: { sectionIndex: 8, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
         })
         expect(JSON.stringify(report)).not.toContain('private-machine-name')
         f.live.online(machine.id, machine.online)
@@ -145,17 +145,15 @@ describe('shell pool', () => {
       f.pool.dispose()
     }
   })
-  it('preserves approval queue order and prompt/palette/super-open changes without session derivation', () => {
+  it('preserves prompt/palette/super-open changes without session derivation', () => {
     const f = shellFixture()
     try {
       settled(f)
       f.change({
-        approvals: [...f.approvals].reverse(),
         autoContinuePromptSessionId: null,
         paletteOpen: false,
         superOpen: false,
       })
-      expect(shellViews(f.pool).approvals()).toEqual([...f.approvals].reverse())
       expect(shellViews(f.pool).window()).toMatchObject({
         autoContinuePromptSessionId: null,
         paletteOpen: false,
@@ -311,10 +309,10 @@ describe('shell pool', () => {
       f.pool.dispose()
     }
   })
-  it('isolates unchanged chrome, shipping and approval observers and disposes every source subscription', () => {
+  it('isolates unchanged chrome, shipping and file observers and disposes every source subscription', () => {
     const f = shellFixture()
     settled(f)
-    const read = vi.fn(() => shellViews(f.pool).approvals()),
+    const read = vi.fn(() => shellViews(f.pool).files()),
       stop = autorun(read)
     const chrome = vi.fn(() => shellViews(f.pool).chrome()),
       stopChrome = autorun(chrome)
@@ -336,7 +334,7 @@ describe('shell pool', () => {
       f.change({ paletteOpen: false })
       expect(read).toHaveBeenCalledTimes(1)
       expect(chrome).toHaveBeenCalledTimes(2)
-      f.change({ approvals: f.approvals.slice(1) })
+      f.change({ fileTabs: [] })
       expect(read).toHaveBeenCalledTimes(2)
       f.pool.dispose()
       expect(f.listeners.size).toBe(0)
@@ -375,10 +373,10 @@ describe('shell pool', () => {
       const changed = {
         ...actual,
         sections: actual.sections.map((section) =>
-          section.key === 'approvals' ? { ...section, rows: [...section.rows].reverse() } : section,
+          section.key === 'orders' ? { ...section, rows: [...section.rows].reverse() } : section,
         ),
       }
-      expect(compareShellSnapshots(expected, changed).differences).toBe(2)
+      expect(compareShellSnapshots(expected, changed).differences).toBe(f.shipOrders.length)
     } finally {
       f.pool.dispose()
     }

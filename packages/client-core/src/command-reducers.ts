@@ -60,6 +60,8 @@ export type OverlayTarget =
   | 'sessionUserStates'
   // POD-6673's standalone per-user rows, each keyed by its feed id.
   | PerUserRecordTarget
+  // A human gate's decision on an effect record (POD-6674).
+  | 'effects'
 
 /** The per-user record kinds that are pool rows of their own (POD-6673). */
 export type PerUserRecordTarget = 'pins' | 'tabOrders' | 'userPreferences' | 'userReadPositions'

@@ -654,7 +654,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (machines, drafts) follows hub events through keyed channels; host
     // metrics are LiveStore readings, held by the live feed while watched.
-    offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
     // server snapshot when visibility, reachability, or USE changed. Full

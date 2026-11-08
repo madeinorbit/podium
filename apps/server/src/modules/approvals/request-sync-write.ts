@@ -4,9 +4,10 @@
  *
  * `podium approval request` files a held operation for a person to decide. It
  * was the relay arm's direct call into the service; it is a sync command now:
- * it enters through `submit`, the request row and its `issue.approval_requested`
- * activity event are written in the command's unit of work (the event carries
- * its provenance), and the pending-set broadcast follows the commit.
+ * it enters through `submit`, and the request (an `approval` effect record,
+ * POD-6674) and its `issue.approval_requested` activity event are written in
+ * the command's unit of work (the event carries its provenance). The record
+ * reaches its person's devices on the feed.
  *
  * THE TARGET IS THE CALLING SESSION. The relay binds the session and its
  * machine onto the input from the relay context (`relay-gate.ts`
@@ -19,8 +20,8 @@
  * rule, so an agent retrying does not stack popups. `approvals.get` stays a
  * relay read.
  *
- * TRANSPORTS: the relay only. A person decides with `approvals.approve` and
- * `approvals.deny`; nobody files a request over tRPC.
+ * TRANSPORTS: the relay only. A person decides with `records.effect.edit`;
+ * nobody files a request over tRPC.
  */
 
 import { type CommandDef, defineCommands } from '@podium/commands'
@@ -81,9 +82,6 @@ export function registerApprovalRequest(
       if (actor === undefined) return NO_ACTOR
       return input.sessionId === actor ? NO_TARGET : NOT_YOURS
     },
-    handle: async (ctx, input) =>
-      await deps.modules().approvals.request(input, {
-        afterCommit: (step, label) => ctx.afterCommit(step, label),
-      }),
+    handle: async (ctx, input) => await deps.modules().approvals.request(input, ctx),
   })
 }

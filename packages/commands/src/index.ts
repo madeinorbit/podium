@@ -57,15 +57,6 @@ export {
   agentProfileUpdateInput,
 } from './agent-profiles/contracts'
 export {
-  APPROVAL_CONTRACT_NAMES,
-  APPROVAL_CONTRACTS,
-  type ApprovalContractName,
-  approvalsApproveContract,
-  approvalsApproveInput,
-  approvalsDenyContract,
-  approvalsDenyInput,
-} from './approvals/contracts'
-export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
   AUTOMATION_QUERY_NAMES,
@@ -478,6 +469,7 @@ export {
   PENDING_ISSUE_SEQ,
 } from './records/issue-fresh'
 export {
+  EFFECT_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
   NOT_YET_GENERIC,

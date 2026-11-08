@@ -64,7 +64,11 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'server',
   },
   'approvals.execute': {
-    what: 'an approved server op (a one-off automation), run by the approval.execute effect after its decision commits',
+    what: 'an approved server op (a one-off automation), run by its approval effect record after the decision commits',
+    kind: 'server',
+  },
+  'approvals.results': {
+    what: "the approval broker's own settlements of an approval effect record: a daemon's result, and the boot step that puts rows the POD-6674 migration copied in on the feed",
     kind: 'server',
   },
   'conversations.discovery': {

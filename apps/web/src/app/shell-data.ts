@@ -1,6 +1,8 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import { here } from '@podium/client-graph/lookup'
+import type { EffectModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -37,6 +39,7 @@ const ACTIONS = [
   'closeFileTab',
   'closeWorkspaceTab',
   'setSettingsTab',
+  'decideApproval',
 ] as const satisfies readonly (keyof Store)[]
 export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
   const owner = useStoreHandle<Trpc>()
@@ -68,13 +71,14 @@ export function useShellWindow() {
   const pool = useWorklistPool()
   return pool ? here(pool.row('shellWindow', 'window')) : undefined
 }
-export function useShellApprovals() {
+/** The agent requests waiting for this person, oldest first (POD-6674): the
+ *  pool's `approval` effect models. */
+export function useShellApprovals(): readonly EffectModel[] {
   if (import.meta.env.DEV) assertReactiveRead('useShellApprovals')
-  const pool = useWorklistPool(),
-    rows = pool ? shellView(pool).approvals() : LOADING
-  return rows && rows !== LOADING ? rows : EMPTY_APPROVALS
+  const pool = useWorklistPool()
+  return pool ? pendingApprovals(pool) : EMPTY_APPROVALS
 }
-const EMPTY_APPROVALS: Store['approvals'] = []
+const EMPTY_APPROVALS: readonly EffectModel[] = []
 
 const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
 export function useShellLinks() {

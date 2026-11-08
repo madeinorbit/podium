@@ -101,13 +101,17 @@ import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gatewa
 import { driverFamilyForId } from './harness-manifest'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
-import { checkMachineUse, machineCustodian, ownershipSnapshotFromMachines } from './machine-access'
+import {
+  checkMachineUse,
+  checkMachineVerb,
+  machineCustodian,
+  ownershipSnapshotFromMachines,
+} from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { AgentProfileService } from './modules/agent-profiles/service'
-import { registerApprovalExecuteEffect } from './modules/approvals/execute-effect'
-import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
+import { ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
@@ -386,6 +390,8 @@ interface SessionRegistryOptions {
 export interface EffectsModule {
   readonly executors: EffectExecutorRegistry
   readonly runner: EffectsRunner
+  /** One record as the Authority holds it now, tombstones included. */
+  get(id: string): Promise<EffectRow | undefined>
   awaitSettled(id: string, timeoutMs: number): ReturnType<typeof awaitEffectSettled>
   /** One kind's newest record on a target that is still running, or that succeeded. */
   newestOnTarget: EffectsRepository['newestOnTarget']
@@ -658,8 +664,6 @@ export class SessionRegistry {
   private readonly queuedInputSweep: ReturnType<typeof setInterval>
   /** Unclaimed composer uploads past their day (POD-2148). */
   private readonly pendingUploadSweep: ReturnType<typeof setInterval>
-  /** Stalled-approval deadline (POD-2223) — modules/approvals. */
-  private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
@@ -725,6 +729,9 @@ export class SessionRegistry {
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
     await this.modules.automations.reconcileFromStore()
+    // Approval rows the POD-6674 migration copied into `effects` reach the feed
+    // (once; a later boot finds none).
+    await this.modules.approvals.publishCopiedRecords()
     bootStage('feeds memory automations', stageStarted)
     stageStarted = performance.now()
     if (!this.recoveryOnly || rehearseBoot) {
@@ -3418,17 +3425,52 @@ export class SessionRegistry {
       now: () => new Date(this.now()),
     })
     // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
+    // An approval is an effect record with a human gate (POD-6674): its executor
+    // registers below with the other effect kinds.
     const approvals = new ApprovalService({
-      store: this.store.approvals,
-      now: () => new Date().toISOString(),
+      effects: this.store.effects,
+      writer: writes.system('approvals.results'),
+      nowMs: this.now,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // The stall deadline runs only while a machine's daemon is actually attached:
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
-      clients: () => clientRegistry.values(),
-      // An approval is its session owner's (POD-6284): list, broadcast, decide.
+      // An approval is its session owner's (POD-6284): only they decide it.
       sessionOwnerUserId: async (sessionId) =>
         (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+      personActive: async (userId) => {
+        const user = await this.store.users.get(userId)
+        return user !== undefined && user !== null && !user.disabledAt
+      },
+      // A decider must also hold the operation's own permission, read live
+      // (POD-6674 review): `modules/approvals/op-permission.ts`.
+      opPermission: {
+        machineVerb: async (principal, machineId, verb) =>
+          checkMachineVerb(
+            principal,
+            machineId,
+            await ownershipSnapshotFromMachines(machines),
+            verb,
+          ) === undefined,
+        workflowWrite: async (principal, revisionId) =>
+          principal.kind !== 'system' &&
+          (await workflows.targetRefusal(
+            await workflowCallerForCapability(principal.capability),
+            'publish',
+            { revisionId },
+          )) === undefined,
+        sessionOwner: async (sessionId) =>
+          (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+      },
+      personPrincipal: async (userId) => {
+        const user = await this.store.users.get(userId)
+        if (!user || user.disabledAt) return undefined
+        return userCommandPrincipal(asUserId(user.id), user.role)
+      },
+      activeAdmins: async () =>
+        [...(await this.store.users.activeAdminIds())].map((id) =>
+          userCommandPrincipal(asUserId(id), 'admin'),
+        ),
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? (await issues.reports.issueForCwd(s.cwd))) : null
@@ -3521,8 +3563,8 @@ export class SessionRegistry {
             // Scheduling snapshots defaults without probing; spawn vets the selected host's row.
             catalog: null,
           })
-          // An approved server op, run by the `approval.execute` effect after
-          // its decision committed: the server's own write on the requester's
+          // An approved server op, run by its approval record after the
+          // decision committed: the server's own write on the requester's
           // behalf (ADR 12 D2), under its declared origin.
           const scheduled = await automations.create(
             writes.system('approvals.execute'),
@@ -4492,6 +4534,7 @@ export class SessionRegistry {
       effects: {
         executors: effectExecutors,
         runner: this.effectsRunner,
+        get: async (id) => await this.store.effects.get(id),
         awaitSettled: async (id, timeoutMs) =>
           await awaitEffectSettled(this.store.effects, id, timeoutMs),
         newestOnTarget: async (kind, target, phase) =>
@@ -4601,12 +4644,8 @@ export class SessionRegistry {
     })
     // A running session's model or effort changes through its driver (POD-6416).
     registerSessionConfigureEffect({ modules: () => this.modules })
-    // An approved server-catalog op runs from its record (POD-6415).
-    registerApprovalExecuteEffect({
-      modules: () => this.modules,
-      users: this.store.users,
-      approvals: () => this.modules.approvals,
-    })
+    // An agent's approval request is an effect record with a human gate (POD-6674).
+    effectExecutors.register(approvals.executor())
     // Answering an agent's question, every way Podium answers (POD-6415).
     registerSessionAnswerEffect({
       modules: () => this.modules,
@@ -4856,16 +4895,6 @@ export class SessionRegistry {
     sweepPendingUploads()
     this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
     this.pendingUploadSweep.unref?.()
-    // An approved op whose daemon takes the frame and never answers must not sit
-    // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
-    // daemon in the fleet is one that drops it.
-    this.approvalStallSweep = setInterval(() => {
-      if (!backgroundDisabled)
-        void approvals.sweepStalledExecutions().catch((err: unknown) => {
-          log.warn('approval stall sweep failed', { err })
-        })
-    }, APPROVAL_STALL_SWEEP_MS)
-    this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
     // Classes remain for tests / manual pruneNow; start() is no longer called.
@@ -4957,13 +4986,9 @@ export class SessionRegistry {
       serverBuild: () => serverBuildVersion(),
       serverFeatures: () => offeredFeatures(),
       now: () => this.now(),
-      // This task is independent of session replay and feed admission. Only
-      // its own approvals -> host snapshot sequence is ordered (POD-3509).
+      // This task is independent of session replay and feed admission
+      // (POD-3509). Approvals reach a client on the feed (POD-6674).
       bootstrap: async (client): Promise<void> => {
-        client.send({
-          type: 'approvalsChanged',
-          pending: await approvals.listPendingFor(client.principal.user),
-        })
         hosts.snapshotFor(client.send)
       },
     })
@@ -5108,7 +5133,6 @@ export class SessionRegistry {
     clearInterval(this.messageSweep)
     clearInterval(this.queuedInputSweep)
     clearInterval(this.pendingUploadSweep)
-    clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.modules.machines.dispose()
     this.modules.issueSessionLifecycle.dispose()

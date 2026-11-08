@@ -21,7 +21,6 @@ import {
   messageRecordRowId,
 } from '@podium/model'
 import {
-  type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
@@ -496,8 +495,6 @@ export interface HubEvents {
    *  this is a one-shot invalidation; the subscriber re-fetches through the same
    *  path it already uses at boot. */
   worktreesChanged: [repoPath: string, machineId: MachineId | undefined]
-  /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
-  approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
    *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
@@ -638,7 +635,6 @@ export class SocketHub {
   private connectedFlag = false
   private clientIdValue = ''
   private machinesList: MachineWire[] = []
-  private approvalsList: ApprovalWire[] = []
   /** The normalized issue list [POD-796]. Separate from `issueList` rather than
    *  replacing it: the two shapes coexist for the whole transition, and the feed
    *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
@@ -2187,10 +2183,6 @@ export class SocketHub {
     },
     worktreesChanged: (msg) => {
       this.emit('worktreesChanged', msg.repoPath, msg.machineId)
-    },
-    approvalsChanged: (msg) => {
-      this.approvalsList = msg.pending
-      this.emit('approvals', this.approvalsList)
     },
     // Session-scoped terminal stream: forwarded to the matching SessionConnection
     // (or dropped when no view is attached — same as the old fall-through arm).

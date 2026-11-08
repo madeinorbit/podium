@@ -39,6 +39,11 @@ export function effectRecordOf(row: EffectRow, registry: EffectExecutorRegistry)
     input: publishedInput(row, registry),
     ...(row.result === undefined ? {} : { result: row.result }),
     cancelRequested: row.cancelRequested,
+    // A gated record's decision (POD-6674); a kind with no gate carries none.
+    ...(row.decision === undefined
+      ? {}
+      : { decision: row.decision === 'awaiting' ? null : row.decision }),
+    ...(row.deciders === undefined ? {} : { deciders: [...row.deciders] }),
     effect: {
       status: row.status,
       ...(row.error === undefined ? {} : { error: row.error }),

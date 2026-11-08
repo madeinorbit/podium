@@ -138,6 +138,8 @@ export class EffectsRunner {
     if (this.stopped) return
     for (const row of rows) {
       if (row.deletedAt !== undefined) continue
+      // Waiting for its person (POD-6674): an approve commits it again.
+      if (row.decision === 'awaiting') continue
       if (row.status === 'pending') {
         this.track(this.dispatch(row.id))
       } else if (row.cancelRequested) {
@@ -215,6 +217,7 @@ export class EffectsRunner {
       const { repo, registry, now } = this.deps
       const row = await repo.get(id)
       if (row === undefined || row.status !== 'pending' || row.deletedAt !== undefined) return
+      if (row.decision === 'awaiting') return
       const executor = registry.get(row.kind)
       if (executor === undefined) {
         await this.write(id, async (scope) =>

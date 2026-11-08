@@ -108,6 +108,7 @@ describe('a declaration that could never serve a command fails where it is writt
 describe('the generated commands', () => {
   it('one contract per offered op, named records.<kind>.<op>', () => {
     expect(Object.keys(RECORD_CONTRACTS).sort()).toEqual([
+      'records.effect.edit',
       'records.issueProjection.create',
       'records.issueProjection.edit',
       'records.issueUserState.edit',

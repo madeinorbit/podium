@@ -11,7 +11,7 @@ vi.mock('./store-worklist-pool', () => ({ useWorklistPool: () => source.pool }))
 vi.mock('@podium/client-graph/shell-views', () => ({ shellViews: () => {
   const read = () => source.read()
   const dock = { get active() { return read() }, get shipping() { return read() } }
-  return { dock, approvals: read, sessions: read, close: read,
+  return { dock, sessions: read, close: read,
     machines: read, chrome: read, linkedSession: read, linkedIssue: read, issue: read, session: read }
 } }))
 
@@ -41,7 +41,11 @@ it.each(live)('rejects %s outside an observer even while the pool is loading', (
   expect(() => render(<Bare />)).toThrow(`${name} must run inside an observer`)
 })
 
-it.each(live)('keeps %s reactive inside an observer', (_name, useRead) => {
+// The approvals list reads the pool's effect models (POD-6674), not a shell
+// view; `approval-effects` is tested in client-graph.
+const viewReads = live.filter(([name]) => name !== 'useShellApprovals')
+
+it.each(viewReads)('keeps %s reactive inside an observer', (_name, useRead) => {
   const value = observable.box(1), derived = computed(() => ({ version: value.get() }))
   source.read = () => derived.get()
   source.pool = { row: () => source.read(), sources: { peekView: () => shellViews(source.pool!) } } as unknown as MobxPool

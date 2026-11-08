@@ -1,15 +1,18 @@
-import { firstAdminMemberId, asSessionId, type MachineId } from '@podium/model'
+import { asMutationId, asSessionId, firstAdminMemberId, type MachineId } from '@podium/model'
+import type { ApprovalEffectInput } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
- * agent relay request → gate → service → operator decision → exec frame to the
- * owning daemon → result lands. Mirrors relay-agent-relay.test.ts's harness.
+ * agent relay request → gate → an `approval` effect record → the person's
+ * decision (`records.effect.edit`, POD-6674) → exec frame to the owning daemon →
+ * result lands. Mirrors relay-agent-relay.test.ts's harness.
  */
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
@@ -69,13 +72,38 @@ describe('approval broker relay e2e (#410)', () => {
     })
   }
 
+  /** The approval records waiting for a person. */
+  const pending = async () =>
+    (await registry.sessionStore.effects.listAwaiting('approval', 500)).map((row) => ({
+      id: row.id,
+      ...(row.input as ApprovalEffectInput),
+    }))
+
+  /** The session owner approves, as the app does, and the trigger runs it. */
+  const approve = async (id: string) => {
+    const row = await registry.sessionStore.effects.get(id)
+    const reply = await registry.modules.syncWrite.submit(
+      {
+        mutationId: asMutationId(`m-approve-${id}`),
+        command: 'records.effect.edit',
+        version: 1,
+        input: { id, patch: { decision: 'approve' }, expectedRevision: row?.revision },
+      },
+      userCommandPrincipal(firstAdminMemberId(), 'admin'),
+      'trpc',
+    )
+    expect(reply).toMatchObject({ outcome: 'applied' })
+    await registry.modules.effects?.runner.idle()
+    return (await relay('get', { id })).result
+  }
+
   it('request → pending → approve → daemon exec → result → succeeded', async () => {
     const r = await relay('request', { op: { kind: 'update' } })
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
-    expect(await registry.modules.approvals.listPending()).toHaveLength(1)
+    expect(await pending()).toHaveLength(1)
 
-    await registry.modules.approvals.approve(id)
+    await approve(id)
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
@@ -90,7 +118,7 @@ describe('approval broker relay e2e (#410)', () => {
     const status = await relay('get', { id })
     expect(status.ok).toBe(true)
     expect(status.result).toMatchObject({ status: 'succeeded' })
-    expect(await registry.modules.approvals.listPending()).toHaveLength(0)
+    expect(await pending()).toHaveLength(0)
   })
 
   it('approved current-session schedule creates an armed server-owned one-off', async () => {
@@ -107,7 +135,7 @@ describe('approval broker relay e2e (#410)', () => {
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
 
-    const approved = await registry.modules.approvals.approve(id)
+    const approved = await approve(id)
     expect(approved).toMatchObject({ status: 'succeeded' })
     expect(daemonInbox.some((message) => message.type === 'approvalExecRequest')).toBe(false)
     expect(await registry.modules.automations.list()).toEqual([
@@ -155,7 +183,7 @@ describe('approval broker relay e2e (#410)', () => {
     })
     expect(r.ok).toBe(true)
 
-    await registry.modules.approvals.approve((r.result as { id: string }).id)
+    await approve((r.result as { id: string }).id)
     expect(await registry.modules.automations.list()).toEqual([
       expect.objectContaining({
         name: 'Overnight sweep',
@@ -182,7 +210,6 @@ describe('approval broker relay e2e (#410)', () => {
       machineId: 'evil',
     })
     expect(r.ok).toBe(true)
-    const pending = await registry.modules.approvals.listPending()
-    expect(pending[0]).toMatchObject({ sessionId: sA, machineId })
+    expect((await pending())[0]).toMatchObject({ sessionId: sA, machineId })
   })
 })

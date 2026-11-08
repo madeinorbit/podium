@@ -2316,6 +2316,24 @@
       "encoded": "{\"a\":\"a\",\"b\":\"b\",\"score\":1}"
     },
     {
+      "schema": "EffectDecision",
+      "variant": "minimal",
+      "wire": "approve",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"approve\""
+    },
+    {
+      "schema": "EffectDecision",
+      "variant": "full",
+      "wire": "approve",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"approve\""
+    },
+    {
       "schema": "EffectError",
       "variant": "minimal",
       "wire": {
@@ -2434,6 +2452,8 @@
           "unknownFixture": "result"
         },
         "cancelRequested": true,
+        "decision": "approve",
+        "deciders": ["deciders[0]"],
         "effect": {
           "status": "pending",
           "error": {
@@ -2454,7 +2474,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"kind\":\"kind\",\"target\":{\"kind\":\"issue\",\"id\":\"target.id\"},\"input\":{\"unknownFixture\":\"input\"},\"result\":{\"unknownFixture\":\"result\"},\"cancelRequested\":true,\"effect\":{\"status\":\"pending\",\"error\":{\"code\":\"effect.error.code\",\"message\":\"effect.error.message\"},\"deadline\":\"effect.deadline\",\"attempts\":1,\"startedAt\":\"effect.startedAt\",\"finishedAt\":\"effect.finishedAt\",\"stage\":\"effect.stage\"},\"createdBy\":\"createdBy\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"revision\":1}"
+      "encoded": "{\"id\":\"id\",\"kind\":\"kind\",\"target\":{\"kind\":\"issue\",\"id\":\"target.id\"},\"input\":{\"unknownFixture\":\"input\"},\"result\":{\"unknownFixture\":\"result\"},\"cancelRequested\":true,\"decision\":\"approve\",\"deciders\":[\"deciders[0]\"],\"effect\":{\"status\":\"pending\",\"error\":{\"code\":\"effect.error.code\",\"message\":\"effect.error.message\"},\"deadline\":\"effect.deadline\",\"attempts\":1,\"startedAt\":\"effect.startedAt\",\"finishedAt\":\"effect.finishedAt\",\"stage\":\"effect.stage\"},\"createdBy\":\"createdBy\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"revision\":1}"
     },
     {
       "schema": "EffectStatus",

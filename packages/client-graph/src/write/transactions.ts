@@ -43,7 +43,7 @@ type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
 /** A pool row a change lands on: a session or issue, or one of POD-6673's
  *  standalone per-user records, keyed by its feed id. */
-export type PoolRowKind = 'session' | 'issue' | PerUserPoolKind
+export type PoolRowKind = 'session' | 'issue' | 'effect' | PerUserPoolKind
 type PoolRow = { readonly kind: PoolRowKind; readonly id: string }
 
 /** POD-6673: the overlay target of each standalone per-user record, and its
@@ -57,6 +57,16 @@ const PER_USER_POOL_KIND = {
 export type PerUserPoolKind = (typeof PER_USER_POOL_KIND)[PerUserRecordTarget]
 const isPerUserTarget = (entity: string): entity is PerUserRecordTarget =>
   Object.hasOwn(PER_USER_POOL_KIND, entity)
+
+/** The pool row an overlay target's row lands on. */
+const poolRowKind = (entity: OverlayTarget): PoolRowKind =>
+  isPerUserTarget(entity)
+    ? PER_USER_POOL_KIND[entity]
+    : entity === 'sessions' || entity === 'sessionUserStates'
+      ? 'session'
+      : entity === 'effects'
+        ? 'effect'
+        : 'issue'
 
 /** An applied change whose outbox entry still awaits confirmation. */
 interface Awaiting {
@@ -76,6 +86,8 @@ const TARGETS: readonly OverlayTarget[] = [
   'tabOrders',
   'userPreferences',
   'userReadPositions',
+  // A human gate's decision on an effect record (POD-6674).
+  'effects',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -176,11 +188,7 @@ export interface PoolTransactions {
 }
 
 function poolRowOf(o: PendingOverlay): PoolRow {
-  if (isPerUserTarget(o.entity)) return { kind: PER_USER_POOL_KIND[o.entity], id: o.id }
-  return {
-    kind: o.entity === 'sessions' || o.entity === 'sessionUserStates' ? 'session' : 'issue',
-    id: o.id,
-  }
+  return { kind: poolRowKind(o.entity), id: o.id }
 }
 
 function rowsOf(overlays: Iterable<PendingOverlay>, into: Map<string, PoolRow> = new Map()) {
@@ -207,6 +215,8 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
     case 'userPreferences':
     case 'userReadPositions':
       return `${PER_USER_POOL_KIND[kind]}:${id}`
+    case 'effects':
+      return `effect:${id}`
     default:
       return undefined
   }
@@ -237,6 +247,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     tabOrders: new Map(),
     userPreferences: new Map(),
     userReadPositions: new Map(),
+    effects: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []
@@ -572,7 +583,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       for (const entity of TARGETS) {
         for (const [id, set] of byRow[entity]) {
           if (set.size < 2) continue
-          const kind = entity === 'sessions' || entity === 'sessionUserStates' ? 'session' : 'issue'
+          const kind = poolRowKind(entity)
           touched.set(`${kind}:${id}`, { kind, id })
         }
       }

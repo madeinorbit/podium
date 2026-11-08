@@ -276,9 +276,10 @@ export interface PoolRows {
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
   /** Stamped at the row-source boundary: a session target's id (POD-6397). */
-  effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<
-      Record<string, unknown>
-    >
+  effect: Readonly<EffectRecordWire> & {
+    readonly sessionId?: string
+    readonly forViewer?: boolean
+  } & Readonly<Record<string, unknown>>
   /** POD-6673's per-user records, each with its feed id stamped as `id`. */
   pin: Readonly<PinWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   tabOrder: Readonly<TabOrderWire> & { readonly id: string } & Readonly<Record<string, unknown>>

@@ -6788,29 +6788,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
-    "approvals": {
-        "approve": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: Protocol.ApprovalWire;
-            meta: unknown;
-        }>;
-        "deny": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: Protocol.ApprovalWire;
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<Protocol.ApprovalWire>;
-            meta: unknown;
-        }>;
-    };
     "auth": {
         "profile": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({

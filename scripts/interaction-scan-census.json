@@ -1005,48 +1005,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/ApprovalDialog.tsx",
-      "holder": "ApprovalDialog/ApprovalDialog/approvals",
-      "rule": "reader-summary",
-      "tokens": "3d451082a293c8b5b4a370b4b5208d52db189f5dc40486832e0daa6a73b99653",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "2977cd45614f11245506e3dc1dd1112a3d9514140af2609e9936f6799c61e02d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ApprovalDialog/ApprovalDialog/approvals",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/ApprovalDialog.tsx",
-      "holder": "ApprovalDialog/ApprovalDialog/from",
-      "rule": "consume:filter",
-      "tokens": "63f7fa836bf977f4c1a7d2c25db34251dc6d06ce6a7e566a053b6a01eb556395",
-      "gate": [
-        "exit:then:3e4fd687d117a5e040aa3236e460aa6c251297580f9628e32b00c360b311eab1"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "db16278e66bbb1107dec091e1b8e22a23969e53117c4d1ea2d40462cf36db6d0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ApprovalDialog/ApprovalDialog/from",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/app/BrowserOpenOverlay.tsx",
       "holder": "BrowserOpenOverlay/BrowserOpenOverlay/resolveSession",
       "rule": "reader-summary",
@@ -33533,6 +33491,47 @@
       "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
       "reason": "The launch paint's declared subset of the pool's effect models (session.launch and issue.start); it replaces the private replica index createRuntimeTransactions kept (POD-6411). No issue, session or lane rows are enumerated.",
       "guard": "packages/client-graph/src/write/launches.pool.test.ts proves the start list is the pool's own EffectModel and is not re-listed when a Stop's status moves."
+    },
+    {
+      "file": "packages/client-graph/src/approval-effects.ts",
+      "holder": "pendingApprovals/computed:callback",
+      "rule": "enumerate:keys",
+      "tokens": "a959a0023b73274f730dba7db4b4ae8ecbfd266952c7974d9a697fc7d9a91d8e",
+      "gate": [
+        "then:a4df4b7fcf3f42c98b8fa65c43cef059801813e4f95061b26adc437221b7c73c"
+      ],
+      "origin": [
+        "a1fba790e243903748633e600e65808cfb0110ab3e9c4a0d2f5dd56f59d475cd"
+      ],
+      "fingerprint": "138a574265f4930b19d50edd323a6b4872475ee1cb064a4ad3fa7cbfb41f70f4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6674",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves), or a listed approval's decision or status moves, while the approval popup is mounted.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The approval popup's declared subset of the pool's effect models: the `approval` records waiting for the viewer (POD-6674), replacing the engine's pushed approvals list. No issue, session or lane rows are enumerated.",
+      "guard": "packages/client-graph/src/effect-model.test.ts proves the list holds only the viewer's undecided approvals, oldest first, and drops one when its decision lands."
+    },
+    {
+      "file": "packages/client-graph/src/approval-effects.ts",
+      "holder": "pendingApprovals/computed:callback",
+      "rule": "loop:for-of",
+      "tokens": "1564280f1d133657c8620a0b734834ffd93eaaed6ae00fc7c2fcbd3e386c44e1",
+      "gate": [
+        "then:a4df4b7fcf3f42c98b8fa65c43cef059801813e4f95061b26adc437221b7c73c"
+      ],
+      "origin": [
+        "441cc520f0bf720d5f9018365d79d30e395246c2e7003abed8b8e12fc858ca52",
+        "a1fba790e243903748633e600e65808cfb0110ab3e9c4a0d2f5dd56f59d475cd"
+      ],
+      "fingerprint": "a4e0a75a5c1bf1919bec25a38fbbd9e152a404f9355c88f2ee8727bbbd6056db",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6674",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves), or a listed approval's decision or status moves, while the approval popup is mounted.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The approval popup's declared subset of the pool's effect models: the `approval` records waiting for the viewer (POD-6674), replacing the engine's pushed approvals list. No issue, session or lane rows are enumerated.",
+      "guard": "packages/client-graph/src/effect-model.test.ts proves the list holds only the viewer's undecided approvals, oldest first, and drops one when its decision lands."
     },
     {
       "file": "packages/client-graph/src/write/operation-effects.ts",

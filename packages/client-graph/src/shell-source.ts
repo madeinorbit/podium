@@ -42,7 +42,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
       })
     }
     const lists = [
-      ['shellApproval', 'approvals'],
       ['shellFile', 'fileTabs'],
       ['shellWorkspace', 'workspaces'],
     ] as const
@@ -137,7 +136,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
   }
   private catalog(): void {
     this.change('shellCatalog', 'catalog', {
-      approvals: this.orders.get('shellApproval') ?? [],
       files: this.orders.get('shellFile') ?? [],
       workspaces: this.orders.get('shellWorkspace') ?? [],
       lanes: this.orders.get('shellShipLane') ?? [],

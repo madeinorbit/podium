@@ -75,7 +75,6 @@ const MODULES = 'apps/server/src/modules'
  * declaration, so the list cannot rot into names that no longer exist either.
  */
 export const GOVERNED: readonly { table: string; module: string }[] = [
-  { table: 'APPROVAL_COMMANDS_TRPC', module: 'approvals' },
   { table: 'CONVERSATION_COMMANDS_TRPC', module: 'conversations' },
   { table: 'PERF_COMMANDS_TRPC', module: 'perf' },
   { table: 'MODEL_COMMANDS_TRPC', module: 'models' },

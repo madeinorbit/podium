@@ -352,7 +352,7 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     const w = await world(size)
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(w.reg.clientGateway, (message) => inbox.push(message))
-    await expect.poll(() => inbox.some((message) => message.type === 'approvalsChanged')).toBe(true)
+    await expect.poll(() => inbox.some((message) => message.type === 'machinesChanged')).toBe(true)
     await settle(w.reg)
     return { ...w, clientId, inbox }
   }

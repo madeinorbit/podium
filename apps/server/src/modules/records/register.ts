@@ -14,6 +14,7 @@ import type { SessionStore } from '../../store'
 import { sessionStatePrincipalFor } from '../sessions/session-state/registry'
 import type { SyncWriteRegistry } from '../sync-write/registry'
 import { registerUserRecords } from '../user-records/records'
+import { registerEffectRecord } from './effect-record'
 import { registerIssueRecord } from './issue-record'
 import { registerIssueUserStateRecord } from './issue-user-state-record'
 import { registerSessionLifecycleRecord } from './session-lifecycle-record'
@@ -45,4 +46,5 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
           asSessionId(sessionId),
         )),
   })
+  registerEffectRecord(registry, deps)
 }

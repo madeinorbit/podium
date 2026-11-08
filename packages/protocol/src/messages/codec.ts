@@ -1,8 +1,5 @@
-import {
-  HostMetricsWire,
-} from '@podium/model'
+import { HostMetricsWire } from '@podium/model'
 import type { z } from 'zod'
-import { ApprovalWire } from './approvals'
 import { ClientMessage } from './client'
 import { FeedChangeLenient, type FeedDeltaMessage, FeedDeltaMessageLenient } from './feed'
 import { ServerMessage } from './server'
@@ -50,16 +47,6 @@ const QUARANTINABLE: Record<
   { key: string; element: z.ZodTypeAny; envelope?: z.ZodTypeAny }
 > = {
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
-  // ON THIS TABLE BECAUSE THE OP CATALOG GROWS (POD-2199). `op` is a CLOSED
-  // discriminated union with closed enums inside it, so every value a newer
-  // server adds — a new op kind, a new `channel` target such as `dev` — is a
-  // value an older bundle's schema rejects. Without quarantine that one row
-  // refused the whole `approvalsChanged` frame, and since the frame is a full
-  // snapshot rather than a delta, the bundle's pending list simply stopped
-  // moving: the operator could not see OR decide any approval, including the
-  // ones it did understand. Per-element now: the unreadable request is dropped
-  // and counted as skew, the rest still render.
-  approvalsChanged: { key: 'pending', element: ApprovalWire },
   // Kind-tolerant ([spec:SP-3fe2] #258): unknown entity kinds PASS (the consumer
   // ignores the row but advances its cursor past it — a newer server must not
   // heal-loop an older client), while a kind this build HAS an arm for carrying

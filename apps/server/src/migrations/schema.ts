@@ -2292,6 +2292,7 @@ export const deliveryReceipts = sqliteTable(
   ],
 )
 
+// LEGACY(remove-after: 2027-02): the approval rows of a binary before POD-6674, kept so a rollback is a binary swap; POD-6674 copied them into `effects`. Dropping it removes that rollback.
 export const approvalRequests = sqliteTable(
   'approval_requests',
   {
@@ -3106,6 +3107,18 @@ export const effects = sqliteTable(
     deadlineAt: integer('deadline_at'),
     attempts: integer().default(0).notNull(),
     stage: text(),
+    /**
+     * A human gate (POD-6674): NULL for a kind that has none; `awaiting` while
+     * the record waits for its person; then `approve` or `deny`. An awaiting
+     * record is never claimed, swept or expired: it waits as long as it takes.
+     */
+    decision: text(),
+    /**
+     * Who a gated record is routed to (POD-6674): a JSON array of user ids, set
+     * when it is asked. They see it and are offered the decision; NULL (rows
+     * copied in by the migration) routes it to its creator.
+     */
+    deciders: text(),
     startedAt: integer('started_at'),
     finishedAt: integer('finished_at'),
     createdBy: text('created_by').$type<UserId>(),
@@ -3138,6 +3151,12 @@ export const effects = sqliteTable(
       table.targetId,
       table.createdAt,
     ),
+    // The records waiting for a person, oldest first (POD-6674): an agent's
+    // repeated request is answered with the one already waiting.
+    index('idx_effects_awaiting').on(table.kind, table.createdAt).where(sql`decision = 'awaiting'`),
+    // Rows a migration copied in that the feed has not seen yet (POD-6674):
+    // the boot step republishes them through the write funnel.
+    index('idx_effects_unpublished').on(table.revision).where(sql`revision = 0`),
   ],
 )
 

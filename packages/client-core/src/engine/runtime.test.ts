@@ -861,14 +861,14 @@ describe('engine lifecycle', () => {
     const { engine, hub, fatals } = makeEngine()
     engine.start()
     engine.start() // double-start must not double-subscribe
-    expect(hub.onCalls.filter((k) => k === 'approvals')).toHaveLength(1)
+    expect(hub.onCalls.filter((k) => k === 'worktreesChanged')).toHaveLength(1)
     await settle()
     engine.dispose()
     engine.dispose() // double-dispose must not throw
-    expect(hub.subscribed('approvals')).toBe(0)
+    expect(hub.subscribed('worktreesChanged')).toBe(0)
     engine.start() // re-start after dispose re-arms everything
     await settle()
-    expect(hub.subscribed('approvals')).toBe(1)
+    expect(hub.subscribed('worktreesChanged')).toBe(1)
     engine.dispose()
     expect(fatals).toEqual([])
   })

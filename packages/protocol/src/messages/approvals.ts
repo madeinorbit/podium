@@ -82,47 +82,57 @@ export const ApprovalStatus = z.enum(['pending', 'denied', 'executing', 'succeed
 export type ApprovalStatus = z.infer<typeof ApprovalStatus>
 
 /**
- * WHY ApprovalWire LIVES IN @podium/protocol, NOT @podium/model
- * [decided POD-1127 — record the argument so a future pass can re-derive AND
- *  re-test the decision without finding the author].
+ * AN APPROVAL IS AN EFFECT RECORD WITH A HUMAN GATE (POD-6674, ADR 12 D5 E2).
  *
- * @podium/model is authoritative for REPLICATED entity fields. ApprovalWire is
- * entity-shaped but is an RPC read model, not a replicated aggregate — its
- * carrier `approvalsChanged` is a full-list snapshot (`pending: array<ApprovalWire>`
- * below), not a metadataDelta element. So it stays in protocol.
+ * The agent's request is an `effect` row of kind `approval` (`APPROVAL_EFFECT_KIND`),
+ * synced to every device of the people who may see it. Its target is the
+ * requesting issue (the session when it has none); its input is
+ * {@link ApprovalEffectInput}. It waits `pending` (stage `awaiting-approval`)
+ * with `decision: null` until its person decides: `approve` lets the effect
+ * trigger run it (`running`, stage `executing`, then `succeeded` or `failed`),
+ * `deny` ends it `cancelled`. There is no deadline: it waits as long as it takes.
  *
- * Two OBJECTIVE membership tests decide it (POD-300's tests — re-run them, do
- * not trust this comment):
- *   1. MetadataEntityKind (messages/sync.ts) — no `approval` arm.
- *   2. COLLECTION_MESSAGE_ELEMENTS (messages/codec.ts) — no `approvalsChanged`
- *      frame (it is a snapshot broadcast, not an element-wise delta collection).
- * Both FAIL for approvals. POD-308 (the wire cutover) CLOSED WITHOUT replicating
- * them — the moment that could have flipped this passed and did not.
- *
- * WHAT REVERSES THIS: if `approval` is ever added to MetadataEntityKind or an
- * `approvalsChanged` entry to COLLECTION_MESSAGE_ELEMENTS, this decision EXPIRES
- * and the relocation-to-model question reopens (move + golden fixtures first).
- *
- * TEST 2 HAS NOW TRIPPED, AND THE DECISION STANDS ANYWAY — read why before
- * treating it as expired (POD-2205). Two things moved under this comment:
- *   - The constant was RENAMED `COLLECTION_MESSAGE_ELEMENTS` → `QUARANTINABLE`,
- *     and with it the question it answers. It no longer means "is this an
- *     element-wise delta collection?" but "is this a homogeneous array we can
- *     quarantine per-element?" — `hostMetricsChanged` is on it and is a
- *     snapshot too. The separate session-list carrier has since been retired.
- *   - POD-2205 added the `approvalsChanged` entry, so that the closed op catalog
- *     can GROW (a new op kind, a new `channel` target) without one row an older
- *     bundle cannot read refusing the whole snapshot and freezing the operator's
- *     pending list.
- * So the membership test fires on its literal text while its PREMISE — that
- * approvals is a snapshot read model rather than a replicated aggregate — is
- * untouched, and test 1 still fails cleanly. Quarantining a row is not
- * replicating an entity. The relocation-to-model question is filed as POD-2211
- * rather than answered in passing here; it is a move plus golden fixtures, and
- * it wants a decision, not a side effect of a channel fix.
+ * {@link ApprovalWire} below is no longer a client read model. It is the answer
+ * the requesting agent's CLI reads over the issue relay (`approvals.get`, which
+ * it polls while it blocks), so its status vocabulary stays the one the CLI on
+ * every machine already prints: {@link approvalStatusOf} maps the record onto it.
  */
 
-/** One approval request as the web UI / CLI sees it. */
+/** What an approval record asks for, and from where (the relay binds both ids). */
+export const ApprovalEffectInput = z
+  .object({
+    op: ApprovalOp,
+    machineId: MachineIdField,
+    sessionId: SessionIdField,
+    issueId: IssueIdField.nullable(),
+  })
+  .strict()
+export type ApprovalEffectInput = z.infer<typeof ApprovalEffectInput>
+
+/**
+ * The CLI's status word for an approval record. `cancelled` is a denial;
+ * `expired` and `unknown` (the executor lost track) read as `failed`, whose
+ * result text says which.
+ */
+export function approvalStatusOf(
+  status: string,
+  decision: 'approve' | 'deny' | null | undefined,
+): ApprovalStatus {
+  switch (status) {
+    case 'pending':
+      return decision === 'approve' ? 'executing' : 'pending'
+    case 'running':
+      return 'executing'
+    case 'succeeded':
+      return 'succeeded'
+    case 'cancelled':
+      return 'denied'
+    default:
+      return 'failed'
+  }
+}
+
+/** One approval request as the requesting agent's CLI reads it (`approvals.get`). */
 export const ApprovalWire = z.object({
   id: z.string(),
   machineId: MachineIdField,
@@ -162,13 +172,6 @@ export const ApprovalExecResultMessage = z.object({
   output: z.string(),
 })
 export type ApprovalExecResultMessage = z.infer<typeof ApprovalExecResultMessage>
-
-/** server → web: snapshot of undecided approval requests (small; pending only). */
-export const ApprovalsChangedMessage = z.object({
-  type: z.literal('approvalsChanged'),
-  pending: z.array(ApprovalWire),
-})
-export type ApprovalsChangedMessage = z.infer<typeof ApprovalsChangedMessage>
 
 /** Human-readable one-liner for an op — shared by UI, CLI and the activity log. */
 export function describeApprovalOp(op: ApprovalOp): string {

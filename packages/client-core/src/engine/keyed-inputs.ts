@@ -11,7 +11,7 @@ import type { EngineState } from './state'
  *   that batch published. A batch that touches none of a listener's keys
  *   costs it nothing (the index is by key).
  * - **Lists by id.** Discovery (machines, repos) and the window lists
- *   (approvals, file tabs, workspaces, super-threads) arrive as whole arrays.
+ *   (file tabs, workspaces, super-threads) arrive as whole arrays.
  *   `onList(name, listener)` hands each listener the ids whose row changed
  *   and whether the order moved. The diff runs once per array change, at
  *   this producer, and only for a list someone follows. An unchanged row
@@ -48,7 +48,6 @@ export function discoveryRepoId(repo: {
 const LIST_KEYS = {
   machines: (row: { id: string }) => row.id,
   repos: discoveryRepoId,
-  approvals: (row: { id: string }) => row.id,
   fileTabs: (row: { id: string }) => row.id,
   superThreads: (row: { id: string }) => row.id,
   /** A record: its keys are the ids, in insertion order. */

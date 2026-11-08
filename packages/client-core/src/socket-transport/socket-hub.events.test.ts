@@ -61,7 +61,6 @@ const meta = (sessionId: SessionId): SessionMeta => ({
 describe('SocketHub dispatch exhaustiveness (type-level)', () => {
   const noop = () => {}
   const total: DispatchHandlers<ServerMessage> = {
-    approvalsChanged: noop,
     // wire v2 (POD-308) — a v1 peer handles these as explicit no-ops; see
     // connection.ts for why the table must still name them.
     feedDelta: noop,
@@ -229,17 +228,6 @@ describe('SocketHub subscription seam (on/emit)', () => {
     sock.recv({ type: 'sessionDraftChanged', sessionId: asSessionId('s1'), text: 'draft…' })
     expect(legacy).toEqual([['s1', 'draft…']])
     expect(seam).toEqual([['s1', 'draft…']])
-  })
-
-  it('keeps approval-broker flows on typed transport events', () => {
-    const { sock, hub } = setup()
-    const approvals: unknown[] = []
-    hub.on('approvals', (pending) => approvals.push(pending))
-    hub.connect()
-    sock.open()
-    sock.recv({ type: 'approvalsChanged', pending: [] })
-    expect(approvals).toEqual([[]])
-    hub.dispose()
   })
 
   it('unsubscribing one handler leaves other handlers of the same kind subscribed', () => {

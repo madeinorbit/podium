@@ -33,8 +33,6 @@
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
 import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
-import { APPROVAL_QUERIES } from './approvals/queries'
-import { APPROVAL_COMMANDS_TRPC } from './approvals/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
 import { FILE_COMMANDS_TRPC } from './files/registry'
 import { HOST_COMMANDS_TRPC } from './hosts/registry'
@@ -43,6 +41,7 @@ import {
   SETUP_COMMANDS_TRPC,
   TELEMETRY_COMMANDS_TRPC,
 } from './instance/registry'
+import { INTERACTION_QUERIES } from './interactions/queries'
 import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
@@ -57,7 +56,6 @@ const verbOf = (proc: unknown): string | undefined =>
  *  membership. The expected keys are computed from the table — never written out
  *  beside it, which would be the second list that silently disagrees. */
 const FAMILIES = [
-  { router: 'approvals', table: APPROVAL_COMMANDS_TRPC },
   // The PendingInteraction aggregate (POD-2020) — one write, `answer`, and the
   // reason it belongs in THIS list rather than a module-local test: what has to
   // be true is that the RUNNING router serves it, since the headless answering
@@ -109,12 +107,15 @@ describe('the derived families, against the RUNNING appRouter', () => {
    *
    * 34 -> 33, thirteen -> twelve families: `conversations.setMeta` (POD-6412) is
    * on the sync write entry point and has no route (no client ever called one);
-   * `modules/sync-write/family.test.ts` pins that.
+   * `modules/sync-write/family.test.ts` pins that. 35 -> 33, twelve -> eleven:
+   * an approval decision is a generic edit of its effect record
+   * (`records.effect.edit`, POD-6674); `approvals.approve` and `.deny` are gone.
+   * (The base this was measured on already served 35, not the 36 pinned here.)
    */
-  it('governs twelve families and thirty-six derived writes', () => {
-    expect(FAMILIES).toHaveLength(12)
+  it('governs eleven families and thirty-three derived writes', () => {
+    expect(FAMILIES).toHaveLength(11)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(36)
+    expect(total).toBe(33)
   })
 
   it.each(
@@ -144,16 +145,16 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * THE READS ARE SERVED AND ARE QUERIES — the other half, because a family whose
    * queries vanished would pass every assertion above.
    *
-   * `approvals` stands for the shape: its query table declares `list`, and the
+   * `interactions` stands for the shape: its query table declares `list`, and the
    * running router must serve it AS A QUERY. If a read were ever promoted to a
    * mutation — the way a write hides among reads, pointed the other way — the
    * equality assertion above would also catch it, since `list` would appear in
    * `servedMutations` and the table does not declare it.
    */
   it('serves the declared reads as queries', () => {
-    const served = routerRecord('approvals')
-    for (const key of Object.keys(APPROVAL_QUERIES)) {
-      expect(verbOf(served[key]), `approvals.${key} verb`).toBe('query')
+    const served = routerRecord('interactions')
+    for (const key of Object.keys(INTERACTION_QUERIES)) {
+      expect(verbOf(served[key]), `interactions.${key} verb`).toBe('query')
     }
   })
 

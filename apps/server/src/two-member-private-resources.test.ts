@@ -31,8 +31,10 @@ import {
   asSessionId,
   type SessionId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildSuperagentTools } from './modules/superagent/tools'
+import { fileApproval } from './test-support/approvals'
 import {
   MEMBERS,
   type MemberName,
@@ -205,72 +207,127 @@ describe('MU-08: search returns only the caller’s own sessions', () => {
   })
 })
 
-describe('MU-08: approvals are listed, broadcast and decided by the session owner only', () => {
-  const request = async (sessionId: SessionId, machine: 'alice' | 'bob', target: string) =>
-    (await registry().modules.approvals.request({
-      op: { kind: 'set-server', target },
-      sessionId,
-      machineId: f.machines[machine],
-    })) as { id: string }
-
-  it('each member lists only the approvals their own sessions asked for', async () => {
-    const alices = await request(f.sessions.alice, 'alice', 'https://alice.example')
-    const bobs = await request(f.sessions.bob, 'bob', 'https://bob.example')
-    const ids = async (name: MemberName) =>
-      ((await (await trpc(name)).approvals.list.query()) as Array<{ id: string }>).map(
-        (row) => row.id,
-      )
-    // Control: the owner sees theirs.
-    expect(await ids('bob')).toContain(bobs.id)
-    expect(await ids('alice')).toContain(alices.id)
-    // The admin role adds nothing.
-    expect(await ids('alice')).not.toContain(bobs.id)
-    expect(await ids('bob')).not.toContain(alices.id)
-  })
-
-  it('only the session owner decides an approval; anyone else is told it does not exist', async () => {
-    const bobs = await request(f.sessions.bob, 'bob', 'https://bob-decide.example')
-    const alice = await trpc('alice')
-    const answer = async (call: () => Promise<unknown>) =>
-      await call().then(
-        () => 'resolved',
-        (error: Error) =>
-          error.message.replaceAll(bobs.id, '<id>').replaceAll('apr_missing', '<id>'),
-      )
-    for (const decide of [
-      (id: string) => alice.approvals.approve.mutate({ id }),
-      (id: string) => alice.approvals.deny.mutate({ id }),
-    ]) {
-      const refused = await answer(() => decide(bobs.id))
-      expect(refused).toMatch(/unknown approval request/)
-      expect(refused).toBe(await answer(() => decide('apr_missing')))
-    }
-    expect((await store().approvals.get(bobs.id))?.status).toBe('pending')
-    // Control: Bob decides his own.
-    await expect((await trpc('bob')).approvals.deny.mutate({ id: bobs.id })).resolves.toMatchObject(
+describe('MU-08: an approval is routed to who may decide it, and decided by them only', () => {
+  /** Bob may manage his own machine, so he may decide its `stop`. */
+  const request = async (sessionId: SessionId, machine: 'alice' | 'bob', op: object = { kind: 'stop' }) =>
+    await fileApproval(registry(), { op, sessionId, machineId: f.machines[machine] })
+  /** A record as a request filed before a grant or role moved would have left it. */
+  const filedEarlier = async (sessionId: SessionId, machine: 'alice' | 'bob', person: string, op: object) => {
+    const id = `apr_${crypto.randomUUID()}`
+    await store().effects.insert(
+      fixtureWriteScope(),
       {
-        id: bobs.id,
-        status: 'denied',
+        id,
+        kind: 'approval',
+        target: { kind: 'session', id: sessionId },
+        input: { op, machineId: f.machines[machine], sessionId, issueId: null },
+        deadlineAt: undefined,
+        createdBy: person as never,
+        actor: `session:${sessionId}`,
+        gated: true,
+        stage: 'awaiting-approval',
       },
+      Date.now(),
     )
+    return id
+  }
+  /** A decision as the app sends it, over the member's own `sync.submit`. */
+  const decide = async (name: MemberName, id: string, decision: 'approve' | 'deny') => {
+    const shown = await store().effects.get(id)
+    const reply = (await (await trpc(name)).sync.submit.mutate({
+      mutationId: `m-${crypto.randomUUID()}`,
+      command: 'records.effect.edit',
+      version: 1,
+      input: { id, patch: { decision }, expectedRevision: shown?.revision ?? 1 },
+    } as never)) as { outcome: string; refusal?: { kind: string } }
+    return reply.outcome === 'rejected' ? `rejected:${reply.refusal?.kind}` : reply.outcome
+  }
+  it('a request is routed to its owner when they may run it, and a missing one refuses like a forbidden one', async () => {
+    const bobs = await request(f.sessions.bob, 'bob')
+    // Bob manages his own machine, so its stop is routed to him alone.
+    expect((await store().effects.get(bobs.id))?.deciders).toEqual([MEMBERS.bob.id])
+    // Not one of its people and no admin: the same answer as an unknown record.
+    for (const decision of ['approve', 'deny'] as const) {
+      expect(await decide('bob', 'apr_missing', decision)).toMatch(/^rejected:/)
+    }
+    expect((await store().effects.get(bobs.id))?.decision).toBe('awaiting')
+    // Control: Bob decides his own.
+    expect(await decide('bob', bobs.id, 'deny')).toBe('applied')
+    expect((await store().effects.get(bobs.id))?.status).toBe('cancelled')
   })
 
-  it('the live approvals broadcast carries only the receiving member’s own approvals', async () => {
+  it('the record reaches its person, and others only as readers of the requesting task', async () => {
     const aliceFeed = await (await f.as('alice')).feed()
     const bobFeed = await (await f.as('bob')).feed()
     try {
-      const bobs = await request(f.sessions.bob, 'bob', 'https://bob-live.example')
-      const pendingIds = (frames: readonly { type: string }[]) =>
-        frames
-          .filter((frame) => frame.type === 'approvalsChanged')
-          .flatMap((frame) => (frame as unknown as { pending: Array<{ id: string }> }).pending)
-          .map((row) => row.id)
-      await bobFeed.until(() => pendingIds(bobFeed.frames).includes(bobs.id))
-      expect(pendingIds(aliceFeed.frames)).not.toContain(bobs.id)
+      const bobs = await request(f.sessions.bob, 'bob')
+      const record = await store().effects.get(bobs.id)
+      // Routed to Bob, the owner of the asking session.
+      expect(record?.createdBy).toBe(MEMBERS.bob.id)
+      const effectIds = (feed: typeof bobFeed) =>
+        feed
+          .deltas()
+          .filter((change) => change.entity === 'effect')
+          .map((change) => change.entityId)
+      await bobFeed.until(() => effectIds(bobFeed).includes(bobs.id))
+      // Routed to Bob alone: Alice receives it only if she may read the task it
+      // was asked on (design 1.8).
+      const target = record?.target
+      const aliceReads =
+        target?.kind === 'issue' &&
+        (await (await trpc('alice')).issues.get.query({ id: target.id } as never).then(
+          () => true,
+          () => false,
+        ))
+      if (aliceReads) await aliceFeed.until(() => effectIds(aliceFeed).includes(bobs.id))
+      else expect(effectIds(aliceFeed)).not.toContain(bobs.id)
     } finally {
       aliceFeed.close()
       bobFeed.close()
     }
+  })
+
+  // The decider must also hold the operation's own permission (POD-6674 review).
+  it('a member’s agent asks for a server update: an admin is offered it and approves it, the member is not and cannot', async () => {
+    const aliceFeed = await (await f.as('alice')).feed()
+    try {
+      const bobs = await request(f.sessions.bob, 'bob', { kind: 'update' })
+      const record = await store().effects.get(bobs.id)
+      // Bob may not run a server update, so it is routed to the admins who may.
+      expect(record?.createdBy).toBe(MEMBERS.bob.id)
+      expect(record?.deciders).toEqual([MEMBERS.alice.id])
+      // Alice receives it though she may not read Bob's session or task.
+      await aliceFeed.until(() =>
+        aliceFeed
+          .deltas()
+          .some((change) => change.entity === 'effect' && change.entityId === bobs.id),
+      )
+      expect(await decide('bob', bobs.id, 'approve')).toMatch(/^rejected:/)
+      expect((await store().effects.get(bobs.id))?.decision).toBe('awaiting')
+      expect(await decide('alice', bobs.id, 'approve')).toBe('applied')
+      expect((await store().effects.get(bobs.id))?.decision).toBe('approve')
+    } finally {
+      aliceFeed.close()
+    }
+  })
+
+  it('the decision is checked live: its person may not decide what they may not run', async () => {
+    // Filed when Bob could (say, before a role change), still routed to him.
+    const id = await filedEarlier(f.sessions.bob, 'bob', MEMBERS.bob.id, { kind: 'update' })
+    expect(await decide('bob', id, 'approve')).toMatch(/^rejected:/)
+    expect((await store().effects.get(id))?.decision).toBe('awaiting')
+  })
+
+  it('an admin approves a server update their own agent asked for', async () => {
+    const alices = await request(f.sessions.alice, 'alice', { kind: 'update' })
+    expect(await decide('alice', alices.id, 'approve')).toBe('applied')
+    expect((await store().effects.get(alices.id))?.decision).toBe('approve')
+  })
+
+  it('a machine manager approves a stop on that machine', async () => {
+    const bobs = await request(f.sessions.bob, 'bob', { kind: 'stop' })
+    expect(await decide('bob', bobs.id, 'approve')).toBe('applied')
+    expect((await store().effects.get(bobs.id))?.decision).toBe('approve')
   })
 })
 

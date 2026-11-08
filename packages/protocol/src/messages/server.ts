@@ -11,7 +11,6 @@ import {
   TopicSnapshotMessage,
   TopicUpdateMessage,
 } from '../planes/topics'
-import { ApprovalsChangedMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import {
   FeedDeltaMessage,
@@ -73,7 +72,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   AttentionEventMessage,
   TranscriptDeltaMessage,
   TurnPreviewMessage,
-  ApprovalsChangedMessage,
   MetadataDeltaMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
