@@ -65,6 +65,9 @@ const state = {
   /** `roles.coding.accountId`. A native account NAMES its CLI, which is why the
    *  settings read never has to fall back to a session scan in practice. */
   accountId: '' as string,
+  /** How the setting reaches the box: from my synced record (`resolved`), not
+   *  yet (`absent`: my record is not in the pool yet), or `auto`. */
+  setting: 'resolved' as 'resolved' | 'absent' | 'auto',
   sessions: [] as unknown[],
   installed: ['claude-code', 'codex', 'grok'] as string[],
   runtimeDrivers: [] as Array<{
@@ -156,16 +159,20 @@ vi.mock('@/app/store', () => ({
 vi.mock('@/lib/my-preferences', async () => {
   const { resolveRole } = await import('@podium/runtime')
   // What `UserPreferencesModel.codingHarness` answers: the role resolved from
-  // the account exactly as stored. My record is in the pool from the first
-  // publication with its defaults, so this is never undefined and never `auto`.
+  // the account exactly as stored, as the box's old `settings.get` read did;
+  // undefined until my record is in the pool.
   return {
     useMyCodingHarness: () =>
-      resolveRole(
-        {
-          roles: { coding: { accountId: state.accountId, model: 'auto', effort: 'auto' } },
-        } as never,
-        'coding',
-      ).harness,
+      state.setting === 'absent'
+        ? undefined
+        : state.setting === 'auto'
+          ? 'auto'
+          : resolveRole(
+              {
+                roles: { coding: { accountId: state.accountId, model: 'auto', effort: 'auto' } },
+              } as never,
+              'coding',
+            ).harness,
   }
 })
 
@@ -189,6 +196,7 @@ afterEach(() => {
   uiValues.clear()
   uiListeners.clear()
   state.accountId = ''
+  state.setting = 'resolved'
   state.sessions = []
   state.installed = ['claude-code', 'codex', 'grok']
   state.runtimeDrivers = []
@@ -255,10 +263,28 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     )
   })
 
-  it('opens on my settings record, never on a newer session of another harness', async () => {
-    // My `userPreferences` record exists at mount with its defaults resolved
-    // (POD-6673). An account left empty, or one that names no harness
-    // (`auto`), resolves to Claude Code; no session scan stands in for it.
+  it('reads a session scan only when the setting arrives unresolved', async () => {
+    // `auto` is what the resolver's session fallback exists for. It does not
+    // reach here from `roles.coding` today; the branch is asserted so the
+    // inherited resolver keeps behaving like the chip's if it ever does. The
+    // other unresolved input is no setting at all: my synced record not yet in
+    // the pool (POD-6673), where the old read had not answered yet.
+    for (const setting of ['auto', 'absent'] as const) {
+      state.setting = setting
+      state.sessions = [
+        session('claude-code', '2026-08-01T09:00:00.000Z'),
+        session('codex', '2026-08-01T17:00:00.000Z'),
+      ]
+      render(<ColdStartComposer first={false} />)
+      await waitFor(() => expect(chip().textContent).toContain('Codex'))
+      cleanup()
+      uiValues.clear()
+    }
+  })
+
+  it('an account that names no harness resolves to Claude Code, as the settings read did', async () => {
+    // The resolver maps an empty or unknown account (`auto` included) to the
+    // default harness, so a newer session of another harness does not win.
     for (const accountId of ['', 'auto']) {
       state.accountId = accountId
       state.sessions = [
