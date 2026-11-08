@@ -2047,6 +2047,7 @@
         "$TURBO_ROOT$/scripts/release-build-timing.ts",
         "$TURBO_ROOT$/scripts/release-candidate-snapshot.ts",
         "$TURBO_ROOT$/scripts/release-manifest.ts",
+        "$TURBO_ROOT$/scripts/release-mirror.ts",
         "$TURBO_ROOT$/scripts/release-upload.ts",
         "$TURBO_ROOT$/scripts/release.ts",
         "$TURBO_ROOT$/scripts/representation-audit.ts",
