@@ -39,7 +39,6 @@ import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import type { OutboxDeadLetterEntry } from '../outbox'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
   allTabIds,
@@ -117,8 +116,6 @@ export interface EngineState {
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
-  outboxSize: number
-  outboxDeadLetters: OutboxDeadLetterEntry[]
 }
 
 /** The store fields that are NOT state: action methods and constant handles,
@@ -484,9 +481,7 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return (
-          loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
-        )
+        return loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
       }
     }
   }
@@ -604,13 +599,11 @@ export function userFocus(st: EngineState): UserFocus {
 }
 
 /** Everything the first snapshot needs that the runtime has to gather first:
- *  the hydrated UI state, the current route, the replica's seed rows already
- *  folded through the optimistic ledger, and the outbox's restored recovery
- *  home. */
+ *  the hydrated UI state and the current route. (The outbox's restored parked
+ *  writes are a LiveStore condition now, POD-5798.) */
 export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
-  readonly outboxDeadLetters: OutboxDeadLetterEntry[]
 }
 
 /**
@@ -676,7 +669,5 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // nothing and is swept as a ghost, so they hydrate together or not at all.
     fileTabs: seed.persisted.fileTabs,
     recentFiles: seed.persisted.recentFiles,
-    outboxSize: 0,
-    outboxDeadLetters: seed.outboxDeadLetters,
   }
 }

@@ -1,12 +1,12 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
-import { headerStats } from '../../../tests/worklist/harness/src/perf/header'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import { headerStats } from '../../../tests/worklist/harness/src/perf/header'
 import { FoldedFlightDeckBar } from '../src/app/FoldedFlightDeckBar'
 import { RightRail } from '../src/app/RightRail'
 import { StatusStrip } from '../src/app/StatusStrip'
@@ -91,7 +91,7 @@ root.render(
     attachRuntime={(owner) => {
       // StoreProvider starts the runtime before attachment: the hub listeners now
       // exist in both arms, even when no asynchronous pool import is requested.
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.hub, owner.live)
       fixture.publishMachines()
       fixture.publishMetrics(0)
       return attachWorklistPool(owner, (error) => failures.push(error.message))

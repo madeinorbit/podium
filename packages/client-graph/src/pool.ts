@@ -1,3 +1,4 @@
+import type { LiveStore } from '@podium/client-core/live'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
@@ -287,6 +288,16 @@ export interface LazyMembers {
 }
 
 export class MobxPool {
+  /**
+   * This user's LiveStore (POD-5798), bound by the runtime that owns both. The
+   * machine model's online, since and metrics fields read it; a pool with no
+   * runtime (fixtures, harness) answers every one of them unknown.
+   */
+  @observableRef accessor live: LiveStore | undefined = undefined
+  @action bindLive(live: LiveStore): void {
+    if (this.live && this.live !== live) throw new Error('The LiveStore already has an owner')
+    this.live = live
+  }
   @observableRef accessor sessionDrafts: import('./models').SessionDrafts | undefined = undefined
   @action bindSessionDrafts(drafts: import('./models').SessionDrafts): void {
     if (this.sessionDrafts && this.sessionDrafts !== drafts)

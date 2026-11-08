@@ -71,7 +71,6 @@
  * principal namespace and is therefore unreadable until this provider has one.
  */
 
-import type { HostMetricsWire } from '@podium/model'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -98,6 +97,7 @@ import {
 } from '../engine/types'
 import type { VisibilitySource } from '../engine/visibility'
 import type { CreateEngineOutbox } from '../engine/wiring'
+import type { LiveStore } from '../live/live-store'
 import type { OnlineEvents } from '../outbox'
 import type { ClientPrincipal } from '../principal'
 import { principalKey, samePrincipal } from '../principal'
@@ -381,7 +381,9 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
     let listener: (() => void) | undefined
     const arm = () => {
       stop?.()
-      stop = listener ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener) : undefined
+      stop = listener
+        ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener)
+        : undefined
     }
     const access = new Proxy(owner.access, {
       get(target, key, receiver) {
@@ -399,30 +401,48 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
         // useSyncExternalStore may read repeatedly between publications. Keep
         // structured selections stable while their addressed locals agree,
         // including the render-to-subscribe gap.
-        if (selected && readSelector === current.current.selector && keys.every(key =>
-          Object.is(localValues.get(key), owner.readLocal(key as import('../engine/keyed-inputs').LocalKey))))
+        if (
+          selected &&
+          readSelector === current.current.selector &&
+          keys.every((key) =>
+            Object.is(
+              localValues.get(key),
+              owner.readLocal(key as import('../engine/keyed-inputs').LocalKey),
+            ),
+          )
+        )
           return selected.value
         nextKeys = new Set()
         localValues.clear()
         const value = current.current.selector(access)
         readSelector = current.current.selector
         const next = [...nextKeys].sort()
-        if (next.join('|') !== keys.join('|')) { keys = next; arm() }
+        if (next.join('|') !== keys.join('|')) {
+          keys = next
+          arm()
+        }
         if (!selected || !current.current.isEqual(selected.value, value)) selected = { value }
         return selected.value
       },
       subscribe(notify: () => void) {
         listener = notify
         arm()
-        return () => { listener = undefined; stop?.(); stop = undefined }
+        return () => {
+          listener = undefined
+          stop?.()
+          stop = undefined
+        }
       },
     }
   }, [owner])
   return useSyncExternalStore(view.subscribe, view.read)
 }
 
-/** Live telemetry subscribes independently of the entity snapshot. */
-export function useHostMetrics(): HostMetricsWire[] {
-  const { hostMetrics } = useStoreHandle()
-  return useSyncExternalStore(hostMetrics.subscribe, hostMetrics.getSnapshot)
+/**
+ * This user's LiveStore (POD-5798): connection, quota and usage, unsent writes.
+ * Read its fields inside an `observer`, under their own names; machine online
+ * and load are fields of the machine model, not read here.
+ */
+export function useLive(): LiveStore {
+  return useStoreHandle().live
 }

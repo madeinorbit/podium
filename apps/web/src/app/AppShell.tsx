@@ -20,7 +20,7 @@ import {
 } from '@/features/setup/activation-route'
 import { NewTaskOverlay } from '@/features/setup/NewTaskOverlay'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
-import { SetupGate } from '@/features/setup/SetupGate'
+import { SetupGate, SetupRecoveryOnConnect } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
@@ -81,7 +81,7 @@ import {
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { type MainView, StoreProvider, useRuntimeSelector } from './store'
+import { type MainView, StoreProvider, useLive, useRuntimeSelector } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
@@ -406,6 +406,7 @@ export function AppShell({
                   }}
                 />
                 <RoutedDensityProvider>
+                  <SetupRecoveryReporter />
                   <ThemeUiStateMirror />
                   <BrowserOpenOverlay />
                   <ConfirmProvider>
@@ -445,6 +446,11 @@ export function AppShell({
       <SetupGate>{shell}</SetupGate>
     </>
   )
+}
+
+/** The degraded setup gate re-asks when this runtime's connection comes back (POD-5798). */
+function SetupRecoveryReporter(): JSX.Element {
+  return <SetupRecoveryOnConnect live={useLive()} />
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {

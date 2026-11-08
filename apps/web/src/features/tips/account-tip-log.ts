@@ -109,7 +109,7 @@ const pendingLog: AccountTipLogContract = {
   setEnabled: () => {},
 }
 
-const connectionStatus = (pool: MobxPool) => headerView(pool).connection()?.status ?? null
+const connectionStatus = (pool: MobxPool) => headerView(pool).connection()?.state ?? null
 
 export function useAccountTipLog(): AccountTipLogContract {
   const pool = useWorklistPool()
@@ -122,7 +122,7 @@ export function useAccountTipLog(): AccountTipLogContract {
   useEffect(() => {
     // Network failure keeps ready=false. Retry after reconnect or remount;
     // never show a tip against an account layout that has not arrived.
-    if (connection === 'down') return
+    if (connection === 'offline') return
     void log?.load().catch(() => {})
   }, [log, connection])
   return log ?? pendingLog

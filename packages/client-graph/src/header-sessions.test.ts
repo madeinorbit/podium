@@ -1,4 +1,5 @@
 import { omitGone } from './lookup'
+import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -15,6 +16,7 @@ import { EMPTY_HOST_AGGREGATE } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+const NO_REQUESTS = { settings: { get: { query: async () => ({}) } } } as unknown as HeaderRequestsApi
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 const HOSTS = ['header-host-a', 'header-host-b'] as MachineId[]
@@ -166,21 +168,16 @@ describe('incremental header sessions', () => {
     for (const scale of [1, 4] as const) {
       const f = fixture(128 * scale)
       for (const id of f.rows.keys()) f.change(id, { status: 'live', agentState: state('working') })
-      headerEntities(f.pool).apply([
-        {
-          kind: 'history',
-          id: 'fleet',
-          value: {
-            sampledAt: stamp(),
-            bucketMs: 1800000,
-            peak: 0,
-            buckets: Array.from({ length: 24 }, (_, index) => ({
-              start: stamp(NOW - index * 1800000),
-              count: 0,
-            })),
-          },
-        },
-      ])
+      // The concurrency history is a request answer (POD-5798).
+      attachHeaderRequests(f.pool, NO_REQUESTS).setHistory({
+        sampledAt: stamp(),
+        bucketMs: 1800000,
+        peak: 0,
+        buckets: Array.from({ length: 24 }, (_, index) => ({
+          start: stamp(NOW - index * 1800000),
+          count: 0,
+        })),
+      } as never)
       // Establish header demand outside the measurement. A count reads
       // resident flags and cold deadline totals, never the roster values.
       const warm = autorun(() => { headerView(f.pool).workingCount() })

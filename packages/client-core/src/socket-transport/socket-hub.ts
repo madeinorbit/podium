@@ -584,6 +584,20 @@ export interface HubEvents {
   link: [state: 'lost' | 'welcomed']
   /** The server announced a planned move over this live socket (a transfer). */
   serverRelocation: [move: { publicUrl: string; transferId: string; claimToken?: string }]
+  /**
+   * What the server said about itself in this connection's `welcome`: its build
+   * and the features it offers (POD-5798). Fires on EVERY welcome, so a
+   * redeploy is seen on the reconnect that follows it.
+   */
+  serverIdentity: [identity: ServerIdentity]
+  /** The clock-skew reading moved (server clock minus this one, ms; POD-5798). */
+  clockSkew: [skewMs: number]
+}
+
+/** The server's own facts, from `welcome`. Both are absent from an older server. */
+export interface ServerIdentity {
+  readonly build?: string
+  readonly features?: readonly string[]
 }
 
 export type HubEventKind = keyof HubEvents
@@ -702,6 +716,13 @@ export class SocketHub {
    *  the disagreement is a property of the pair, and it does not heal by a later
    *  frame happening to parse. */
   private skew: WireSkew | null = null
+  /**
+   * CLOCK SKEW (POD-5798): server clock minus ours, from the pong that carried
+   * `serverTime`. The estimate with the SHORTEST round-trip seen on this socket
+   * wins, because its midpoint error (half the round-trip) is the smallest.
+   */
+  private clockSkew: { skewMs: number; rttMs: number } | null = null
+  private serverIdentityValue: ServerIdentity | null = null
   private readonly connections = new Map<SessionId, SessionConnection>()
   private readonly terminalAttachDenials = new Set<SessionId>()
   // Per-session structured transcript subscriptions. The hub is a thin
@@ -1355,6 +1376,27 @@ export class SocketHub {
     return this.machinesList
   }
 
+  /** The newest `welcome`'s server facts; null before the first one. */
+  serverIdentity(): ServerIdentity | null {
+    return this.serverIdentityValue
+  }
+
+  /** Server clock minus ours (ms), or null before a pong carried the server's clock. */
+  clockSkewMs(): number | null {
+    return this.clockSkew?.skewMs ?? null
+  }
+
+  private noteClockSkew(sentAt: number, receivedAt: number, serverTime: number): void {
+    const rttMs = receivedAt - sentAt
+    if (this.clockSkew && rttMs >= this.clockSkew.rttMs) return
+    // The server read its clock about halfway through the round-trip. Rounded
+    // to 10 ms: finer than that is noise inside the round-trip's own error.
+    const skewMs = Math.round((serverTime - (sentAt + rttMs / 2)) / 10) * 10
+    const moved = this.clockSkew?.skewMs !== skewMs
+    this.clockSkew = { skewMs, rttMs }
+    if (moved) this.emit('clockSkew', skewMs)
+  }
+
   /** @deprecated Use `on('machines', cb)` (no replay — read `machines()`). */
   onMachines(cb: (m: MachineWire[]) => void): () => void {
     const off = this.on('machines', cb)
@@ -1994,12 +2036,15 @@ export class SocketHub {
     ServerMessageLenient,
     { dropped: number }
   >({
-    pong: () => {
+    pong: (msg) => {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
       const sentAt = this.pingQueue.shift()
       if (sentAt !== undefined) {
-        this.lastRttMs = Date.now() - sentAt
+        const receivedAt = Date.now()
+        this.lastRttMs = receivedAt - sentAt
+        if (typeof msg.serverTime === 'number')
+          this.noteClockSkew(sentAt, receivedAt, msg.serverTime)
         if (this.pingQueue.length === 0) this.clearStaleTimer()
         this.evaluateHealth()
       }
@@ -2010,6 +2055,15 @@ export class SocketHub {
         this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
       if (msg.caps?.includes(CAP_TOPICS_V1) === true && msg.accountUser !== undefined) {
         this.holdAccountEvents(msg.accountUser)
+      }
+      // The gateway's attach `welcome` (id only) precedes the hello answer; only
+      // a welcome that names the server is its identity.
+      if (msg.serverBuild !== undefined || msg.serverFeatures !== undefined) {
+        this.serverIdentityValue = {
+          ...(msg.serverBuild !== undefined ? { build: msg.serverBuild } : {}),
+          ...(msg.serverFeatures !== undefined ? { features: msg.serverFeatures } : {}),
+        }
+        this.emit('serverIdentity', this.serverIdentityValue)
       }
       this.notifyConnections()
       this.emit('link', 'welcomed')

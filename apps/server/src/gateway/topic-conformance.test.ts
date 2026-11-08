@@ -78,9 +78,118 @@ const VALUE_CASES = [
     },
     describeValue: (value) => `${value.online}@${value.since}`,
   } satisfies TopicConformanceCase<'machine.condition'>,
+  {
+    // POD-5798: plan quota and usage, from the server's sampler. The account is
+    // the principal's own, so a grant change cannot revoke it.
+    kind: 'account.quota',
+    id: USER,
+    hiddenId: OTHER_USER,
+    revocable: false,
+    prepare: async () => {},
+    produce: async (world) => {
+      await world.quota.produce()
+      await settle()
+    },
+    describeValue: (value) =>
+      value.machines.map((m) => m.agents.map((a) => a.windows[0]?.usedPercent).join()).join(),
+  } satisfies TopicConformanceCase<'account.quota'>,
+  {
+    // POD-5798: token usage, harvested only while a usage reader holds it.
+    kind: 'account.usage',
+    id: USER,
+    hiddenId: OTHER_USER,
+    revocable: false,
+    prepare: async () => {},
+    produce: async (world) => {
+      await world.usage.produce()
+      await settle()
+    },
+    describeValue: (value) => value?.sampledAt ?? 'none',
+  } satisfies TopicConformanceCase<'account.usage'>,
 ] as const
 
 for (const c of VALUE_CASES) describeTopicConformance(c as TopicConformanceCase<TopicKind>)
+
+describe('topic conformance: account.quota acceptance (POD-5798)', () => {
+  let world: TopicWorld
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    world = await createTopicWorld()
+  })
+  afterEach(() => {
+    world.dispose()
+    vi.useRealTimers()
+  })
+
+  it('a quota change reaches the holder within the rate; with no holder nothing fans out', async () => {
+    const client = await world.client()
+    const key = topicKey('account.quota', USER)
+    const held = holdTopic(client, 'account.quota', USER)
+    await settle()
+    // The first holder starts a live pass at once: the value follows the snapshot.
+    const first = held.states.at(-1)
+    expect(first?.status).toBe('value')
+    const updates = client.frames('topicUpdate', key).length
+    await vi.advanceTimersByTimeAsync(1_000)
+    await world.quota.produce()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(client.frames('topicUpdate', key).length).toBe(updates + 1)
+    // Only the machines in this account's custody.
+    const last = held.states.at(-1)
+    expect(last?.status === 'value' && last.value.machines.map((m) => m.machineId)).toEqual([
+      MACHINE,
+    ])
+    // Holding quota harvests no usage: that is its own key.
+    expect(world.usage.harvests).toBe(0)
+
+    // While held, the live pass runs on its own clock.
+    const samplesHeld = world.quota.samples
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(world.quota.samples).toBeGreaterThan(samplesHeld)
+
+    held.release()
+    await settle()
+    expect(world.quota.topic.holders).toBe(0)
+    const samplesReleased = world.quota.samples
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(world.quota.samples).toBe(samplesReleased)
+  })
+
+  it('harvests usage only while a usage reader holds account.usage', async () => {
+    const client = await world.client()
+    holdTopic(client, 'account.quota', USER)
+    await settle()
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    // App-lifetime quota, no usage reader mounted: no harvest at all.
+    expect(world.usage.harvests).toBe(0)
+    const usage = holdTopic(client, 'account.usage', USER)
+    await settle()
+    expect(world.usage.harvests).toBe(1)
+    expect(usage.states.at(-1)).toMatchObject({
+      status: 'value',
+      value: { hostname: 'conformance.local' },
+    })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(world.usage.harvests).toBe(2)
+    usage.release()
+    await settle()
+    const released = world.usage.harvests
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(world.usage.harvests).toBe(released)
+  })
+
+  it('an identical reading is not sent again', async () => {
+    const client = await world.client()
+    const key = topicKey('account.quota', USER)
+    holdTopic(client, 'account.quota', USER)
+    await settle()
+    await vi.advanceTimersByTimeAsync(1_000)
+    const updates = client.frames('topicUpdate', key).length
+    await world.quota.topic.pass()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(client.frames('topicUpdate', key).length).toBe(updates)
+  })
+})
 
 /** The event style has no value to coalesce or go unknown; its own cases. */
 const EVENT_KINDS: readonly TopicKind[] = ['account.events']

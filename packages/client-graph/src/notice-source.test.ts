@@ -1,5 +1,5 @@
 import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
+import { LiveStore, type OutboxCondition } from '@podium/client-core/live'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
@@ -33,10 +33,13 @@ function fixture() {
       title: 'Archived synthetic task', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
       repoPath: '/synthetic', deps: [] } as never },
   ] })
-  headerEntities(pool).apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 3 } }])
+  // Unsent writes are a LiveStore condition (POD-5798).
+  const live = new LiveStore()
+  live.setOutbox({ pending: 3, deadLetters })
+  pool.bindLive(live)
   const source = new NoticeSource(runtime)
   pool.sources.register(NOTICE_ENTITIES, source)
-  const state = () => ({ messageRecords: messages, sessions: data.sessions, pendingInteractions: interactions, outboxDeadLetters: deadLetters, outboxSize: 3 }) as Store
+  const state = () => ({ messageRecords: messages, sessions: data.sessions, pendingInteractions: interactions, outbox: { pending: 3, deadLetters } }) as unknown as Store & { outbox: OutboxCondition }
   const check = () => runInAction(() => checkNotices(pool, state(), ['synthetic-session-0', 'other-session']))
   let stopWatching: (() => void) | undefined
   const dispose = pool.dispose.bind(pool)
@@ -154,8 +157,8 @@ it('detects a planted wrong value in each notice comparison section', async () =
     for (const wrong of [
       { ...state, messageRecords: state.messageRecords.slice(1) },
       { ...state, pendingInteractions: state.pendingInteractions.slice(1) },
-      { ...state, outboxDeadLetters: state.outboxDeadLetters.slice(1) },
-      { ...state, outboxSize: 99 },
+      { ...state, outbox: { ...state.outbox, deadLetters: state.outbox.deadLetters.slice(1) } },
+      { ...state, outbox: { ...state.outbox, pending: 99 } },
     ]) expect(checkNotices(f.pool, wrong, ['synthetic-session-0']).differences).toBeGreaterThan(0)
   } finally { f.pool.dispose() }
 })

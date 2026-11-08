@@ -1,4 +1,6 @@
+import { knownReading, type LiveStore } from '@podium/client-core/live'
 import type { SocketHub } from '@podium/client-core/socket-transport'
+import { runInAction } from 'mobx'
 import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { createSidebarFixture } from './sidebar-fixture'
 
@@ -47,9 +49,17 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   }
   let metrics: HostMetricsWire[] = []
   let deliver = hub.emit.bind(hub)
+  // POD-5798: samples and quota are LiveStore readings, pushed by the server.
+  // The fixture writes them where the live feed would.
+  let live: LiveStore | undefined
   function publishHostMetrics(next: HostMetricsWire[]) {
     metrics = next
-    deliver('hostMetrics', metrics)
+    if (!live) return
+    const store = live
+    runInAction(() => {
+      for (const metric of next)
+        store.applyTopic('machine.metrics', String(metric.machineId), knownReading(metric, Date.now()))
+    })
   }
   function publishMetrics(step: number) {
     const next = machineIds.map((machineId, index) => ({ machineId, hostname: `host-${index}`,
@@ -62,31 +72,20 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   return { ...base, get replica() { return base.replica }, hub: hub as unknown as SocketHub,
     // Exercise the real runtime's already-subscribed channels. No second hub
     // or provider is installed; emit is the hub's private dispatch test seam.
-    bindHub(real: SocketHub) {
+    bindHub(real: SocketHub, store?: LiveStore) {
       deliver = (real as unknown as { emit: typeof hub.emit }).emit.bind(real)
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
-    },
-    // POD-5873: header polling only runs when networkEnabled (e0cff3be47), so
-    // an offline fixture never publishes quota/history/lifecycle through the
-    // runtime polling service. Provide the fixture rows directly so the pool's
-    // header source can sample them without network.
-    bindHeaderInputs(owner: { headerInputs?: unknown }) {
-      const inputs = {
-        read: (key: string) =>
-          key === 'quota'
-            ? quota
-            : key === 'history'
-              ? history
-              : key === 'lifecycle'
-                ? lifecycle
-                : undefined,
-        onInput: () => () => {},
-        retain: () => () => {},
-      }
-      Object.assign(owner, { headerInputs: inputs })
+      live = store
+      if (store)
+        runInAction(() =>
+          store.applyTopic('account.quota', 'me', knownReading({ machines: quota } as never, now)),
+        )
     },
     publishMetrics, publishHostMetrics, publishMachines: () => deliver('machines', machines),
-    inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14, history, lifecycle }),
+    inputs: () => ({
+      metrics, quotas: quota, connection: live?.connection, afterDays: 14, history, lifecycle,
+      liveOnline: [], outboxSize: live?.outbox.pending ?? 0,
+    }),
     activity(step: number) {
       const index = step % Math.min(12, sessionCount)
       base.patch('session', `synthetic-session-${index}`, { lastActiveAt: new Date().toISOString(),

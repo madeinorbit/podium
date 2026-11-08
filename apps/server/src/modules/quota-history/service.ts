@@ -113,7 +113,7 @@ export interface QuotaSamplerOptions {
 export class QuotaSampler {
   private bootTimer: ReturnType<typeof setTimeout> | undefined
   private timer: ReturnType<typeof setInterval> | undefined
-  private inFlight: Promise<void> | undefined
+  private inFlight: Promise<MachineQuotaWire[] | undefined> | undefined
   private disposed = false
 
   private readonly intervalMs: number
@@ -159,18 +159,23 @@ export class QuotaSampler {
    * second one. So a tick landing on an open tab's poll can still produce two
    * concurrent fan-outs — bounded by the daemon's own 120 s memo, which is what
    * keeps the cost off the providers.
+   *
+   * The `account.quota` topic's live passes come through here too, so while
+   * anyone holds it the timer above and its passes share one fan-out.
    */
-  async sampleNow(): Promise<void> {
-    if (this.inFlight) return this.inFlight
+  async sampleNow(): Promise<MachineQuotaWire[] | undefined> {
+    if (this.inFlight) return await this.inFlight
     const flight = this.runPass().finally(() => {
       if (this.inFlight === flight) this.inFlight = undefined
     })
     this.inFlight = flight
-    return flight
+    return await flight
   }
 
-  private async runPass(): Promise<void> {
-    if (this.disposed) return
+  /** One pass; resolves with the reading (undefined when it failed), which the
+   *  `account.quota` topic hands to its holders (POD-5798). */
+  private async runPass(): Promise<MachineQuotaWire[] | undefined> {
+    if (this.disposed) return undefined
     let machines: MachineQuotaWire[]
     try {
       machines = await this.readQuota()
@@ -178,11 +183,12 @@ export class QuotaSampler {
       // A provider outage, an offline daemon, or a fan-out timeout. The next tick
       // tries again; a gap in the ledger is the honest outcome and is shown as one.
       log.debug('quota sample failed', { err })
-      return
+      return undefined
     }
-    if (this.disposed) return
+    if (this.disposed) return undefined
     await recordQuotaSamples(this.history, machines, this.intervalMs, this.ownerOf)
     await this.pruneExpired()
+    return machines
   }
 
   private async pruneExpired(): Promise<void> {

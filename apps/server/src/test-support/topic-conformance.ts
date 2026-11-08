@@ -53,6 +53,7 @@ import { type ClientConn, ClientRegistry } from '../gateway/client-registry'
 import { createDaemonTopicIngress } from '../gateway/topic-ingress'
 import { daemonTopicProducer, type TopicProducers, TopicRouting } from '../gateway/topic-routing'
 import { MachineConditionTopic } from '../modules/machines/condition-topic'
+import { AccountQuotaTopic, AccountUsageTopic } from '../modules/quota-history/quota-topic'
 
 export const MACHINE = asMachineId('m-conformance')
 export const OTHER_MACHINE = asMachineId('m-other')
@@ -60,9 +61,14 @@ export const USER = asUserId('u-viewer')
 export const OTHER_USER = asUserId('u-stranger')
 export const SAMPLE_INTERVAL_MS = 5_000
 
-/** Let queued microtasks and zero-delay timers run. */
+/**
+ * Let queued microtasks and zero-delay timers run, several rounds deep: a
+ * server producer that reads before it publishes (account.quota's pass awaits
+ * the sampler, the custodians and the usage read) schedules its frame a few
+ * hops after the subscribe. No fake time passes.
+ */
 export const settle = async (): Promise<void> => {
-  await vi.advanceTimersByTimeAsync(0)
+  for (let round = 0; round < 8; round++) await vi.advanceTimersByTimeAsync(0)
 }
 
 export const hostSample = (n: number): HostMetricsWire => ({
@@ -232,6 +238,22 @@ export interface TopicWorld {
   readonly latestMetrics: Map<MachineId, HostMetricsWire>
   /** Pre-topics `hostMetricsChanged` broadcasts sent to clients without topics. */
   legacyBroadcasts: number
+  /**
+   * The `account.quota` producer over a fake sampler (POD-5798): `quota.samples`
+   * counts fan-outs to the daemons, `quota.produce()` changes the reading and
+   * runs one live pass.
+   */
+  readonly quota: {
+    readonly topic: AccountQuotaTopic
+    readonly samples: number
+    produce(): Promise<void>
+  }
+  /** The `account.usage` producer: `usage.harvests` counts transcript reads. */
+  readonly usage: {
+    readonly topic: AccountUsageTopic
+    readonly harvests: number
+    produce(): Promise<void>
+  }
   client(user?: UserId): Promise<ConformanceClient>
   attachDaemon(): Promise<void>
   /** The daemon's server link drops; the process lives on. */
@@ -302,6 +324,56 @@ export async function createTopicWorld(
       send: (_machine, frame) => daemon.receive(frame),
       snapshot: (id) => (kind === 'checkout.changed' ? null : latestProcesses.get(id)),
     })
+  // `account.quota` over a fake sampler: MACHINE is in USER's custody, and
+  // every reading names a new percentage so each pass is a new value.
+  let quotaReading = 0
+  let quotaSamples = 0
+  const quotaTopic = new AccountQuotaTopic({
+    sample: async () => {
+      quotaSamples += 1
+      return [
+        {
+          machineId: MACHINE,
+          machineName: 'conformance',
+          hostname: 'conformance.local',
+          agents: [
+            {
+              agent: 'claude-code',
+              status: 'ok',
+              windows: [
+                {
+                  key: 'five_hour',
+                  label: '5h',
+                  usedPercent: quotaReading,
+                  resetsAt: '2026-11-08T15:00:00.000Z',
+                  windowMinutes: 300,
+                },
+              ],
+              fetchedAt: '2026-11-08T12:00:00.000Z',
+            },
+          ],
+        },
+      ]
+    },
+    custodian: async (machineId) => (machineId === MACHINE ? USER : null),
+    publish: (user, value) => topics.publish('account.quota', user, value),
+  })
+  // `account.usage` over a fake harvest: each read names a new scan time.
+  let usageReading = 0
+  let usageHarvests = 0
+  const usageTopic = new AccountUsageTopic({
+    readUsage: async () => {
+      usageHarvests += 1
+      return {
+        hostname: 'conformance.local',
+        sampledAt: new Date(
+          Date.parse('2026-11-08T12:00:00.000Z') + usageReading * 1000,
+        ).toISOString(),
+        buckets: [],
+      }
+    },
+    publish: (user, value) => topics.publish('account.usage', user, value),
+  })
   const producers: TopicProducers = {
     'machine.condition': counted('machine.condition', {
       snapshot: (id) => conditions.snapshot(asMachineId(id)),
@@ -309,6 +381,16 @@ export async function createTopicWorld(
     'machine.metrics': counted('machine.metrics', metrics),
     'checkout.changed': counted('checkout.changed', extra('checkout.changed')),
     'machine.processes': counted('machine.processes', extra('machine.processes')),
+    'account.quota': counted('account.quota', {
+      start: (id) => quotaTopic.start(asUserId(id)),
+      stop: (id) => quotaTopic.stop(asUserId(id)),
+      snapshot: (id) => quotaTopic.snapshot(asUserId(id)),
+    }),
+    'account.usage': counted('account.usage', {
+      start: (id) => usageTopic.start(asUserId(id)),
+      stop: (id) => usageTopic.stop(asUserId(id)),
+      snapshot: (id) => usageTopic.snapshot(asUserId(id)),
+    }),
     'account.events': counted('account.events', {}),
   }
   topics = new TopicRouting({
@@ -389,6 +471,26 @@ export async function createTopicWorld(
     lifecycle,
     visible,
     latestMetrics,
+    quota: {
+      topic: quotaTopic,
+      get samples() {
+        return quotaSamples
+      },
+      async produce() {
+        quotaReading += 1
+        await quotaTopic.pass()
+      },
+    },
+    usage: {
+      topic: usageTopic,
+      get harvests() {
+        return usageHarvests
+      },
+      async produce() {
+        usageReading += 1
+        await usageTopic.pass()
+      },
+    },
     get legacyBroadcasts() {
       return legacyBroadcasts
     },
@@ -510,6 +612,8 @@ export async function createTopicWorld(
     },
     dispose() {
       for (const hub of hubs) hub.dispose()
+      quotaTopic.dispose()
+      usageTopic.dispose()
       daemon.exit()
     },
   }

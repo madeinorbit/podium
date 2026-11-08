@@ -82,7 +82,7 @@ it('never addresses an unlisted private id and removes private rows and edges on
 it('keeps unrelated publications out of thread derivation and honors active-thread changes', async () => {
   const f = await fixture(); await settle(f)
   const lists = f.source.counts.threadLists, previous = omitGone(f.pool.row('superThread', 'global'))
-  f.publish({ outboxSize: 40 }); await Promise.resolve()
+  f.publish({ paletteOpen: true }); await Promise.resolve()
   expect(f.source.counts.threadLists).toBe(lists)
   expect(omitGone(f.pool.row('superThread', 'global'))).toBe(previous)
   f.publish({ superThreadId: 'global' as Store['superThreadId'] }); await Promise.resolve()

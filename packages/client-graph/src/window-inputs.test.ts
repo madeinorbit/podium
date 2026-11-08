@@ -1,4 +1,3 @@
-import { omitGone } from './lookup'
 import type { Store } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -6,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { inputFixture, inputMechanisms } from '../../../tests/worklist/diagnostics/input-mechanisms'
 import { COMMAND_LAUNCH_SCHEMA } from './command-launch-schema'
 import { HEADER_SCHEMA } from './header-schema'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 import { SHELL_SCHEMA } from './shell-schema'
 import { LOADING } from './worklist/rollup'
@@ -100,7 +100,6 @@ describe('declared window input readers', () => {
       paletteOpen: false,
       autoContinuePromptSessionId: null,
       fileTabs: [],
-      outboxSize: 1,
       pins: ['one'] as never,
       openIssueId: 'other-issue' as never,
       recentFiles: [{ path: 'one' }] as never,

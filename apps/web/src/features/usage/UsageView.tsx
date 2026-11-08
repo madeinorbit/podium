@@ -1,3 +1,4 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   formatCostWeightRatio,
   formatCount,
@@ -13,8 +14,7 @@ import {
   type UsageSummaryView,
   usageSummary,
 } from '@podium/client-core/values'
-import { useStoreHandle } from '@podium/client-core/react'
-import { type CSSProperties, type JSX, useState } from 'react'
+import { type CSSProperties, type JSX, useMemo, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import type { Trpc } from '@/app/trpc'
 import { QuotaLedger } from './QuotaLedger'
@@ -56,12 +56,19 @@ import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsag
  */
 export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
-  const feed = useUsageFeed(trpc)
+  const feed = useUsageFeed()
   const ledger = useQuotaLedger(trpc)
   const tasks = useTaskCosts(trpc)
   const cold = feed.buckets === null
   const arrived = useArrived(!cold)
-  const summary = usageSummary(feed.buckets ?? [], Date.now())
+  // One pass over the buckets per reading (and per hour, which the windows are
+  // cut on), not per rerender: the sheet's other readers rerender it too.
+  const hourKey = Math.floor(Date.now() / 3_600_000)
+  const summary = useMemo(
+    () => usageSummary(feed.buckets ?? [], Date.now()),
+    // biome-ignore lint/correctness/useExhaustiveDependencies: hourKey re-cuts the windows
+    [feed.buckets, hourKey],
+  )
 
   return (
     <AppSheet
@@ -75,7 +82,7 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
       onClose={onClose}
     >
       {cold && feed.failed ? (
-        <UsageUnreachable onRetry={feed.retry} />
+        <UsageUnreachable />
       ) : feed.buckets?.length === 0 ? (
         /* THIS BRANCH MUST NOT CONSULT THE LEDGER. It is decided on the first
            paint, when the ledger read is still in flight — so a condition
@@ -140,13 +147,13 @@ function UsageStamp({ feed }: { feed: UsageFeed }): JSX.Element | null {
 }
 
 /** Cold and unreachable — the one state with nothing truthful to draw. */
-function UsageUnreachable({ onRetry }: { onRetry: () => void }): JSX.Element {
+/** Usage is pushed (POD-5798): there is nothing to retry, it appears when the daemon answers. */
+function UsageUnreachable(): JSX.Element {
   return (
     <div className="usage-unreachable">
-      <p className="usage-unreachable-line">Couldn't read usage from the daemon.</p>
-      <button data-pressable type="button" className="usage-retry" onClick={onRetry}>
-        Try again
-      </button>
+      <p className="usage-unreachable-line">
+        Couldn't read usage from the daemon. It appears here as soon as the daemon answers.
+      </p>
     </div>
   )
 }

@@ -222,7 +222,15 @@ export const RedrawRequestMessage = z.object({
 // traffic. The server answers with pong.
 export const PingMessage = z.object({ type: z.literal('ping') })
 // Reply to a client PingMessage; its arrival is the liveness signal.
-export const PongMessage = z.object({ type: z.literal('pong') })
+export const PongMessage = z.object({
+  type: z.literal('pong'),
+  /**
+   * The server's clock (epoch ms) when it answered. With the round-trip the
+   * client measures, this gives the clock skew the LiveStore shows (ADR 12 D1,
+   * POD-5798). Absent from older servers: skew stays unknown.
+   */
+  serverTime: z.number().optional(),
+})
 // User presence (page visibility) — the smart-notification router skips mobile
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
@@ -290,6 +298,18 @@ export const WelcomeMessage = z.object({
    * D26). Absent from older servers and without the capability.
    */
   accountUser: UserIdField.optional(),
+  /**
+   * The build this server runs (its app version), on every connect, so a
+   * client sees a redeploy as soon as it reconnects instead of polling for it
+   * (POD-5798). Absent from older servers.
+   */
+  serverBuild: z.string().min(1).max(200).optional(),
+  /**
+   * The feature ids this server build offers (POD-5798; detailed design 1.6),
+   * on every connect. Changes only when the server is upgraded or its config
+   * changes. Absent from older servers.
+   */
+  serverFeatures: z.array(z.string().min(1).max(100)).max(500).optional(),
 })
 export const AttachedMessage = z.object({
   type: z.literal('attached'),

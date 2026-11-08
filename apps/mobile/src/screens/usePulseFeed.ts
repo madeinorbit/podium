@@ -34,23 +34,18 @@ import {
 } from './capacity-refresh'
 
 /**
- * The Pulse tab's three readings [POD-662].
+ * The Pulse tab's readings [POD-662].
  *
- * TWO OF THEM ARE POLLED, ONE IS ALREADY LIVE. Quota comes from each provider's
- * own endpoint and usage from a transcript harvest — both are daemon-side reads
- * with no push channel, so they are fetched. Host metrics already stream into
- * the store, so nothing here fetches them; the hook only hands them along, and
- * they update at their own (faster) rate.
+ * QUOTA, USAGE AND HOST METRICS ARE PUSHED (POD-5798). The server sends this
+ * account's quota on `account.quota` (held for the app's life), its usage on
+ * `account.usage` (held while Pulse is mounted), and each machine's samples on
+ * `machine.metrics`; the LiveStore holds them, so the tab paints the newest
+ * figures it has on its first frame and nothing here polls them.
  *
- * CACHE-FIRST, like the desktop usage sheet. The tab stays mounted once
- * visited, but a cold app launch would otherwise open on an empty instrument,
- * and switching to Pulse to check one number is the most common thing this
- * screen is for. The last answer survives in the module so the second visit
- * paints real figures on the first frame; the fetch behind it is a refresh.
- *
- * MODULE-LOCAL, NOT PERSISTED — same reasoning as the web feed: these are the
- * operator's own consumption figures, and a store that outlives the session
- * would have to be bound to a principal to hold them honestly.
+ * WHAT IS STILL ASKED FOR, on focus and on pull-to-refresh only: the quota
+ * history (a request answer), the per-machine memory breakdown (until
+ * POD-6645 moves it to a topic) and the load threshold from settings. Those
+ * answers are kept per server profile in this module, never persisted.
  *
  * `nowMs` IS THE READING'S CLOCK, NOT THE RENDER'S. Every derived figure on the
  * screen — the reset countdown, the rolling windows, the day slots — is
@@ -58,16 +53,12 @@ import {
  * describes one instant instead of mixing a fresh clock with stale buckets.
  */
 
-const REFRESH_MS = 60_000
 const CAPACITY_CONCURRENCY = 3
 
 interface PulseCache {
-  quota: MachineQuotaWire[]
-  buckets: UsageBucketWire[]
   history: QuotaWindowHistoryWire[]
   capacityReadings: MachineCapacityReadings
   loadPerCore: number | null
-  fetchedAt: number
 }
 
 const cacheByProfile = new Map<string, PulseCache>()
@@ -90,11 +81,11 @@ export interface PulseFeed {
   capacityReadings: MachineCapacityReadings
   /** The auto-park threshold the load meter fills against; null = policy off. */
   loadPerCore: number | null
-  /** When the polled pair was taken — and the clock every figure is derived
-   *  against. Falls back to launch time while cold so nothing renders NaN. */
+  /** When the quota and usage reading was taken — and the clock every figure
+   *  is derived against. Falls back to now while unknown so nothing renders NaN. */
   nowMs: number
   fetchedAt: number | null
-  /** The last attempt failed. With figures on screen, they are simply older. */
+  /** The figures on screen are not current: the connection was lost. */
   failed: boolean
   historyFailed: boolean
   reload: () => void
@@ -104,46 +95,34 @@ export function usePulseFeed(): PulseFeed {
   // Subscribe only to the three live values Pulse paints. A whole-store
   // subscription would re-render this tab for unrelated replica publishes.
   const trpc = useTrpc()
-  const { hosts: hostMetrics, machines } = usePulseLive()
+  const { hosts: hostMetrics, machines, quota: quotaReading, usage: usageReading } = usePulseLive()
   const { profile } = useServerProfile()
   const profileKey = serverProfileRequestKey(profile)
   const cached = cacheByProfile.get(profileKey)
   const demo = demoEnabled()
   const [answer, setAnswer] = useState<{
     profileKey: string
-    quota: MachineQuotaWire[] | null
-    buckets: UsageBucketWire[] | null
     history: QuotaWindowHistoryWire[] | null
     capacityReadings: MachineCapacityReadings
     loadPerCore: number | null
-    fetchedAt: number | null
-    failed: boolean
     historyFailed: boolean
   }>(() => ({
     profileKey,
-    quota: cached?.quota ?? null,
-    buckets: cached?.buckets ?? null,
     history: cached?.history ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
     loadPerCore: cached?.loadPerCore ?? null,
-    fetchedAt: cached?.fetchedAt ?? null,
-    failed: false,
     historyFailed: false,
   }))
-  // A pull-to-refresh asks for ANOTHER READ, not for the poller to be rebuilt.
-  // Routing it through the live loader keeps the 60s cadence intact — bumping a
-  // counter in the effect's dependency list would tear the interval down and
-  // start a fresh one from zero on every pull. Unfocused, there is no loader
-  // and the pull is a no-op, which is correct: nothing is on screen to refresh.
+  // A pull-to-refresh asks for ANOTHER READ of the request answers. Unfocused,
+  // there is no loader and the pull is a no-op, which is correct: nothing is on
+  // screen to refresh.
   const loadRef = useRef<() => void>(() => {})
   const reload = useCallback(() => loadRef.current(), [])
   const capacityFence = useRef(new CapacityRefreshFence(profileKey)).current
   const capacityScheduler = useRef(new CapacityRefreshScheduler()).current
 
-  // POLLING FOLLOWS FOCUS. A tab navigator keeps every visited tab mounted, so
-  // an unconditional interval would keep asking the daemon for quota while the
-  // operator is reading a transcript three tabs away — for a screen nobody is
-  // looking at, on a phone paying for the radio.
+  // ASKING FOLLOWS FOCUS. A tab navigator keeps every visited tab mounted; the
+  // request answers are asked for when the tab comes into view, never on a timer.
   useFocusEffect(
     useCallback(() => {
       if (demo) return
@@ -152,53 +131,30 @@ export function usePulseFeed(): PulseFeed {
       const updateCache = (patch: Partial<PulseCache>): PulseCache => {
         const prior = cacheByProfile.get(profileKey)
         const next: PulseCache = {
-          quota: prior?.quota ?? [],
-          buckets: prior?.buckets ?? [],
           history: prior?.history ?? [],
           capacityReadings: prior?.capacityReadings ?? {},
           loadPerCore: prior?.loadPerCore ?? null,
-          fetchedAt: prior?.fetchedAt ?? Date.now(),
           ...patch,
         }
         cacheByProfile.set(profileKey, next)
         return next
       }
-      const loadReadings = (): void => {
-        Promise.all([
-          trpc.quota.summary.query(),
-          trpc.usage.summary.query(),
-          // The threshold the load meter means anything against. Best-effort:
-          // without it the meter falls back to the documented default rather
-          // than disappearing.
-          trpc.settings.get.query().then(
+      // The threshold the load meter means anything against. Best-effort:
+      // without it the meter falls back to the documented default rather than
+      // disappearing.
+      const loadThreshold = (): void => {
+        void trpc.settings.get
+          .query()
+          .then(
             (s) => (s.hibernation.enabled ? s.hibernation.loadPerCore : null),
             () => null,
-          ),
-        ]).then(
-          ([quota, usage, loadPerCore]) => {
-            const cached = updateCache({
-              quota,
-              buckets: usage.buckets,
-              loadPerCore,
-              fetchedAt: Date.now(),
-            })
+          )
+          .then((loadPerCore) => {
+            updateCache({ loadPerCore })
             if (!cancelled) {
-              setAnswer((current) => ({
-                ...current,
-                profileKey,
-                quota: cached.quota,
-                buckets: cached.buckets,
-                loadPerCore: cached.loadPerCore,
-                fetchedAt: cached.fetchedAt,
-                failed: false,
-              }))
+              setAnswer((current) => ({ ...current, profileKey, loadPerCore }))
             }
-          },
-          () => {
-            // Whatever is on screen stays; only its currency changed.
-            if (!cancelled) setAnswer((a) => ({ ...a, failed: true }))
-          },
-        )
+          })
       }
 
       const loadHistory = (): void => {
@@ -256,8 +212,6 @@ export function usePulseFeed(): PulseFeed {
               : {
                   ...current,
                   profileKey,
-                  quota: null,
-                  buckets: null,
                   history: null,
                   capacityReadings: {},
                 }),
@@ -308,17 +262,15 @@ export function usePulseFeed(): PulseFeed {
       }
 
       const load = (forceCapacity = false): void => {
-        loadReadings()
+        loadThreshold()
         loadHistory()
         loadBreakdowns(forceCapacity)
       }
       loadRef.current = () => load(true)
       load()
-      const poll = setInterval(loadReadings, REFRESH_MS)
       return () => {
         cancelled = true
         loadRef.current = () => {}
-        clearInterval(poll)
       }
     }, [capacityFence, capacityScheduler, demo, machines, profileKey, trpc]),
   )
@@ -345,18 +297,33 @@ export function usePulseFeed(): PulseFeed {
     }
   }
 
+  // Quota and usage are two readings (POD-5798); the screen's clock is quota's.
+  const reading = quotaReading
+  const value = reading ? (reading.known ? reading.value : reading.last) : undefined
+  const usage = usageReading
+    ? usageReading.known
+      ? usageReading.value
+      : usageReading.last
+    : undefined
+  const fetchedAt = reading?.known ? reading.at : value ? (reading?.since ?? null) : null
+  const live = {
+    quota: value?.machines ?? null,
+    buckets: usage === undefined ? null : (usage?.buckets ?? []),
+    fetchedAt,
+    failed:
+      (value !== undefined && reading?.known !== true) ||
+      (usage !== undefined && usageReading?.known !== true),
+  }
+
   if (answer.profileKey !== profileKey) {
     return {
-      quota: null,
-      buckets: null,
+      ...live,
       history: null,
       hosts: hostMetrics,
       machines,
       capacityReadings: {},
       loadPerCore: null,
-      nowMs: Date.now(),
-      fetchedAt: null,
-      failed: false,
+      nowMs: live.fetchedAt ?? Date.now(),
       historyFailed: false,
       reload,
     }
@@ -364,9 +331,10 @@ export function usePulseFeed(): PulseFeed {
 
   return {
     ...answer,
+    ...live,
     hosts: hostMetrics,
     machines,
-    nowMs: answer.fetchedAt ?? Date.now(),
+    nowMs: live.fetchedAt ?? Date.now(),
     reload,
   }
 }

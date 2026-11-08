@@ -1,5 +1,3 @@
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import {
   cwdInWorktree,
   reposToViews,
@@ -10,7 +8,9 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../tests/worklist/harness/src/mobx-trap'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import type { HeaderRecord, HeaderRows } from './header-schema'
+import { headerView } from './header-views'
 import { MobxPool } from './pool'
 
 const stamp = '2026-10-04T12:00:00Z'
@@ -66,7 +66,6 @@ function fixture(scale: 1 | 4) {
     view: 'workspace',
     paneA: tabs[0]!.id,
     fileTabs: tabs,
-    outboxSize: 0,
   } as HeaderRows['window']
   const orders = ['first', 'other', 'wildcard', 'trailing', 'fallback'].flatMap((repoId, index) =>
     Array.from(
@@ -238,7 +237,9 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
           humanState: 'needs_you',
         }) as HeaderRows['shipOrder'],
     )
-    headerEntities(f.pool).apply(orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })))
+    headerEntities(f.pool).apply(
+      orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })),
+    )
     const rows = vi.spyOn(f.pool, 'row')
     let otherCounts = { unfinishedCount: 0, decisionCount: 0 }
     const stopOther = autorun(() => {

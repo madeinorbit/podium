@@ -5,7 +5,6 @@ import { pendingInteractionCard } from './notice-card'
 import { omitGone } from './lookup'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
-import type { HeaderRows } from './header-schema'
 import type { NoticeRows } from './notice-schema'
 import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -125,6 +124,6 @@ export function noticeRecovery(pool: MobxPool) {
 
 export function noticeContinuity(pool: MobxPool) {
   const recovery = omitGone(pool.row('noticeRecoveryCatalog', 'catalog'))
-  const window = omitGone(pool.row('window', 'window')) as HeaderRows['window'] | undefined
-  return { outboxSize: window?.outboxSize ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
+  // Unsent writes are a LiveStore condition (POD-5798).
+  return { outboxSize: pool.live?.outbox.pending ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
 }

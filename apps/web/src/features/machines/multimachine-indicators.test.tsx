@@ -147,8 +147,12 @@ vi.mock('@/app/store', () => {
 // Connection is machine-agnostic here; keep it healthy + hidden so it stays out
 // of the way and we don't pull in the real websocket-backed hooks.
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { status: 'ok', rttMs: 10 }, visible: false }),
-  useConnectionHealth: () => ({ status: 'ok', rttMs: 10 }),
+  useStableConnection: () => ({
+    health: { state: 'online', pingMs: 10, since: 0 },
+    visible: false,
+  }),
+  useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
+  connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
   ConnectionIndicator: () => null,
 }))

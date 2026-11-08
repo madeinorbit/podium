@@ -117,11 +117,9 @@ export class MobileInbox {
       this.needsYou.pending + this.idle.pending + this.working.pending > 0
     )
   }
+  /** This device's unsent writes: a LiveStore condition (POD-5798). */
   @lazy get outboxSize() {
-    return (
-      (omitGone(this.pool.row('window', 'window')) as { outboxSize: number } | undefined)
-        ?.outboxSize ?? 0
-    )
+    return this.pool.live?.outbox.pending ?? 0
   }
   session(id: string) {
     return this.pool.sessionObject(id)

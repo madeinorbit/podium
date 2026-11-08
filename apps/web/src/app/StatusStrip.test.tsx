@@ -93,6 +93,7 @@ vi.mock('./store', () => ({
 vi.mock('@/features/machines/ConnectionIndicator', () => ({
   ConnectionIndicator: () => null,
   useStableConnection: () => ({ health: 'healthy', visible: false }),
+  connectionSeverity: () => 'ok',
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/mobile-handoff/MobileHandoffChip', () => ({

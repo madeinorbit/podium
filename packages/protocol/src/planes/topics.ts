@@ -3,7 +3,9 @@ import {
   IssueId,
   joinKeyParts,
   MachineId,
+  MachineQuotaWire,
   splitKeyParts,
+  UsageBucketWire,
   UserId,
 } from '@podium/model'
 import { z } from 'zod'
@@ -58,6 +60,36 @@ export const MachineConditionPayload = z.object({
   since: z.string().nullable(),
 })
 export type MachineConditionPayload = z.infer<typeof MachineConditionPayload>
+
+/**
+ * `account.quota` — this account's plan quota (ADR 7 Amendment 2 D26,
+ * POD-5798): `quota.summary`'s answer, one entry per machine in the account's
+ * custody, each with its agents' plan windows. "Used up until 15:00" is a
+ * window at 100% with its `resetsAt`, derived by the reader, never sent as a
+ * second fact. Held for the whole time the app is open.
+ */
+export const AccountQuotaPayload = z.object({
+  machines: z.array(MachineQuotaWire),
+})
+export type AccountQuotaPayload = z.infer<typeof AccountQuotaPayload>
+
+/**
+ * `account.usage` — this account's token usage (POD-5798): what
+ * `usage.summary` answers, the hourly token buckets for the last 7 days from
+ * the answering machine's transcripts, already narrowed to this account on a
+ * shared instance. Its own kind because the harvest walks transcripts: it is
+ * held only while a usage reader is on screen. `null` when no machine may
+ * answer for this account's transcripts, or the scan failed.
+ */
+export const AccountUsagePayload = z
+  .object({
+    hostname: z.string(),
+    /** When the daemon completed the transcript scan behind these buckets. */
+    sampledAt: z.string().optional(),
+    buckets: z.array(UsageBucketWire),
+  })
+  .nullable()
+export type AccountUsagePayload = z.infer<typeof AccountUsagePayload>
 
 /**
  * `account.events` — one-off notices for whoever is connected now. The
@@ -196,6 +228,22 @@ export const TOPIC_KINDS = {
     id: MachineId,
     payload: MachineProcessesPayload,
     publish: HostProcessBreakdown,
+  },
+  'account.quota': {
+    style: 'value',
+    producer: 'server',
+    visibility: 'account.self',
+    minIntervalMs: 1_000,
+    id: UserId,
+    payload: AccountQuotaPayload,
+  },
+  'account.usage': {
+    style: 'value',
+    producer: 'server',
+    visibility: 'account.self',
+    minIntervalMs: 1_000,
+    id: UserId,
+    payload: AccountUsagePayload,
   },
   'account.events': {
     style: 'event',

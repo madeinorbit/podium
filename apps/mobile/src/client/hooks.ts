@@ -1,15 +1,17 @@
-import { omitGone } from '@podium/client-graph/lookup'
 /** Phone reads use the shared pool; actions and transport handles retain
  * their existing owner and API. Missing pool facts retain loading values. */
 import type { Store } from '@podium/client-core/engine'
+import type { LiveStore } from '@podium/client-core/live'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { omitGone } from '@podium/client-graph/lookup'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionId } from '@podium/model'
+import { reaction } from 'mobx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
@@ -94,31 +96,41 @@ export function useUiState(): RoutedUiState {
   return useStoreHandle<MobileTrpc>().access.uiState
 }
 
-function hubIsConnected(hub: SocketHub): boolean {
-  return typeof hub.connected === 'boolean'
-    ? hub.connected
-    : // Compatibility for narrow test/platform hubs that predate the exact
-      // connection bit. Production SocketHub always takes the first arm.
-      hub.connectionHealth().status !== 'down'
-}
-
 /**
- * Transport liveness, as six mobile surfaces ask for it.
- *
- * NOT A SLICE, and not because it has too few consumers. Connection health is
- * stream-plane: ephemeral, blank offline, no durable row, nothing memoized
- * against an entity snapshot — the same reason presence gets its own publisher
- * (doc §3.4). It is read off the hub, which is where it lives.
+ * Transport liveness, as six mobile surfaces ask for it: the LiveStore's
+ * connection condition (POD-5798). Connected means the link is up and
+ * answering, slowly or not; the first dial and a link declared lost are not.
+ * The hub's health rule decides "lost", so a quick reconnect does not flicker
+ * an offline banner.
  *
  * Demo mode reports connected because there is no socket at all in it: the
  * fixture store is the whole world, and painting an offline banner over a design
  * fixture would be reporting a fact about a server nobody asked it to reach.
  */
 export function useConnected(): boolean {
-  const hub = useHub()
-  const [connected, setConnected] = useState(() => hubIsConnected(hub))
-  useEffect(() => hub.onConnectionHealth(() => setConnected(hubIsConnected(hub))), [hub])
+  const connected = useLiveValue(isLinkUp)
   return demoEnabled() ? true : connected
+}
+
+const isLinkUp = (live: LiveStore): boolean =>
+  live.connection.state === 'online' || live.connection.state === 'degraded'
+
+/** The server's build, from the newest `welcome` (LiveStore, POD-5798). */
+export function useServerBuild(): string | undefined {
+  return useLiveValue(serverBuildOf)
+}
+
+const serverBuildOf = (live: LiveStore): string | undefined => live.connection.serverBuild
+
+/**
+ * One LiveStore field for a component that is not an observer: re-renders
+ * only when `read`'s answer changes. `read` must be a stable function.
+ */
+function useLiveValue<T>(read: (live: LiveStore) => T): T {
+  const live = useStoreHandle<MobileTrpc>().live
+  const [value, setValue] = useState(() => read(live))
+  useEffect(() => reaction(() => read(live), setValue, { fireImmediately: true }), [live, read])
+  return value
 }
 
 function poolBooting(pool: MobxPool): boolean {
@@ -134,18 +146,26 @@ function poolBooting(pool: MobxPool): boolean {
  * `resolved` keeps the old contract: a root has settled, or the pool is past
  * its boot and the mission is simply not there.
  */
-export function useMissionOpening(selectedId: string): { screen: MissionScreen | null; resolved: boolean } {
+export function useMissionOpening(selectedId: string): {
+  screen: MissionScreen | null
+  resolved: boolean
+} {
   const pool = useMobilePool()
   const uiState = useUiState()
   const uiRef = useRef(uiState)
   uiRef.current = uiState
-  const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId, true), [selectedId])
+  const readRoot = useCallback(
+    (pool: MobxPool) => missionRootId(pool, selectedId, true),
+    [selectedId],
+  )
   const rootId = useMobilePoolProjection(readRoot, LOADING)
   const booting = useMobilePoolProjection(poolBooting, true)
   const screen = useMemo(
     () =>
       pool && typeof rootId === 'string'
-        ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => uiRef.current.set(key, raw) })
+        ? new MissionScreen(pool, rootId, {
+            setPreference: (key, raw) => uiRef.current.set(key, raw),
+          })
         : null,
     [pool, rootId],
   )

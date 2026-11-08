@@ -1,4 +1,5 @@
 import { DeadlineClock } from './clock'
+import type { LiveStore } from '@podium/client-core/live'
 import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import { sessionPaneView } from './session-pane-view'
@@ -231,6 +232,8 @@ export type WorklistRuntime = RowSourceRuntime &
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
     readonly replica: RowSourceReplica
     readonly ui?: RoutedUiState
+    /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
+    readonly live?: LiveStore
     attachWorklistSelection?(selection: { readonly selectedId: string | null; select(id: string | null): void }): () => void
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
@@ -375,6 +378,7 @@ export function createRuntimeWorklistPool(
       },
       runtime.attachWorklistSelection ? 'worklist' : 'locals',
     )
+    if (runtime.live) handle.pool.bindLive(runtime.live)
     stopSelection = runtime.attachWorklistSelection?.(worklistView(handle.pool))
     // This module loads behind the host's graph import. Register the screen
     // companions before it publishes the pool; eager hooks acquire only types.

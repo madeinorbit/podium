@@ -1,12 +1,13 @@
-import { createSettingsMachineReaders } from './settings-machine-readers'
-import { omitGone } from '@podium/client-graph/lookup'
-import { useSettingsOpening } from './settings-opening'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
 import { useCallback } from 'react'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import { createSettingsMachineReaders } from './settings-machine-readers'
+import { useSettingsOpening } from './settings-opening'
 
 export type { SettingsMachineStatus } from './settings-machine-readers'
+
 import type { SettingsMachineStatus } from './settings-machine-readers'
 
 export interface SettingsData extends MobileSettingsDiagnostics {
@@ -42,7 +43,6 @@ export function readSettingsData(
   machines = createSettingsMachineReaders(pool),
 ): SettingsData {
   const diagnostics = omitGone(pool.row('mobileSettingsDiagnostics', 'diagnostics'))
-  const window = omitGone(pool.row('window', 'window')) as { outboxSize: number } | undefined
   const notices = omitGone(pool.row('noticeCatalog', 'catalog'))
   return {
     ...machines.summary(null),
@@ -51,7 +51,8 @@ export function readSettingsData(
     issueCount: loaded(diagnostics) ? diagnostics.issueCount : 0,
     conversationCount: loaded(diagnostics) ? diagnostics.conversationCount : 0,
     cursor: loaded(diagnostics) ? diagnostics.cursor : null,
-    outboxSize: window?.outboxSize ?? 0,
+    // Unsent writes are a LiveStore condition (POD-5798).
+    outboxSize: pool.live?.outbox.pending ?? 0,
     outboxDeadLetterCount: loaded(notices) ? notices.deadLetters.length : 0,
   }
 }

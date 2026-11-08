@@ -66,7 +66,10 @@ const presenceStub = (): PresenceRouting =>
 const topicsStub = (): TopicRouting =>
   ({ route: vi.fn(), disconnect: vi.fn() }) as unknown as TopicRouting
 
-async function harness(mobileVersions?: ClientMuxDeps['mobileVersions']) {
+async function harness(
+  mobileVersions?: ClientMuxDeps['mobileVersions'],
+  extra: Pick<ClientMuxDeps, 'serverBuild' | 'serverFeatures' | 'now'> = {},
+) {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
     sessions: {
@@ -90,6 +93,7 @@ async function harness(mobileVersions?: ClientMuxDeps['mobileVersions']) {
     presence: presenceStub(),
     topics: topicsStub(),
     bootstrap,
+    ...extra,
   })
   const sent: ServerMessage[] = []
   const id = attachTestClient(mux, (msg) => sent.push(msg))
@@ -284,7 +288,7 @@ describe('the connection lifecycle', () => {
     expect(started).toEqual(['sessions', 'bootstrap'])
     expect(sent).toEqual([{ type: 'welcome', clientId: id }])
     h.mux.routeClientFrame(id, { type: 'ping' })
-    expect(sent.at(-1)).toEqual({ type: 'pong' })
+    expect(sent.at(-1)).toEqual({ type: 'pong', serverTime: expect.any(Number) })
     h.mux.routeClientFrame(id, A_ROUTABLE_FRAME)
     expect(h.ports.sessions.onSessionClientFrame).toHaveBeenLastCalledWith(
       h.mux.principalOf(id),
@@ -345,7 +349,7 @@ describe('the connection lifecycle', () => {
       h.mux.routeClientFrame(id, { type: 'ping' })
       await h.feed.admissionSettled()
       expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
-      expect(sent).toContainEqual({ type: 'pong' })
+      expect(sent).toContainEqual({ type: 'pong', serverTime: expect.any(Number) })
       expect(
         sent.filter((msg) => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type)),
       ).toEqual([])
@@ -474,10 +478,31 @@ describe('the connection lifecycle', () => {
     expect(h.ports.sessions.onClientDetached).toHaveBeenCalledTimes(1)
   })
 
+  it('names its build in welcome and its clock in pong (POD-5798)', async () => {
+    const h = await harness(undefined, {
+      serverBuild: () => '0.1.0+build.7',
+      serverFeatures: () => ['issue-board'],
+      now: () => 1_234,
+    })
+    await h.mux.routeClientFrame(h.id, {
+      type: 'hello' as const,
+      clientId: '',
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: [CAP_SYNC_HTTP_V1],
+    })
+    expect(h.sent.findLast((msg) => msg.type === 'welcome')).toMatchObject({
+      serverBuild: '0.1.0+build.7',
+      serverFeatures: ['issue-board'],
+    })
+    h.mux.routeClientFrame(h.id, { type: 'ping' })
+    expect(h.sent.at(-1)).toEqual({ type: 'pong', serverTime: 1_234 })
+  })
+
   it('answers ping itself, without waking a feature', async () => {
     const h = await harness()
     h.mux.routeClientFrame(h.id, { type: 'ping' })
-    expect(h.sent.at(-1)).toEqual({ type: 'pong' })
+    expect(h.sent.at(-1)).toEqual({ type: 'pong', serverTime: expect.any(Number) })
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
   })
 })

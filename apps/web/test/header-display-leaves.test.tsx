@@ -23,6 +23,7 @@ vi.mock('../src/features/mobile-handoff/MobileHandoffChip', () => ({ MobileHando
 vi.mock('../src/features/updates/updates-panel-context', () => ({ useUpdates: () => ({ indicator: 'none' }) }))
 vi.mock('../src/features/machines/ConnectionIndicator', () => ({
   ConnectionIndicator: () => null, useStableConnection: () => ({ visible: false }),
+  connectionSeverity: () => 'ok', describeHealth: () => ({ headline: '', detail: '' }),
 }))
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -44,7 +45,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
     api={fixture.api} createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
     onFatalError={error => failures.push(error)}
     attachRuntime={owner => {
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.hub, owner.live)
       fixture.publishMachines()
       fixture.publishMetrics(0)
       return attachWorklistPool(owner, error => failures.push(error.message))

@@ -155,7 +155,8 @@ Each kind runs these cases, with a fake daemon where the kind has `producer: dae
 | `machine.condition` | value `{online, since}` | server | on change, at most 1 per s | `machinesChanged` / health | POD-5800 |
 | `machine.metrics` | value (CPU, memory, load, disk, loop) | daemon | 1 per 5 s | `hostMetricsChanged` broadcast | POD-5800 |
 | `machine.processes` | value (memory breakdown, reclaimable) | daemon | 1 per 5 s | `hosts.memoryBreakdown` polled | POD-6645 |
-| `account.quota` | value (quota, usage, "used up until") | server (its sampler runs while subscribed, plus the history timer) | on change, at most 1 per s | 60 s polls | POD-5798 |
+| `account.quota` | value (quota; "used up until" is derived by the reader). Held for the whole time the app is open | server (its sampler runs while subscribed, plus the history timer) | on change, at most 1 per s | 60 s polls | POD-5798 |
+| `account.usage` | value (token usage, the 7-day hour buckets; `null` when no machine may answer). Held only while a usage reader is on screen: the usage sheet, the status strip's burn rate, phone Pulse | server (the transcript harvest runs while subscribed, one pass a minute) | on change, at most 1 per s | 60–90 s polls | POD-5798 |
 | `checkout.changed` | value, version only (a "changed" notice) | daemon (file watcher on HEAD, the index and the working tree, with ignore rules) | 1 per s | polling or refetch | POD-6645 |
 | `account.events` | event (attention, openUrl, openUrlResult, serverRelocation, setLogLevel) | server | — | one-off frames | POD-5800 (moved), POD-6680 (old frames removed) |
 | `presence` | room (Amendment 1) | server | 30–60 Hz per member (D11) | rooms (exist) | naming aligned in POD-5800 |
@@ -202,7 +203,7 @@ Each kind runs these cases, with a fake daemon where the kind has `producer: dae
 ## 3. Migration
 
 1. **Core, capability-gated (POD-5800):** `topics.ts`, the frames, registry use, daemon watch registry, re-demand, client handles and the conformance harness. First kinds: `machine.condition`, `machine.metrics`, `account.events` (moved onto `topicEvent`, with the old frames as fallback for peers without the capability), and `presence` (naming aligned).
-2. `account.quota` (POD-5798).
+2. `account.quota` and `account.usage` (POD-5798).
 3. `machine.processes` and `checkout.changed` (POD-6645).
 4. After phases 1–3 have run in production and the operator calls them robust: `session.*` (POD-6679), with its own rollout. Each kind is switched by capability, and the old frames stay as the fallback until it is proven.
 5. Floor raise and deletion of the old frames (POD-6680).

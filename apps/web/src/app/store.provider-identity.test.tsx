@@ -4,7 +4,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useRuntimeSelector } from '@podium/client-core/react'
+import { StoreProvider, useLive, useRuntimeSelector } from '@podium/client-core/react'
 import { memoryStorage } from '@podium/client-core/replica'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asUserId } from '@podium/model'
@@ -183,6 +183,7 @@ interface Seen {
   replica: { getFeedCursor(): unknown } | null
   /** Read through useRuntimeSelector — this is the CACHE under test. */
   dockTab: string
+  /** The LiveStore's unsent-write count (POD-5798). */
   outboxSize: number
   setDockTab: (tab: string) => void
 }
@@ -195,11 +196,15 @@ function PrincipalProbe(): null {
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
   const dockTab = useRuntimeSelector(selectDockTab)
+  const live = useLive()
   seen = {
     hub: store.hub,
     replica: store.replica as unknown as { getFeedCursor(): unknown },
     dockTab,
-    outboxSize: store.outboxSize,
+    // Read when asserted: the LiveStore applies with the next frame.
+    get outboxSize() {
+      return live.outbox.pending
+    },
     setDockTab: store.setDockTab as unknown as (tab: string) => void,
   }
   return null

@@ -1,14 +1,14 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
-import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
+import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { MessageNoticeIndicator } from '../src/features/chat/MessageNotices'
 import { PendingInteractionBar } from '../src/features/chat/PendingInteractionBar'
@@ -194,7 +194,11 @@ const driver = {
     }
   },
   check() {
-    return pool ? checkNotices(pool, referenceState(owner), ['synthetic-session-0']) : null
+    return pool
+      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.live.outbox }, [
+          'synthetic-session-0',
+        ])
+      : null
   },
   close: () => root.unmount(),
 }

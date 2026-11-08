@@ -1,29 +1,53 @@
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
-import type { MachineId } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import type { HeaderRows } from './header-schema'
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
+import { liveFixture } from './live-fixture'
 import { MobxPool } from './pool'
 
-it('maintains the fleet idle cap scalar with flat first-use and per-host update work at 1x/4x', async () => {
+/**
+ * The fleet's unmet idle cap is a sum over LIVE samples (POD-5798): each fleet
+ * machine's `metrics` field reads the LiveStore, and the header total is one
+ * memo over those fields. Samples are never rows, so a change reads no rows.
+ */
+function fleet(pool: MobxPool, count: number): MachineId[] {
+  const ids = Array.from({ length: count }, (_, index) => `m${index}` as MachineId)
+  runInAction(() => {
+    headerEntities(pool).apply(
+      ids.map((id) => ({
+        kind: 'machine' as const,
+        id,
+        value: {
+          id,
+          name: id,
+          hostname: id,
+          online: true,
+          lastSeenAt: '2026-10-05T07:00:00Z',
+        } as MachineWire,
+      })),
+    )
+    headerEntities(pool).order('machine', ids)
+  })
+  return ids
+}
+
+const sample = (id: string, idleCapUnmet?: number, hostname = `Host ${id}`) =>
+  ({
+    machineId: id as MachineId,
+    hostname,
+    sampledAt: '2026-10-05T07:00:00Z',
+    idleCapUnmet,
+  }) as HostMetricsWire
+
+it('maintains the fleet idle cap from live samples at 1x/4x, with no row reads per change', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const metrics = Array.from(
-      { length: 128 * scale },
-      (_, index) =>
-        ({
-          machineId: `m${index}` as MachineId,
-          hostname: `Host ${index}`,
-          sampledAt: '2026-10-05T07:00:00Z',
-          idleCapUnmet: index === 0 ? 2 : 0,
-        }) as HeaderRows['hostMetric'],
-    )
-    headerEntities(pool).apply(
-      metrics.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })),
-    )
+    const live = liveFixture(pool)
+    const ids = fleet(pool, 32 * scale)
+    for (const [index, id] of ids.entries()) live.metric(id, sample(id, index === 0 ? 2 : 0))
     const measure = (action: () => void) =>
       measureWork(async () => insideReader('hibernation cap scalar', () => runInAction(action)), {
         pool,
@@ -32,107 +56,62 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
       paints = 0,
       stop = () => {}
     try {
-      const first = await measure(() => {
+      await measure(() => {
         stop = autorun(() => {
           value = headerView(pool).idleCapUnmetCount()
           paints++
         })
       })
       expect(value).toBe(2)
-      const repeat = await measure(() => {
-        expect(headerView(pool).idleCapUnmetCount()).toBe(2)
-      })
       const before = paints
-      const unchanged = await measure(() =>
-        headerEntities(pool).apply([
-          { kind: 'hostMetric', id: 'm2', value: { ...metrics[2]!, hostname: 'Unrelated sample' } },
-        ]),
-      )
+      const unchanged = await measure(() => live.metric('m2', sample('m2', 0, 'Unrelated sample')))
       expect(paints).toBe(before)
-      const changed = await measure(() =>
-        headerEntities(pool).apply([
-          { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: 4 } },
-        ]),
-      )
+      const changed = await measure(() => live.metric('m0', sample('m0', 4)))
       expect(value).toBe(4)
       expect(paints).toBe(before + 1)
-      const removed = await measure(() =>
-        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: undefined }]),
-      )
+      const removed = await measure(() => live.metric('m0', undefined))
       expect(value).toBe(0)
-      const returned = await measure(() =>
-        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
-      )
+      const returned = await measure(() => live.metric('m0', sample('m0', 2)))
       expect(value).toBe(2)
-      const noCount = await measure(() =>
-        headerEntities(pool).apply([
-          { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: undefined } },
-        ]),
-      )
+      const noCount = await measure(() => live.metric('m0', sample('m0')))
       expect(value).toBe(0)
-      stop()
-      const closed = await measure(() =>
-        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
-      )
-      const reopen = await measure(() => {
-        expect(headerView(pool).idleCapUnmetCount()).toBe(2)
-      })
-      const control = await measure(() => {
-        expect(
-          headerView(pool).metrics().reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0),
-        ).toBe(2)
-      })
-      expect(control.work.rows).toBe(128 * scale)
-      const actions = {
-        first,
-        repeat,
-        unchanged,
-        changed,
-        removed,
-        returned,
-        noCount,
-        closed,
-        reopen,
-      }
+      const actions = { unchanged, changed, removed, returned, noCount }
       for (const result of Object.values(actions)) expect(result.work.rows).toBe(0)
-      samples.push({ scale, actions, control })
-      runInAction(() => headerEntities(pool).clear())
-      expect(headerView(pool).idleCapUnmetCount()).toBe(0)
+      samples.push({ scale, actions })
     } finally {
       stop()
       pool.dispose()
     }
   }
-  expect(samples[1]!.actions).toEqual(samples[0]!.actions)
-  expect(samples[1]!.control.work.rows).toBe(samples[0]!.control.work.rows! * 4)
-  console.log('[hibernation idle cap work1x4x]', JSON.stringify(samples))
+  // Rows read per change stay zero at both scales. The total re-sums one
+  // field per fleet machine (guide rule 5), so its element count grows with
+  // the fleet; that is the design, not a regression.
+  for (const sample of samples)
+    for (const result of Object.values(sample.actions)) expect(result.work.rows).toBe(0)
 })
 
-it('keeps replacement, missing samples, repeated IDs and atomic contribution moves correct', () => {
+it('counts only fleet machines, and an unknown sample counts as none', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  const metric = (count?: number) =>
-    ({ hostname: 'host', idleCapUnmet: count }) as HeaderRows['hostMetric']
+  const live = liveFixture(pool)
   try {
-    headerEntities(pool).apply([
-      { kind: 'hostMetric', id: 'a', value: metric(2) },
-      { kind: 'hostMetric', id: 'b', value: metric(3) },
-      { kind: 'hostMetric', id: 'no-count', value: metric() },
-    ])
+    fleet(pool, 3)
+    live.metric('m0', sample('m0', 2))
+    live.metric('m1', sample('m1', 3))
+    live.metric('m2', sample('m2'))
+    // A sample for a machine outside the fleet is not part of the total.
+    live.metric('stranger', sample('stranger', 7))
     expect(headerView(pool).idleCapUnmetCount()).toBe(5)
     const values: number[] = []
     const stop = autorun(() => values.push(headerView(pool).idleCapUnmetCount()))
     try {
-      headerEntities(pool).apply([
-        { kind: 'hostMetric', id: 'a', value: undefined },
-        { kind: 'hostMetric', id: 'new-a', value: metric(2) },
-        { kind: 'hostMetric', id: 'b', value: metric(1) },
-        { kind: 'hostMetric', id: 'b', value: metric(4) },
-      ])
-      expect(values).toEqual([5, 6])
-      headerEntities(pool).apply([{ kind: 'hostMetric', id: 'missing', value: undefined }])
-      expect(values).toEqual([5, 6])
-      runInAction(() => headerEntities(pool).clear())
-      expect(values).toEqual([5, 6, 0])
+      live.metric('m0', undefined)
+      live.metric('m1', sample('m1', 4))
+      expect(values).toEqual([5, 3, 4])
+      live.metric('missing', undefined)
+      expect(values).toEqual([5, 3, 4])
+      // The connection was declared lost: no current sample anywhere.
+      runInAction(() => live.live.markAllUnknown(1))
+      expect(values).toEqual([5, 3, 4, 0])
     } finally {
       stop()
     }

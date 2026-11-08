@@ -1,4 +1,4 @@
-import type { ConnectionHealth } from '@podium/client-core/socket-transport'
+import type { ConnectionCondition } from '@podium/client-core/live'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -7,12 +7,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 
-const WAITING_CONNECTION: ConnectionHealth = { status: 'ok', rttMs: null, since: 0 }
-function usePoolConnectionHealth(): ConnectionHealth {
+const WAITING_CONNECTION: ConnectionCondition = { state: 'connecting', since: 0 }
+
+/** The connection condition, from the LiveStore (POD-5798). */
+export function useConnectionHealth(): ConnectionCondition {
   return usePoolHeaderConnection() ?? WAITING_CONNECTION
 }
-export function useConnectionHealth(): ConnectionHealth {
-  return usePoolConnectionHealth()
+
+/**
+ * How bad it looks, for colour and icon: the first dial and a live link both
+ * read as fine (the fatal-error page owns a server that never answered).
+ */
+export type ConnectionSeverity = 'ok' | 'degraded' | 'down'
+export function connectionSeverity(connection: ConnectionCondition): ConnectionSeverity {
+  if (connection.state === 'offline') return 'down'
+  return connection.state === 'degraded' ? 'degraded' : 'ok'
 }
 
 // Best practice for a flaky signal: hysteresis. A bad state must persist briefly
@@ -22,15 +31,16 @@ export function useConnectionHealth(): ConnectionHealth {
 const ENTER_DELAY_MS = 1200
 const RECOVER_HOLD_MS = 5000
 
-export function useStableConnection(): { health: ConnectionHealth; visible: boolean } {
+export function useStableConnection(): { health: ConnectionCondition; visible: boolean } {
   const raw = useConnectionHealth()
-  const [visible, setVisible] = useState(raw.status !== 'ok')
+  const severity = connectionSeverity(raw)
+  const [visible, setVisible] = useState(severity !== 'ok')
   const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const recoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevStatus = useRef(raw.status)
+  const prevStatus = useRef(severity)
 
   useEffect(() => {
-    const status = raw.status
+    const status = severity
     const prev = prevStatus.current
     prevStatus.current = status
     const clearEnter = () => {
@@ -62,7 +72,7 @@ export function useStableConnection(): { health: ConnectionHealth; visible: bool
         }, RECOVER_HOLD_MS)
       }
     }
-  }, [raw.status, visible])
+  }, [severity, visible])
 
   useEffect(
     () => () => {
@@ -89,9 +99,10 @@ export interface ConnectionDescription {
   detail: string
 }
 
-export function describeHealth(health: ConnectionHealth, now: number): ConnectionDescription {
-  const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms ping` : null
-  switch (health.status) {
+export function describeHealth(health: ConnectionCondition, now: number): ConnectionDescription {
+  const ping =
+    health.pingMs !== undefined ? `${Math.max(1, Math.round(health.pingMs))} ms ping` : null
+  switch (connectionSeverity(health)) {
     case 'ok':
       return {
         headline: 'Connected',
@@ -121,12 +132,13 @@ export function ConnectionIndicator({
   health,
   onOpen,
 }: {
-  health: ConnectionHealth
+  health: ConnectionCondition
   onOpen?: () => void
 }): JSX.Element {
-  const now = useClock(1_000, health.status !== 'ok')
+  const severity = connectionSeverity(health)
+  const now = useClock(1_000, severity !== 'ok')
   const { headline, detail } = describeHealth(health, now)
-  const Icon = health.status === 'down' ? WifiOff : Wifi
+  const Icon = severity === 'down' ? WifiOff : Wifi
   // A button so the tooltip is reachable by keyboard focus and by tap on touch
   // devices, where hover doesn't exist. Tapping opens the host info panel.
   return (
@@ -138,9 +150,9 @@ export function ConnectionIndicator({
             type="button"
             className={cn(
               'relative inline-flex flex-none cursor-pointer items-center self-center border-0 bg-transparent p-0',
-              health.status === 'ok' && 'text-success',
-              health.status === 'degraded' && 'text-warning',
-              health.status === 'down' && 'text-destructive',
+              severity === 'ok' && 'text-success',
+              severity === 'degraded' && 'text-warning',
+              severity === 'down' && 'text-destructive',
             )}
             aria-label={`${headline}. ${detail}`}
             onClick={onOpen}
@@ -149,7 +161,7 @@ export function ConnectionIndicator({
             <Icon
               size={14}
               aria-hidden="true"
-              className={cn(health.status === 'down' && 'animate-pulse')}
+              className={cn(severity === 'down' && 'animate-pulse')}
             />
           </button>
         }

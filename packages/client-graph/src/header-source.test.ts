@@ -1,14 +1,16 @@
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
-import { createHeaderPollingService, type ClientRuntime, type KeyedListChange } from '@podium/client-core/engine'
+import type { AgentConcurrencyHistoryResult } from '@podium/client-core/api'
+import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { autorun, observe } from 'mobx'
+import { headerEntities } from './header-entities'
+import { headerRequests } from './header-requests'
 import type { HeaderRows } from './header-schema'
-import { attachHeaderSource } from './header-source'
-import { MobxPool } from './pool'
 import { HeaderSessions } from './header-sessions'
+import { attachHeaderSource } from './header-source'
+import { headerView } from './header-views'
+import { MobxPool } from './pool'
 
 it('reads only changed header keys between 1x/4x and preserves removal and rescope', async () => {
   const samples = []
@@ -51,8 +53,6 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       readLocal: (key: string) =>
         ({ view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0 })[key as 'view'],
       onLocals: () => () => {},
-      hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} },
-      hub: { connectionHealth: () => ({ status: 'ok' }), onConnectionHealth: () => () => {} },
       replica: {
         rows: replicaRows,
         row: replicaRow,
@@ -63,7 +63,6 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
           }
         },
       },
-      headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
       access: {
         trpc: {
           quota: { summary: { query: async () => [] } },
@@ -151,7 +150,10 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       orders.clear()
       batch({ type: 'replace', reason: 'rescope' })
       expect(headerEntities(pool).tables.shipOrder.size).toBe(0)
-      expect(headerEntities(pool).shippingCounts('repo')).toEqual({ unfinishedCount: 0, decisionCount: 0 })
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({
+        unfinishedCount: 0,
+        decisionCount: 0,
+      })
       const control = await measure('whole machine catalog control', () => {
         new Set(runtime.listIds('machines'))
       })
@@ -197,10 +199,11 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
   expect(samples[1]!.control.elements).toBeGreaterThan(samples[0]!.control.elements)
 })
 
-function pollingFixture() {
-  const quota = vi.fn(async (): Promise<HeaderRows['quota'][]> => [])
-  const lifecycle = vi.fn(async () => ({}) as HeaderRows['lifecycle'])
-  const reading: HeaderRows['history'] = {
+function requestsFixture() {
+  const lifecycle = vi.fn(
+    async () => ({ hibernation: { enabled: false }, worktreeGc: {} }) as never,
+  )
+  const reading: AgentConcurrencyHistoryResult = {
     sampledAt: '2026-10-05T00:00:00Z',
     buckets: Array.from({ length: 24 }, () => ({ start: '2026-10-05T00:00:00Z', count: 0 })),
     bucketMs: 60_000,
@@ -213,216 +216,158 @@ function pollingFixture() {
     onList: () => () => {},
     readLocal: () => undefined,
     onLocals: () => () => {},
-    hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} },
-    hub: { connectionHealth: () => ({ status: 'ok' }), onConnectionHealth: () => () => {} },
     replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
     access: {
       trpc: {
-        quota: { summary: { query: quota } },
         settings: { get: { query: lifecycle } },
         sessions: { concurrencyHistory: { query: history } },
       },
     },
   } as unknown as ClientRuntime
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  const reportError = vi.fn()
-  const polling = createHeaderPollingService({ api: runtime.access.trpc, replica: runtime.replica, reportError })
-  polling.inputs.retain()
-  Object.assign(runtime, { headerInputs: polling.inputs })
   return {
-    pool, quota, history, lifecycle, reading, polling, reportError, runtime,
+    pool,
+    history,
+    lifecycle,
+    reading,
+    runtime,
     start: () => {
       const detach = attachHeaderSource(pool, runtime)
-      polling.start()
-      return () => { detach(); polling.destroy() }
+      const release = headerRequests(pool)!.retain()
+      return () => {
+        release()
+        detach()
+      }
     },
   }
 }
-
-it('releases header sessions with the attached history source when the last header reader leaves', async () => {
-  vi.useFakeTimers()
-  const f = pollingFixture(),
-    dispose = vi.spyOn(HeaderSessions.prototype, 'dispose'),
-    count = vi.spyOn(headerView(f.pool), 'workingCount')
-  const stamp = new Date(0).toISOString()
-  const row = { sessionId: 'seat', agentKind: 'codex', cwd: '/header', status: 'live',
-    lastActiveAt: stamp, agentState: { phase: 'idle', since: stamp } }
-  f.pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
-  const off = f.start()
-  let stop = () => {}
-  try {
-    await Promise.resolve()
-    expect(count).not.toHaveBeenCalled()
-    expect(dispose).not.toHaveBeenCalled()
-    stop = autorun(() => { headerView(f.pool).workingCount() })
-    const initialHistory = f.history.mock.calls.length
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: {
-      ...row, agentState: { phase: 'working', since: stamp },
-    } as never }] })
-    expect(headerView(f.pool).workingCount()).toBe(1)
-    expect(f.history).toHaveBeenCalledTimes(initialHistory)
-    await Promise.resolve()
-    stop()
-    expect(dispose).toHaveBeenCalledTimes(1)
-    const afterClose = f.history.mock.calls.length
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
-    expect(f.history).toHaveBeenCalledTimes(afterClose)
-    expect(dispose).toHaveBeenCalledTimes(1)
-    stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(0) })
-    stop()
-    expect(dispose).toHaveBeenCalledTimes(2)
-  } finally {
-    stop(); off(); f.pool.dispose()
-  }
-})
 
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
-it('consumes cached keyed samples without starting timers or touching the network', async () => {
+it('releases header sessions with the attached history source when the last header reader leaves', async () => {
   vi.useFakeTimers()
-  const f = pollingFixture()
-  f.polling.start()
-  await Promise.resolve()
-  Object.defineProperty(f.runtime, 'access', { get() { throw new Error('pool reached transport') } })
-  const timer = vi.spyOn(globalThis, 'setInterval')
-  const detach = attachHeaderSource(f.pool, f.runtime)
-  try {
-    expect(headerEntities(f.pool).received.history).toBe(f.reading)
-    expect(headerEntities(f.pool).received.quotas).toEqual([])
-    expect(timer).not.toHaveBeenCalled()
-    expect(f.quota).toHaveBeenCalledTimes(1)
-    detach()
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(f.quota).toHaveBeenCalledTimes(2)
-    expect(headerEntities(f.pool).received.quotas).toEqual([])
-  } finally {
-    detach()
-    f.polling.destroy()
-    f.pool.dispose()
+  const f = requestsFixture(),
+    dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
+  const stamp = new Date(0).toISOString()
+  const row = {
+    sessionId: 'seat',
+    agentKind: 'codex',
+    cwd: '/header',
+    status: 'live',
+    lastActiveAt: stamp,
+    agentState: { phase: 'idle', since: stamp },
   }
-})
-
-it('counts quota failures, logs once, keeps the last reading, and recovers on the next poll', async () => {
-  vi.useFakeTimers()
-  const f = pollingFixture()
-  const before = { machineId: 'before' } as HeaderRows['quota']
-  const after = { machineId: 'after' } as HeaderRows['quota']
-  const error = new Error('quota unavailable')
-  f.quota
-    .mockResolvedValueOnce([before])
-    .mockRejectedValueOnce(error)
-    .mockRejectedValueOnce(error)
-    .mockResolvedValue([after])
-  const stop = f.start()
+  f.pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
+  const off = f.start()
+  let stop = () => {}
   try {
     await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(120_000)
-    expect(headerEntities(f.pool).received.quotas).toEqual([before])
-    expect(headerEntities(f.pool).get('quota', 'before')).toBe(before)
-    expect(f.polling.diagnostics.counts.quota).toBe(2)
-    expect(f.reportError).toHaveBeenCalledTimes(1)
-    expect(f.reportError).toHaveBeenCalledWith('quota', error)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(headerEntities(f.pool).received.quotas).toEqual([after])
-    expect(headerEntities(f.pool).get('quota', 'before')).toBeUndefined()
-    expect(headerEntities(f.pool).get('quota', 'after')).toBe(after)
-  } finally {
-    stop()
-    f.pool.dispose()
-  }
-})
-
-it('removes partially applied quota rows when a later poll replaces them', async () => {
-  vi.useFakeTimers()
-  const f = pollingFixture()
-  const rows = ['a', 'b'].map((machineId) => ({ machineId }) as HeaderRows['quota'])
-  const after = { machineId: 'c' } as HeaderRows['quota']
-  vi.spyOn(console, 'error').mockImplementation(() => {})
-  f.quota.mockResolvedValueOnce([]).mockResolvedValueOnce(rows).mockResolvedValue([after])
-  const stop = f.start()
-  let fail = true
-  const off = observe(headerEntities(f.pool).tables.quota, (change) => {
-    if (change.name === 'b' && fail) {
-      fail = false
-      throw new Error('header apply failure')
-    }
-  })
-  try {
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(f.pool.diagnostics.counts['header:quota']).toBe(1)
-    expect([...headerEntities(f.pool).tables.quota.keys()]).toEqual(['a', 'b'])
-    expect(headerEntities(f.pool).received.quotas).toEqual([])
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect([...headerEntities(f.pool).tables.quota.keys()]).toEqual(['c'])
-    expect(headerEntities(f.pool).orders.get('quota')).toEqual(['c'])
-    expect(headerEntities(f.pool).received.quotas).toEqual([after])
-  } finally {
-    off()
-    stop()
-    f.pool.dispose()
-  }
-})
-
-it('counts and retries history and lifecycle failures independently', async () => {
-  vi.useFakeTimers()
-  const f = pollingFixture()
-  const historyError = new Error('history unavailable')
-  const lifecycleError = new Error('settings unavailable')
-  f.history
-    .mockRejectedValueOnce(historyError)
-    .mockRejectedValueOnce(historyError)
-    .mockResolvedValue(f.reading)
-  f.lifecycle.mockRejectedValueOnce(lifecycleError)
-  const stop = f.start()
-  try {
-    await Promise.resolve()
-    expect(f.polling.diagnostics.counts).toEqual({ history: 1, lifecycle: 1 })
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(headerEntities(f.pool).received.lifecycle).toEqual({})
-    expect(f.lifecycle).toHaveBeenCalledTimes(2)
-    await vi.advanceTimersByTimeAsync(9 * 60_000)
-    expect(headerEntities(f.pool).received.history).toBe(f.reading)
-    expect(f.polling.diagnostics.counts).toEqual({ history: 2, lifecycle: 1 })
-    expect(f.lifecycle).toHaveBeenCalledTimes(2)
-    expect(f.reportError.mock.calls).toEqual([
-      ['lifecycle', lifecycleError],
-      ['history', historyError],
-    ])
-  } finally {
-    stop()
-    f.pool.dispose()
-  }
-})
-
-it('ignores late polling failures after detaching the principal', async () => {
-  vi.useFakeTimers()
-  const f = pollingFixture()
-  const rejects: ((cause: unknown) => void)[] = []
-  const pending = <T>() =>
-    new Promise<T>((_resolve, reject) => {
-      rejects.push(reject)
+    stop = autorun(() => {
+      headerView(f.pool).workingCount()
     })
-  f.quota.mockReturnValue(pending())
-  f.lifecycle.mockReturnValue(pending())
-  f.history.mockReturnValue(pending())
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    stop()
+    // The request owner holds its own working-count reaction while retained.
+    off()
+    expect(dispose).toHaveBeenCalled()
+  } finally {
+    stop()
+    off()
+    f.pool.dispose()
+  }
+})
+
+/** POD-5798: quota is pushed; only the history and the lifecycle settings are requests. */
+it('asks for history on retain, on a working-count change and every 5 minutes; lifecycle once', async () => {
+  vi.useFakeTimers()
+  const f = requestsFixture()
+  const stamp = new Date(0).toISOString()
+  const row = {
+    sessionId: 'seat',
+    agentKind: 'codex',
+    cwd: '/header',
+    status: 'live',
+    lastActiveAt: stamp,
+    agentState: { phase: 'idle', since: stamp },
+  }
+  f.pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
+  const stop = f.start()
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.history).toHaveBeenCalledTimes(1)
+    expect(f.lifecycle).toHaveBeenCalledTimes(1)
+    expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
+    expect(headerView(f.pool).lifecycle()).toEqual({
+      hibernation: { enabled: false },
+      worktreeGc: {},
+    })
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'session',
+          id: 'seat',
+          value: {
+            ...row,
+            agentState: { phase: 'working', since: new Date(Date.now()).toISOString() },
+          } as never,
+        },
+      ],
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.history).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(f.history.mock.calls.length).toBeGreaterThanOrEqual(3)
+    // Settings were answered: never asked again.
+    expect(f.lifecycle).toHaveBeenCalledTimes(1)
+  } finally {
+    stop()
+    f.pool.dispose()
+  }
+})
+
+it('keeps the last good history through a failure and asks nothing after release', async () => {
+  vi.useFakeTimers()
+  const f = requestsFixture()
+  f.history.mockResolvedValueOnce(f.reading).mockRejectedValueOnce(new Error('history unavailable'))
+  f.lifecycle.mockRejectedValueOnce(new Error('settings unavailable'))
+  const stop = f.start()
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
+    expect(headerView(f.pool).lifecycle()).toBeNull()
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
+    stop()
+    const asked = f.history.mock.calls.length
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    expect(f.history).toHaveBeenCalledTimes(asked)
+    // A failed settings request is asked again on the next retain.
+    const again = headerRequests(f.pool)!.retain()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.lifecycle).toHaveBeenCalledTimes(2)
+    again()
+  } finally {
+    stop()
+    f.pool.dispose()
+  }
+})
+
+it('drops an answer that arrives after the header released it', async () => {
+  vi.useFakeTimers()
+  const f = requestsFixture()
+  let resolve: (value: AgentConcurrencyHistoryResult) => void = () => {}
+  f.history.mockReturnValue(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
   const stop = f.start()
   stop()
-  try {
-    for (const reject of rejects) reject(new Error('late failure'))
-    await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(10 * 60_000)
-    expect(f.pool.diagnostics.errors).toBe(0)
-    expect(f.polling.diagnostics.errors).toBe(0)
-    expect(f.reportError).not.toHaveBeenCalled()
-    expect(log).not.toHaveBeenCalled()
-    expect(f.quota).toHaveBeenCalledTimes(1)
-    expect(f.lifecycle).toHaveBeenCalledTimes(1)
-    expect(f.history).toHaveBeenCalledTimes(1)
-  } finally {
-    f.pool.dispose()
-  }
+  resolve(f.reading)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(headerView(f.pool).history()).toBeNull()
+  f.pool.dispose()
 })

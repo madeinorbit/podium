@@ -1,108 +1,108 @@
+import type { MobxPool } from '@podium/client-graph'
 import type { UsageBucketWire } from '@podium/model/browser'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Trpc } from '@/app/trpc'
-import {
-  PENDING_REVEAL_MS,
-  resetPolledQueryCache,
-  usePolledQuery,
-} from '@/lib/use-polled-query'
+import { useRef } from 'react'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /**
- * The usage sheet's data feed: cache-first, revalidate behind it.
+ * The usage feed (the usage sheet and the status strip's burn rate): this
+ * account's token usage, PUSHED by the server on `account.usage` and held in
+ * the LiveStore (POD-5798). There is no poll: while a reader is mounted the
+ * server's live pass re-reads usage, and a reconnect resubscribes and gets the
+ * newest value. With no reader mounted, nothing is harvested.
  *
- * The sheet unmounts when you close it, so every reopen used to refetch from
- * zero and sit on a "Loading usage…" line — a loading state shown for figures
- * the tab already had. The last answer survives instead, so a reopen paints real
- * numbers on the first frame and the fetch that follows is a refresh, not a
- * load. The loader is reserved for a genuinely cold sheet.
- *
- * THE CACHE, THE TIMER AND THE REVEAL THRESHOLD ARE NO LONGER THIS FILE'S
- * (POD-1772). They are {@link usePolledQuery}, shared with the other host
- * telemetry reads. What stays here is the sheet's own vocabulary — `buckets`,
- * `waiting`, `retry`.
- *
- * WHY THIS STAYS AN RPC POLL RATHER THAN MOVING ONTO THE FEED. `usage.summary`
- * is not a row: it is a transcript harvest performed on the daemon host at the
- * moment of asking (`MachinesRpc.usage`, which answers `{buckets: []}` on
- * timeout). There is no server-side entity to replicate, nothing to read
- * offline, and nothing an optimistic overlay could apply to. It is host
- * telemetry in the same family as the memory breakdown and the fleet version
- * sweep, and it polls through the same one utility they do.
- *
- * The cache is tab-lifetime, never localStorage: the token figures are the
- * operator's own consumption, and persisting them would put them in a store that
- * outlives the session and has to be bound to a principal.
+ * Cache-first still holds: when the last reader leaves, the LiveStore keeps
+ * the last reading (as "last read"), so reopening the sheet paints numbers on
+ * its first frame while the fresh one arrives. Nothing is saved: a new run
+ * starts unknown.
  */
 
-const REFRESH_MS = 90_000
-const CACHE_KEY = 'usage.summary'
 const SCAN_HISTORY_MS = 15 * 60_000
-
-export { PENDING_REVEAL_MS }
 
 export interface UsageScan {
   sampledAt: number
   buckets: UsageBucketWire[]
 }
 
-interface UsageAnswer {
-  hostname: string
-  sampledAt?: string
-  buckets: UsageBucketWire[]
+interface UsageReadingView {
+  readonly buckets: UsageBucketWire[] | null
+  readonly sampledAt: number
+  readonly at: number | null
+  readonly known: boolean
+  readonly answered: boolean
 }
 
-// The polled-query cache and this history share one lifetime: the current
-// browser tab. Multiple mounted readers may receive the same daemon memo, so
-// only a strictly newer scan advances it. Fifteen minutes is enough to produce
-// the footer's stable rolling rate without retaining another copy of the
-// seven-day usage response indefinitely.
+const COLD: UsageReadingView = {
+  buckets: null,
+  sampledAt: Number.NaN,
+  at: null,
+  known: false,
+  answered: false,
+}
+
+/**
+ * The LiveStore's usage reading. Reading it from a mounted projection is what
+ * holds `account.usage`: the server harvests only while a usage reader is up.
+ */
+function readUsage(pool: MobxPool): UsageReadingView {
+  const reading = pool.live?.usage()
+  if (!reading) return COLD
+  const value = reading.known ? reading.value : reading.last
+  const usage = value
+  return {
+    buckets: usage ? usage.buckets : null,
+    sampledAt: Date.parse(usage?.sampledAt ?? ''),
+    at: reading.known ? reading.at : value ? reading.since : null,
+    known: reading.known,
+    answered: value !== undefined,
+  }
+}
+
+// The rolling burn rate needs the last 15 minutes of distinct daemon scans.
+// Their lifetime is the browser tab, as before; only a strictly newer scan
+// advances it.
 let scanHistory: UsageScan[] = []
 
-function recordScan(answer: UsageAnswer): void {
-  const sampledAt = Date.parse(answer.sampledAt ?? '')
+function recordScan(sampledAt: number, buckets: UsageBucketWire[]): void {
   const latest = scanHistory.at(-1)
   if (!Number.isFinite(sampledAt) || sampledAt <= (latest?.sampledAt ?? -Infinity)) return
-  scanHistory = [...scanHistory, { sampledAt, buckets: answer.buckets }].filter(
+  scanHistory = [...scanHistory, { sampledAt, buckets }].filter(
     (scan) => scan.sampledAt >= sampledAt - SCAN_HISTORY_MS,
   )
 }
 
-/** Tests only — the module cache is deliberately process-wide otherwise. */
+/** Tests only — the scan history is deliberately process-wide otherwise. */
 export function resetUsageCache(): void {
-  resetPolledQueryCache(CACHE_KEY)
   scanHistory = []
 }
 
 export interface UsageFeed {
-  /** Null only when this tab has never had an answer: the one cold state. */
+  /** Null only while this run has never had an answer: the one cold state. */
   buckets: UsageBucketWire[] | null
   /** When `buckets` was received, for the staleness stamp. */
   fetchedAt: number | null
   /** Distinct daemon scans from the last 15 minutes, oldest first. */
   scans: readonly UsageScan[]
-  /** A request is in flight AND has been slow enough to be worth showing. */
+  /** No answer yet in this run (the first reading is on its way). */
   waiting: boolean
-  /** The last attempt failed. With `buckets` set, what is on screen is old. */
+  /**
+   * What is on screen is not current: the connection was lost (the last value
+   * is kept), or the server answered without usage (no machine may answer for
+   * this account's transcripts, or the scan failed).
+   */
   failed: boolean
-  retry: () => void
 }
 
-export function useUsageFeed(trpc: Trpc): UsageFeed {
-  const query = usePolledQuery<UsageAnswer>({
-    key: CACHE_KEY,
-    intervalMs: REFRESH_MS,
-    // A synchronous endpoint failure must enter the poller's rejected-read
-    // path too, so optional host telemetry cannot take down the shell.
-    read: async () => trpc.usage.summary.query(),
-    onData: recordScan,
-  })
+export function useUsageFeed(): UsageFeed {
+  const reading = useWorklistPoolProjection(readUsage, COLD)
+  // Idempotent: only a strictly newer scan is recorded, so a repeated render
+  // (StrictMode, an unrelated rerender) adds nothing.
+  if (reading.buckets) recordScan(reading.sampledAt, reading.buckets)
   return {
-    buckets: query.data?.buckets ?? null,
-    fetchedAt: query.fetchedAt,
+    buckets: reading.buckets,
+    fetchedAt: reading.at,
     scans: scanHistory,
-    waiting: query.pending,
-    failed: query.failed,
-    retry: query.refresh,
+    waiting: !reading.answered,
+    failed: reading.answered && (!reading.known || reading.buckets === null),
   }
 }
 

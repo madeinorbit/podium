@@ -18,7 +18,10 @@ import {
   type UsageBucketWire,
 } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type LiveFixture, liveFixture } from '@podium/client-graph/live-fixture'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MissionCostChip } from '@/app/MissionCostChip'
 import type { Trpc } from '@/app/trpc'
@@ -31,6 +34,19 @@ import { useMissionCost } from './useMissionCost'
 import { useTaskCost } from './useTaskCost'
 
 const fixture = vi.hoisted(() => ({ handle: null as unknown }))
+// Usage is pushed since POD-5798: the sheet reads the LiveStore's
+// account.usage reading through the pool. `pooled.live` writes it.
+const pooled = vi.hoisted(() => ({
+  pool: null as unknown as MobxPool,
+  live: null as unknown as LiveFixture,
+}))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => pooled.pool,
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const view = useMemo(() => createPoolProjection(pooled.pool, read), [read])
+    return useSyncExternalStore(view.subscribe, view.getSnapshot)
+  },
+}))
 vi.mock('../../../../../packages/client-core/src/engine/runtime', () => ({
   createClientRuntime: () => fixture.handle,
 }))
@@ -146,6 +162,11 @@ function buckets(extra = 0): UsageBucketWire[] {
 function setup(history: number) {
   let cost = wire(history)
   let usage = buckets()
+  pooled.pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  pooled.live = liveFixture(pooled.pool)
+  /** The server pushes this account's usage (account.usage, POD-5798). */
+  const pushUsage = () => pooled.live.usage({ hostname: 'fixture', buckets: usage })
+  pushUsage()
   const reads = {
     task: vi.fn(async () => cost),
     comparison: vi.fn(async ({ includeSessions }: { includeSessions: boolean }) => ({
@@ -235,6 +256,7 @@ function setup(history: number) {
     addUsage: () => {
       usage = buckets(1)
     },
+    pushUsage,
   }
 }
 
@@ -313,7 +335,7 @@ for (const scale of [1, 4]) {
       ctx.addTranscript()
       ctx.addUsage()
       const refresh = await capture(() => {
-        if (surface === 'UsageView') vi.advanceTimersByTime(90_000)
+        if (surface === 'UsageView') ctx.pushUsage()
         window.dispatchEvent(new Event('focus'))
       })
       if (

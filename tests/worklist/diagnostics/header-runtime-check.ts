@@ -1,4 +1,5 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerRequests } from '@podium/client-graph/header-requests'
+import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from './reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -17,10 +18,15 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
   const timer = setInterval(() => {
     if (disposed) return
     try {
+      // POD-5798: live readings come from the LiveStore, history and lifecycle
+      // from the header's request answers.
+      const requests = headerRequests(pool)
       const result = runInAction(() => checkHeader(pool, referenceState(runtime), {
-        metrics: runtime.hostMetrics.getSnapshot(), quotas: headerEntities(pool).received.quotas,
-        history: headerEntities(pool).received.history, lifecycle: headerEntities(pool).received.lifecycle,
-        connection: runtime.hub.connectionHealth(),
+        metrics: headerView(pool).metrics(), quotas: headerView(pool).quotas(),
+        history: requests?.history ?? undefined, lifecycle: requests?.lifecycle ?? undefined,
+        connection: runtime.live.connection, outboxSize: runtime.live.outbox.pending,
+        liveOnline: [...runtime.live.machineConditions].flatMap(([id, reading]) =>
+          reading.known && reading.value.online ? [id] : []),
       }))
       checks++
       report({ state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks,

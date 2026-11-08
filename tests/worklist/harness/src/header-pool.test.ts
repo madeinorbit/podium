@@ -1,6 +1,5 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
+import { headerRequests } from '@podium/client-graph/header-requests'
 import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 
@@ -42,22 +41,16 @@ afterEach(() => {
 })
 async function fixture(scale: 1 | 4 = 1) {
   const ctx = await startScenarioEngine(scale)
-  const health = { status: 'ok', rttMs: 12, since: 0 }
-  Object.assign(ctx.engine.hub, {
-    connectionHealth: () => health,
-    onConnectionHealth: () => () => {},
-  })
-  ctx.hub.emit(
-    'hostMetrics',
-    ctx.corpus.machines.slice(0, 2).map((host) => metric(host.id, 'fixed')),
-  )
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true })
+  // POD-5798: live readings are the runtime's LiveStore; history and lifecycle
+  // are the header's request answers.
   const inputs = () => ({
-    metrics: ctx.engine.hostMetrics.getSnapshot(),
+    metrics: headerView(handle.pool).metrics(),
     quotas: [],
-    connection: health as never,
-    lifecycle: headerEntities(handle.pool).received.lifecycle,
-    history: headerEntities(handle.pool).received.history,
+    connection: ctx.engine.live.connection,
+    lifecycle: headerRequests(handle.pool)?.lifecycle ?? undefined,
+    history: headerRequests(handle.pool)?.history ?? undefined,
+    outboxSize: ctx.engine.live.outbox.pending,
   })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {
@@ -161,10 +154,11 @@ describe('header pool values', () => {
     }
   }, 180_000)
 
-  it('declares separate machine, sample and quota identities and both relation directions', () => {
+  it('declares the machine identity and its relations; live readings are not tables (POD-5798)', () => {
     expect(HEADER_SCHEMA.machine.source).toBe('engine:machines')
-    expect(HEADER_SCHEMA.hostMetric.source).toBe('runtime:hostMetrics')
-    expect(HEADER_SCHEMA.quota.source).toBe('runtime:headerInputs.quota')
+    // Host samples, quota and the connection are LiveStore conditions.
+    for (const live of ['hostMetric', 'quota', 'connection', 'history', 'lifecycle'])
+      expect(Object.hasOwn(HEADER_SCHEMA, live), live).toBe(false)
     expect(HEADER_RELATIONS).toContainEqual({
       from: 'session',
       name: 'machine',
@@ -172,89 +166,29 @@ describe('header pool values', () => {
       to: 'machine',
       inverse: 'sessions',
     })
-    expect(HEADER_RELATIONS).toContainEqual({
-      from: 'hostMetric',
-      name: 'machine',
-      key: 'machineId',
-      to: 'machine',
-      inverse: 'metrics',
-    })
+    expect(HEADER_RELATIONS.some((relation) => relation.from === ('hostMetric' as string))).toBe(false)
   })
 
-  it('sixty metric-only inputs wake only the changed metric row', async () => {
-    const f = await fixture()
-    const first = referenceState(f.ctx.engine).machines[0]?.id ?? ('machine-one' as MachineId)
-    const second = 'machine-two' as MachineId
-    const publish = (step: number) =>
-      f.ctx.hub.emit('hostMetrics', [metric(first, String(step), step), metric(second, 'fixed')])
-    publish(0)
-    let a = 0,
-      b = 0,
-      status = 0
-    const stops = [
-      autorun(() => {
-        omitGone(f.pool.row('hostMetric', first))
-        a++
-      }),
-      autorun(() => {
-        omitGone(f.pool.row('hostMetric', second))
-        b++
-      }),
-      autorun(() => {
-        headerView(f.pool).working()
-        headerView(f.pool).aggregate(first)
-        headerView(f.pool).occupancyKey()
-        headerView(f.pool).shipping()
-        headerView(f.pool).folded()
-        status++
-      }),
-    ]
-    headerStats.enable()
-    headerStats.reset()
-    const initial = { a, b, status }
-    try {
-      for (let step = 1; step <= 60; step++) {
-        publish(step)
-        await Promise.resolve()
-      }
-      expect(a - initial.a).toBe(60)
-      expect(b - initial.b).toBe(0)
-      expect(status - initial.status).toBe(0)
-      expect(headerStats.read()).toEqual({})
-      // A membership delta still removes the metric and its inverse edge.
-      f.ctx.hub.emit('hostMetrics', [metric(second, 'fixed')])
-      expect(omitGone(f.pool.row('hostMetric', first))).toBeUndefined()
-      expect(headerEntities(f.pool).members('machine', first, 'metrics')).toEqual([])
-    } finally {
-      for (const stop of stops) stop()
-      f.dispose()
-      f.ctx.dispose()
-    }
-  }, 120_000)
-
-  it('the checker detects value, order and extra-row faults', async () => {
+  it('the checker detects value and extra-row faults', async () => {
     const f = await fixture()
     try {
       f.parity()
-      const actual = headerView(f.pool).row('connection', 'server')!
-      headerEntities(f.pool).apply([{ kind: 'connection', id: 'server', value: { ...actual, rttMs: 999 } }])
+      const connection = f.inputs().connection
       expect(
-        runInAction(() => checkHeader(f.pool, referenceState(f.ctx.engine), f.inputs())).differences,
+        runInAction(() =>
+          checkHeader(f.pool, referenceState(f.ctx.engine), {
+            ...f.inputs(),
+            connection: { ...connection, pingMs: 999 },
+          }),
+        ).differences,
       ).toBeGreaterThan(0)
-      headerEntities(f.pool).apply([{ kind: 'connection', id: 'server', value: f.inputs().connection }])
-      const ids = f.inputs().metrics.map((row) => row.machineId ?? row.hostname)
-      runInAction(() => headerEntities(f.pool).order('hostMetric', [...ids].reverse()))
       expect(
-        runInAction(() => checkHeader(f.pool, referenceState(f.ctx.engine), f.inputs())).first
-          ?.section,
-      ).toBe('metrics')
-      runInAction(() => headerEntities(f.pool).order('hostMetric', ids))
-      headerEntities(f.pool).apply([
-        { kind: 'hostMetric', id: 'extra', value: metric('extra' as MachineId, 'fixed') },
-      ])
-      expect(
-        runInAction(() => checkHeader(f.pool, referenceState(f.ctx.engine), f.inputs())).first
-          ?.section,
+        runInAction(() =>
+          checkHeader(f.pool, referenceState(f.ctx.engine), {
+            ...f.inputs(),
+            metrics: [...f.inputs().metrics, metric('extra' as MachineId, 'fixed')],
+          }),
+        ).first?.section,
       ).toBe('metrics')
     } finally {
       f.dispose()

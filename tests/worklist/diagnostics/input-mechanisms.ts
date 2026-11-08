@@ -1,20 +1,21 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { LiveStore } from '@podium/client-core/live'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState as Store } from './reference-state'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { autorun } from 'mobx'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileSessionSource } from '@podium/client-graph/mobile-session-context'
 import { PreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { autorun } from 'mobx'
+import type { ReferenceState as Store } from './reference-state'
 import { shellFixture } from './shell-fixture'
 
 const flush = async () => {
@@ -23,13 +24,13 @@ const flush = async () => {
 
 export function inputFixture(scale: 1 | 4) {
   const f = shellFixture(40 * scale)
+  f.pool.bindLive(new LiveStore())
   let state = {
     ...f.state(),
     pins: [],
     openIssueId: null,
     recentFiles: [],
     sidebarSettings: {},
-    outboxSize: 0,
     trpc: {
       quota: { summary: { query: async () => [] } },
       settings: { get: { query: async () => ({}) } },
@@ -136,10 +137,8 @@ export async function inputMechanisms(scale: 1 | 4) {
     const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
     return row?.paneA
   })
-  watch('header.outbox', () => {
-    const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
-    return row?.outboxSize
-  })
+  // Unsent writes are a LiveStore condition (POD-5798), read by the header.
+  watch('header.outbox', () => f.pool.live?.outbox.pending)
   watch('command.pane', () => {
     const row = omitGone(f.pool.row('commandWindow', 'window'))
     return row && row !== LOADING ? row.paneA : row
@@ -186,7 +185,9 @@ export async function inputMechanisms(scale: 1 | 4) {
   const shell = await capture('palette click', () =>
     f.change({ paletteOpen: !f.state().paletteOpen }),
   )
-  const header = await capture('outbox enqueue', () => change({ outboxSize: 1 }))
+  const header = await capture('outbox enqueue', () =>
+    f.pool.live?.setOutbox({ pending: 1, deadLetters: [] }),
+  )
   const commands = await capture('pin click', () => change({ pins: ['one'] as never }))
   const sessions = await capture('cursor tick', () => fixture.cursor(1))
   const repo = await capture('lane branch change', () =>

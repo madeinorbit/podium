@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native'
+import { useServerBuild } from '../client/hooks'
 import { useServedBuildRefresh } from '../lib/served-build'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -18,7 +19,7 @@ import { PressableScale } from './PressableScale'
  * thing on screen that is.
  */
 export function RefreshOffer() {
-  const { needsRefresh, refresh } = useServedBuildRefresh()
+  const { needsRefresh, refresh } = useServedBuildRefresh(useServerBuild())
   if (!needsRefresh) return null
 
   return (

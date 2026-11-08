@@ -24,7 +24,6 @@ import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
-import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
 import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
@@ -642,13 +641,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   readPosition: ReadPositionPort
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
-  /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
-   *  replay) — drives the "pending" chip in HostIndicators. */
-  outboxSize: number
-  /** Writes the Authority definitively refused, parked for the user to retry,
-   *  edit or discard (POD-316, ADR 3 D9 invariant 3). Never silently dropped —
-   *  this list IS the promise that user-authored work does not vanish. */
-  outboxDeadLetters: OutboxDeadLetterEntry[]
   /** Recover a parked write. `retry` refuses a satisfaction that does not meet
    *  the reason's precondition, so a surface cannot offer a button that would
    *  reproduce the same refusal. */

@@ -803,7 +803,8 @@ describe('real pool row mutations and receipts', () => {
     await refuse(write)
     expect(value().title).toBe('Only responsive target')
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
-    expect(referenceState(runtime).outboxDeadLetters).toHaveLength(1)
+    // Parked writes are a LiveStore condition (POD-5798), applied with the frame.
+    await waitFor(() => expect(runtime.live.outbox.deadLetters).toHaveLength(1))
   })
 
   // How long an applied write paints is the outbox entry's (POD-6279), and this

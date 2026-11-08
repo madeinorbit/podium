@@ -38,9 +38,6 @@ export interface ServedBuild {
 /** Where the served phone dist keeps its stamp, on the origin that served us. */
 export const SERVED_BUILD_STAMP_URL = '/mobile/podium-build.json'
 
-/** How often the page asks. The same cadence the desktop update surface uses. */
-export const SERVED_BUILD_POLL_MS = 60_000
-
 /**
  * The version an unstamped build honestly reports. It means "I do not know what
  * I am", which can never be the basis for telling someone their page is old.
@@ -94,7 +91,14 @@ export interface ServedBuildRefresh {
   refresh: () => void
 }
 
+/**
+ * WHEN THE PAGE ASKS (POD-5798): no timer. The server names its build in every
+ * `welcome`, so a redeploy shows up as a new `serverBuild` on the reconnect
+ * that follows it, and that is when the stamp is read. The phone also asks once
+ * each time it comes back to the foreground, where a suspended page catches up.
+ */
 export function useServedBuildRefresh(
+  serverBuild: string | undefined,
   read: () => Promise<ServedBuild | undefined> = readServedBuild,
   pageVersion: string = appVersion(),
 ): ServedBuildRefresh {
@@ -111,19 +115,18 @@ export function useServedBuildRefresh(
       if (!cancelled && servesNewerBuild(pageVersion, served)) setNeedsRefresh(true)
     }
     void check()
-    const timer = window.setInterval(() => void check(), SERVED_BUILD_POLL_MS)
     // The decisive moment for an installed phone app: it comes back to the
-    // foreground, which is where hours of missed polls are made up in one ask.
+    // foreground, after however long suspended, and asks once.
     const onVisible = (): void => {
       if (document.visibilityState === 'visible') void check()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [needsRefresh, pageVersion, read])
+    // `serverBuild` is the trigger: each build the server names is asked about once.
+  }, [needsRefresh, pageVersion, read, serverBuild])
 
   const refresh = useCallback(() => refreshToServedBuild(), [])
   return { needsRefresh, refresh }

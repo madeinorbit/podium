@@ -10,7 +10,8 @@ import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
-import { useHostMetrics, useRuntimeSelector } from '@/app/store'
+import { usePoolHeaderMetrics, usePoolPanelMetric } from '@/app/header-data'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -20,7 +21,7 @@ import { useIssueActionOutcome } from '@/features/issues/issue-action-ending'
 import { useClock } from '@/lib/clock-hooks'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
-import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
+import { connectionSeverity, describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
@@ -103,20 +104,21 @@ export function HostInfoView({
 
 /** Connection tab: live status, latency, and the explanatory detail line. */
 function ConnectionPanel(): JSX.Element {
-  const hostMetrics = useHostMetrics()
+  // The fleet machines' live samples (machine model fields, POD-5798).
+  const hostMetrics = usePoolHeaderMetrics()
   const health = useConnectionHealth()
-  const now = useClock(1_000, health.status !== 'ok')
+  const now = useClock(1_000, connectionSeverity(health) !== 'ok')
   const { headline, detail } = describeHealth(health, now)
-  const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms` : '—'
+  const ping = health.pingMs !== undefined ? `${Math.max(1, Math.round(health.pingMs))} ms` : '—'
   return (
     <div className="flex flex-col gap-2.5 p-3.5">
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <span
           className={cn(
             'size-[9px] rounded-full',
-            health.status === 'degraded'
+            connectionSeverity(health) === 'degraded'
               ? 'bg-warning'
-              : health.status === 'down'
+              : connectionSeverity(health) === 'down'
                 ? 'bg-destructive'
                 : 'bg-success',
           )}
@@ -150,7 +152,7 @@ function MemoryPanel({
   onClose: () => void
   machineId?: MachineId
 }): JSX.Element {
-  const hostMetrics = useHostMetrics()
+  const panelMetric = usePoolPanelMetric(machineId)
   const { setView, setSettingsTab } = useRuntimeSelector(
     (s) => ({
       setView: s.setView,
@@ -170,8 +172,7 @@ function MemoryPanel({
   // POD-2700 §3.3: no first-host fallback when a machine WAS named. A machine
   // that runs no daemon reports no metrics, and borrowing another host's sample
   // put a confident, wrong "12.3/32 GB used" under its name.
-  const headlineHost =
-    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
+  const headlineHost = panelMetric
   const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the

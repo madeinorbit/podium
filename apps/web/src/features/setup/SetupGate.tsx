@@ -1,10 +1,22 @@
-import { workspaceFetch } from '@/lib/workspace-request'
+import type { LiveStore } from '@podium/client-core/live'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
-import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
+import { reaction } from 'mobx'
+import {
+  createContext,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { hasSyncedReplica } from '@/lib/replica-presence'
+import { workspaceFetch } from '@/lib/workspace-request'
 import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
 import { SetupStaleBuild } from './SetupStaleBuild'
@@ -44,7 +56,26 @@ const BASE_DELAY_MS = 250
 const MAX_DELAY_MS = 4000
 /** How often a gate that gave up re-asks. The browser's `online` event is the fast
  *  path, but it never fires for a server that came back behind a healthy network. */
-const RECOVERY_POLL_MS = 15_000
+/**
+ * The 'unreachable' console's re-probe: 15 s, doubling to at most 60 s. It is
+ * the one probe left on a timer, because nothing else runs then: no runtime,
+ * no socket, so no connection that could say the server is back.
+ */
+const RECOVERY_FIRST_MS = 15_000
+const RECOVERY_MAX_MS = 60_000
+
+/**
+ * THE DEGRADED APP'S RECOVERY SIGNAL (POD-5798). In 'degraded' the app runs
+ * below this gate with its own socket, and its LiveStore knows the moment the
+ * server answers again (a `welcome`). A component inside the runtime calls
+ * this then, and the gate re-probes once: no timer.
+ */
+const SetupRecovery = createContext<(() => void) | null>(null)
+
+/** For the component inside the runtime that reports each reconnect. */
+export function useSetupRecovery(): (() => void) | null {
+  return useContext(SetupRecovery)
+}
 
 /** Desktop shell exposes a restart hook so a mode change re-runs the shell (re-reads config);
  *  a web reload alone would keep the same shell process. Browser → plain reload. */
@@ -289,10 +320,10 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
 
   // AUTO-RECOVERY, for both ways the probe can end badly. Neither phase is a
   // resting place: 'degraded' still owes the user the answer it could not get,
-  // and 'unreachable' has nothing to show until the backend speaks. So keep
-  // asking — on the OS's own signal that the network returned, and on a timer
-  // for the restarts it never announces — instead of waiting for a human to
-  // press a button that may be on a screen nobody is looking at.
+  // and 'unreachable' has nothing to show until the backend speaks. So ask again
+  // on the OS's own signal that the network returned and, in 'degraded', each
+  // time the running app's connection comes back (POD-5798). 'unreachable' has
+  // no app below it, so it alone keeps a slow backoff timer.
   //
   // A failed re-probe is deliberately silent: it leaves the phase alone, so a
   // degraded app is never yanked back to a loading screen and the recovery
@@ -300,9 +331,11 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   // `needsSetup` one, which sends even a degraded app to the wizard: it is the
   // same answer a reload would get, and an unconfigured backend has no session
   // to sync with anyway.
+  const reprobeRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     if (phase !== 'degraded' && phase !== 'unreachable') return
     let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
     const reprobe = (): void => {
       probeSetup(httpOrigin)
         .then((next) => {
@@ -312,14 +345,27 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
         })
         .catch(() => {})
     }
-    const timer = setInterval(reprobe, RECOVERY_POLL_MS)
+    reprobeRef.current = phase === 'degraded' ? reprobe : null
+    if (phase === 'unreachable') {
+      let delay = RECOVERY_FIRST_MS
+      const next = (): void => {
+        timer = setTimeout(() => {
+          reprobe()
+          delay = Math.min(delay * 2, RECOVERY_MAX_MS)
+          next()
+        }, delay)
+      }
+      next()
+    }
     window.addEventListener('online', reprobe)
     return () => {
       alive = false
-      clearInterval(timer)
+      reprobeRef.current = null
+      if (timer) clearTimeout(timer)
       window.removeEventListener('online', reprobe)
     }
   }, [phase, httpOrigin])
+  const reconnected = useCallback(() => reprobeRef.current?.(), [])
 
   // The splash, not nothing: this used to return null for the setup probe
   // round-trip. The reload-in-flight case stays on loading too, and a splash
@@ -374,5 +420,25 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
       </Suspense>
     )
   }
-  return <>{children}</> // 'ready', and 'degraded' — the offline fall-through
+  // 'ready', and 'degraded' — the offline fall-through.
+  return <SetupRecovery.Provider value={reconnected}>{children}</SetupRecovery.Provider>
+}
+
+/**
+ * Inside the runtime: tell the setup gate each time the connection comes back
+ * online (a `welcome` from the server), so a degraded app re-asks for its setup
+ * answer then, instead of on a timer (POD-5798).
+ */
+export function SetupRecoveryOnConnect({ live }: { live: LiveStore }): null {
+  const reconnected = useSetupRecovery()
+  useEffect(() => {
+    if (!reconnected) return
+    return reaction(
+      () => (live.connection.state === 'online' ? live.connection.since : null),
+      (since) => {
+        if (since !== null) reconnected()
+      },
+    )
+  }, [live, reconnected])
+  return null
 }

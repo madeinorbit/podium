@@ -190,6 +190,11 @@
       "types": "./src/accounts/pairing.ts",
       "import": "./src/accounts/pairing.ts"
     },
+    "./live": {
+      "@podium/source": "./src/live/index.ts",
+      "types": "./src/live/index.ts",
+      "import": "./src/live/index.ts"
+    },
     "./live-connection": {
       "@podium/source": "./src/live-connection/index.ts",
       "types": "./src/live-connection/index.ts",

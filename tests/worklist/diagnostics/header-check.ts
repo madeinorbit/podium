@@ -1,11 +1,11 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ConnectionHealth } from '@podium/client-core/socket-transport'
+import type { AgentConcurrencyHistoryResult, PodiumClientApi } from '@podium/client-core/api'
+import type { ConnectionCondition } from '@podium/client-core/live'
+import type { HeaderLifecycle } from '@podium/client-graph/header-requests'
 import {
   buildFlightDeckRows, createHostSessionAggregatesSelector, cwdInWorktree, issueForCwd,
   missionProgress,
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
 } from '@podium/client-core/values'
-import type { HeaderRows } from '@podium/client-graph/header-schema'
 import { headerView } from '@podium/client-graph/header-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { type HostMetricsWire, isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type MachineQuotaWire } from '@podium/model/browser'
@@ -18,9 +18,13 @@ import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 export interface HeaderCheckInputs {
   metrics: readonly HostMetricsWire[]
   quotas: readonly MachineQuotaWire[]
-  connection: ConnectionHealth | undefined
-  history?: HeaderRows['history']
-  lifecycle?: HeaderRows['lifecycle']
+  connection: ConnectionCondition | undefined
+  history?: AgentConcurrencyHistoryResult
+  lifecycle?: HeaderLifecycle
+  /** The LiveStore's unsent-write count (POD-5798). */
+  outboxSize?: number
+  /** Machines the LiveStore knows online: never listed offline (POD-5798). */
+  liveOnline?: readonly string[]
 }
 const roster = (sessions: ReturnType<ReturnType<typeof headerView>['working']>) => sessions.map((session) => ({
   sessionId: session.sessionId, name: session.name ?? null, title: session.title,
@@ -41,8 +45,8 @@ export function poolHeaderSnapshot(pool: MobxPool): SidebarSnapshot {
     aggregates: metrics.map((metric) => view.aggregate(metric.machineId)),
     folded: { root: selected(folded.root), progress: folded.progress, live: folded.live, working: folded.working, needs: folded.needs },
     shipping: view.shipping(),
-    history: view.history(), lifecycle: view.row('lifecycle', 'hosts') ?? null,
-    outboxSize: view.row('window', 'window')?.outboxSize ?? 0,
+    history: view.history(), lifecycle: view.lifecycle(),
+    outboxSize: pool.live?.outbox.pending ?? 0,
     offline: view.offlineMachines(),
   }, (folded.loading ? 1 : 0) + (typeof view.selectedIssue() === 'symbol' ? 1 : 0))
 }
@@ -67,16 +71,16 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
   const shipping = shippingPanelModel(store.shipOrders ?? [], issues, repoId)
   const working = sessions.filter((session) => isAgentConfirmedComputing(session, now))
   const history = inputs.history ? { ...inputs.history, peak: Math.max(inputs.history.peak, working.length),
-    buckets: inputs.history.buckets.map((bucket, index) => index === inputs.history!.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working.length) } : bucket) } : null
+    buckets: inputs.history.buckets.map((bucket: AgentConcurrencyHistoryResult['buckets'][number], index: number) => index === inputs.history!.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working.length) } : bucket) } : null
   return sections({ view: store.view ?? 'workspace', working: roster(sessions.filter((session) => isAgentConfirmedComputing(session, now))),
     selected: selected(issues.find((issue) => issue.id === store.selectedIssueId && !issue.deletedAt)),
     machines: store.machines, metrics: inputs.metrics, quotas: inputs.quotas, connection: inputs.connection ?? null,
     aggregates: inputs.metrics.map((metric) => aggregates.forMachine(metric.machineId)),
     folded: { root: selected(root), progress: missionProgress(issues, sessions, root?.id), live: first?.liveAgentCount ?? 0, working: first?.workingAgentCount ?? 0, needs: first?.actionableCount ?? 0 },
     shipping: { unfinishedCount: shipping.unfinishedCount, decisionCount: shipping.decisionCount },
-    history, lifecycle: inputs.lifecycle ?? null, outboxSize: store.outboxSize ?? 0,
+    history, lifecycle: inputs.lifecycle ?? null, outboxSize: inputs.outboxSize ?? 0,
     offline: store.machines.filter((machine) => {
-      if (!isMachineOfflineForLiveTerminal(machine) || inputs.metrics.some((metric) => metric.machineId === machine.id)) return false
+      if (!isMachineOfflineForLiveTerminal(machine) || inputs.liveOnline?.includes(machine.id)) return false
       if (machine.serviceAssignment?.agentExecution === false || machine.revokedAt || machine.supersededBy) return false
       const seen = Date.parse(machine.lastSeenAt)
       return Number.isFinite(seen) && now - seen <= 7 * 86_400_000

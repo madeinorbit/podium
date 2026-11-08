@@ -7,6 +7,8 @@ vi.mock('expo-haptics', () => ({
   impactAsync: vi.fn(async () => {}),
 }))
 vi.mock('lucide-react-native', () => ({ RefreshCw: () => null }))
+// The server's build comes from the LiveStore's connection (POD-5798).
+vi.mock('../client/hooks', () => ({ useServerBuild: () => 'server-build' }))
 
 const { RefreshOffer } = await import('./RefreshOffer')
 

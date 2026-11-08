@@ -2,7 +2,6 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   readServedBuild,
-  SERVED_BUILD_POLL_MS,
   type ServedBuild,
   servesNewerBuild,
   useServedBuildRefresh,
@@ -72,53 +71,49 @@ describe('readServedBuild', () => {
 })
 
 /**
- * THE OTHER HALF OF THE ACCEPTANCE SENTENCE: "within one poll interval".
- *
- * One check at mount would satisfy every test above and still leave a phone
- * that was already open when the release landed sitting on the old build
- * forever. These two pin the two things that make the offer ARRIVE — the
- * interval, and the foreground catch-up an installed phone actually depends on,
- * since a backgrounded tab's timers are throttled or stopped outright.
+ * WHAT MAKES THE OFFER ARRIVE (POD-5798): no timer. The server names its build
+ * in every `welcome`, so a redeploy reaches an open phone as a new
+ * `serverBuild` on its reconnect, and that is when the stamp is read. The
+ * foreground catch-up stays: a suspended page asks once when it is shown.
  */
-describe('useServedBuildRefresh keeps asking', () => {
-  function mountHook(read: () => Promise<ServedBuild | undefined>) {
-    const intervals: { fn: () => void; ms: number }[] = []
-    // Record and CALL THROUGH: a setInterval that only records would also
-    // silence `waitFor`, and the test would be measuring its own stub.
+describe('useServedBuildRefresh asks on each server build and on foreground', () => {
+  function mountHook(read: () => Promise<ServedBuild | undefined>, serverBuild = '0.1.1-edge.3') {
+    const intervals: number[] = []
     const real = window.setInterval.bind(window)
     vi.spyOn(window, 'setInterval').mockImplementation(((
       fn: () => void,
       ms: number,
       ...rest: unknown[]
     ) => {
-      intervals.push({ fn, ms })
+      intervals.push(ms)
       return real(fn, ms, ...rest)
     }) as unknown as typeof window.setInterval)
-    const view = renderHook(() => useServedBuildRefresh(read, '0.1.1-edge.3'))
-    /** Only the hook's own poll; `waitFor` runs a 50 ms one of its own. */
-    const polls = () => intervals.filter((entry) => entry.ms === SERVED_BUILD_POLL_MS)
-    return { polls, view }
+    const view = renderHook(
+      ({ build }: { build: string | undefined }) =>
+        useServedBuildRefresh(build, read, '0.1.1-edge.3'),
+      { initialProps: { build: serverBuild as string | undefined } },
+    )
+    return { intervals, view }
   }
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('re-checks on its own interval, and takes the answer that arrives later', async () => {
+  it('a redeploy seen in welcome is checked at once, with no poll armed', async () => {
     const read = vi
       .fn<() => Promise<ServedBuild | undefined>>()
       .mockResolvedValueOnce({ appVersion: '0.1.1-edge.3' })
       .mockResolvedValue({ appVersion: '0.1.1-edge.4' })
-    const { polls, view } = mountHook(read)
+    const { intervals, view } = mountHook(read)
 
     await waitFor(() => expect(read).toHaveBeenCalledTimes(1))
     expect(view.result.current.needsRefresh).toBe(false)
+    // `waitFor` runs a 50 ms timer of its own; nothing else may repeat.
+    expect(intervals.filter((ms) => ms !== 50)).toEqual([])
 
-    expect(polls()).toHaveLength(1)
-    await act(async () => {
-      polls()[0]?.fn()
-    })
-
+    // The server came back on a new build: the reconnect's welcome names it.
+    view.rerender({ build: '0.1.1-edge.4' })
     await waitFor(() => expect(view.result.current.needsRefresh).toBe(true))
     expect(read).toHaveBeenCalledTimes(2)
   })

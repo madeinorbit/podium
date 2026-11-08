@@ -206,11 +206,9 @@ describe('SessionRegistry', () => {
           issueId: issue.id,
         })
       ).sessionId
-      await reg.modules.issues.crud.claim(
-        reg.modules.issues.reports.store.serverWriter,
-        issue.id,
-        { actorSessionId: first },
-      )
+      await reg.modules.issues.crud.claim(reg.modules.issues.reports.store.serverWriter, issue.id, {
+        actorSessionId: first,
+      })
       expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
       await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
@@ -1109,7 +1107,7 @@ describe('SessionRegistry', () => {
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'ping' })
-    expect(c.sent).toContainEqual({ type: 'pong' })
+    expect(c.sent).toContainEqual({ type: 'pong', serverTime: expect.any(Number) })
   })
 
   it('routes frames only to clients attached to that session (ISOLATION)', async () => {

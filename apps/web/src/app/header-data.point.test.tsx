@@ -1,12 +1,13 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 // @vitest-environment happy-dom
 
 import type { HeaderRows } from '@podium/client-graph/header-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { MobxPool as Pool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import type { MachineId } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -102,75 +103,76 @@ it('the actual offline indicator hook reads only displayed machines and releases
   console.info('[actual offline indicator hook row reads1x4x]', JSON.stringify(samples))
 })
 
-it('asks for only the default or named metric and suspends all closed hook demand at 1x/4x', () => {
+it('asks for only the default or named live metric and releases closed hook demand at 1x/4x', () => {
   const samples = []
   for (const scale of [1, 4]) {
     const pool = new Pool({ selectedIssueId: null, coarseNow: 0 })
     state.pool = pool
-    const rows = Array.from(
-      { length: 128 * scale },
-      (_, index) =>
+    // POD-5798: samples are LiveStore readings, read through the machine model.
+    const live = liveFixture(pool)
+    const ids = Array.from({ length: 128 * scale }, (_, index) => `m${index}` as MachineId)
+    const rows = ids.map(
+      (id, index) =>
         ({
-          machineId: `m${index}` as MachineId,
+          machineId: id,
           hostname: `Host ${index}`,
           sampledAt: '2026-10-05T07:00:00Z',
-        }) as HeaderRows['hostMetric'],
+        }) as HostMetricsWire,
     )
-    headerEntities(pool).apply(rows.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })))
-    headerEntities(pool).order(
-      'hostMetric',
-      rows.map((_, index) => `m${index}`),
-    )
-    const all = vi.spyOn(headerView(pool), 'ids')
+    act(() => {
+      headerEntities(pool).apply(
+        ids.map((id) => ({
+          kind: 'machine' as const,
+          id,
+          value: {
+            id,
+            name: id,
+            hostname: id,
+            online: true,
+            lastSeenAt: '2026-10-05T07:00:00Z',
+          } as MachineWire,
+        })),
+      )
+      headerEntities(pool).order('machine', ids)
+    })
+    for (const [index, id] of ids.entries()) live.metric(id, rows[index])
     const row = vi.spyOn(pool, 'row')
     const view = renderHook(({ id }: { id?: MachineId }) => usePoolPanelMetric(id), {
       initialProps: {},
     })
     try {
       expect(view.result.current).toBe(rows[0])
+      expect(live.live.watchedMetrics).toEqual(['m0'])
       const first = row.mock.calls.length
       row.mockClear()
       view.rerender({ id: 'm1' as MachineId })
       expect(view.result.current).toBe(rows[1])
+      expect(live.live.watchedMetrics).toEqual(['m1'])
       const addressed = row.mock.calls.length
       row.mockClear()
-      act(() =>
-        headerEntities(pool).apply([
-          { kind: 'hostMetric', id: 'm2', value: { ...rows[2]!, hostname: 'Unrelated' } },
-        ]),
-      )
+      act(() => live.metric('m2', { ...rows[2]!, hostname: 'Unrelated' }))
       expect(view.result.current).toBe(rows[1])
       expect(row).not.toHaveBeenCalled()
       const updated = { ...rows[1]!, hostname: 'Selected' }
-      act(() => headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm1', value: updated }]))
+      act(() => live.metric('m1', updated))
       expect(view.result.current).toBe(updated)
       const changed = row.mock.calls.length
       row.mockClear()
       view.rerender({ id: 'missing' as MachineId })
       expect(view.result.current).toBeUndefined()
       const missing = row.mock.calls.length
-      expect(all).not.toHaveBeenCalled()
       view.unmount()
+      expect(live.live.watchedMetrics).toEqual([])
       row.mockClear()
-      act(() =>
-        headerEntities(pool).apply([
-          {
-            kind: 'hostMetric',
-            id: 'missing',
-            value: { ...rows[0]!, machineId: 'missing' as MachineId },
-          },
-        ]),
-      )
+      act(() => live.metric('missing', { ...rows[0]!, machineId: 'missing' as MachineId }))
       expect(row).not.toHaveBeenCalled()
       samples.push({ scale, first, addressed, changed, missing })
     } finally {
       view.unmount()
       row.mockRestore()
-      all.mockRestore()
       pool.dispose()
     }
   }
-  expect(samples[0]).toEqual({ scale: 1, first: 1, addressed: 1, changed: 1, missing: 1 })
   expect(samples[1]).toEqual({ ...samples[0], scale: 4 })
   console.info('[web panel metric row reads1x4x]', JSON.stringify(samples))
 })

@@ -1,11 +1,11 @@
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../tests/worklist/harness/src/mobx-trap'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import { HEADER_ISSUE_SUMMARY_FIELDS, type HeaderRows } from './header-schema'
+import { headerView } from './header-views'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { SCHEMA } from './shared/schema'
@@ -41,7 +41,6 @@ const window = (path: string, issueId?: string): HeaderRows['window'] =>
     view: 'workspace',
     paneA: 'file',
     fileTabs: [{ id: 'file', worktreePath: path, issueId, scope: { kind: 'worktree' } }],
-    outboxSize: 0,
   }) as HeaderRows['window']
 function header(pool: MobxPool): void {
   headerEntities(pool).apply([

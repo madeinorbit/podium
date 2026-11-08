@@ -33,7 +33,7 @@ const NOTICE_SCHEMA = {
   noticeRecoveryCatalog: { key: 'catalog', source: 'runtime:outbox', order: 'deadLetters order', residency: 'while-observed' },
   noticeSession: { key: 'sessionId', source: 'replica:session-relations', fields: ['id', 'sessionId', 'position'], order: 'replica order at attach/replace; new IDs append; retained IDs keep their position' },
   session: { source: 'pool:session', summary: ['sessionId', 'name', 'title', 'cwd', 'agentKind'] },
-  window: { source: 'pool:window', fields: ['outboxSize'] },
+  outbox: { source: 'live:outbox', fields: ['pending'] },
 } as const
 export const NOTICE_SUMMARIES = { session: NOTICE_SCHEMA.session.summary }
 export const NOTICE_RELATIONS = [

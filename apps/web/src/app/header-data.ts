@@ -1,13 +1,14 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { headerModel } from '@podium/client-graph/header-companion'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { headerView } from '@podium/client-graph/header-views'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
+import { headerModel } from '@podium/client-graph/header-companion'
+import { headerRequests } from '@podium/client-graph/header-requests'
+import { headerView } from '@podium/client-graph/header-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MachineId, MachineWire } from '@podium/model/browser'
 import { useEffect, useMemo } from 'react'
 import type { Store } from './store'
-import { useWorklistPoolProjection } from './store-worklist-pool'
+import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 /** Stable actions and transport handles stay on the existing mutation owner.
  * No snapshot subscription and no legacy data derivation in the pool branch. */
@@ -41,11 +42,18 @@ export function usePoolWorkingSessionIds() {
 
 /** Each displayed leaf requests its shared session, including a declared cold summary. */
 export function usePoolHeaderSession(id: string) {
-  const read = useMemo(() => (pool: MobxPool) => {
-    const session = pool.sessionObject(id)
-    try { return session.exists ? headerModel(pool).session(session) : undefined }
-    catch (error) { if (error === LOADING) return undefined; throw error }
-  }, [id])
+  const read = useMemo(
+    () => (pool: MobxPool) => {
+      const session = pool.sessionObject(id)
+      try {
+        return session.exists ? headerModel(pool).session(session) : undefined
+      } catch (error) {
+        if (error === LOADING) return undefined
+        throw error
+      }
+    },
+    [id],
+  )
   return useWorklistPoolProjection(read, undefined)
 }
 
@@ -72,12 +80,13 @@ const readConnection = (pool: MobxPool) => headerView(pool).connection()
 export function usePoolHeaderConnection() {
   return useWorklistPoolProjection(readConnection, undefined)
 }
-const readMachineIds = (pool: MobxPool) => headerView(pool).ids('hostMetric')
+const readMachineIds = (pool: MobxPool) => headerView(pool).metricIds()
 export function usePoolMetricIds() {
   return useWorklistPoolProjection(readMachineIds, EMPTY_IDS)
 }
+/** One machine's live sample: the machine model's `metrics` field (POD-5798). */
 export function usePoolMetric(id: string) {
-  const read = useMemo(() => (pool: MobxPool) => headerView(pool).row('hostMetric', id), [id])
+  const read = useMemo(() => (pool: MobxPool) => headerView(pool).metric(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 export function usePoolPanelMetric(machineId: MachineId | undefined) {
@@ -113,7 +122,8 @@ const readOffline = (pool: MobxPool) => headerView(pool).offlineMachines()
 export function usePoolOfflineMachines() {
   return useWorklistPoolProjection(readOffline, EMPTY_MACHINES)
 }
-const readOutbox = (pool: MobxPool) => headerView(pool).row('window', 'window')?.outboxSize ?? 0
+/** This device's unsent writes: a LiveStore condition (POD-5798). */
+const readOutbox = (pool: MobxPool) => pool.live?.outbox.pending ?? 0
 export function useHeaderOutboxSize() {
   return useWorklistPoolProjection(readOutbox, 0)
 }
@@ -122,16 +132,16 @@ const readHistory = (pool: MobxPool) => headerView(pool).history()
 export function usePoolConcurrencyHistory() {
   return useWorklistPoolProjection(readHistory, null)
 }
-const readLifecycle = (pool: MobxPool) => {
-  const settings = headerView(pool).row('lifecycle', 'hosts')
-  return settings ? { hibernation: settings.hibernation, worktreeGc: settings.worktreeGc } : null
-}
+const readLifecycle = (pool: MobxPool) => headerView(pool).lifecycle()
 export function usePoolLifecycleSettings() {
   return useWorklistPoolProjection(readLifecycle, null)
 }
 
-/** Only a mounted, visible header retains the runtime's poll schedule. */
-export function useHeaderPolling(visible: boolean): void {
-  const owner = useStoreHandle<Store['trpc']>()
-  useEffect(() => visible ? owner.headerInputs.retain() : undefined, [owner, visible])
+/**
+ * Only a mounted, visible header asks for its request answers (the concurrency
+ * history and the lifecycle settings). Quota and usage are pushed (POD-5798).
+ */
+export function useHeaderRequests(visible: boolean): void {
+  const pool = useWorklistPool()
+  useEffect(() => (visible && pool ? headerRequests(pool)?.retain() : undefined), [pool, visible])
 }

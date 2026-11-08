@@ -1,4 +1,5 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { LiveStore } from '@podium/client-core/live'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 
@@ -16,6 +17,7 @@ import {
   classifySetupStatus,
   isTrustedLocalSetupOrigin,
   SetupGate,
+  SetupRecoveryOnConnect,
   shouldApplyLocalSetupDefault,
 } from './SetupGate'
 
@@ -436,17 +438,31 @@ describe('SetupGate', () => {
     expect(screen.queryByText('APP-READY')).toBeNull()
   })
 
-  it('keeps probing after the offline fall-through, and honours a backend that needs setup', async () => {
+  it('re-asks after the offline fall-through when the app reconnects, never on a timer (POD-5798)', async () => {
     vi.useFakeTimers()
     seedSyncedReplica('user-1')
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     vi.stubGlobal('fetch', fetchMock)
-    render(<SetupGate>{child}</SetupGate>)
+    const live = new LiveStore()
+    render(
+      <SetupGate>
+        <SetupRecoveryOnConnect live={live} />
+        {child}
+      </SetupGate>,
+    )
     await exhaustRetries()
     expect(screen.getByText('APP-READY')).toBeTruthy()
 
     fetchMock.mockResolvedValue({ status: 200, ok: true, json: async () => ({ needsSetup: true }) })
-    await vi.advanceTimersByTimeAsync(20_000)
+    const asked = fetchMock.mock.calls.length
+    await vi.advanceTimersByTimeAsync(120_000)
+    // No timer in the degraded app: nothing asked while the connection is down.
+    expect(fetchMock.mock.calls.length).toBe(asked)
+    expect(screen.getByText('APP-READY')).toBeTruthy()
+
+    // The server answers again (a welcome): the app's connection comes online.
+    act(() => live.setConnection({ state: 'online', since: Date.now() }))
+    await vi.advanceTimersByTimeAsync(1)
     await vi.advanceTimersByTimeAsync(1)
 
     expect(screen.getByText(/welcome to podium/i)).toBeTruthy()
@@ -483,13 +499,14 @@ describe('SetupGate', () => {
     expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
 
     // No 'online' event: a server that came back behind a healthy network is the
-    // case the browser never announces.
+    // case the browser never announces. With no app below the console there is
+    // no connection to watch, so a backoff timer asks (15 s doubling to 60 s).
     fetchMock.mockResolvedValue({
       status: 200,
       ok: true,
       json: async () => ({ needsSetup: false }),
     })
-    await vi.advanceTimersByTimeAsync(20_000)
+    await vi.advanceTimersByTimeAsync(60_000)
 
     expect(screen.getByText('APP-READY')).toBeTruthy()
   })

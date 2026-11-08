@@ -1,5 +1,5 @@
-import { headerView } from '@podium/client-graph/header-views'
 import type { IssueReferenceModel } from '@podium/client-core/values'
+import { headerView } from '@podium/client-graph/header-views'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import type { HostMetricsWire, MachineWire } from '@podium/model'
@@ -36,6 +36,10 @@ const readInbox = (pool: Pool) => mobileInboxViews(pool)?.inbox() ?? EMPTY_INBOX
 const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_QUEUE
 const readMachines = (pool: Pool) => headerView(pool).machines()
 const readHosts = (pool: Pool) => headerView(pool).metrics()
+/** This account's quota, pushed by the server (LiveStore, POD-5798). */
+const readQuota = (pool: Pool) => pool.live?.quota
+/** This account's usage: reading it while Pulse is mounted is what holds `account.usage`. */
+const readUsage = (pool: Pool) => pool.live?.usage()
 
 /** Readers stay mounted while the existing pool attaches. */
 export function useInboxData(): InboxData {
@@ -63,7 +67,9 @@ export function usePulseLive() {
   // health sample moves; Pulse's polling effect depends on that identity.
   const machines = useMobilePoolProjection(readMachines, EMPTY_LIVE.machines)
   const hosts = useMobilePoolProjection(readHosts, EMPTY_LIVE.hosts)
-  return { machines, hosts }
+  const quota = useMobilePoolProjection(readQuota, undefined)
+  const usage = useMobilePoolProjection(readUsage, undefined)
+  return { machines, hosts, quota, usage }
 }
 
 /** Pending handoffs observe their addressed target. Ordinary taps read the

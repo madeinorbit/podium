@@ -2,29 +2,23 @@ import { type QuotaLedgerView, quotaLedger } from '@podium/client-core/values'
 import type { QuotaWindowHistoryWire } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'
-import { resetPolledQueryCache, usePolledQuery } from '@/lib/use-polled-query'
+import { resetQuotaRefreshedAnswer, useQuotaRefreshedRequest } from './use-quota-refreshed-request'
 
 /**
- * The reset ledger's feed.
+ * The reset ledger's feed: a request answer (POD-5798).
  *
- * Polls far more slowly than the token trace beside it, and should: a window
- * instance changes when a pool resets, which for a weekly pool is once a week.
- * The server samples every 15 minutes; refreshing the client faster than that
- * only redraws identical columns.
- *
- * Same RPC-poll reasoning as `useUsageFeed`: there is no server-side entity to
- * replicate and nothing an optimistic overlay could apply to. Unlike the token
- * figures, though, this read is genuinely durable on the server — it is the one
- * quota number Podium keeps — so the client cache here is a convenience, not the
- * only copy.
+ * A window instance changes only when the server's quota sampler folds a new
+ * reading, which is the same pass that pushes `account.quota`. So the ledger is
+ * asked for when the sheet opens and again for each new quota value; no timer.
+ * This read is durable on the server (the one quota number Podium keeps), so
+ * the tab's copy is a convenience, not the only one.
  */
 
-const REFRESH_MS = 5 * 60_000
 const CACHE_KEY = 'quota.history'
 
-/** Tests only — the module cache is deliberately process-wide otherwise. */
+/** Tests only — the answer is deliberately tab-wide otherwise. */
 export function resetQuotaLedgerCache(): void {
-  resetPolledQueryCache(CACHE_KEY)
+  resetQuotaRefreshedAnswer(CACHE_KEY)
 }
 
 export interface QuotaLedgerFeed {
@@ -36,16 +30,14 @@ export interface QuotaLedgerFeed {
 }
 
 export function useQuotaLedger(trpc: Trpc): QuotaLedgerFeed {
-  const query = usePolledQuery<QuotaWindowHistoryWire[]>({
-    key: CACHE_KEY,
-    intervalMs: REFRESH_MS,
-    read: () => trpc.quota.history.query({}),
-  })
+  const query = useQuotaRefreshedRequest<QuotaWindowHistoryWire[]>(CACHE_KEY, () =>
+    trpc.quota.history.query({}),
+  )
   const ledger = useMemo(() => (query.data ? quotaLedger(query.data) : null), [query.data])
   return {
     ledger,
     waiting: query.pending,
     failed: query.failed,
-    retry: query.refresh,
+    retry: query.retry,
   }
 }

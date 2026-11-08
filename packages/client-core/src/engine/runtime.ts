@@ -52,7 +52,6 @@ import { bindStoreStatsOwner } from '../perf/store-stats'
 
 import { createLogger } from '@podium/logger'
 import type {
-  HostMetricsWire,
   IssueId,
   LayoutSnapshot,
   LayoutWire,
@@ -66,6 +65,8 @@ import { runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
+import { LiveFeed } from '../live/live-feed'
+import { LiveStore } from '../live/live-store'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
@@ -74,7 +75,6 @@ import { createReadPositionClient, type ReadPositionPort } from '../read-positio
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
-
 import {
   createRouterUiState,
   createUiStateRouter,
@@ -88,8 +88,6 @@ import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '.
 import { createEngineActions, type EngineActionRuntime, type EngineActions } from './actions'
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
-import { createHeaderPollingService, type HeaderInputs } from './header-polling'
-import { createHostMetricsService } from './host-metrics'
 import {
   createKeyedInputs,
   type KeyedInputStats,
@@ -314,18 +312,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
   private readonly visibility: VisibilitySource
-  private readonly hostMetricsService: ReturnType<typeof createHostMetricsService>
   /**
-   * Host metrics, read by the header strip, the machine panels and mobile
-   * Pulse. Subscribing is what holds `machine.metrics:<id>` topics, so a daemon
-   * samples only while some reader is mounted (ADR 7 Amendment 2, POD-5800).
+   * THE LIVESTORE (POD-5798): this user's conditions (connection, machine online
+   * and load, quota and usage, unsent writes). Never saved; disposed at
+   * sign-out. Models and screens read it; only the live feed and the outbox
+   * write it.
    */
-  readonly hostMetrics: {
-    subscribe: (listener: () => void) => () => void
-    getSnapshot: () => HostMetricsWire[]
-  }
-  private readonly headerPolling: ReturnType<typeof createHeaderPollingService>
-  readonly headerInputs: HeaderInputs
+  readonly live: LiveStore
+  /** The service behind {@link live}: its topics, connection facts and per-frame apply. */
+  private readonly liveFeed: LiveFeed
 
   private readonly state: EngineState
   private stopNavigationWatch: (() => void) | undefined
@@ -428,13 +423,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
         : {}),
     })
-    this.hostMetricsService = createHostMetricsService(this.hub)
-    this.hostMetrics = {
-      subscribe: this.hostMetricsService.subscribe,
-      getSnapshot: this.hostMetricsService.getSnapshot,
-    }
-    this.headerPolling = createHeaderPollingService({ api: this.api, replica: this.replica })
-    this.headerInputs = this.headerPolling.inputs
+    // The store's metrics demand reaches the feed it was built before.
+    let feed: LiveFeed | undefined
+    this.live = new LiveStore({
+      onMetricsDemand: (id, watched) => feed?.watchMetrics(id, watched),
+      onUsageDemand: (watched) => feed?.watchUsage(watched),
+    })
+    this.liveFeed = feed = new LiveFeed({
+      hub: this.hub,
+      live: this.live,
+      userId: init.principal.userId,
+    })
     this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
       api: this.api,
       replica: this.replica,
@@ -461,7 +460,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // refusal can park before start() installs that subscription. Publish the
       // recovery projection at the event's own boundary so a live park cannot
       // remain durable-but-invisible.
-      onDeadLetter: () => this.apply({ outboxDeadLetters: this.outbox.deadLetters() }),
+      onDeadLetter: () => this.publishOutbox(),
     })
     const localUi = this.replica.uiState()
     this.router = createUiStateRouter(localUi, init.routerWindow)
@@ -511,11 +510,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.state = initialEngineState({
       persisted,
       route,
-      // Hydrate-first, like the entity slices: the outbox constructor has
-      // already restored its durable recovery home, so the first Store snapshot
-      // must expose it without waiting for start() or a queue notification.
-      outboxDeadLetters: this.outbox.deadLetters(),
     })
+    // Hydrate-first, like the entity slices: the outbox constructor has already
+    // restored its durable recovery home, so the first paint must show the
+    // parked writes without waiting for start() or a queue notification. The
+    // pending count follows at attach().
+    this.live.setOutbox({ pending: 0, deadLetters: this.outbox.deadLetters() })
     this.workspaceKey = workspaceKeyForState(this.state)
     // Drafts are hydrate-first for the same reason the entity slices are, and
     // with more at stake: this is the person's own unsent writing, and a first
@@ -596,7 +596,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.started = true
     this.drafts.start()
     const offs = this.offs
-    if (this.networkEnabled) this.headerPolling.start()
 
     // Router changes fan in through one subscription; RouterUiState owns every
     // URL write and the state mirror.
@@ -609,15 +608,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // The outbox publishes local recovery state; PoolTransactions owns paint.
     offs.push(
-      this.outbox.subscribe((size) => {
-        this.batch(() => {
-          this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
-          this.replicatedLayout.outboxChanged()
-        })
+      this.outbox.subscribe(() => {
+        this.publishOutbox()
+        this.replicatedLayout.outboxChanged()
       }),
     )
     this.outbox.attach()
-    this.apply({ outboxSize: this.outbox.size(), outboxDeadLetters: this.outbox.deadLetters() })
+    this.publishOutbox()
+    // The live feed follows the server; a runtime without network has none, so
+    // every reading stays unknown (and a fixture may write them itself). The
+    // outbox counts above reach the store either way.
+    if (this.networkEnabled) this.liveFeed.start()
     void this.replica.hydrate().catch((error) => {
       if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
     })
@@ -629,7 +630,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (machines, drafts) follows hub events through keyed channels; host
-    // metrics are topics, held by `hostMetricsService` while read.
+    // metrics are LiveStore readings, held by the live feed while watched.
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
@@ -788,11 +789,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.followPaneLink(this.router.current())
   }
 
+  /** The outbox's counts, as a LiveStore condition (applied with the next frame). */
+  private publishOutbox(): void {
+    if (this.destroyed) return
+    this.liveFeed.setOutbox({ pending: this.outbox.size(), deadLetters: this.outbox.deadLetters() })
+  }
+
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
   dispose(): void {
-    this.headerPolling.stop()
+    this.liveFeed.stop()
     this.lastMachinesMaterial = undefined
     this.started = false
     bindSwitchTraceUi(null)
@@ -850,8 +857,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.poolWriter?.dispose?.()
     this.poolWriter = null
     this.inputs.dispose()
-    this.hostMetricsService.destroy()
-    this.headerPolling.destroy()
+    this.liveFeed.dispose()
+    this.live.dispose()
   }
 
   /** True once {@link destroy} has run. The provider asserts on this so a
@@ -1066,12 +1073,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const read = () => runInAction(() => selection.selectedId as IssueId | null)
     const owner = this.state
     Object.defineProperty(this.state, 'selectedIssueId', {
-      configurable: true, enumerable: true, get: read,
+      configurable: true,
+      enumerable: true,
+      get: read,
       set(this: EngineState, id: IssueId | null) {
         // Navigation plans inherit state. A speculative overlay owns its patch.
         if (this !== owner) {
           Object.defineProperty(this, 'selectedIssueId', {
-            configurable: true, enumerable: true, writable: true, value: id,
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: id,
           })
         } else selection.select(id)
       },
@@ -1079,7 +1091,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return () => {
       if (Object.getOwnPropertyDescriptor(this.state, 'selectedIssueId')?.get !== read) return
       Object.defineProperty(this.state, 'selectedIssueId', {
-        configurable: true, enumerable: true, writable: true, value: read(),
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: read(),
       })
     }
   }
@@ -1404,9 +1419,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         canShow =
           worktrees.some((w) => machinePathsEqual(w.path, worktree)) ||
           crew === NAVIGATION_LOADING ||
-          (crew ?? []).some(
-            (s) => isMachinePathWithinRoot(worktree, s.cwd),
-          )
+          (crew ?? []).some((s) => isMachinePathWithinRoot(worktree, s.cwd))
       }
       if (canShow) patch.selectedWorktree = route.worktree
     }

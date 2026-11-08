@@ -98,6 +98,34 @@ class FakeHub {
   connectionHealth(): { status: 'ok' | 'degraded' | 'down'; rttMs: number | null; since: number } {
     return this.health
   }
+  /** The live feed's slice (POD-5798): topics stay pending, no server identity yet. */
+  topicHolds = new Map<string, number>()
+  subscribeTopic(
+    kind: string,
+    id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    const key = `${kind}:${id}`
+    this.topicHolds.set(key, (this.topicHolds.get(key) ?? 0) + 1)
+    listener.onState?.({ status: 'pending' })
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const left = (this.topicHolds.get(key) ?? 1) - 1
+      if (left === 0) this.topicHolds.delete(key)
+      else this.topicHolds.set(key, left)
+    }
+  }
+  machines(): never[] {
+    return []
+  }
+  serverIdentity(): null {
+    return null
+  }
+  clockSkewMs(): null {
+    return null
+  }
   seedMetadata(): void {}
   connect(): void {
     this.connectCount++
@@ -507,6 +535,45 @@ describe('replicated layout routing', () => {
       layout('panelMode', JSON.stringify({ 'session-1': 'native' })),
     ])
     panelMode.engine.dispose()
+  })
+})
+
+describe('the LiveStore lifetime (POD-5798)', () => {
+  it('holds account.quota while started, and sign-out disposes the store and every subscription', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    expect([...hub.topicHolds.keys()]).toEqual(['account.quota:operator'])
+    hub.emit('machines', [{ id: 'm1' }, { id: 'm2' }])
+    expect([...hub.topicHolds.keys()].sort()).toEqual([
+      'account.quota:operator',
+      'machine.condition:m1',
+      'machine.condition:m2',
+    ])
+    engine.destroy()
+    expect(hub.topicHolds.size).toBe(0)
+    expect(engine.live.isDisposed).toBe(true)
+    expect(engine.live.quota.known).toBe(false)
+    expect(engine.live.machineConditions.size).toBe(0)
+  })
+
+  it('a new runtime starts with every reading unknown: nothing from a previous run survives', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, networkEnabled: false })
+    first.engine.start()
+    await settle()
+    first.engine.destroy()
+    // Offline from the start: no socket, no topic, no reading.
+    const second = makeEngine({ storage, networkEnabled: false })
+    second.engine.start()
+    await settle()
+    const live = second.engine.live
+    expect(live.connection.state).toBe('connecting')
+    expect(live.connection.serverBuild).toBeUndefined()
+    expect(live.quota.known).toBe(false)
+    expect(live.machineConditions.size).toBe(0)
+    expect(live.machineMetrics.size).toBe(0)
+    second.engine.destroy()
   })
 })
 
@@ -1517,48 +1584,6 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     engine.dispose()
     document.dispatchEvent(new Event('visibilitychange'))
     expect(hub.connectNowCount).toBe(1)
-  })
-})
-
-describe('runtime-owned header inputs', () => {
-  it('polls for a mounted header without a pool, restarts once, and stops permanently at principal destruction', async () => {
-    const api = makeApi()
-    const { engine } = makeEngine({ api })
-    const changed = vi.fn()
-    engine.headerInputs.onInput('quota', changed)
-    engine.headerInputs.retain()
-    try {
-      engine.start()
-      engine.start()
-      await settle()
-      expect(api.quota.summary.query).toHaveBeenCalledTimes(1)
-      expect(changed).toHaveBeenCalledTimes(1)
-      engine.dispose()
-      engine.start()
-      await settle()
-      expect(api.quota.summary.query).toHaveBeenCalledTimes(2)
-      expect(changed).toHaveBeenCalledTimes(2)
-      engine.destroy()
-      expect(engine.headerInputs.read('quota')).toBeUndefined()
-      engine.start()
-      await settle()
-      expect(api.quota.summary.query).toHaveBeenCalledTimes(2)
-    } finally {
-      engine.destroy()
-    }
-  })
-
-  it('does not poll an offline runtime even while its inputs are observed', async () => {
-    const api = makeApi()
-    const { engine } = makeEngine({ api, networkEnabled: false })
-    engine.headerInputs.onInput('quota', () => {})
-    try {
-      engine.start()
-      await settle()
-      expect(api.quota.summary.query).not.toHaveBeenCalled()
-    } finally {
-      engine.destroy()
-    }
   })
 })
 

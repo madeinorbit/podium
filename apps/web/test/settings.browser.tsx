@@ -1,13 +1,13 @@
-import { preferenceSource } from '@podium/client-graph/preference-source'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { normalizeSettings } from '@podium/runtime'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SettingsView } from '../src/features/settings/SettingsView'
 import { ColdStartComposer } from '../src/features/setup/ColdStartComposer'
@@ -119,7 +119,7 @@ function App() {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
+        fixture.bindHub(runtime.hub, runtime.live)
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >
@@ -165,7 +165,7 @@ const driver = {
       commits,
       commitMs,
       failures,
-      preferenceLoads: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
+      preferenceLoads: pool ? (preferenceSource(pool)?.counts ?? null) : undefined,
       generation,
     }
   },

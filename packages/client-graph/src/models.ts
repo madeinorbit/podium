@@ -1,4 +1,5 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
+import type { LiveStore } from '@podium/client-core/live'
 import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -64,6 +65,8 @@ export interface SessionDrafts {
 }
 export interface ModelHost {
   readonly sessionDrafts?: SessionDrafts
+  /** This user's conditions (POD-5798): machine online, since and load. */
+  readonly live?: LiveStore
 
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */

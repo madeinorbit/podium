@@ -1,10 +1,10 @@
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import { cwdInWorktree, reposToViews } from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import type { HeaderRows } from './header-schema'
+import { headerView } from './header-views'
 import { MobxPool } from './pool'
 
 const scan = (path: string, repoId: string, machineId?: string): HeaderRows['repository'] => ({
@@ -34,7 +34,6 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       fileTabs: [
         { id: 'file', worktreePath: '/shared/sub', scope: { kind: 'worktree', machineId: 'm0' } },
       ],
-      outboxSize: 0,
     } as HeaderRows['window']
     headerEntities(pool).apply([
       { kind: 'window', id: 'window', value: window },
@@ -81,7 +80,9 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       })
       expect(value).toEqual({ unfinishedCount: 1, decisionCount: 1 })
       const point = await measure('addressed shipping scope', () => {
-        expect(headerEntities(pool).shippingScope('/shared/sub', 'unused-17')?.repoId).toBe('wildcard')
+        expect(headerEntities(pool).shippingScope('/shared/sub', 'unused-17')?.repoId).toBe(
+          'wildcard',
+        )
         expect(headerEntities(pool).shippingScope('/shared/sub')?.repoId).toBe('target')
         expect(headerEntities(pool).shippingScope('/absent', 'm0')).toBeUndefined()
       })
@@ -154,10 +155,12 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(closed.work.rows).toBe(0)
       const control = await measure('planted whole-repository shipping scope', () => {
-        const scans = headerView(pool).ids('repository').flatMap((id) => {
-          const row = headerView(pool).row('repository', id)
-          return row ? [row] : []
-        })
+        const scans = headerView(pool)
+          .ids('repository')
+          .flatMap((id) => {
+            const row = headerView(pool).row('repository', id)
+            return row ? [row] : []
+          })
         const result = reposToViews(scans).find((repo) =>
           repo.worktrees.some(
             (lane) =>

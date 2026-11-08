@@ -25,7 +25,12 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { MessageNoticeIndicator } from '../chat/MessageNotices'
-import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
+import {
+  ConnectionIndicator,
+  connectionSeverity,
+  describeHealth,
+  useStableConnection,
+} from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
 import type { HostInfoTab } from './HostMemoryView'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
@@ -71,7 +76,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
   // healthy, so recovery isn't announced as noise). HostIndicators re-renders
   // only on health change, so the message isn't re-announced every second.
   const announce =
-    health.status === 'ok'
+    connectionSeverity(health) === 'ok'
       ? ''
       : (() => {
           const d = describeHealth(health, Date.now())
@@ -404,7 +409,7 @@ function PoolHeaderHostIndicators(): JSX.Element {
   const { health } = useStableConnection()
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   const description =
-    health.status === 'ok'
+    connectionSeverity(health) === 'ok'
       ? ''
       : (() => {
           const d = describeHealth(health, Date.now())
@@ -426,9 +431,9 @@ function PoolHeaderHostIndicators(): JSX.Element {
           <span
             className={cn(
               'size-1.5 flex-none rounded-full',
-              health.status === 'ok'
+              connectionSeverity(health) === 'ok'
                 ? 'bg-success'
-                : health.status === 'degraded'
+                : connectionSeverity(health) === 'degraded'
                   ? 'bg-warning'
                   : 'bg-destructive',
             )}
@@ -443,7 +448,7 @@ function PoolHeaderHostIndicators(): JSX.Element {
           id={id}
           lifecycle={lifecycle}
           serverAppVersion={serverAppVersion}
-          healthStatus={health.status}
+          healthStatus={connectionSeverity(health)}
           onInfo={setInfo}
         />
       ))}

@@ -19,7 +19,6 @@
  * out `isAllowedRoot(...)` was the shape this replaces.
  */
 
-import { createLogger } from '@podium/logger'
 import {
   AutomationIdField,
   asThreadId,
@@ -41,12 +40,7 @@ import { assertReadableRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { specsInputs } from './specs/service'
-
-const log = createLogger('cost')
-
-/** The usage harvest's window — the daemon's own default, restated because the
- *  cost fold must record which window its per-file totals were taken over. */
-const USAGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+import { readUsageSummary, UsageAttributionUnavailable } from './usage-summary'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -155,69 +149,22 @@ export const USAGE_QUERIES = {
    *  transcripts on the dev machine. Window math (5h/weekly/cost) is
    *  client-side.
    *
-   *  ALSO WRITES (POD-1858), on the same terms `quota.summary` below sets out:
-   *  the daemon returns the per-FILE half of the walk it just did, and it is
-   *  folded into the per-task cost rows on the way out. No caller input reaches
-   *  the fold and no second scan happens — attributing the walk that ALREADY
-   *  runs is the whole architecture of the cost read path, because a second walk
-   *  of the same 4GB would land on the daemon loop that carries PTY traffic.
-   *
-   *  `sources` is STRIPPED before the payload is returned: it is an order of
-   *  magnitude larger than the buckets and no client reads it. Best-effort — a
-   *  failed fold never fails the usage read. */
+   *  Also folds per-task cost on the way out; see `usage-summary.ts`. Clients
+   *  with topics get the same answer pushed on `account.quota` (POD-5798). */
   summary: q(noInput, async (s) => {
-    // Fix the answering machine before both authorization and dispatch. Machine
-    // use permits the scan; it does not permit another human's usage (MU-30).
-    const machineId = await s.modules.rpc.answeringMachineId()
-    if (!(await s.privateAccess.mayReadMachineFiles(machineId)))
-      return { hostname: '', buckets: [] }
-    // The daemon's own default window, restated here because the fold has to
-    // record WHICH window its per-file totals cover — see `window_since_ms`.
-    const sinceMs = Date.now() - USAGE_WINDOW_MS
-    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(
-      sinceMs,
-      true,
-      machineId,
-    )
-    const shared = await s.store.users.hasSeveralMembers()
-    if (
-      shared &&
-      (sources?.some((source) => source.windowBuckets === undefined) ||
-        (!sources?.length && usage.buckets.length > 0))
-    ) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message:
-          'Upgrade the answering daemon before viewing usage on a multi-member instance: it must report per-transcript usage buckets.',
+    try {
+      return await readUsageSummary({
+        rpc: s.modules.rpc,
+        store: s.store,
+        privateAccess: s.privateAccess,
+        userId: s.caller.userId,
       })
-    }
-    let buckets = shared ? ([] as typeof usage.buckets) : usage.buckets
-    if (sources?.length) {
-      let harvest: Awaited<ReturnType<CostService['prepareHarvest']>>
-      try {
-        harvest = await new CostService(s.store).prepareHarvest(machineId, sources)
-      } catch (err) {
-        // Without owner attribution a multi-member response must fail closed.
-        if (shared) throw err
-        log.warn('cost attribution failed — single-member usage buckets unaffected', { err })
-        return usage
+    } catch (err) {
+      if (err instanceof UsageAttributionUnavailable) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message })
       }
-      if (shared)
-        buckets = harvest
-          .bucketsForOwner(asUserId(s.caller.userId))
-          .filter((bucket) => Date.parse(bucket.hour) >= sinceMs - 3_600_000)
-      try {
-        // The MEMO's window, not ours. The daemon may serve a fold it computed
-        // against an older `sinceMs`; stamping it with the newer one re-dates
-        // last window's numbers as current and keeps a transcript that has
-        // since fallen out of the window contributing to "attributed".
-        const foldSinceMs = sourcesSinceMs ?? sinceMs
-        await harvest.record(foldSinceMs)
-      } catch (err) {
-        log.warn('cost fold failed — usage buckets unaffected', { err })
-      }
+      throw err
     }
-    return { ...usage, buckets }
   }),
 } as const
 

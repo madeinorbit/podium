@@ -1,4 +1,4 @@
-import type { ConnectionHealth } from '@podium/client-core/socket-transport'
+import type { ConnectionCondition } from '@podium/client-core/live'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -9,9 +9,13 @@ import { HostInfoView } from '@/features/machines/HostMemoryView'
 import { formatHandoverElapsed, HandoverPane } from '@/features/terminal/HandoverPane'
 import { SyncProgressStore } from './sync-progress'
 
-const health: ConnectionHealth = { status: 'down', rttMs: null, since: 90_000 }
-vi.mock('@/app/header-data', () => ({ usePoolHeaderConnection: () => health }))
-vi.mock('@/app/store', () => ({ useHostMetrics: () => [] }))
+const health: ConnectionCondition = { state: 'offline', since: 90_000 }
+vi.mock('@/app/header-data', () => ({
+  usePoolHeaderConnection: () => health,
+  usePoolHeaderMetrics: () => [],
+  usePoolPanelMetric: () => undefined,
+}))
+vi.mock('@/app/store', () => ({ useRuntimeSelector: () => ({}) }))
 vi.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ render }: { render: ReactNode }) => <>{render}</>,
@@ -123,7 +127,7 @@ it('shares one second clock across screens and drops it while their panel is hid
 it('does not tick for healthy connection labels', () => {
   vi.useFakeTimers()
   vi.setSystemTime(100_000)
-  const view = render(<ConnectionIndicator health={{ status: 'ok', rttMs: 20, since: 90_000 }} />)
+  const view = render(<ConnectionIndicator health={{ state: 'online', pingMs: 20, since: 90_000 }} />)
   expect(vi.getTimerCount()).toBe(0)
   view.unmount()
 })

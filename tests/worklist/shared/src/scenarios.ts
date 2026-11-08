@@ -1,9 +1,7 @@
-import { setReferenceClock } from '../../diagnostics/reference-state'
-import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { referenceState } from '../../diagnostics/reference-state'
-
-import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
 import { IssueProjection as IssueProjectionSchema } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
+import { referenceState, setReferenceClock } from '../../diagnostics/reference-state'
 import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
 
 /**
@@ -89,7 +87,6 @@ import {
   loadingNavigationProvider,
   openKernelEngineOutbox,
 } from '@podium/client-core/engine'
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
@@ -100,14 +97,21 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { createRowSource } from './row-source'
-import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asUserId,
+  issueUserStateRowId,
+  type SessionMeta,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
-import type { RowSourceEvent } from './stats'
 import { fixtureSessionHomes, stripSessionLegacy } from '../../harness/src/fixture/session-homes'
+import { createRowSource } from './row-source'
+import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ corpus
 
@@ -225,6 +229,24 @@ class FakeHub {
     )
     cb(this.connectionHealth())
     return off
+  }
+  /** The live feed's slice (POD-5798): topics stay pending, no server identity yet. */
+  subscribeTopic(
+    _kind: string,
+    _id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    listener.onState?.({ status: 'pending' })
+    return () => {}
+  }
+  machines(): never[] {
+    return []
+  }
+  serverIdentity(): null {
+    return null
+  }
+  clockSkewMs(): null {
+    return null
   }
   seedMetadata(): void {}
   connect(): void {}
@@ -768,15 +790,17 @@ export async function startEngineOnCorpus(
   )
   // The current server publishes these homes alongside each raw session.
   // An old corpus without them exercises a cold offline gap, not steady-state work.
-  const own = <T>(value: T): T => opts.ownRows ? structuredClone(value) : value
+  const own = <T>(value: T): T => (opts.ownRows ? structuredClone(value) : value)
   cache.install([
-    ...homes.userStates.map(state => ({
+    ...homes.userStates.map((state) => ({
       entity: 'sessionUserState' as const,
       entityId: sessionUserStateRowId(state.userId, state.sessionId),
       value: own(state),
     })),
-    ...homes.machines.map(machine => ({
-      entity: 'machine' as const, entityId: machine.id, value: own(machine),
+    ...homes.machines.map((machine) => ({
+      entity: 'machine' as const,
+      entityId: machine.id,
+      value: own(machine),
     })),
   ])
   await opts.stage?.('cache')
@@ -1335,7 +1359,14 @@ const OVERLAY_ENTITIES = [
 export function pendingWrites(ctx: ScenarioEngine): string[] {
   const pending: string[] = []
   for (const entity of OVERLAY_ENTITIES) {
-    for (const id of ((ctx.engine as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter?.pending.byRow(entity) ?? new Map()).keys()) pending.push(`${entity}:${id}`)
+    for (const id of (
+      (
+        ctx.engine as unknown as {
+          poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions
+        }
+      ).poolWriter?.pending.byRow(entity) ?? new Map()
+    ).keys())
+      pending.push(`${entity}:${id}`)
   }
   return pending.sort()
 }

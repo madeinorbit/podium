@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { describe, expect, it } from 'vitest'
-import { getFeatureStates, isFeatureEnabled } from './features'
+import { getFeatureStates, isFeatureEnabled, offeredFeatures } from './features'
 
 function settings(experimental: Record<string, boolean> = {}): PodiumSettings {
   return { ...DEFAULT_SETTINGS, experimental }
@@ -170,6 +170,22 @@ describe('retired reader pilot', () => {
     const result = getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: 'dev' })
     expect(result.flags.find((flag) => flag.id === 'mobx-sidebar')).toBeUndefined()
     expect(result.flags.every((flag) => flag.listed)).toBe(true)
+  })
+})
+
+describe('offeredFeatures (welcome, POD-5798)', () => {
+  it('is what this build lists, whatever the toggles say', () => {
+    const stable = offeredFeatures({}, { PODIUM_APP_VERSION: '1.2.3' })
+    expect(stable).not.toContain(HIDDEN)
+    // The listed set of getFeatureStates for the same build, with no toggles.
+    expect(stable).toEqual(
+      getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: '1.2.3' })
+        .flags.filter((flag) => flag.listed)
+        .map((flag) => flag.id),
+    )
+    // A toggle is an instance preference, never part of what the build offers.
+    expect(offeredFeatures({}, { PODIUM_APP_VERSION: '1.2.3' })).toEqual(stable)
+    expect(offeredFeatures({}, { PODIUM_APP_VERSION: 'dev' })).toContain(HIDDEN)
   })
 })
 

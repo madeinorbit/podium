@@ -49,6 +49,24 @@ class FakeHub {
   connectionHealth(): { status: 'ok' | 'degraded' | 'down'; rttMs: number | null; since: number } {
     return { status: 'down', rttMs: null, since: 0 }
   }
+  /** The live feed's slice (POD-5798): topics stay pending, no server identity yet. */
+  subscribeTopic(
+    _kind: string,
+    _id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    listener.onState?.({ status: 'pending' })
+    return () => {}
+  }
+  machines(): never[] {
+    return []
+  }
+  serverIdentity(): null {
+    return null
+  }
+  clockSkewMs(): null {
+    return null
+  }
   seedMetadata(): void {}
   connect(): void {
     this.connectCalls += 1

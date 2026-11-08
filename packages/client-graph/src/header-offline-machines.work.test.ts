@@ -1,11 +1,12 @@
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import type { HeaderRecord, HeaderRows } from './header-schema'
+import { headerView } from './header-views'
+import { liveFixture } from './live-fixture'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 
 const WEEK = 7 * 86_400_000
@@ -19,18 +20,12 @@ function machine(id: string, online: boolean, seen: number): HeaderRows['machine
     lastSeenAt: new Date(seen).toISOString(),
   }
 }
-function metric(id: string): HeaderRows['hostMetric'] {
-  return {
-    machineId: id as HeaderRows['hostMetric']['machineId'],
-    hostname: id,
-    sampledAt: new Date(NOW).toISOString(),
-  } as HeaderRows['hostMetric']
-}
 
 it('bounds the actual offline header window across online fleet and expired history at 1x/4x', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+    const live = liveFixture(pool, () => NOW)
     const target = machine('target', false, NOW - WEEK + 1000)
     const online = Array.from({ length: 128 * scale }, (_, at) =>
       machine(`online-${at}`, true, NOW),
@@ -41,13 +36,9 @@ it('bounds the actual offline header window across online fleet and expired hist
     headerEntities(pool).apply([
       ...online.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
       ...expired.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
-      ...online.map((value) => ({
-        kind: 'hostMetric' as const,
-        id: value.id,
-        value: metric(value.id),
-      })),
       { kind: 'machine', id: 'target', value: target },
     ])
+    for (const value of online) live.online(value.id, true)
     let answer: HeaderRows['machine'][] = [],
       paints = 0,
       stop = () => {}
@@ -83,14 +74,8 @@ it('bounds the actual offline header window across online fleet and expired hist
           },
         ]),
       )
-      const sample = await measure('unrelated metric sample', () =>
-        apply([
-          {
-            kind: 'hostMetric',
-            id: online[18]!.id,
-            value: { ...metric(online[18]!.id), hostname: 'Updated sample' },
-          },
-        ]),
+      const sample = await measure('unrelated live condition', () =>
+        live.online(online[18]!.id, true, new Date(NOW).toISOString()),
       )
       expect(paints).toBe(before)
       for (const action of [onlineMetadata, expiredMetadata, sample])
@@ -121,19 +106,16 @@ it('bounds the actual offline header window across online fleet and expired hist
       )
       expect(answer.map((value) => value.name)).toEqual(['Hidden target'])
       expect(rewind.work.rows).toBe(1)
-      const sampled = await measure('offline machine gains metric', () =>
-        apply([{ kind: 'hostMetric', id: 'sample-a', value: metric('target') }]),
+      const sampled = await measure('offline machine known online by the LiveStore', () =>
+        live.online('target', true),
       )
       expect(answer).toEqual([])
-      const second = await measure('second metric for same machine', () =>
-        apply([{ kind: 'hostMetric', id: 'sample-b', value: metric('target') }]),
-      )
-      const retainSample = await measure('one of two samples removed', () =>
-        apply([{ kind: 'hostMetric', id: 'sample-a', value: undefined }]),
+      const second = await measure('a second online reading', () =>
+        live.online('target', true, new Date(NOW).toISOString()),
       )
       expect(answer).toEqual([])
-      const unsampled = await measure('last metric removed', () =>
-        apply([{ kind: 'hostMetric', id: 'sample-b', value: undefined }]),
+      const unsampled = await measure('the live reading goes unknown', () =>
+        live.online('target', undefined),
       )
       expect(answer.map((value) => value.id)).toEqual(['target'])
       const becameOnline = await measure('selected machine becomes online', () =>
@@ -169,24 +151,26 @@ it('bounds the actual offline header window across online fleet and expired hist
       expect(closed.work.rows).toBe(0)
       const control = await measure('former whole-fleet offline lookup', () => {
         const sampledIds = new Set(
-          headerView(pool)
-            .ids('hostMetric')
-            .map((id) => headerEntities(pool).one('hostMetric', id, 'machine')),
+          [...live.live.machineConditions].flatMap(([id, reading]) =>
+            reading.known && reading.value.online ? [id] : [],
+          ),
         )
-        headerView(pool).ids('machine').flatMap((id) => {
-          const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
-          if (
-            !value ||
-            !isMachineOfflineForLiveTerminal(value) ||
-            sampledIds.has(id) ||
-            value.serviceAssignment?.agentExecution === false ||
-            value.revokedAt ||
-            value.supersededBy
-          )
-            return []
-          const seen = Date.parse(value.lastSeenAt)
-          return Number.isFinite(seen) && !pool.clock.passed(seen + WEEK) ? [value] : []
-        })
+        headerView(pool)
+          .ids('machine')
+          .flatMap((id) => {
+            const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
+            if (
+              !value ||
+              !isMachineOfflineForLiveTerminal(value) ||
+              sampledIds.has(id) ||
+              value.serviceAssignment?.agentExecution === false ||
+              value.revokedAt ||
+              value.supersededBy
+            )
+              return []
+            const seen = Date.parse(value.lastSeenAt)
+            return Number.isFinite(seen) && !pool.clock.passed(seen + WEEK) ? [value] : []
+          })
       })
       expect(control.work.rows).toBe(256 * scale + 1)
       samples.push({
@@ -204,7 +188,6 @@ it('bounds the actual offline header window across online fleet and expired hist
           rewind,
           sampled,
           second,
-          retainSample,
           unsampled,
           becameOnline,
           becameOffline,
@@ -228,8 +211,9 @@ it('bounds the actual offline header window across online fleet and expired hist
   expect(samples[1]!.control.work.elements).toBeGreaterThan(samples[0]!.control.work.elements)
 })
 
-it('preserves all eligibility rules, source order, metric reassignment and replacement', () => {
+it('preserves all eligibility rules, source order, live online and replacement', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const live = liveFixture(pool, () => NOW)
   const base = machine('a', false, NOW),
     b = machine('b', false, NOW)
   const excluded = [
@@ -256,15 +240,14 @@ it('preserves all eligibility rules, source order, metric reassignment and repla
     expect(answer).toEqual([b, base])
     runInAction(() => headerEntities(pool).order('machine', []))
     expect(answer).toEqual([base, b])
-    headerEntities(pool).apply([{ kind: 'hostMetric', id: 'sample', value: metric('a') }])
+    live.online('a', true)
     expect(answer).toEqual([b])
-    headerEntities(pool).apply([{ kind: 'hostMetric', id: 'sample', value: metric('b') }])
+    live.online('a', false)
+    live.online('b', true)
     expect(answer).toEqual([base])
     headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: undefined }])
-    headerEntities(pool).apply([
-      { kind: 'machine', id: 'a', value: base },
-      { kind: 'hostMetric', id: 'sample', value: undefined },
-    ])
+    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: base }])
+    live.online('b', undefined)
     expect(answer).toEqual([b, base])
     runInAction(() => headerEntities(pool).clear())
     expect(answer).toEqual([])

@@ -1,6 +1,8 @@
+import { lazy } from '@podium/mobx-helpers'
 import type {
   AutomationRunWire,
   AutomationWire,
+  HostMetricsWire,
   MachineProjection,
   MachineWire,
 } from '@podium/model'
@@ -23,14 +25,56 @@ const automationRunWire = (): FieldSource => ({
   arrivesOn: 'replica:automationRuns',
 })
 
-/** Stored identity, presence, execution and update fields are schema-installed. */
+/**
+ * Stored identity, execution and update fields are schema-installed.
+ *
+ * LIVE FIELDS (POD-5798; guide rule 1). Whether the machine is online, since
+ * when, and its load are CONDITIONS: they come from this user's LiveStore, not
+ * the record. None is known before its first reading, so an app started offline
+ * shows "unknown", never yesterday's answer. Reading `metrics` from an observer
+ * is what asks the machine's daemon to sample.
+ */
 export class MachineModel extends EntityModel {
+  static override readonly answers: ReadonlySet<string> = new Set(['online'])
   declare readonly id: MachineWire['id']
   constructor(id: string, host: ModelHost) {
     super('machine', id, host)
   }
+
+  // Live condition
+  /**
+   * Online now, by the server's view of the daemon connection. True only while
+   * that is KNOWN: before the first reading, or once the connection is lost,
+   * the machine is not known online, so it is not offered as one.
+   * {@link onlineKnown} says which case "false" is.
+   */
+  @lazy get online(): boolean {
+    const reading = this.host.live?.conditionOf(this.id)
+    return reading?.known === true && reading.value.online
+  }
+  /** Whether {@link online} is a current reading (false: unknown, shown as such). */
+  @lazy get onlineKnown(): boolean {
+    return this.host.live?.conditionOf(this.id)?.known === true
+  }
+  /**
+   * When `online` last changed, as the server saw it. Null when the server has
+   * not seen the machine connect since it started; undefined until known.
+   */
+  @lazy get onlineSince(): string | null | undefined {
+    const reading = this.host.live?.conditionOf(this.id)
+    return reading?.known ? reading.value.since : undefined
+  }
+
+  // Live load
+  /** The newest host sample (CPU, memory, load, disk, loop); undefined until known. */
+  @lazy get metrics(): HostMetricsWire | undefined {
+    const reading = this.host.live?.metricsOf(this.id)
+    return reading?.known ? reading.value : undefined
+  }
 }
-export interface MachineModel extends Readonly<MachineWire>, Readonly<MachineProjection> {}
+export interface MachineModel
+  extends Readonly<Omit<MachineWire, 'online'>>,
+    Readonly<MachineProjection> {}
 
 /** Stored target, schedule and agent instruction fields are schema-installed. */
 export class AutomationModel extends EntityModel {
@@ -86,7 +130,8 @@ const schema = {
       unowned: { type: 'boolean', optional: true, source: machineWire() },
       adoptable: { type: 'boolean', optional: true, source: machineWire() },
       podiumManaged: { type: 'boolean', optional: true, source: machineWire() },
-      // Presence and execution
+      // Presence and execution. `online` is answered by the model from the
+      // LiveStore (POD-5798); the record's copy goes with POD-6644.
       online: { type: 'boolean', source: machineWire() },
       lastSeenAt: { type: 'isoDate', source: machineWire() },
       presenceSource: { type: 'enum', optional: true, source: machineWire() },

@@ -60,7 +60,7 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
    ```
    App code uses no `observable.box`, `makeObservable` or `makeAutoObservable`. `createAtom` and `new Reaction` appear only in the data layer and `@podium/mobx-helpers`.
 9. **Lifetimes.**
-   - The only "ID → object" maps allowed are: the pool's models, `companion()` maps, the view registry (`pool.sources.view`) and the data layer's indexes.
+   - The only "ID → object" maps allowed are: the pool's models, `companion()` maps, the view registry (`pool.sources.view`), the data layer's indexes and the LiveStore's readings (frozen values replaced whole, never objects with fields of their own).
    - A view that opens and closes gets a new view model per opening. Its root component creates it, and closing drops it together with its companions. Anything that must survive a reopen goes into the UiStore, on purpose.
    - Always-on views (the worklist) keep one view model.
 10. **Time.**

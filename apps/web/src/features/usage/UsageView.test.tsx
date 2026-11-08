@@ -1,9 +1,13 @@
+import { type LiveFixture, liveFixture } from '@podium/client-graph/live-fixture'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { UsageBucketWire } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageView } from './UsageView'
 import { resetQuotaLedgerCache } from './useQuotaLedger'
-import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
+import { resetUsageCache } from './useUsageFeed'
 
 /**
  * The sheet's loading behaviour (POD-394). What is asserted here is the promise
@@ -12,7 +16,24 @@ import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
  * loading forever.
  */
 
-const summary = vi.hoisted(() => vi.fn())
+// Usage is PUSHED since POD-5798: the sheet reads the LiveStore's account.quota
+// reading through the pool. `live` sets it; the two requests stay stubs.
+const pooled = vi.hoisted(() => ({
+  pool: null as unknown as import('@podium/client-graph/pool').MobxPool,
+}))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => pooled.pool,
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const view = useMemo(() => createPoolProjection(pooled.pool, read), [read])
+    return useSyncExternalStore(view.subscribe, view.getSnapshot)
+  },
+}))
+let live: LiveFixture
+/** The server pushed this usage (null: it answered without usage). */
+const pushUsage = (usage: { buckets: UsageBucketWire[] } | null): void =>
+  act(() =>
+    live.usage(usage ? { hostname: 'test', sampledAt: new Date().toISOString(), ...usage } : null),
+  )
 // The sheet reads a SECOND source since POD-1571: the quota window ledger. It is
 // a separate poll with its own cache, so it gets its own stub and its own reset.
 const history = vi.hoisted(() => vi.fn())
@@ -24,7 +45,6 @@ const tasks = vi.hoisted(() => vi.fn())
 // forever — the real store returns the same client every time.
 const store = vi.hoisted(() => ({
   trpc: {
-    usage: { summary: { query: summary } },
     quota: { history: { query: history } },
     cost: { tasks: { query: tasks } },
   },
@@ -56,15 +76,13 @@ const ZERO_TOKENS = {
   cacheCreationTokens: 0,
 } as const
 
-/** Never resolves — holds the sheet in whichever state it opened in. */
-const pending = (): Promise<never> => new Promise<never>(() => {})
-
 const body = (): HTMLElement => screen.getByTestId('usage-sheet').querySelector('.usage-body')!
 
 beforeEach(() => {
   resetUsageCache()
   resetQuotaLedgerCache()
-  summary.mockReset()
+  pooled.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  live = liveFixture(pooled.pool)
   history.mockReset()
   tasks.mockReset()
   // The ledger is empty unless a test says otherwise: most of these assert the
@@ -79,7 +97,6 @@ afterEach(() => {
 
 describe('UsageView loading', () => {
   it('draws the whole instrument while cold, with the readings unfilled', async () => {
-    summary.mockReturnValue(pending())
     render(<UsageView onClose={() => {}} />)
 
     // Everything knowable before the fetch is REAL — this is what keeps the
@@ -139,8 +156,8 @@ describe('UsageView loading', () => {
   })
 
   it('fills the readings in place and drops the cold marker', async () => {
-    summary.mockResolvedValue({ buckets: [bucket()] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
 
     expect(body().dataset.cold).toBeUndefined()
@@ -159,8 +176,8 @@ describe('UsageView loading', () => {
     // The trace's precise values live on hover — the only place they can, at one
     // column per hour. An unlabelled 4px mark with no readout would be a shape
     // and not a chart.
-    summary.mockResolvedValue({ buckets: [bucket()] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
 
     const measured = body().querySelector('.usage-hour[data-on]')!
@@ -168,8 +185,8 @@ describe('UsageView loading', () => {
   })
 
   it('defaults the trace to cost and switches every chart reading to tokens', async () => {
-    summary.mockResolvedValue({ buckets: [bucket()] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
 
     const figure = body().querySelector('.usage-figure')
@@ -185,24 +202,24 @@ describe('UsageView loading', () => {
   })
 
   it('omits the cache interpretation when cache reads cost nothing', async () => {
-    summary.mockResolvedValue({ buckets: [bucket({ cacheReadTokens: 0 })] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket({ cacheReadTokens: 0 })] })
     await act(async () => {})
 
     expect(screen.queryByText(/Cache reads bill at 10% of input/)).toBeNull()
   })
 
   it('names models that used fallback pricing in the footer', async () => {
-    summary.mockResolvedValue({ buckets: [bucket({ model: 'future-vendor-model' })] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket({ model: 'future-vendor-model' })] })
     await act(async () => {})
 
     expect(screen.getByText(/1 model used the fallback rate: future-vendor-model/)).toBeTruthy()
   })
 
   it('lists Grok as xAI and names it in the source footer', async () => {
-    summary.mockResolvedValue({ buckets: [bucket({ model: 'grok-4.6' })] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket({ model: 'grok-4.6' })] })
     await act(async () => {})
 
     expect(screen.getByText('grok-4.6')).toBeTruthy()
@@ -212,8 +229,8 @@ describe('UsageView loading', () => {
   })
 
   it('hides the Grok size note when the window has no xAI usage', async () => {
-    summary.mockResolvedValue({ buckets: [bucket()] })
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
 
     expect(screen.queryByText('Grok uses last session size, not each reply.')).toBeNull()
@@ -223,10 +240,10 @@ describe('UsageView loading', () => {
     // Claude Code stamps its session-limit and API-error placeholders
     // `<synthetic>` with an all-zero usage block. Counted, they put a permanent
     // 0-token row in the table and add to every reply count.
-    summary.mockResolvedValue({
+    render(<UsageView onClose={() => {}} />)
+    pushUsage({
       buckets: [bucket(), bucket({ model: '<synthetic>', ...ZERO_TOKENS, messages: 9 })],
     })
-    render(<UsageView onClose={() => {}} />)
     await act(async () => {})
 
     expect(screen.queryByText('<synthetic>')).toBeNull()
@@ -236,14 +253,12 @@ describe('UsageView loading', () => {
   })
 
   it('reopens cached usage while task costs take a fresh answer', async () => {
-    summary.mockResolvedValue({ buckets: [bucket()] })
     const first = render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
     first.unmount()
 
-    // Second open: the request is in flight and will never answer, so anything
-    // on screen came from the cache.
-    summary.mockReturnValue(pending())
+    // Second open: the LiveStore still holds the reading, so it paints at once.
     render(<UsageView onClose={() => {}} />)
     expect(body().dataset.cold).toBeUndefined()
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
@@ -255,48 +270,39 @@ describe('UsageView loading', () => {
     expect(body().querySelectorAll('.usage-unfilled')).toHaveLength(0)
   })
 
-  it('admits a slow refresh only once it has outrun the reveal delay', async () => {
-    vi.useFakeTimers()
-    summary.mockReturnValue(pending())
+  it('shows it is waiting while the first reading is on its way, and stops once it lands', async () => {
     render(<UsageView onClose={() => {}} />)
-
-    // Below the threshold the sheet stays completely still — a hairline that
-    // appears and vanishes inside 60ms reads as a fault, not as work.
-    await act(async () => {
-      vi.advanceTimersByTime(PENDING_REVEAL_MS - 50)
-    })
-    expect(body().querySelector('.usage-refreshing')).toBeNull()
-
-    await act(async () => {
-      vi.advanceTimersByTime(100)
-    })
     expect(body().querySelector('.usage-refreshing')).not.toBeNull()
+    pushUsage({ buckets: [bucket()] })
+    await act(async () => {})
+    expect(body().querySelector('.usage-refreshing')).toBeNull()
   })
 
-  it('offers a retry when the first read fails, instead of loading forever', async () => {
-    summary.mockRejectedValue(new Error('offline'))
+  it('says usage is unavailable when the server answers without it, and fills in when it arrives', async () => {
     render(<UsageView onClose={() => {}} />)
+    pushUsage(null)
     await act(async () => {})
 
-    expect(screen.getByText("Couldn't read usage from the daemon.")).toBeTruthy()
+    expect(
+      screen.getByText(
+        "Couldn't read usage from the daemon. It appears here as soon as the daemon answers.",
+      ),
+    ).toBeTruthy()
+    // Nothing to retry: the next pushed value fills the sheet.
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
 
-    summary.mockResolvedValue({ buckets: [bucket()] })
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
   })
 
-  it('keeps the last readings when a refresh fails, and stamps them stale', async () => {
-    vi.useFakeTimers()
-    summary.mockResolvedValue({ buckets: [bucket()] })
+  it('keeps the last readings when the connection is lost, and stamps them stale', async () => {
     render(<UsageView onClose={() => {}} />)
+    pushUsage({ buckets: [bucket()] })
     await act(async () => {})
     expect(screen.queryByText(/LAST READ/)).toBeNull()
 
-    summary.mockRejectedValue(new Error('offline'))
-    await act(async () => {
-      vi.advanceTimersByTime(90_000)
-    })
+    act(() => live.live.markAllUnknown(Date.now()))
 
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
     expect(screen.getByText(/^LAST READ \d\d:\d\d$/)).toBeTruthy()

@@ -65,6 +65,52 @@ describe('TOPIC_KINDS (ADR 7 Amendment 2 D17/D18)', () => {
     })
   })
 
+  it('declares account.quota as a per-account server value (POD-5798)', () => {
+    expect(TOPIC_KINDS['account.quota']).toMatchObject({
+      style: 'value',
+      producer: 'server',
+      visibility: 'account.self',
+      minIntervalMs: 1_000,
+    })
+    const machine = {
+      machineId: 'machine-1',
+      machineName: 'studio',
+      hostname: 'studio.local',
+      agents: [
+        {
+          agent: 'claude-code',
+          status: 'ok',
+          windows: [
+            {
+              key: 'five_hour',
+              label: '5h',
+              usedPercent: 100,
+              resetsAt: '2026-11-08T15:00:00.000Z',
+              windowMinutes: 300,
+            },
+          ],
+          fetchedAt: '2026-11-08T12:00:00.000Z',
+        },
+      ],
+    }
+    expect(parseTopicPayload('account.quota', { machines: [machine] })).toEqual({
+      machines: [machine],
+    })
+    expect(parseTopicPayload('account.quota', {})).toBeUndefined()
+    // Usage is its own kind, held only while a usage reader is on screen.
+    expect(TOPIC_KINDS['account.usage']).toMatchObject({
+      style: 'value',
+      producer: 'server',
+      visibility: 'account.self',
+    })
+    expect(
+      parseTopicPayload('account.usage', { hostname: 'studio.local', buckets: [] }),
+    ).toMatchObject({ hostname: 'studio.local' })
+    // null is an answer: no machine may answer for this account's usage.
+    expect(parseTopicPayload('account.usage', null)).toBeNull()
+    expect(parseTopicPayload('account.usage', { buckets: [] })).toBeUndefined()
+  })
+
   it('checks payloads against their kind', () => {
     expect(parseTopicPayload('machine.condition', { online: true, since: null })).toEqual({
       online: true,

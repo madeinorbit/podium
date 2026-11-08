@@ -142,4 +142,4 @@ export function useRuntimeSelector<T>(
 ): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
 }
-export { useHostMetrics } from '@podium/client-core/react'
+export { useLive } from '@podium/client-core/react'

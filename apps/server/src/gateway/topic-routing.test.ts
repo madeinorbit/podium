@@ -30,6 +30,8 @@ function fixture(use = true) {
       supportsTopics: () => true,
       send: (machineId, frame) => watches.push({ machineId, key: frame.key, on: frame.on }),
     }),
+    'account.quota': {},
+    'account.usage': {},
     'account.events': {},
     'checkout.changed': {},
     'machine.processes': {},
@@ -236,6 +238,8 @@ describe('revocation', () => {
       producers: {
         'machine.condition': { snapshot: () => ({ online: true, since: null }), stop },
         'machine.metrics': {},
+        'account.quota': {},
+        'account.usage': {},
         'account.events': {},
         'checkout.changed': {},
         'machine.processes': {},

@@ -73,8 +73,7 @@ async function mount(roster = false) {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        fixture.bindHub(owner.hub)
-        fixture.bindHeaderInputs(owner)
+        fixture.bindHub(owner.hub, owner.live)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
@@ -180,7 +179,7 @@ describe('old and pool header rendering', () => {
     expect(chip.getAttribute('aria-label')).toContain('disk')
 
     await act(async () => {
-      const metrics = header.runtime.hostMetrics.getSnapshot()
+      const metrics = header.fixture.inputs().metrics
       const { disk: _disk, ...unknown } = metrics[0]!
       header.fixture.publishHostMetrics([unknown, ...metrics.slice(1)])
     })
@@ -188,7 +187,7 @@ describe('old and pool header rendering', () => {
     expect(disk().querySelector('.header-meter > span')).toBeNull()
     expect(chip.getAttribute('aria-label')).toContain('disk usage unavailable')
     await act(async () => {
-      const metrics = header.runtime.hostMetrics.getSnapshot()
+      const metrics = header.fixture.inputs().metrics
       header.fixture.publishHostMetrics([
         {
           ...metrics[0]!,

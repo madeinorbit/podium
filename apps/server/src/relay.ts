@@ -76,6 +76,7 @@ import {
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-route'
 import { bootStage } from './boot-timing'
+import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
@@ -87,7 +88,7 @@ import {
   userCommandPrincipal,
 } from './command-principal'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
-import { getFeatureStates, isFeatureEnabled } from './features'
+import { getFeatureStates, isFeatureEnabled, offeredFeatures } from './features'
 import { makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -191,6 +192,7 @@ import { createOperations, type OperationsModule } from './modules/operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
+import { AccountQuotaTopic, AccountUsageTopic } from './modules/quota-history/quota-topic'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { registerRecordCommands } from './modules/records/register'
@@ -264,8 +266,10 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
+import { readUsageSummary } from './modules/usage-summary'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
+import { privateResourceAccess } from './private-resources'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import { soleMemberFor } from './sole-member'
@@ -625,6 +629,9 @@ export class SessionRegistry {
    * history cannot be recomputed later from anything on disk.
    */
   private readonly quotaSampler: QuotaSampler
+  /** The `account.quota` and `account.usage` producers (POD-5798). */
+  private readonly accountQuota: AccountQuotaTopic
+  private readonly accountUsage: AccountUsageTopic
   /** One-shot boot import of the quota history the harnesses wrote themselves
    *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
   private readonly quotaBackfill: QuotaBackfill
@@ -1289,7 +1296,11 @@ export class SessionRegistry {
     // TOPICS (ADR 7 Amendment 2, POD-5800): the SAME registry, a second router.
     // The metrics producer's snapshot reads the hosts service, which is built
     // further down; the box is filled before any socket can subscribe.
-    const topicLate: { hosts?: HostsService } = {}
+    const topicLate: {
+      hosts?: HostsService
+      quota?: AccountQuotaTopic
+      usage?: AccountUsageTopic
+    } = {}
     const machineConditions = new MachineConditionTopic({
       online: (machineId) => machines.hasDaemon(machineId),
       now: () => this.now(),
@@ -1324,6 +1335,17 @@ export class SessionRegistry {
         snapshot: () => null,
       }),
       'machine.processes': processTopic,
+      // POD-5798: the sampler is built further down; its holders start the live passes.
+      'account.quota': {
+        start: (id) => topicLate.quota?.start(asUserId(id)),
+        stop: (id) => topicLate.quota?.stop(asUserId(id)),
+        snapshot: (id) => topicLate.quota?.snapshot(asUserId(id)),
+      },
+      'account.usage': {
+        start: (id) => topicLate.usage?.start(asUserId(id)),
+        stop: (id) => topicLate.usage?.stop(asUserId(id)),
+        snapshot: (id) => topicLate.usage?.snapshot(asUserId(id)),
+      },
       'account.events': {},
     }
     const topics: TopicRouting = new TopicRouting({
@@ -4855,6 +4877,43 @@ export class SessionRegistry {
       { ownerOf: quotaOwnerOf },
     )
     if (!backgroundDisabled) this.quotaSampler.start()
+    // `account.quota` and `account.usage` (ADR 7 Amendment 2 D26, POD-5798):
+    // while anyone holds a key, a live pass every minute. Quota goes through
+    // the SAME sampler; usage is each holder's own harvest, held only while a
+    // usage reader is on screen. Holders are what start them, so they run even
+    // when the background timers are off (a holder is a person looking).
+    this.accountQuota = new AccountQuotaTopic({
+      sample: async () => await this.quotaSampler.sampleNow(),
+      custodian: async (machineId) => await this.store.machines.custodian(machineId),
+      publish: (user, value) => topics.publish('account.quota', user, value),
+    })
+    this.accountUsage = new AccountUsageTopic({
+      readUsage: async (user) => {
+        const role = await this.store.users.roleOf(user)
+        if (!role) return null
+        try {
+          return await readUsageSummary({
+            rpc: this.modules.rpc,
+            store: this.store,
+            privateAccess: privateResourceAccess(
+              {
+                sessionOwnerUserId: async (sessionId) =>
+                  (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+                machines: this.modules.machines,
+              },
+              userCommandPrincipal(user, role),
+            ),
+            userId: user,
+          })
+        } catch (err) {
+          log.debug('account usage read failed', { err })
+          return null
+        }
+      },
+      publish: (user, value) => topics.publish('account.usage', user, value),
+    })
+    topicLate.quota = this.accountQuota
+    topicLate.usage = this.accountUsage
     this.quotaBackfill = new QuotaBackfill(
       this.store.quotaHistory,
       async (sinceMs) => await this.modules.rpc.quotaHistoryAll(sinceMs),
@@ -4881,6 +4940,9 @@ export class SessionRegistry {
       feed: feedServing,
       presence,
       topics,
+      serverBuild: () => serverBuildVersion(),
+      serverFeatures: () => offeredFeatures(),
+      now: () => this.now(),
       // This task is independent of session replay and feed admission. Only
       // its own approvals -> host snapshot sequence is ordered (POD-3509).
       bootstrap: async (client): Promise<void> => {
@@ -5025,6 +5087,8 @@ export class SessionRegistry {
     await this.effectsRunner.stop()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
+    this.accountQuota.dispose()
+    this.accountUsage.dispose()
     this.quotaBackfill.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)

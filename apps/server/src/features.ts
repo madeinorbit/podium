@@ -81,6 +81,37 @@ export function getFeatureStates(
   return { devMode, channel, flags }
 }
 
+/**
+ * THE FEATURES THIS SERVER BUILD OFFERS (POD-5798; detailed design 1.6): the
+ * ids of the flags this build lists for its version and its configured
+ * update channel. It is a fact about the server you are connected to, so it
+ * rides `welcome` on every connect next to the build, and the client's
+ * LiveStore holds it. It deliberately reads no settings row: the operator's
+ * experimental toggles are instance preferences and sync as records
+ * (POD-6677), and what is on is this list joined with those.
+ */
+export function offeredFeatures(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string[] {
+  const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
+  const devMode = version === 'dev'
+  const channel: 'stable' | 'edge' =
+    resolveSetting('updateChannel', config, env).value === 'stable' ? 'stable' : 'edge'
+  return FEATURES.filter(
+    (def) =>
+      resolveFeatureState(def, {
+        configValue: undefined,
+        userValue: undefined,
+        channel,
+        devMode,
+        // A dev-channel build CAN serve development features; whether this
+        // instance opted in is its `podium-development` toggle, joined later.
+        developmentAudience: isDevChannelVersion(version),
+      }).listed,
+  ).map((def) => def.id)
+}
+
 /** Seam for server-side gating of unfinished behavior [spec:SP-f4b9]. */
 export function isFeatureEnabled(
   id: FeatureId,

@@ -1,5 +1,10 @@
+import {
+  CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
+  negotiateVersion,
+  type WireVersionOffer,
+} from '@podium/protocol'
 import type { MobileClientVersions } from './mobile-client-versions'
-import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type WireVersionOffer } from '@podium/protocol'
 /**
  * THE CLIENT SOCKET MUX (POD-390, under POD-317's gateway).
  *
@@ -51,6 +56,7 @@ import {
   type PresenceRoomClientMessage,
   type TopicClientMessage,
 } from '@podium/protocol'
+import type { MemberAccessChange } from '../store/users'
 import {
   type ClientPortId,
   clientPlaneClassFor,
@@ -65,7 +71,6 @@ import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
 import type { TopicRouting } from './topic-routing'
-import type { MemberAccessChange } from '../store/users'
 
 const log = createLogger('server:gateway')
 
@@ -88,7 +93,11 @@ const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame):
     mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg),
   )
 
-const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): Promise<void> =>
+const toPresence = (
+  mux: ClientMux,
+  conn: ClientConn,
+  msg: PresenceRoomClientMessage,
+): Promise<void> =>
   mux.enqueueSessionWork(conn, async () => {
     const joined = await mux.presence.route(conn, msg)
     if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
@@ -130,7 +139,9 @@ const DISPATCH: Dispatcher = {
   topicUnsubscribe: toTopics,
 
   // ---- transport: the gateway answers its own liveness echo ----
-  ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong' }),
+  // The server's clock rides the pong: with the round-trip the client measures,
+  // that is its clock-skew reading (POD-5798).
+  ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong', serverTime: mux.now() }),
 }
 
 /** What a socket hands the mux when it attaches. Transport facts only. */
@@ -182,6 +193,15 @@ export interface ClientMuxDeps {
   readonly topics: TopicRouting
   /** Non-session bootstrap assembled after every contributing feature exists. */
   readonly bootstrap: (conn: ClientConn) => Promise<void>
+  /**
+   * The build this server runs, sent in every `welcome` (POD-5798): a client
+   * sees a redeploy on its reconnect instead of polling `/version` for it.
+   */
+  readonly serverBuild?: () => string
+  /** The feature ids this build offers, sent in every `welcome` beside the build. */
+  readonly serverFeatures?: () => readonly string[]
+  /** The clock `pong` reports, for the client's skew reading. */
+  readonly now?: () => number
 }
 
 export class ClientMux {
@@ -191,6 +211,11 @@ export class ClientMux {
 
   get ports(): ClientFeaturePorts {
     return this.deps.ports
+  }
+
+  /** The clock `pong` carries. */
+  now(): number {
+    return (this.deps.now ?? Date.now)()
   }
 
   get registry(): ClientRegistry {
@@ -415,7 +440,11 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
-      this.renegotiate(conn, { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 }, msg.feedCursor)
+      this.renegotiate(
+        conn,
+        { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 },
+        msg.feedCursor,
+      )
       if (conn.entityServingRefused) return Promise.resolve(completion)
       this.deps.registry.deliver(conn, {
         type: 'welcome',
@@ -427,6 +456,8 @@ export class ClientMux {
         ],
         // Topics: the account whose `account.events` this client may hold (D26).
         ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
+        ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
+        ...(this.deps.serverFeatures ? { serverFeatures: [...this.deps.serverFeatures()] } : {}),
       })
     }
     return Promise.resolve(completion)
@@ -450,7 +481,10 @@ export class ClientMux {
   ): void {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
-    const version = negotiateVersion(announced ?? 1, { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
+    const version = negotiateVersion(announced ?? 1, {
+      wire: CLIENT_WIRE_VERSION,
+      min: MIN_CLIENT_WIRE_VERSION,
+    })
     if (!version.ok) {
       this.deps.feed.detach(conn.id)
       conn.entityServingRefused = true

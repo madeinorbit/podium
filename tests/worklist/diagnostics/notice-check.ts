@@ -1,6 +1,6 @@
 /** Fixture and private-replay comparison. Values stay in memory;
  * reports contain only counts and positions. Recovery compares parked author input. */
-import type { ReferenceState as Store } from './reference-state'
+import type { OutboxCondition } from '@podium/client-core/live'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import {
   noticeContinuity,
@@ -9,14 +9,15 @@ import {
   noticeRecovery,
 } from '@podium/client-graph/notice-views'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { ReferenceState as Store } from './reference-state'
 import { type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 export function checkNotices(
   pool: MobxPool,
-  state: Pick<
-    Store,
-    'messageRecords' | 'sessions' | 'pendingInteractions' | 'outboxDeadLetters' | 'outboxSize'
-  >,
+  state: Pick<Store, 'messageRecords' | 'sessions' | 'pendingInteractions'> & {
+    /** The LiveStore's outbox condition the pool should agree with (POD-5798). */
+    readonly outbox: OutboxCondition
+  },
   sessionIds: readonly string[],
 ) {
   const messages = noticeMessages(pool),
@@ -39,8 +40,15 @@ export function checkNotices(
       rows: messages.notices.map((row) => ({
         id: row.messageId,
         pending: messages.pendingIds.includes(row.messageId),
-        fields: { messageId: row.messageId, sessionId: row.sessionId, sessionLabel: row.sessionLabel,
-          excerpt: row.excerpt, status: row.status, createdAt: row.createdAt, line: row.line },
+        fields: {
+          messageId: row.messageId,
+          sessionId: row.sessionId,
+          sessionLabel: row.sessionLabel,
+          excerpt: row.excerpt,
+          status: row.status,
+          createdAt: row.createdAt,
+          line: row.line,
+        },
       })),
     },
   ]
@@ -59,15 +67,25 @@ export function checkNotices(
     actual.push({
       key: `asks:${sessionId}`,
       fields: {},
-      rows: asks.cards.map((row) => ({ id: row.id, fields: { id: row.id, sessionId: row.sessionId,
-        kind: row.kind, title: row.title, detail: row.detail, actions: row.actions, surface: row.surface,
-        ...(row.note !== undefined ? { note: row.note } : {}) } })),
+      rows: asks.cards.map((row) => ({
+        id: row.id,
+        fields: {
+          id: row.id,
+          sessionId: row.sessionId,
+          kind: row.kind,
+          title: row.title,
+          detail: row.detail,
+          actions: row.actions,
+          surface: row.surface,
+          ...(row.note !== undefined ? { note: row.note } : {}),
+        },
+      })),
     })
   }
   expected.push({
     key: 'recovery',
-    fields: { outboxSize: state.outboxSize },
-    rows: state.outboxDeadLetters.map((row) => ({ id: row.entry.mutationId, fields: { ...row } })),
+    fields: { outboxSize: state.outbox.pending },
+    rows: state.outbox.deadLetters.map((row) => ({ id: row.entry.mutationId, fields: { ...row } })),
   })
   actual.push({
     key: 'recovery',

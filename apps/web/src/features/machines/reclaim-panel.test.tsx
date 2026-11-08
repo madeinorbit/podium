@@ -164,8 +164,12 @@ vi.mock('@/components/ui/checkbox', () => ({
 }))
 
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { status: 'ok', rttMs: 10 }, visible: false }),
-  useConnectionHealth: () => ({ status: 'ok', rttMs: 10 }),
+  useStableConnection: () => ({
+    health: { state: 'online', pingMs: 10, since: 0 },
+    visible: false,
+  }),
+  useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
+  connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
   ConnectionIndicator: () => null,
 }))

@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { listReclaimableWorktreesClient } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import type { HeaderRows } from '@podium/client-graph/header-schema'
+import { attachHeaderRequests, type HeaderLifecycle } from '@podium/client-graph/header-requests'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { RowRecord } from '@podium/client-graph/shared/source'
-import { asMachineId } from '@podium/model/browser'
+import { asMachineId, type HostMetricsWire } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
@@ -33,14 +34,14 @@ const lifecycle = {
     maxIdleSessions: 8,
   },
   worktreeGc: { mode: 'propose', afterDays: 1 },
-} as HeaderRows['lifecycle']
+} as HeaderLifecycle
 const metric = {
   machineId: MACHINE,
   hostname: 'fixture-host',
   sampledAt: stamp(NOW),
   memory: { totalBytes: 32e9, availableBytes: 20e9, swapTotalBytes: 0, swapFreeBytes: 0 },
   load: { one: 2, five: 1.5, fifteen: 1, cpuCount: 8 },
-} as HeaderRows['hostMetric']
+} as HostMetricsWire
 const inventory = (): ReclaimInventory => ({
   candidates: listReclaimableWorktreesClient({
     issues: rows.map(
@@ -82,11 +83,8 @@ let processTopic = processesTopicFixture(async () => ({
 }))
 const store = {
   trpc,
-  hostMetrics: [metric],
   machines: [],
   sessions: [],
-  outboxSize: 0,
-  outboxDeadLetters: [],
   setView: vi.fn(),
   setSettingsTab: vi.fn(),
 }
@@ -106,12 +104,12 @@ vi.mock('@podium/client-core/react', async (original) => ({
 }))
 vi.mock('@/app/store', () => ({
   useStore: () => store,
-  useHostMetrics: () => store.hostMetrics,
   useRuntimeSelector: (read: (current: typeof store) => unknown) => read(store),
 }))
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { status: 'ok', rttMs: 10 }, visible: false }),
-  useConnectionHealth: () => ({ status: 'ok', rttMs: 10 }),
+  useStableConnection: () => ({ health: { state: 'online', pingMs: 10, since: 0 }, visible: false }),
+  useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
+  connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
   ConnectionIndicator: () => null,
 }))
@@ -155,10 +153,20 @@ function fixture(scale: 1 | 4) {
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
+  // POD-5798: the machine and its live sample (LiveStore), and the lifecycle
+  // settings (the header's request answer).
   headerEntities(pool).apply([
-    { kind: 'hostMetric', id: MACHINE, value: metric },
-    { kind: 'lifecycle', id: 'hosts', value: lifecycle },
+    {
+      kind: 'machine',
+      id: MACHINE,
+      value: { id: MACHINE, name: 'fixture-host', hostname: 'fixture-host', online: true, lastSeenAt: stamp(NOW) },
+    },
   ])
+  headerEntities(pool).order('machine', [MACHINE])
+  liveFixture(pool, () => now).metric(MACHINE, metric)
+  attachHeaderRequests(pool, { settings: { get: { query: async () => ({}) as never } } }).setLifecycle(
+    lifecycle as never,
+  )
   return count
 }
 

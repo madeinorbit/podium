@@ -1,22 +1,23 @@
-import { ingestSettings } from './requested-record-source'
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime, HeaderInputKey, KeyedListChange } from '@podium/client-core/engine'
+import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
+import { headerEntities } from './header-entities'
+import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
 import {
   HEADER_SCHEMA,
   type HeaderEntity,
   type HeaderRecord,
   type HeaderRows,
 } from './header-schema'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { createFieldInputs } from './shared/field-inputs'
 
-/** Read-side bridge owned by the existing StoreProvider attachment. The metric
- * channels never subscribe to snapshots. Network samples arrive from the
- * runtime service; this adapter owns neither network calls nor timers. */
+/** Read-side bridge owned by the existing StoreProvider attachment. Live
+ * readings (metrics, quota, connection) are not copied here: they are
+ * LiveStore conditions (POD-5798). The header's two request answers belong to
+ * {@link HeaderRequests}, which only a mounted header retains. */
 export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
@@ -71,46 +72,15 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
         if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
     })
   }
-  function metrics(): void {
-    replace(
-      'hostMetric',
-      runtime.hostMetrics
-        .getSnapshot()
-        .map((metric) => [metric.machineId ?? metric.hostname, metric]),
-    )
-  }
   function shipping(): void {
     replace(
       'shipOrder',
       runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
     )
   }
-  function sample(key: HeaderInputKey): void {
-    if (disposed) return
-    try {
-      if (key === 'quota') {
-        const rows = runtime.headerInputs.read('quota')
-        if (!rows) return
-        replace('quota', rows.map(row => [row.machineId, row]))
-        headerEntities(pool).received.quotas = rows
-      } else if (key === 'history') {
-        const reading = runtime.headerInputs.read('history')
-        if (!reading) return
-        replace('history', [['fleet', reading]])
-        headerEntities(pool).received.history = reading
-      } else {
-        const settings = runtime.headerInputs.read('lifecycle')
-        if (!settings) return
-        ingestSettings(pool, settings)
-        replace('lifecycle', [['hosts', settings]])
-        headerEntities(pool).received.lifecycle = settings
-      }
-    } catch (error) {
-      pool.diagnostics.report(`header:${key}`, error)
-    }
-  }
   runInAction(() => {
-    for (const [id, row] of allResidentSessions(pool)) headerEntities(pool).change('session', id, row)
+    for (const [id, row] of allResidentSessions(pool))
+      headerEntities(pool).change('session', id, row)
   })
   const offSessions = observe(pool.tables.session, (change) => {
     headerEntities(pool).change(
@@ -125,9 +95,8 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   keyed('repository', 'repos')
   locals()
   replace('window', [['window', inputs.row]])
-  metrics()
   shipping()
-  replace('connection', [['server', runtime.hub.connectionHealth()]])
+  attachHeaderRequests(pool, runtime.access.trpc as unknown as HeaderRequestsApi)
   const stops = [
     offSessions,
     runtime.replica.subscribeAddressedBatch!((batch) => {
@@ -149,13 +118,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     runtime.onLocals(windowKeys, locals),
     runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
     runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
-    runtime.hostMetrics.subscribe(metrics),
-    runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]])),
   ]
-  for (const key of ['quota', 'history', 'lifecycle'] as const) {
-    stops.push(runtime.headerInputs.onInput(key, () => sample(key)))
-    sample(key)
-  }
   return () => {
     if (disposed) return
     disposed = true
