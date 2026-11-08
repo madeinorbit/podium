@@ -112,7 +112,7 @@ describe('validation instance release feeds', () => {
     const code = await runWithValidationAdmission(
       'focused',
       ['bash', '-c', 'printf %s "$PODIUM_UPDATE_FEED_POLLING" > "$POLICY_OUTPUT"'],
-      { env: { ...env, POLICY_OUTPUT: output } },
+      { cwd: process.cwd(), env: { ...env, POLICY_OUTPUT: output } },
     )
     expect(code).toBe(0)
     expect(readFileSync(output, 'utf8')).toBe(setting ?? 'off')

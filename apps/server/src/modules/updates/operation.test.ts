@@ -2024,6 +2024,27 @@ describe('the step runners', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
+  it('server: reports an unpublished named artifact as retry-later without restarting', async () => {
+    const preflight = vi.fn(async () => ({ ok: true as const }))
+    const restart = vi.fn()
+    const h = await harness({
+      machines: [], durableRecovery: true,
+      approvedTarget: async () => packedTarget(), target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error('artifact download returned 404 — not published yet; retry later')
+      },
+      preflightDatabaseBackup: preflight, requestCoordinatorRestart: restart,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).error?.code).toBe('artifact-not-published')
+    expect((await h.read()).error?.message).toContain('not published yet')
+    expect((await h.read()).error?.message).toContain('retry')
+    expect(preflight).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it('server: records an unreachable published artifact as permanent', async () => {
     const preflight = vi.fn(async () => ({ ok: true as const }))
     const restart = vi.fn()
