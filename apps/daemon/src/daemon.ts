@@ -205,6 +205,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     queueDrainOutbox,
     runtimeEventOutbox,
     onConnected: host.connected,
+    onLinkLost: host.linkLost,
     bindingSessionIds: host.bindingSessionIds,
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,

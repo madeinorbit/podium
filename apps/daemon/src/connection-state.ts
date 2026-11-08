@@ -171,6 +171,14 @@ export interface DaemonConnectionDeps {
     bindingConfirmations?: BindingConfirmations,
   ) => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
+  /**
+   * An established link ended: the socket closed, the local attachment was
+   * dropped, or the connection was closed. Once per link that reached
+   * `connected`, before any reconnect; never for a dial that never connected.
+   * Per-link daemon state (ADR 7 Amendment 2 D22: topic watches) is released
+   * here, so nothing runs for the server while there is no server to hear it.
+   */
+  readonly onLinkLost?: () => void
   readonly openSocket?: (url: string) => SocketLike
   /**
    * Fetch for the Podium Connect locator read and the candidates' locate
@@ -279,6 +287,17 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
    */
   let consecutiveDrops = 0
   let closing = false
+  /** The current link reached `connected` and its loss has not been reported. */
+  let linkEstablished = false
+  const linkLost = (): void => {
+    if (!linkEstablished) return
+    linkEstablished = false
+    try {
+      deps.onLinkLost?.()
+    } catch (err) {
+      log.warn('link-loss cleanup failed', { err })
+    }
+  }
   let started = false
   /**
    * How many times the locator was consulted since the last successful
@@ -726,6 +745,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   ): void => {
     state = kind
     closing = true
+    linkLost()
     const guidance =
       kind === 'unauthorized'
         ? 'Pairing will not be retried. On the server, open Machines → Add machine, create a new one-use code, then pair this machine with that new code.'
@@ -811,6 +831,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
     const from = state
     state = 'connected'
+    linkEstablished = true
     acceptedCaps = new Set(caps)
     const recoveredAfterMs =
       reconnectBackoffMs === RECONNECT_MIN_MS ? undefined : reconnectBackoffMs
@@ -943,6 +964,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     localAttachment?.close()
     localAttachment = undefined
     state = 'closed'
+    linkLost()
   }
   const receiveReply = (
     dialer: ReturnType<typeof createHandshakeDialer>,
@@ -1211,6 +1233,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       clearHandshakeDeadlines(generation)
       stopQueueDrainRetry()
       stopRuntimeEventRetry()
+      linkLost()
       if (closing) return
       if (endpointActivationPending) {
         endpointActivationPending = false
@@ -1402,6 +1425,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else {
         localAttachment?.close()
         localAttachment = undefined
+        linkLost()
         scheduleReconnect()
       }
     },
@@ -1505,6 +1529,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       clearHandshakeDeadlines()
       localAttachment?.close()
       localAttachment = undefined
+      linkLost()
       const active = socket
       acceptedCaps.clear()
       socket = undefined

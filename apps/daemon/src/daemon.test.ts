@@ -34,7 +34,16 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import { CAP_TOPICS_V1, DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
+import {
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_MACHINE_PROCESSES_V1,
+  CAP_TOPICS_V1,
+  checkoutTopicId,
+  DAEMON_WIRE_VERSION,
+  type PeerHelloReply,
+  parseTopicKey,
+  topicKey,
+} from '@podium/protocol'
 import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
 
 /**
@@ -96,6 +105,7 @@ import {
 import { driverSlotsOver } from './session/driver-slots.js'
 import { testSessions } from './session/testing.js'
 import { createSessionObservers, type ReattachControl } from './session-observers'
+import { TopicWatchRegistry } from './topics/watch-registry'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
@@ -3158,6 +3168,127 @@ describe('daemon host metrics', () => {
       await wait(200)
       expect(published().length).toBe(stopped)
     } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
+  it('stops every topic producer when the server link drops; one left during the outage stays stopped (D22)', async () => {
+    // The REAL registry the host runtime builds: caught as it registers its producers.
+    const register = vi.spyOn(TopicWatchRegistry.prototype, 'register')
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const servers: WS[] = []
+    // The second link's handshake is held: the outage lasts until the test lets it end.
+    let endOutage!: () => void
+    const outageOver = new Promise<void>((resolve) => {
+      endOutage = resolve
+    })
+    wss.on('connection', (ws) => {
+      const index = servers.push(ws) - 1
+      let authed = false
+      ws.on('message', (raw) => {
+        if (!authed) {
+          authed = true
+          const ok: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: DAEMON_WIRE_VERSION,
+            caps: [CAP_TOPICS_V1, CAP_CHECKOUT_CHANGED_V1, CAP_MACHINE_PROCESSES_V1],
+            name: 'test',
+          }
+          if (index === 0) ws.send(JSON.stringify(ok))
+          else void outageOver.then(() => ws.send(JSON.stringify(ok)))
+          return
+        }
+        received.push(parseDaemonMessage(raw.toString()))
+      })
+    })
+    const repo = trackTmp('podium-topic-checkout-')
+    execFileSync('git', ['init', '-q', repo])
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      machineToken: 'test',
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+      agentRelay: { port: 0 },
+      backend: 'none',
+      durable: directPtyDurableForTests(),
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { intervalMs: 25 },
+    })
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const waitFor = async (what: string, fn: () => boolean): Promise<void> => {
+      const start = Date.now()
+      while (!fn()) {
+        if (Date.now() - start > 5000) throw new Error(`timed out waiting for ${what}`)
+        await wait(10)
+      }
+    }
+    const published = (key: string) =>
+      received.filter((m) => m.type === 'topicPublish' && m.key === key).length
+    try {
+      const watches = register.mock.contexts[0] as TopicWatchRegistry
+      expect(watches).toBeInstanceOf(TopicWatchRegistry)
+      // The connect report names this machine's own metrics key.
+      await waitFor('the connect report', () => received.some((m) => m.type === 'topicPublish'))
+      const metricsKey = (
+        received.find((m) => m.type === 'topicPublish') as Extract<
+          DaemonMessage,
+          { type: 'topicPublish' }
+        >
+      ).key
+      const machineId = asMachineId(parseTopicKey(metricsKey)?.id ?? '')
+      const keys = {
+        metrics: metricsKey,
+        processes: topicKey('machine.processes', machineId),
+        checkout: topicKey('checkout.changed', checkoutTopicId(machineId, repo)),
+      }
+      const demand = (ws: WS | undefined, key: string, on: boolean) =>
+        ws?.send(
+          JSON.stringify({
+            type: 'topicWatch',
+            key,
+            on,
+            ...(key === keys.processes ? { input: { roots: [] } } : {}),
+          }),
+        )
+      for (const key of Object.values(keys)) demand(servers[0], key, true)
+      await waitFor('all three producers', () =>
+        Object.values(keys).every((key) => watches.isRunning(key)),
+      )
+      await waitFor('metrics samples', () => published(keys.metrics) > 3)
+
+      // THE SERVER LINK DROPS. Every producer stops with it, before any reconnect.
+      servers[0]?.terminate()
+      await waitFor('the redial', () => servers.length === 2)
+      for (const key of Object.values(keys)) expect(watches.isRunning(key)).toBe(false)
+      // Still inside the outage (the handshake is held): nothing restarts.
+      await wait(150)
+      for (const key of Object.values(keys)) expect(watches.isRunning(key)).toBe(false)
+
+      // The viewer of the checkout and the processes left during the outage, so
+      // the new link re-demands only metrics (D21). The others stay stopped.
+      const before = received.length
+      endOutage()
+      await waitFor('the second link', () => daemon.connected)
+      demand(servers[1], keys.metrics, true)
+      await waitFor('metrics on the new link', () =>
+        received.slice(before).some((m) => m.type === 'topicPublish' && m.key === keys.metrics),
+      )
+      await wait(200)
+      expect(watches.isRunning(keys.metrics)).toBe(true)
+      expect(watches.isRunning(keys.processes)).toBe(false)
+      expect(watches.isRunning(keys.checkout)).toBe(false)
+      const afterLink = received.slice(before)
+      expect(afterLink.filter((m) => m.type === 'topicPublish' && m.key !== keys.metrics)).toEqual(
+        [],
+      )
+      // A re-demand starts a producer afresh.
+      demand(servers[1], keys.checkout, true)
+      await waitFor('the checkout producer', () => watches.isRunning(keys.checkout))
+    } finally {
+      register.mockRestore()
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }

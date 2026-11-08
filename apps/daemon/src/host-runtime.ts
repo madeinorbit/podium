@@ -242,6 +242,8 @@ export interface DaemonHostRuntime {
     legacyBindingOwners?: Readonly<Record<string, string>>,
     bindingConfirmations?: BindingConfirmations,
   ): { convergedVersion?: string }
+  /** The server link ended (see `DaemonConnectionDeps.onLinkLost`). */
+  linkLost(): void
   receive(raw: RawData): void
   receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
@@ -1838,6 +1840,21 @@ export async function createDaemonHostRuntime(args: {
     return convergedVersion ? { convergedVersion } : {}
   }
 
+  /**
+   * A LINK'S WATCHES DIE WITH IT (ADR 7 Amendment 2 D21/D22). Every topic
+   * producer stops the moment the link goes, exactly as a daemon restart would
+   * stop it: nobody can hear a sample while there is no server, and on reattach
+   * the server re-sends `on` only for keys that still have subscribers. A viewer
+   * that leaves during the outage therefore costs nothing, during it or after.
+   *
+   * The pre-topics always-on metrics timer is deliberately NOT stopped here: it
+   * is not a watch, and it has always run through an outage (its frames drop
+   * while no link is up). POD-6680 removes it with the older servers.
+   */
+  const linkLost = (): void => {
+    topicWatches.reset()
+  }
+
   const startConnectedServices = (): void => {
     if (!kickedOff) {
       kickedOff = true
@@ -1947,6 +1964,7 @@ export async function createDaemonHostRuntime(args: {
     agentRelayPort: agentRelay.port,
     portableState: portableStateFence,
     connected,
+    linkLost,
     bindingSessionIds: () => bindingStore.inventory(instance.codexReceiptDir),
     receive: (raw) => withHarnessVersionReporting(send, () => frameGuard.receive(raw)),
     receiveBinaryInput: (metadata, payload) => frameGuard.receiveBinaryInput(metadata, payload),

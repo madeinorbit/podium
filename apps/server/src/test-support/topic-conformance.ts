@@ -79,6 +79,12 @@ export const hostSample = (n: number): HostMetricsWire => ({
  * Samples only while the server holds a watch on one of its keys. A daemon
  * WITHOUT `topics.v1` (`legacy`) instead samples always, as today's daemon does,
  * and reports through the pre-topics frame.
+ *
+ * Its lifecycle mirrors the real daemon's (`host-runtime.ts`, ADR 7 Amendment 2
+ * D22): the watches are PER LINK, so a link loss stops every topic producer at
+ * once, exactly as a process exit does. The legacy always-on timer is not a
+ * watch: it survives a link loss (reporting nothing while no link is up) and
+ * stops only with the process.
  */
 export class FakeDaemon {
   connected = false
@@ -101,8 +107,9 @@ export class FakeDaemon {
     readonly topics: boolean,
   ) {}
 
-  /** The server's control frame. */
+  /** The server's control frame. No frame arrives while no link is up. */
   receive(frame: TopicWatchMessage): void {
+    if (!this.connected) return
     this.watches.push(frame)
     if (!frame.on) {
       const timer = this.timers.get(frame.key)
@@ -138,21 +145,27 @@ export class FakeDaemon {
   /** The link came up. A new link starts with NO demand (D22). */
   linkUp(): void {
     this.connected = true
-    this.stopAll()
-    if (!this.topics) this.legacyTimer = setInterval(() => this.sample(), SAMPLE_INTERVAL_MS)
+    this.stopWatches()
+    if (!this.topics && !this.legacyTimer)
+      this.legacyTimer = setInterval(() => this.sample(), SAMPLE_INTERVAL_MS)
   }
 
-  /** The link went down or the process died: every sampler stops with it. */
+  /** The link went down: every topic producer stops with it (D22). */
   linkDown(): void {
     this.connected = false
-    this.stopAll()
+    this.stopWatches()
   }
 
-  private stopAll(): void {
-    for (const timer of this.timers.values()) clearInterval(timer)
-    this.timers.clear()
+  /** The process died: the link and everything it ran, the legacy timer included. */
+  exit(): void {
+    this.linkDown()
     if (this.legacyTimer) clearInterval(this.legacyTimer)
     this.legacyTimer = undefined
+  }
+
+  private stopWatches(): void {
+    for (const timer of this.timers.values()) clearInterval(timer)
+    this.timers.clear()
   }
 }
 
@@ -221,6 +234,7 @@ export interface TopicWorld {
   legacyBroadcasts: number
   client(user?: UserId): Promise<ConformanceClient>
   attachDaemon(): Promise<void>
+  /** The daemon's server link drops; the process lives on. */
   detachDaemon(): Promise<void>
   /** The daemon process restarts: link down, a new process, link up. */
   restartDaemon(): Promise<void>
@@ -485,6 +499,7 @@ export async function createTopicWorld(
     },
     async restartDaemon() {
       await world.detachDaemon()
+      daemon.exit()
       await world.attachDaemon()
     },
     async revalidate() {
@@ -495,7 +510,7 @@ export async function createTopicWorld(
     },
     dispose() {
       for (const hub of hubs) hub.dispose()
-      daemon.linkDown()
+      daemon.exit()
     },
   }
   return world
@@ -639,6 +654,29 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
         expect(world.daemon.watching).toBe(1)
         await vi.advanceTimersByTimeAsync(SAMPLE_INTERVAL_MS * 2)
         expect(client.frames('topicUpdate', key).length).toBeGreaterThan(updatesBefore)
+      })
+
+      it('5b. a viewer that leaves while the daemon link is down leaves its producer stopped after reconnect', async () => {
+        const client = await world.client()
+        const held = holdTopic(client, c.kind, c.id)
+        await settle()
+        expect(world.daemon.watching).toBe(1)
+        // The link drops: the daemon stops every producer at once (D22) …
+        await world.detachDaemon()
+        expect(world.daemon.watching).toBe(0)
+        // … and the last viewer leaves during the outage. The `off` cannot reach it.
+        held.release()
+        await settle()
+        expect(serverHolds(world, c.kind, c.id)).toBe(0)
+        const watchesBefore = world.daemon.watches.length
+        await world.attachDaemon()
+        const samplesBefore = world.daemon.samples
+        await vi.advanceTimersByTimeAsync(Math.max(decl.minIntervalMs, SAMPLE_INTERVAL_MS) * 3)
+        // The reattach re-demands nothing for it (D21), so nothing runs or samples.
+        expect(world.daemon.watches.slice(watchesBefore)).toEqual([])
+        expect(world.daemon.watching).toBe(0)
+        expect(world.daemon.samples).toBe(samplesBefore)
+        expect(world.lifecycle[c.kind].stop).toBe(1)
       })
     }
 

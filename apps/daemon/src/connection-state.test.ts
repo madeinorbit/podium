@@ -544,6 +544,7 @@ function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identi
   let socketIndex = 0
   const onConnected = vi.fn()
   const onTerminal = vi.fn()
+  const onLinkLost = vi.fn()
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir, reconnectTimers: timers },
     build: buildReport(process.env, undefined),
@@ -555,13 +556,14 @@ function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identi
     runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected,
     onTerminal,
+    onLinkLost,
     openSocket: () => {
       const active = sockets[socketIndex++]
       if (!active) throw new Error('test exhausted its fake sockets')
       return active
     },
   })
-  return { state, onConnected, onTerminal }
+  return { state, onConnected, onTerminal, onLinkLost }
 }
 
 function remoteHarness() {
@@ -1122,6 +1124,40 @@ it('normally reconnects and resets truthful connectivity state', async () => {
   expect(onConnected).toHaveBeenCalledTimes(2)
   expect(harness.next(10_000)).toBeUndefined()
   await state.close()
+})
+
+it('reports each established link lost once, before the reconnect, and never a failed dial (D22)', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const { state, onConnected, onLinkLost } = remoteConnection(sockets, harness.timers)
+
+  const started = state.start()
+  sockets[0]?.emit('open')
+  sockets[0]?.message(ok)
+  await started
+  expect(onLinkLost).not.toHaveBeenCalled()
+
+  // The server goes away: the loss is reported at once, while still in backoff.
+  sockets[0]?.emit('close')
+  expect(state.state).toBe('backoff')
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  // A dial that never reaches `connected` was never a link.
+  harness.runNext(500)
+  sockets[1]?.emit('open')
+  sockets[1]?.emit('close')
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  harness.runNext(1_000)
+  sockets[2]?.emit('open')
+  sockets[2]?.message(ok)
+  expect(state.state).toBe('connected')
+  expect(onConnected).toHaveBeenCalledTimes(2)
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  // A deliberate close ends the link too, and only once.
+  await state.close()
+  expect(onLinkLost).toHaveBeenCalledTimes(2)
 })
 
 it('keeps the daemon boot identity when the live source changes before reconnect', async () => {

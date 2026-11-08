@@ -7,8 +7,9 @@
  *   `topicWatch on` for `machine.metrics:<self>`. The server holds it for every
  *   viewer it has, its own pressure sweep included, so "nobody watching" really
  *   means nothing samples.
- * - **older link:** the pre-topics always-on timer, exactly as before. POD-6680
- *   removes it once every server speaks topics.
+ * - **older link:** the pre-topics always-on timer, exactly as before. It is
+ *   not a watch, so a link loss (which stops every watch) leaves it running, as
+ *   it always did. POD-6680 removes it once every server speaks topics.
  *
  * Event-driven reports (connect, readiness changes, binding recovery) are NOT
  * this module's: they are changes the server must hear, sent by the host

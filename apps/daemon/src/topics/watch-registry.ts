@@ -6,10 +6,12 @@
  * is a DESIRED STATE (the `runtimeWatch` rule), so a repeated `on` is a no-op
  * and a lost frame is corrected by the next.
  *
- * The registry is emptied whenever the link to the server is (re)established:
- * the server forgets what it told the previous connection and re-sends `on` for
- * every key that still has subscribers (D21), so a key whose last subscriber
- * left while the link was down is never left sampling.
+ * The registry is PER LINK. It is emptied when the link to the server is lost
+ * (the host runtime's `linkLost`), again when a link is established, and when
+ * the daemon closes: the server forgets what it told the previous connection
+ * and re-sends `on` for every key that still has subscribers (D21). So nothing
+ * samples or watches during an outage, and a key whose last subscriber left
+ * while the link was down stays stopped after it.
  *
  * `runtimeWatch` (the transcript's fine watch) is deliberately NOT here yet: the
  * session kinds move last (POD-6679).
@@ -64,7 +66,7 @@ export class TopicWatchRegistry {
     return this.running.has(key)
   }
 
-  /** The link was (re)established, or the daemon is closing: stop everything. */
+  /** The link was lost or (re)established, or the daemon is closing: stop everything. */
   reset(): void {
     for (const key of [...this.running.keys()]) this.stopKey(key)
   }

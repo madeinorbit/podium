@@ -97,7 +97,7 @@ This replaces the transcript's opaque cursor as the resume point; the cursor sta
 
 One watch registry: `kind → { start(id) → stop }`, the same producer interface as the server's. Nothing samples or tails without demand.
 
-On restart the registry is empty, and the server's re-demand (D21) refills it.
+On restart the registry is empty, and the server's re-demand (D21) refills it. The registry is per link: when the daemon loses its server link it stops every producer at once, as on a restart, so a viewer that leaves during the outage costs nothing during it or after (POD-6691).
 
 ### D23. Wire frames
 
@@ -139,7 +139,7 @@ Each kind runs these cases, with a fake daemon where the kind has `producer: dae
 2. Two subscriptions to one key from one runtime make one server subscription; the last release unsubscribes.
 3. With no subscriber, the producer is stopped (a daemon kind receives `topicWatch off`) and nothing is published (counted over a sampling interval).
 4. Disconnect then reconnect: values become `unknown` and then the current value; logs resume from their position with no loss and no duplicates.
-5. A daemon restart with subscribers present re-sends `topicWatch on`, and updates resume.
+5. A daemon restart with subscribers present re-sends `topicWatch on`, and updates resume. A daemon link loss stops its producers at once; a key whose last subscriber left during the outage gets no `topicWatch on` on reattach, and nothing samples.
 6. A server restart: logs get `epoch` changed, then a reset snapshot with `hasOlder`.
 7. A forced gap (one dropped log frame) is detected, and the client recovers by resubscribing.
 8. Revoking visibility closes the key with `revoked`. A refused subscribe looks like a missing key.
