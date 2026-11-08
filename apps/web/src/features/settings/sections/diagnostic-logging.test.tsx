@@ -100,6 +100,20 @@ describe('diagnostic logging affordance', () => {
     expect(screen.getByText(/Back to warn by itself — 30 minutes left/)).toBeTruthy()
   })
 
+  it('keeps the remaining-minute answer at five-second precision', () => {
+    vi.setSystemTime(100_000)
+    const controller = createLevelController({ boot: 'warn' })
+    setActiveLevelController(controller)
+    controller.apply({ level: 'debug', ttlMs: 121_000 })
+    const view = render(<DiagnosticLoggingSubsection />)
+    expect(screen.getByText(/3 minutes left/)).toBeTruthy()
+    act(() => vi.advanceTimersByTime(4999))
+    expect(screen.getByText(/3 minutes left/)).toBeTruthy()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText(/2 minutes left/)).toBeTruthy()
+    view.unmount()
+  })
+
   it('reflects a raise an OPERATOR pushed, without anyone touching the picker', () => {
     // The knob has two ends. A row that only reported its own clicks would tell
     // the reader this client is at its default while it is forwarding debug.

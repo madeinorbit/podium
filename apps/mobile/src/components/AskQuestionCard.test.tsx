@@ -1,10 +1,10 @@
 import type { TranscriptItem } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
 // would otherwise still be in the document when the next test queries it.
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -25,6 +25,18 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
+  it('keeps the asked-age answer at twenty-second precision', () => {
+    vi.useFakeTimers(); vi.setSystemTime(100_000)
+    const view = render(<AskQuestionCard item={single} live presentation="band" askedAt={new Date(50_000).toISOString()} />)
+    expect(screen.getByText('asked now')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(19_999))
+    expect(screen.getByText('asked now')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText('asked 1m ago')).toBeTruthy()
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('submits a tapped option as a 1-based digit', async () => {
     const onAnswer = vi.fn(async () => {})
     render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)
