@@ -303,6 +303,21 @@ export interface ParentProcessDeps {
   handoverMaxMs?: number
 }
 
+/**
+ * Whether a successor gate's last refusal means "not there yet" rather than a
+ * verdict: no frame yet (`silent`, the default label when the server is up but
+ * its daemon is not yet connected), a child not yet spawned or bound, or no
+ * verdict file at all.
+ */
+function isStillWaiting(reasonCode: string): boolean {
+  return (
+    reasonCode === 'successor-unhealthy' ||
+    reasonCode.endsWith('-silent') ||
+    reasonCode.endsWith('-not-spawned') ||
+    reasonCode.endsWith('-no-port')
+  )
+}
+
 function defaultInstallBinary(installDir: string, env: NodeJS.ProcessEnv): string {
   const named = join(installDir, 'podium')
   if (existsSync(named)) return named
@@ -1868,6 +1883,7 @@ export class ParentProcess {
     // The initial deadline doubles as this attempt's identity in the verdict file.
     this.outgoingDeadline = initialDeadline
     let deadline = initialDeadline
+    let deferred: UpdateFailure | undefined
     const priorPhase = this.snap.phase
     // BEFORE the phase change, so `handover_outgoing` is never announced, and
     // before the spawn below, so there is no instant at which both incarnations
@@ -1988,12 +2004,86 @@ export class ParentProcess {
       }
       if (this.stopping || this.terminating) return
       const timedOut = this.handoverTimeoutFailure(successorPid, startedAt)
-      await this.abortHandover(successor, expectedVersion, priorPhase, undefined, timedOut)
-      throw new UpdateGateError(timedOut)
+      const outcome = await this.abortHandover(successor, expectedVersion, priorPhase, undefined, timedOut, {
+        // Only a slow boot is worth a second attempt; a refusal would repeat.
+        deferUnavailable:
+          timedOut.reasonCode === 'handover-timeout' && this.handoverRetriedFor !== expectedVersion,
+      })
+      if (outcome !== 'deferred') throw new UpdateGateError(timedOut)
+      deferred = timedOut
     } finally {
       successor.removeListener('exit', onSuccessorExit)
       try { unlinkSync(this.gateVerdictPath(successorPid)) } catch {}
     }
+    if (deferred) await this.finishHandoverAfterReclaim(expectedVersion, deferred)
+  }
+
+  /** The version whose handover was already retried once after a reclaim. */
+  private handoverRetriedFor: string | undefined
+
+  /**
+   * FINISH WHAT THE SLOW BOOT STARTED (POD-6618).
+   *
+   * Reached only after a TIMEOUT whose release cannot be rolled back: its
+   * migrations ran, so the release on disk is the only one this database can
+   * serve, and `abortHandover` has just respawned the children from it. On
+   * ludovico that stack was healthy 20 s later while this parent sat on the old
+   * version having already declared the update stuck, and nothing could ever
+   * confirm it. So the verdict waits: if the children come up healthy on the
+   * target, hand over to it once more (its second boot is the fast one); only
+   * if they do not, or that handover fails too, report what happened.
+   */
+  private async finishHandoverAfterReclaim(
+    expectedVersion: string,
+    timedOut: UpdateFailure,
+  ): Promise<void> {
+    this.handoverRetriedFor = expectedVersion
+    const healthy = await this.waitForReclaimedHealth(expectedVersion)
+    if (this.stopping || this.terminating) return
+    if (healthy) {
+      log.warn('the new version is healthy under this parent after a slow handover; handing over again', {
+        expectedVersion,
+      })
+      await this.handover(expectedVersion)
+      return
+    }
+    const because = `the successor parent never became healthy on ${expectedVersion}`
+    this.updateReporter?.(timedOut)
+    const decision = rollbackDecision({
+      crashLoop: true,
+      oldBundlePresent: oldBundlePresent(this.installDir),
+      appliedMigrations: this.appliedUpdateMigrations(),
+    })
+    if (decision.action === 'unavailable') this.reportRollbackUnavailable(decision.why, because)
+    throw new UpdateGateError(timedOut)
+  }
+
+  /**
+   * Whether this parent's own (just respawned) children prove a healthy stack on
+   * `expectedVersion`, waiting one stall window, stretched by their boot steps
+   * up to the handover cap. The supervision tick restarts a child that dies.
+   */
+  private async waitForReclaimedHealth(expectedVersion: string): Promise<boolean> {
+    const startedAt = this.deps.now()
+    const stallMs = this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS
+    const capMs = startedAt + Math.max(stallMs, this.deps.handoverMaxMs ?? HANDOVER_MAX_MS)
+    // These children's steps are new to THIS boot, whatever the parent saw before.
+    this.bootStagesSeen.clear()
+    this.bootProgress = undefined
+    for (;;) {
+      if (this.stopping || this.terminating) return false
+      const progress = this.lastBootProgress()
+      const deadline = Math.min(
+        capMs,
+        Math.max(startedAt + stallMs, progress ? progress.atMs + stallMs : 0),
+      )
+      if (this.deps.now() >= deadline) break
+      const { healthy } = await this.probeBootHealth(expectedVersion)
+      if (healthy) return true
+      await this.deps.sleep(500)
+    }
+    log.warn('the respawned stack did not become healthy on the new version', { expectedVersion })
+    return false
   }
 
   /**
@@ -2032,6 +2122,10 @@ export class ParentProcess {
    */
   private handoverTimeoutFailure(successorPid: number, startedAt: number): UpdateFailure {
     const last = this.successorFailure(successorPid)
+    // A DEFINITE refusal (refused by the server, wrong version, cannot report)
+    // is not a slow boot, and keeps its own name: waiting longer would not
+    // have changed it. Only "still waiting" verdicts become a timeout.
+    if (!isStillWaiting(last.reasonCode)) return last
     const stage = this.successorStretch(successorPid)?.stage
     const waitedS = Math.round((this.deps.now() - startedAt) / 1000)
     return {
@@ -2079,9 +2173,12 @@ export class ParentProcess {
     priorPhase: ParentSnapshot['phase'],
     because = `the successor parent never became healthy on ${expectedVersion}`,
     known?: UpdateFailure,
-  ): Promise<void> {
+    opts: { deferUnavailable?: boolean } = {},
+  ): Promise<'reported' | 'deferred'> {
     const failure = known ?? this.successorFailure(successor.pid, because)
-    this.updateReporter?.(failure)
+    // A deferrable verdict is reported below, once the rollback decision says
+    // whether it is final; anything else is reported first, as it always was.
+    if (!opts.deferUnavailable) this.updateReporter?.(failure)
     log.error('handover failed — reclaiming supervision on the previous version', {
       successorPid: successor.pid,
       expectedVersion,
@@ -2138,16 +2235,19 @@ export class ParentProcess {
         })
       : ({ action: 'continue' } as const)
 
+    const deferring = opts.deferUnavailable === true && decision.action === 'unavailable'
+    if (opts.deferUnavailable && !deferring) this.updateReporter?.(failure)
     if (decision.action === 'rollback') {
       // Leave `handover_outgoing` first: `rollback()` respawns children, and
       // spawns are suppressed while a handover is nominally in flight.
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
       await this.rollback(because)
-      return
+      return 'reported'
     }
     if (decision.action === 'unavailable') {
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
-      this.reportRollbackUnavailable(decision.why, because)
+      // Deferred: `finishHandoverAfterReclaim` reports it if the retry cannot happen.
+      if (!deferring) this.reportRollbackUnavailable(decision.why, because)
     } else {
       this.abandonHandover(priorPhase)
     }
@@ -2156,6 +2256,7 @@ export class ParentProcess {
       if (this.childProcs.has(child)) continue
       await this.spawnChild(child)
     }
+    return deferring ? 'deferred' : 'reported'
   }
 
   /**

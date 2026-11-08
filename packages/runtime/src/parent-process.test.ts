@@ -1789,6 +1789,107 @@ describe('delayed successor boot ownership', () => {
     expect(run.predecessorExit).not.toHaveBeenCalled()
   })
 
+  /**
+   * POD-6618, the second half: the slow successor timed out, its migrations
+   * made rollback impossible, and the old parent respawned the children from
+   * the new bundle, which came up healthy in seconds. The old parent had
+   * already declared the update stuck, so nothing could confirm it. Now it
+   * waits for that stack and, when it is healthy, hands over once more.
+   */
+  async function reclaimAfterSlowBoot(opts: { reclaimedHealthy: boolean; secondHealthy: boolean }) {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const { install, state } = installDirs('1.0.0')
+    await migrationJournal(state, ['20261104144533_accounts-per-user-owner'])
+    const reported: Array<{ reasonCode: string; detail: string }> = []
+    const exit = vi.fn()
+    const successors: FakeChild[] = []
+    let children: FakeChild[] = []
+    let serving = '1.0.0'
+    let nextPid = 500
+    const outgoing = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['server'],
+        env: {},
+        spawn: ((_cmd, args, options) => {
+          if (args[0] === 'parent') {
+            const successor = new FakeChild(nextPid++)
+            successors.push(successor)
+            // The successor's children take the old ones over (`--takeover`).
+            for (const child of children) child.die(0)
+            children = []
+            if (successors.length === 2 && opts.secondHealthy) serving = '2.0.0'
+            return successor as unknown as ReturnType<SpawnChildFn>
+          }
+          const env = { ...options.env }
+          // A respawned child that cannot boot never says ready.
+          const child =
+            successors.length > 0 && !opts.reclaimedHealthy
+              ? new FakeChild(nextPid++)
+              : channelChild(nextPid++, args, { ...options, env })
+          children.push(child)
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy(serving),
+        now: clock.now,
+        sleep: async (ms) => {
+          clock.advance(ms)
+          await vi.advanceTimersByTimeAsync(0)
+        },
+        notify: () => {},
+        exit,
+      }),
+    )
+    outgoing.setUpdateReporter((failure) => reported.push(failure), () => {})
+    outgoing.setUpdateMigrationKnowledge(true, 'parent-update')
+    await outgoing.start()
+    // The swap: the new bundle is on disk, the old one retained beside it.
+    writeFileSync(join(install, 'VERSION'), '2.0.0\n')
+    retainBackup(install, '1.0.0')
+    const outcome = await outgoing.handover('2.0.0').then(
+      () => undefined,
+      (error: unknown) => error as Error & { reasonCode?: string },
+    )
+    return { outcome, reported, exit, successors, state }
+  }
+
+  it('hands over again once the reclaimed new-version stack is healthy, without declaring it stuck', async () => {
+    const run = await reclaimAfterSlowBoot({ reclaimedHealthy: true, secondHealthy: true })
+    expect(run.successors).toHaveLength(2)
+    expect(run.successors[0]?.signalsReceived).toContain('SIGTERM')
+    expect(run.outcome).toBeUndefined()
+    expect(run.exit).toHaveBeenCalledWith(0)
+    expect(run.reported).toEqual([])
+    expect(outcomeIn(run.state)).toBeUndefined()
+  })
+
+  it('reports the timeout and the refused rollback when the reclaimed stack never comes up', async () => {
+    const run = await reclaimAfterSlowBoot({ reclaimedHealthy: false, secondHealthy: false })
+    expect(run.successors).toHaveLength(1)
+    expect(run.outcome?.reasonCode).toBe('handover-timeout')
+    expect(run.reported.map((failure) => failure.reasonCode)).toEqual([
+      'handover-timeout',
+      'rollback-refused-migrations',
+    ])
+    expect(outcomeIn(run.state)?.outcome).toBe('rollback-unavailable')
+    expect(run.exit).not.toHaveBeenCalled()
+  })
+
+  it('retries only once: a second timeout is reported, not retried again', async () => {
+    const run = await reclaimAfterSlowBoot({ reclaimedHealthy: true, secondHealthy: false })
+    expect(run.successors).toHaveLength(2)
+    expect(run.outcome?.reasonCode).toBe('handover-timeout')
+    expect(run.reported.map((failure) => failure.reasonCode)).toEqual([
+      'handover-timeout',
+      'rollback-refused-migrations',
+    ])
+    expect(run.exit).not.toHaveBeenCalled()
+  })
+
   it('does not let a crash-looping successor stretch the deadline by repeating its early steps', async () => {
     vi.useFakeTimers()
     const clock = fakeClock()
