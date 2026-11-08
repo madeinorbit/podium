@@ -126,7 +126,7 @@ export interface RowSourceHandle {
 
 /** The pool rows the transaction log repaints: sessions, issues, and POD-6673's
  *  standalone per-user records. */
-export type RepaintKind = 'session' | 'issue' | 'pin' | 'tabOrder' | 'userPreferences'
+export type RepaintKind = 'session' | 'issue' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition'
 
 /** What the pool's transaction log reaches through the feed (POD-5431). */
 export interface RowSourceRepaint {
@@ -445,6 +445,7 @@ export function createRowSource(
       pins: pooled.byRow('pins'),
       tabOrders: pooled.byRow('tabOrders'),
       userPreferences: pooled.byRow('userPreferences'),
+      userReadPositions: pooled.byRow('userReadPositions'),
     }
   }
 
