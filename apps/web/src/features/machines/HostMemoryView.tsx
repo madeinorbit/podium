@@ -3,14 +3,9 @@ import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/clien
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId } from '@podium/model'
-import type {
-  AgentMemoryWire,
-  HostMemoryWire,
-  IssueId,
-  MachineId,
-  ProjectMemoryWire,
-} from '@podium/model/browser'
+import type { AgentMemoryWire, IssueId, MachineId, ProjectMemoryWire } from '@podium/model/browser'
 import { machinePathBasename } from '@podium/model/browser'
+import type { HostMemoryBreakdown as Breakdown } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -156,9 +151,8 @@ function MemoryPanel({
   machineId?: MachineId
 }): JSX.Element {
   const hostMetrics = useHostMetrics()
-  const { trpc, setView, setSettingsTab } = useRuntimeSelector(
+  const { setView, setSettingsTab } = useRuntimeSelector(
     (s) => ({
-      trpc: s.trpc,
       setView: s.setView,
       setSettingsTab: s.setSettingsTab,
     }),

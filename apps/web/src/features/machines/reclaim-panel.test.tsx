@@ -15,6 +15,7 @@
 import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { processesTopicFixture } from '@/test-support/processes-topic'
 import { HostInfoView } from './HostMemoryView'
 
 const stop = vi.fn()
@@ -80,6 +81,12 @@ const inventory = () => ({
   },
 })
 
+let processTopic = processesTopicFixture(async () => ({
+  breakdown: await memoryBreakdown(),
+  reclaim: await reclaimInventory(),
+}))
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ hub: processTopic.hub }) }))
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hostMetrics: [
@@ -115,7 +122,13 @@ vi.mock('@/app/store', () => {
 // The lifecycle settings are a pool read; this panel only names the GC policy.
 vi.mock('./host-lifecycle-settings', () => {
   const lifecycle = {
-    hibernation: { enabled: true, memoryPct: 80, idleMinutes: 30, loadPerCore: 1.5, maxIdleSessions: 8 },
+    hibernation: {
+      enabled: true,
+      memoryPct: 80,
+      idleMinutes: 30,
+      loadPerCore: 1.5,
+      maxIdleSessions: 8,
+    },
     worktreeGc: { mode: 'propose' as const, afterDays: 14 },
   }
   return {
@@ -180,6 +193,10 @@ const tick = (title: string): void => {
 const confirmDialog = async (): Promise<HTMLElement> => await screen.findByRole('alertdialog')
 
 beforeEach(() => {
+  processTopic = processesTopicFixture(async () => ({
+    breakdown: await memoryBreakdown(),
+    reclaim: await reclaimInventory(),
+  }))
   vi.clearAllMocks()
   stop.mockResolvedValue(freed)
   reclaimInventory.mockResolvedValue(inventory())

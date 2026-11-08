@@ -1,6 +1,7 @@
 import type { MachineId } from '@podium/model'
-import type { DaemonMessage, HostMemoryBreakdown } from '@podium/protocol'
+import type { HostMemoryBreakdown } from '@podium/protocol'
 import { MachineProcessesWatchInput, topicKey } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { TopicWatchRegistry } from './watch-registry'
 
 /** Only the server supplies roots, derived from this machine's registered repos.
