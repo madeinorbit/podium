@@ -1290,7 +1290,6 @@ export class SessionRepository {
     const running = await this.store.sessions.sessionsWithStatuses([
       'starting',
       'live',
-      'reconnecting',
     ])
     const runningIds = new Set(running.map((r) => r.id))
     const storedRows = [

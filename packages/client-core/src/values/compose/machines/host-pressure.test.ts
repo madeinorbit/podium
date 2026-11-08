@@ -112,7 +112,8 @@ describe('residency', () => {
       }),
       session({ sessionId: 'c', status: 'hibernated' }),
       session({ sessionId: 'd', status: 'live', machineId: asMachineId('other') }),
-      session({ sessionId: 'e', status: 'reconnecting' }),
+      // Reconnecting (its machine's link down) is still `live` (ADR 12 D1).
+      session({ sessionId: 'e', status: 'live' }),
     ]
     expect(residentSessionsOnMachine(sessions, asMachineId('m1'))).toHaveLength(3)
     const agents = hostAgentsView(sessions, asMachineId('m1'), 8, 'podium-vps')

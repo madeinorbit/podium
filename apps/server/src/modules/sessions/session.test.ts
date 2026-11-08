@@ -745,7 +745,7 @@ describe('Session', () => {
     warn.mockRestore()
   })
 
-  it('markLive promotes a reconnecting session to live', () => {
+  it('markLive promotes a starting session to live and clears its rebind wait', () => {
     const s = new Session({
       ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
@@ -758,11 +758,14 @@ describe('Session', () => {
       geometry: geo,
       machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
-      status: 'reconnecting',
+      status: 'starting',
+      awaitingRebind: true,
     })
-    expect(s.toMeta().status).toBe('reconnecting')
+    expect(s.awaitingRebind).toBe(true)
+    expect(s.toMeta().status).toBe('starting')
     s.markLive('claude', geo)
     expect(s.toMeta().status).toBe('live')
+    expect(s.awaitingRebind).toBe(false)
   })
 
   it('THE BIND IS A FULL STATEMENT: the copy is the daemon’s size, and a box it lost is re-driven', () => {
@@ -863,7 +866,8 @@ describe('Session', () => {
       geometry: geo,
       machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
-      status: 'reconnecting',
+      status: 'live',
+      awaitingRebind: true,
     })
 
     s.setAgentState(state('idle', '2026-06-10T00:01:00.000Z'))
@@ -898,7 +902,8 @@ describe('Session', () => {
       geometry: geo,
       machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
-      status: 'reconnecting',
+      status: 'live',
+      awaitingRebind: true,
     })
     s.markLive('claude', geo)
     expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')

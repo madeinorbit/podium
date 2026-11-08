@@ -14,7 +14,7 @@ import {
   wordWantsAttention,
 } from '@podium/model/browser'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
-import type { SessionView } from '../session-values'
+import type { SessionView, SessionViewWithLink } from '../session-values'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
@@ -283,7 +283,8 @@ function sessionWorking(session: SessionView): boolean {
  * is busy" from "the machine is stuck on me". Those are the two questions this
  * bar exists to answer, and each tab now answers exactly one of them.
  *
- * `starting` and `reconnecting` are at work without a phase to prove it: an
+ * `starting` and a reconnecting session (its machine offline, derived) are at
+ * work without a phase to prove it: an
  * agent mid-spawn has no transcript yet and reads as `queued`, and dropping it
  * would blank the view for exactly as long as the operator is watching for the
  * agent they just started. Everything else `queued` — parked, hibernated, an
@@ -294,9 +295,9 @@ function sessionWorking(session: SessionView): boolean {
  * `workingAgentCount` and the row's own spinner, and a spawning agent has
  * nothing to spin yet. Same core question, one extra beat at the start.
  */
-export function sessionAtWork(session: SessionView): boolean {
+export function sessionAtWork(session: SessionViewWithLink): boolean {
   if (!openSession(session)) return false
-  if (session.status === 'starting' || session.status === 'reconnecting') return true
+  if (session.status === 'starting' || session.reconnecting === true) return true
   return sessionWorking(session)
 }
 

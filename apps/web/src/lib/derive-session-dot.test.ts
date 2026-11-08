@@ -22,7 +22,6 @@ function sess(over: Partial<SessionViewInput> = {}): SessionView {
 describe('sessionDotClass — still statuses', () => {
   it.each([
     ['starting', null],
-    ['reconnecting', null],
     ['live', null],
     ['hibernated', 'parked'],
   ] as const)('%s carries no looping animation class (marker: %s)', (status, marker) => {

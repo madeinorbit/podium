@@ -298,7 +298,7 @@ describe('async session port boundaries', () => {
     })
   })
 
-  it('census repair commits reconnecting before preparing its reattach', async () => {
+  it('census repair commits live (awaiting its rebind) before preparing its reattach', async () => {
     const f = fixture()
     f.session.status = 'hibernated'
     const reconciler = new SessionMachineReconciler({
@@ -320,7 +320,7 @@ describe('async session port boundaries', () => {
     await f.entered.promise
     f.commit.resolve()
     await pending
-    expect(f.events).toEqual(['commit', 'reattach:reconnecting', 'send'])
+    expect(f.events).toEqual(['commit', 'reattach:live', 'send'])
   })
 
   it.each([

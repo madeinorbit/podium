@@ -1033,7 +1033,7 @@ describe('MessageDeliveryService.send', () => {
   // [POD-1365 / POD-1371] Coordinator preference is by ROLE, not by session STATUS.
   // Status is a different axis from agent PHASE: an agent at its prompt is phase
   // 'idle' and status 'live' — SessionStatus has no 'idle' member
-  // ('starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'). Prefer the
+  // ('starting' | 'live' | 'hibernated' | 'exited'). Prefer the
   // coordinator whenever it still exists as a non-exited member; only 'exited'
   // falls through to the most-recently-active peer so a departed coordinator
   // cannot strand mail. A parked (hibernated) coordinator HOLDS fyi mail for its
@@ -1042,7 +1042,6 @@ describe('MessageDeliveryService.send', () => {
   it.each([
     { status: 'live', wins: true },
     { status: 'starting', wins: true },
-    { status: 'reconnecting', wins: true },
     { status: 'hibernated', wins: true },
     { status: 'exited', wins: false },
   ])('coordinator with status $status receives issue mail: $wins', async ({ status, wins }) => {

@@ -13,6 +13,7 @@ import {
   type SeatWords,
   type SessionId,
   type SessionMeta,
+  isSessionReconnecting,
   seatWords,
   tallyTaskWords,
   taskHidden,
@@ -219,8 +220,9 @@ export async function readDeck(
     const row = rows.get(s.issueId)
     if (!row) continue
     const coordinator = row.coordinatorSessionId === s.sessionId
+    const machineOnline = s.machineId ? store.deps.machineOnline?.(s.machineId) : undefined
     const words = seatWords(
-      s,
+      { ...s, reconnecting: isSessionReconnecting(s.status, machineOnline) },
       { issueClosed: store.isClosed(row), pendingInteractions: pending.get(s.sessionId) ?? 0 },
       coordinator,
     )
@@ -228,6 +230,7 @@ export async function readDeck(
     const session: IssueDeckSession = {
       ...toIssueTreeSession({
         ...s,
+        machineOnline,
         model: s.observedModel ?? s.model,
         effort: s.observedEffort ?? s.effort,
         ...(sessionRefs.has(s.sessionId) ? { displayRef: sessionRefs.get(s.sessionId)! } : {}),

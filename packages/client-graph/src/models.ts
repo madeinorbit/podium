@@ -22,7 +22,7 @@ import {
   SESSION_HANDOFF_KIND,
   SESSION_LAUNCH_KIND,
 } from '@podium/client-core/spawn-agent'
-import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
+import { asSessionId, type CoordinatedSeat, coordinatedSeat, isSessionReconnecting, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
@@ -958,6 +958,16 @@ export class SessionModel extends EntityModel {
   @lazy get issueId(): SessionView['issueId'] { return this.storedField('issueId') as SessionView['issueId'] }
   @lazy get machineId(): SessionView['machineId'] { return this.storedField('machineId') as SessionView['machineId'] }
   @lazy get status(): SessionView['status'] { return this.storedField('status') as SessionView['status'] }
+  /**
+   * Running, and its machine is known to be offline right now (ADR 12 D1,
+   * POD-6646): a condition read from this user's LiveStore, never a stored
+   * status. Before the machine's first reading it is unknown, and unknown is
+   * not reconnecting, so an app started offline never shows a stale answer.
+   */
+  @lazy get reconnecting(): boolean {
+    const machineId = this.machineId
+    return isSessionReconnecting(this.status, machineId ? this.host.live?.onlineOf(machineId) : undefined)
+  }
   @lazy({ equals: compareStructural }) get geometry(): SessionView['geometry'] {
     return this.storedField('geometry') as SessionView['geometry']
   }
@@ -1027,7 +1037,7 @@ export class SessionModel extends EntityModel {
   // Unlike verdict.working, atWork includes starting/reconnecting before motion.
   @lazy
   get atWork(): boolean {
-    return this.open && (this.status === 'starting' || this.status === 'reconnecting' || this.workingMotion)
+    return this.open && (this.status === 'starting' || this.reconnecting || this.workingMotion)
   }
 
   @lazy
@@ -1124,9 +1134,12 @@ export class SessionModel extends EntityModel {
   /** Error or Needs you: the two words that carry the colour and the dot. */
   @lazy get attention(): boolean { return wordWantsAttention(this.word) }
 
-  /** Fresh execution evidence is a session fact; views decide which agents to show. */
+  /** Fresh execution evidence is a session fact; views decide which agents to show.
+   *  A reconnecting session has none: its machine's link is down, so its preserved
+   *  phase no longer confirms work now. */
   @lazy
   get computingDeadline(): number | undefined {
+    if (this.reconnecting) return undefined
     const row = this.declaredRow
     return computingDeadlineOf(row === LOADING ? undefined : row as SessionView | undefined)
   }

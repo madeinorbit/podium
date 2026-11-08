@@ -260,7 +260,7 @@ export function panelChatCapable(
 /**
  * THE NAME OF THE MACHINE A LIVE PANEL CANNOT REACH, or null (POD-4629).
  *
- * A session whose machine went away keeps a `live`/`reconnecting` row, so the
+ * A session whose machine went away keeps a `live` row, so the
  * surface stays `live` and the terminal mounts. The server answers the attach
  * without the daemon, and a PTY that ever spoke reads `outputSeen`, so the
  * startup overlay correctly steps aside — and the operator got an empty

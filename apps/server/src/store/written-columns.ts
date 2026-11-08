@@ -3,10 +3,11 @@
  *
  * The session upsert names an indexed column in its ON CONFLICT set only when
  * the value changed, and "changed" needs something to compare against that is
- * the row as stored. The live session's durable baseline is not that: a boot
- * restore holds a row stored as `live` as `reconnecting` without writing it, so
- * a rename compared against the baseline would leave `live` where the full
- * write stored `reconnecting`. So the store keeps what its own writes sent and
+ * the row as stored. The live session's durable baseline is not that: it can
+ * differ from the stored row without a write (until POD-6646 a boot restore
+ * held a row stored as `live` as `reconnecting`), and a rename compared against
+ * the baseline would then skip a column the full write changes. So the store
+ * keeps what its own writes sent and
  * its own reads returned, and answers "unknown" (write every column) whenever
  * it cannot be sure:
  *

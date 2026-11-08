@@ -20,6 +20,7 @@
  */
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
+import { shownSessionStatus } from '@podium/model'
 import { senderFromPrincipal } from '../service'
 import { type MailHandlerContext, mailWriter } from './context'
 
@@ -81,7 +82,11 @@ export async function askAnswer(
   const snapshot = target
     ? {
         sessionId: target.sessionId,
-        status: target.status,
+        // As shown: `reconnecting` while the server has no daemon link to its machine.
+        status: shownSessionStatus(
+          target.status,
+          target.machineId ? deps.machineOnline?.(target.machineId) : undefined,
+        ),
         ...(target.agentState?.phase ? { phase: target.agentState.phase } : {}),
         ...(target.issueId ? { issueId: target.issueId } : {}),
       }

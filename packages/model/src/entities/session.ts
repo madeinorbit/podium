@@ -81,7 +81,12 @@ export type GeometryState = z.infer<typeof GeometryState>
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
-export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
+/**
+ * What the daemon last observed of the session's process. `reconnecting` is not
+ * one of them (ADR 12 D1, POD-6646): a dropped daemon link is a condition of the
+ * machine, derived on each reader by `isSessionReconnecting`.
+ */
+export const SessionStatus = z.enum(['starting', 'live', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
 /**

@@ -127,10 +127,9 @@ describe('hibernateAction', () => {
 
   it('does not offer it before the process exists — the divergence this replaced', () => {
     // AgentPanel used to read `!hibernated && !exited && resumable`, so it
-    // offered Hibernate on a `starting`/`reconnecting` session where the shared
+    // offered Hibernate on a `starting` session where the shared
     // rule (`sessionMenuEligibility`, and the server) says no.
     expect(hibernateAction(meta({ status: 'starting' }))).toBeNull()
-    expect(hibernateAction(meta({ status: 'reconnecting' }))).toBeNull()
   })
 
   it('has nothing to say about a session that has not arrived', () => {

@@ -8,7 +8,7 @@
  * Transcript reads go through the same reader-checked read the web uses.
  */
 
-import type { SessionId, UserId } from '@podium/model'
+import { isSessionReconnecting, type SessionId, type UserId } from '@podium/model'
 import { userCommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
@@ -18,7 +18,7 @@ import type { SessionFacts } from '../sessions/facts'
 import { readSessionRefs } from '../sessions/refs'
 import type { AttachableSession, DirectSessionPort, SessionResolution } from './session-attachment'
 
-const RUNNING_STATUSES = ['live', 'starting', 'reconnecting'] as const
+const RUNNING_STATUSES = ['live', 'starting'] as const
 
 export function directSessionPort(
   modules: RegistryModules,
@@ -51,6 +51,7 @@ export function directSessionPort(
         label: f.name || f.title,
         ...(ref ? { ref } : {}),
         status: f.status,
+        reconnecting: isSessionReconnecting(f.status, modules.machines.hasDaemon(f.machineId)),
         archived: f.archived,
         headless: f.headless,
         agentKind: f.agentKind,

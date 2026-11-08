@@ -391,7 +391,7 @@ export class SessionDaemonLifecycle {
         if (s) {
           // PERSISTED, not merely held (POD-2290 round 2). Holding it in memory
           // was the whole defect the reviewer drove: a server restart rehydrates
-          // live rows as `reconnecting`, and an in-memory-only selection is gone
+          // live rows unbound, and an in-memory-only selection is gone
           // by then, so a headless session came back looking like it had a
           // terminal. This write is what survives the restart.
           await this.write(s, (draft) => {
@@ -565,7 +565,7 @@ export class SessionDaemonLifecycle {
         // The receipt for a kill this server asked for [POD-1953]. A confirmed
         // reap needs nothing — the park already flipped the row. An UNCONFIRMED
         // one means the row is now lying about a process that is still serving,
-        // so the durable host wins and the row goes back to reconnecting.
+        // so the durable host wins and the row goes back to live, awaiting a rebind.
         const s = this.sessions.get(msg.sessionId)
         if (!s || s.machineId !== machineId) break
         if (msg.killed) break
@@ -580,8 +580,8 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         // Skip rows already exited: those are the boot-time probes of dead 'exited'
         // sessions (see attachDaemon). Re-running onExit there would re-broadcast a
-        // redundant agentExit and churn the row on every restart. A 'reconnecting'
-        // survivor that fails to reattach is a real death — mark it exited.
+        // redundant agentExit and churn the row on every restart. A survivor awaiting
+        // its rebind that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
           // Admission can fail even when a durable process survived. Preserve
@@ -608,7 +608,7 @@ export class SessionDaemonLifecycle {
       case 'agentObservationRebind': {
         const session = this.sessions.get(msg.sessionId)
         if (!session || session.machineId !== machineId) break
-        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        if (!['starting', 'live'].includes(session.status)) break
         const lease = await this.store.observationCheckpoints.get(msg.sessionId)
         const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
@@ -742,7 +742,7 @@ export class SessionDaemonLifecycle {
         const observation = msg.observation
         const session = this.sessions.get(observation.podiumSessionId)
         if (!session || session.machineId !== machineId) break
-        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        if (!['starting', 'live'].includes(session.status)) break
         // Bind retirement to the offer and input evidence present at ingress.
         // Persistence and owner notification yield; a later offer must not be
         // consumed by this earlier transition when those continuations resume.
@@ -904,7 +904,7 @@ export class SessionDaemonLifecycle {
       case 'agentObserverLiveConfirmation': {
         const session = this.sessions.get(msg.sessionId)
         if (!session || session.machineId !== machineId) break
-        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        if (!['starting', 'live'].includes(session.status)) break
         const lease = await this.store.observationCheckpoints.get(msg.sessionId)
         const checkpoint = lease?.checkpoint
         if (
@@ -930,7 +930,7 @@ export class SessionDaemonLifecycle {
       case 'agentState': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        if (!['starting', 'live'].includes(session.status)) break
         // A contract bind selects causal state before its first durable event.
         // Legacy-only sessions retain compatibility; durable heads also fence
         // late frames during server restart, before a daemon binds again.

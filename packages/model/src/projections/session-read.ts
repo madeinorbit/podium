@@ -1,4 +1,5 @@
 import type { SessionId } from '../ids/brands'
+import { type MachineOnline, shownSessionStatus } from '../predicates/session-reconnecting'
 /**
  * Session READ projections (ADR 4 R4) — the tier-1/2/3 session read models, in
  * the one place both the server that produces them and the CLI that renders
@@ -163,7 +164,11 @@ export interface IssueTreeSession {
    */
   effort?: string
   contextUsagePercent?: number
-  /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
+  /**
+   * PTY/process status as shown: starting | live | hibernated | exited, or
+   * `reconnecting` over a running session whose machine the server has no
+   * daemon link to now (`shownSessionStatus`, ADR 12 D1).
+   */
   status: string
   /** Agent phase when known (working | idle | needs_user | …). */
   phase?: string
@@ -230,6 +235,8 @@ export function toIssueTreeSession(src: {
   effort?: string | undefined
   contextUsagePercent?: number | undefined
   status: string
+  /** The server's own daemon link to the session's machine, for the shown status. */
+  machineOnline?: MachineOnline
   agentState?: { phase?: string | undefined } | undefined
   coordinator?: boolean | undefined
 }): IssueTreeSession {
@@ -255,7 +262,7 @@ export function toIssueTreeSession(src: {
     // `!== undefined`, not `||`: 0% is a real reading and the falsy-drop idiom
     // used for the string fields would erase it (matches main's producer).
     contextUsagePercent: src.contextUsagePercent,
-    status: src.status,
+    status: shownSessionStatus(src.status, src.machineOnline),
     phase: src.agentState?.phase || undefined,
     coordinator: src.coordinator || undefined,
   } satisfies IssueTreeSession

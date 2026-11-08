@@ -104,13 +104,15 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
       })
     }
 
-    // Daemon connection drops: the session degrades to reconnecting (not exited).
+    // Daemon connection drops: the session stays live (not exited) and reads as
+    // reconnecting from the machine's link (ADR 12 D1).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
       )?.status,
-    ).toBe('reconnecting')
+    ).toBe('live')
+    expect(reg.modules.machines.hasDaemon(reg.sessionStore.hostMachineId)).toBe(false)
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []

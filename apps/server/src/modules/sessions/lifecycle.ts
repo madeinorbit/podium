@@ -922,8 +922,7 @@ export class SessionLifecycle {
     if (!session || session.agentKind !== 'shell') return
     if (
       session.status !== 'live' &&
-      session.status !== 'starting' &&
-      session.status !== 'reconnecting'
+      session.status !== 'starting'
     ) {
       return
     }

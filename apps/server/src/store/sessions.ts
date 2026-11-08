@@ -743,7 +743,7 @@ const stopRunningForTombstone = prepared((db: StoreDrizzle) =>
     .update(sessionsTable)
     .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
     .where(
-      and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live', 'reconnecting'])),
+      and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live'])),
     )
     .prepare(),
 )

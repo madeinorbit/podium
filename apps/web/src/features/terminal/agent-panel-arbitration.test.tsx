@@ -603,7 +603,13 @@ describe('AgentPanel on a server-family client terminal', () => {
 // tests could not catch it: nothing in them renders. This one does.
 // ---------------------------------------------------------------------------
 describe('AgentPanel while the machine is away (POD-2290)', () => {
-  const away = () => meta({ agentKind: 'opencode', status: 'reconnecting' })
+  // Reconnecting is the machine's condition (ADR 12 D1): a live row on a
+  // machine the LiveStore reads as offline.
+  const awayMachine = { id: 'm-away', name: 'away', hostname: 'away', online: false }
+  const away = () => {
+    storeMachines = [awayMachine]
+    return meta({ agentKind: 'opencode', status: 'live', machineId: 'm-away' } as never)
+  }
 
   async function tickPast(ms: number): Promise<void> {
     await act(async () => {
@@ -649,8 +655,9 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
     // row that reconnects takes the ordinary attach-side wording instead — the
     // point is that the machine is never named for a row that told us what it
     // is.
+    storeMachines = [awayMachine]
     storeSessions = [
-      meta({ agentKind: 'opencode', status: 'reconnecting', driverFamily: 'terminal' }),
+      meta({ agentKind: 'opencode', status: 'live', driverFamily: 'terminal', machineId: 'm-away' } as never),
     ]
     await render({ active: true })
     await tickPast(60_000)
@@ -669,12 +676,12 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
 // ---------------------------------------------------------------------------
 describe('AgentPanel on a session whose machine is offline (POD-4629)', () => {
   const offline = { id: 'm-lud', name: 'ludovico', hostname: 'ludovico', online: false }
-  const onMachine = (status: 'live' | 'reconnecting') =>
+  const onMachine = (status: 'live') =>
     meta({ status, driverFamily: 'terminal', machineId: 'm-lud', machineName: 'ludovico' } as never)
 
   it('names the offline machine over the CLI of a reconnecting session', async () => {
     storeMachines = [offline]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     await render({ active: true })
     const bar = container.querySelector('[data-testid="machine-offline-bar"]')
     expect(bar?.classList.contains('pane-state-bar')).toBe(true)
@@ -694,14 +701,14 @@ describe('AgentPanel on a session whose machine is offline (POD-4629)', () => {
 
   it('says nothing about a machine that is online', async () => {
     storeMachines = [{ ...offline, online: true }]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     await render({ active: true })
     expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()
   })
 
   it('leaves the chat view to its composer, which already says the session is not running', async () => {
     storeMachines = [offline]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     storePanelMode = { s1: 'chat' }
     await render({ active: true })
     expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()

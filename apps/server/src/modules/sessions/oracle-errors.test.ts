@@ -254,7 +254,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // cuts its draft on its own write turn and installs it when the commit
     // returns, so an un-awaited bind lands AFTER the detach below and paints
     // the row 'live' again with no daemon behind it. The detach itself still
-    // drops the row to 'reconnecting' synchronously (machine-reconciler
+    // marks the row awaiting its rebind synchronously (machine-reconciler
     // `onDetached`); the fixture has to let the bind finish first for that to
     // be the state under test.
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -270,7 +270,8 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // durable row stays queued and is forwarded on reconnect. Dead-lettering
     // here lost a message sent during a 3-second daemon restart without a word.
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-    expect((await o.meta(sessionId)).status).toBe('reconnecting')
+    expect((await o.meta(sessionId)).status).toBe('live')
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })

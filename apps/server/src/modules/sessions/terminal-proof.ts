@@ -141,8 +141,7 @@ export class SessionTerminalProof {
         (child) =>
           isSpawnedBy(child.spawnedBy, { kind: 'session', id: session.sessionId }) &&
           (child.status === 'starting' ||
-            child.status === 'live' ||
-            child.status === 'reconnecting'),
+            child.status === 'live'),
       )
       .map((child) => ({
         sessionId: child.sessionId,
@@ -225,7 +224,7 @@ export class SessionTerminalProof {
   async proofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
     const session = this.ports.session(sessionId)
     if (!session) return { reason: 'unknown_session' }
-    if (session.status !== 'live' && session.status !== 'reconnecting')
+    if (session.status !== 'live')
       return { reason: 'not_running' }
     const lease = await this.ports.checkpoints.get(sessionId)
     if (!lease) return { reason: 'no_lease' }

@@ -1312,7 +1312,7 @@ export class IssueGitWorkflowModule {
     if (!policy) return
     const live = policy.liveSession(sessionId)
     if (!live || live.agentKind !== 'shell') return
-    if (live.status !== 'live' && live.status !== 'starting' && live.status !== 'reconnecting') {
+    if (live.status !== 'live' && live.status !== 'starting') {
       return
     }
     // The owning issue is the one resolver (POD-4526, mapping-first). The

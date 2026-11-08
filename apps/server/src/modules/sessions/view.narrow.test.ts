@@ -409,7 +409,7 @@ describe('SessionFactsReader [POD-3857]', () => {
     corpus[0]!.status = 'live'
     corpus[1]!.status = 'hibernated'
     corpus[2]!.status = 'exited'
-    corpus[3]!.status = 'reconnecting'
+    corpus[3]!.status = 'starting'
     const reader = readerOver(corpus)
     expect(reader.running().map((f) => f.sessionId)).toEqual([
       'mine-explicit',

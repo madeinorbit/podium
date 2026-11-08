@@ -863,6 +863,7 @@ export class IssueReportsModule {
         entry.node.sessions.push(
           toIssueTreeSession({
             ...s,
+            machineOnline: s.machineId ? this.store.deps.machineOnline?.(s.machineId) : undefined,
             // OBSERVED beats configured: what the harness is actually running is
             // what a reader of the tree needs (ab75ab1e).
             model: s.observedModel ?? s.model,

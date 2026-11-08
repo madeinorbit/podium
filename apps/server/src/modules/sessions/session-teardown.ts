@@ -159,8 +159,7 @@ export class SessionTeardown {
     if (!session) return
     const running =
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
     if (!running) return
     this.ports.autoContinue.onSessionGone(sessionId)
     // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
@@ -233,8 +232,7 @@ export class SessionTeardown {
     }
     const running =
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
     await this.ports.rearmUnread(sessionId)
@@ -274,8 +272,7 @@ export class SessionTeardown {
     if (!session) return { ok: false, reason: 'unknown session' }
     const running =
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
     await this.ports.repository.write(this.ports.writer, session, (draft) => {
@@ -419,8 +416,7 @@ export class SessionTeardown {
 
     const wasRunning =
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
 
     // Park the row first (keep resume ref + transcript). Shells have no resume
     // ref — stop still parks them as exited so they stay inspectable.
@@ -726,7 +722,7 @@ export class SessionTeardown {
   }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'live' && session.status !== 'reconnecting')
+    if (session.status !== 'live')
       return { ok: false, reason: 'not running' }
     if (!session.resume) {
       return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }

@@ -118,7 +118,7 @@ export function sessionSearchText(session: SessionView): string {
     session.displayRef,
     sessionUnreadEmphasized(session) ? 'unread' : null,
     retired ? 'Retired' : needs ? 'Needs you' : null,
-    session.status === 'starting' || session.status === 'reconnecting' ? 'Starting' : null,
+    session.status === 'starting' || facts.reconnecting ? 'Starting' : null,
     ...nativeSubagentRows(session).map((agent) =>
       [
         agent.type,

@@ -61,7 +61,6 @@ describe('sessionMenuEligibility', () => {
   it('allows end only when there is a running process', () => {
     expect(sessionMenuEligibility(meta({ status: 'live' })).canEnd).toBe(true)
     expect(sessionMenuEligibility(meta({ status: 'starting' })).canEnd).toBe(true)
-    expect(sessionMenuEligibility(meta({ status: 'reconnecting' })).canEnd).toBe(true)
     expect(sessionMenuEligibility(meta({ status: 'exited' })).canEnd).toBe(false)
     expect(sessionMenuEligibility(meta({ status: 'hibernated' })).canEnd).toBe(false)
   })
@@ -71,7 +70,7 @@ describe('sessionMenuEligibility', () => {
   // operator wants to clear away — so the only way to remove a dead session's
   // row was to resume it first.
   it('offers delete in every status, running or not', () => {
-    for (const status of ['live', 'starting', 'reconnecting', 'exited', 'hibernated'] as const) {
+    for (const status of ['live', 'starting', 'exited', 'hibernated'] as const) {
       expect(sessionMenuEligibility(meta({ status })).canDelete).toBe(true)
     }
   })

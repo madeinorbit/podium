@@ -394,7 +394,7 @@ describe('SessionStore sessions', () => {
     const store = await openTestStore(':memory:')
     const deletedAt = '2026-07-13T12:00:00.000Z'
     const parkedAt = '2026-07-13T09:00:00.000Z'
-    const running = ['starting', 'live', 'reconnecting'] as const
+    const running = ['starting', 'live'] as const
     for (const [i, status] of running.entries())
       await store.sessions.upsertSession(
         fixtureWriteScope(),

@@ -31,7 +31,7 @@ export function createSettingsViews(pool: MobxPool) {
             row.resume && !row.headless
               ? JSON.stringify([row.resume.kind, row.resume.value])
               : undefined,
-          keepsGroup: (row) => ['live', 'starting', 'reconnecting'].includes(row.status),
+          keepsGroup: (row) => ['live', 'starting'].includes(row.status),
           compare: (a, b) =>
             resumeRank(b) - resumeRank(a) ||
             (a.lastActiveAt > b.lastActiveAt ? -1 : a.lastActiveAt < b.lastActiveAt ? 1 : 0),
@@ -88,7 +88,7 @@ export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSessio
 function resumeRank(row: SetupSession): number {
   return row.status === 'live'
     ? 3
-    : row.status === 'starting' || row.status === 'reconnecting'
+    : row.status === 'starting'
       ? 2
       : row.status === 'hibernated'
         ? 1

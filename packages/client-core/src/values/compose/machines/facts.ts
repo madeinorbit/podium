@@ -315,7 +315,7 @@ export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
 /** Default load-per-core the meter fills against when policy has load pressure off. */
 export const DEFAULT_LOAD_PER_CORE = 1.5
 
-const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set(['live', 'starting', 'reconnecting'])
+const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set(['live', 'starting'])
 
 export interface HostLoadView {
   /** load1 ÷ cores, or null when the daemon has not shipped `load`. */

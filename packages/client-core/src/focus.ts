@@ -51,7 +51,7 @@ export function attentionGroup(s: SessionView): AttentionGroup {
   if (s.agentKind === 'shell') return s.busy ? 'working' : 'idle'
   // Other uninstrumented kinds (Codex/Grok pre-instrumentation, unknown phase):
   // fall back to liveness — a live process counts as working, a parked one idle.
-  if (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting') {
+  if (s.status === 'live' || s.status === 'starting') {
     return 'working'
   }
   return 'idle'

@@ -35,6 +35,7 @@ function state(phase: AgentRuntimeState['phase']): AgentRuntimeState {
 
 interface FakeSession {
   status: Session['status']
+  awaitingRebind: boolean
   archived: boolean
   lastActiveAt: string
   /** Non-optional so these rows can also stand in as a `stateChanged` payload's
@@ -45,6 +46,7 @@ interface FakeSession {
 function live(phase: AgentRuntimeState['phase']): FakeSession {
   return {
     status: 'live',
+    awaitingRebind: false,
     archived: false,
     lastActiveAt: new Date(NOW).toISOString(),
     agentState: state(phase),
@@ -285,7 +287,7 @@ describe('workingAgentCount', () => {
           { ...live('working'), status: 'starting' },
           // Neither a launching process nor a dropped daemon link is confirmed
           // current work, even if an earlier working phase is preserved.
-          { ...live('working'), status: 'reconnecting' },
+          { ...live('working'), awaitingRebind: true },
         ],
         NOW,
       ),

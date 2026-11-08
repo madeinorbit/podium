@@ -188,7 +188,7 @@ export const sessions = sqliteTable(
      * therefore survives the process that made it.
      *
      * It is here because dropping it broke the fix that needed it: a server
-     * restart rehydrates live rows as `reconnecting`, and with nothing
+     * restart rehydrates live rows with no daemon bound, and with nothing
      * persisted a headless session came back family-unknown — which the panel
      * reads as "assume a terminal", which is the original bug's screen. Driven
      * live by the reviewer with the daemon held down.

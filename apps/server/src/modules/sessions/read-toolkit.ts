@@ -23,6 +23,7 @@ import type {
   TranscriptItem,
   MachineId,
 } from '@podium/model'
+import { shownSessionStatus } from '@podium/model'
 import {
   parseSessionRef,
   type SessionIdentifierResolution,
@@ -83,6 +84,9 @@ export interface SessionReadToolkitDeps {
   sessionRefs(sessions: readonly SessionRefFacts[]): Promise<ReadonlyMap<SessionId, string>>
   /** Current machine label from the machines service, including its id fallback. */
   machineName(machineId: MachineId): Promise<string>
+  /** The server's own daemon link to a machine, for the shown status
+   *  (`shownSessionStatus`, ADR 12 D1). */
+  machineOnline(machineId: MachineId): boolean
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
@@ -208,7 +212,7 @@ export class SessionReadToolkit {
         model: child.observedModel ?? child.requestedModel ?? child.model ?? null,
         effort: child.observedEffort ?? child.requestedEffort ?? child.effort ?? null,
         contextUsagePercent: child.contextUsagePercent ?? null,
-        status: child.status,
+        status: this.shownStatus(child),
         phase: this.phaseOf(child),
       })
     }
@@ -336,6 +340,12 @@ export class SessionReadToolkit {
       .at(0)
   }
 
+  /** The status as the CLI shows it: `reconnecting` over a running session
+   *  whose machine this server has no daemon link to now. */
+  private shownStatus(s: { status: string; machineId?: MachineId | undefined }): string {
+    return shownSessionStatus(s.status, s.machineId ? this.deps.machineOnline(s.machineId) : undefined)
+  }
+
   async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
     const found = await this.resolveTarget(ref)
     if (!found) throw new Error(`no session found for ${ref}`)
@@ -373,7 +383,7 @@ export class SessionReadToolkit {
       harness: target.agentKind,
       driverId: target.driverId ?? null,
       requestedDriverId: target.requestedDriverId ?? null,
-      status: target.status,
+      status: this.shownStatus(target),
       phase,
       machine: (target.machineId ? await this.deps.machineName(target.machineId) : null) || target.machineId || null,
       /**

@@ -73,7 +73,7 @@ export class HeaderSession {
   @lazy
   private get headerHostPresent(): boolean {
     return this.session.known &&
-      ['live', 'starting', 'reconnecting'].includes(this.session.status)
+      ['live', 'starting'].includes(this.session.status)
   }
 
   get headerHost(): NonNullable<ReturnType<typeof headerHostSession>> | null {

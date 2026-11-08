@@ -83,7 +83,7 @@ export function liveSessionsUsingWorktree<
   return sessions.filter(
     (s) =>
       s.sessionId !== exceptSessionId &&
-      (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting') &&
+      (s.status === 'live' || s.status === 'starting') &&
       isMemberCwd(worktreePath, s.cwd),
   )
 }

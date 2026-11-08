@@ -190,6 +190,9 @@ export interface IssueDeps {
   sessionsById(sessionIds: Iterable<SessionId>, forUser?: UserId): Promise<SessionMeta[]>
   /** Current label from MachinesService; omitted by fixtures that only know ids. */
   machineName?(machineId: MachineId): Promise<string>
+  /** The server's own daemon link to a machine, for the shown session status
+   *  (`shownSessionStatus`, ADR 12 D1); omitted by fixtures (not known). */
+  machineOnline?(machineId: MachineId): boolean
   /** Settings as `forUser` sees them: their personal preferences on the
    *  instance's. A spawn names the person it runs for (POD-6285); instance-tier
    *  reads (git workflow, worktree GC) may omit it. */

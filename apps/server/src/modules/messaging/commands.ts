@@ -109,7 +109,7 @@ export function formatIssues(issues: IssueReport[], mode: string | undefined): s
   }
 }
 
-const LIVE_STATUSES = new Set(['live', 'starting', 'reconnecting'])
+const LIVE_STATUSES = new Set(['live', 'starting'])
 
 /** Telegram `callback_data` for an issue open button (≤64 bytes). */
 export function issueCallbackData(issueId: IssueId): string {

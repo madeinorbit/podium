@@ -97,7 +97,10 @@ export interface SessionInit {
   lastOutputAt?: string | null
   lastInputAt?: string | null
   lastResumedAt?: string | null
-  status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  status?: 'starting' | 'live' | 'hibernated' | 'exited'
+  /** A boot restore of a running row: no daemon has bound it since the restart
+   *  ({@link Session.awaitingRebind}). */
+  awaitingRebind?: boolean
   exitCode?: number
   spawnFailure?: string
   name?: string
@@ -207,7 +210,7 @@ export interface SessionDurableState {
    *  (POD-6356). Replaced whole on every change, never mutated in place. */
   lifecycle: SessionLifecycleRow
   cmd: string
-  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  status: 'starting' | 'live' | 'hibernated' | 'exited'
   exitCode: number | undefined
   spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
@@ -364,7 +367,7 @@ export class Session {
   workState: WorkState | undefined
   lifecycle: SessionLifecycleRow = NO_LIFECYCLE
   cmd = ''
-  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
+  status: 'starting' | 'live' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   /** Exact daemon diagnosis when a spawn never reached a running process. */
   spawnFailure: string | undefined
@@ -432,6 +435,18 @@ export class Session {
    * keeping it would read as though that gate survived.
    */
   hasBoundDriver = false
+  /**
+   * NO DAEMON HOLDS THIS RUNNING SESSION'S PTY BRIDGE RIGHT NOW: its daemon went
+   * away, or the server restarted, and no reattach has bound it since. The next
+   * daemon to attach probes exactly these rows ({@link SessionMachineReconciler}),
+   * and the bind ({@link markLive}) clears it.
+   *
+   * SERVER-ONLY, never stored and never on the wire (ADR 12 D1, POD-6646). The
+   * status stays `live`/`starting`: the agent is still meant to run. What a
+   * reader shows as reconnecting is the machine's live connection, derived by
+   * `isSessionReconnecting`, not this flag.
+   */
+  awaitingRebind = false
   /** Runtime driver actually bound by the daemon. Transient like
    * `hasBoundDriver`: the live handle owns this fact, so it is re-established
    * by every bind and is never reconstructed from the spawn request. */
@@ -555,6 +570,7 @@ export class Session {
     this.workState = d.workState
     this.lifecycle = d.lifecycle
     this.status = d.status
+    this.awaitingRebind = init.awaitingRebind === true && (d.status === 'live' || d.status === 'starting')
     this.exitCode = d.exitCode
     this.spawnFailure = d.spawnFailure
     this.workingMsTotal = d.workingMsTotal
@@ -822,10 +838,11 @@ export class Session {
     // marked exited — its attach client died on a daemon restart while the agent
     // survived in its scope. The live master is authoritative, so clear the stale
     // exit and bring the session back.
-    if (d.status === 'starting' || d.status === 'reconnecting' || d.status === 'exited') {
+    if (d.status === 'starting' || d.status === 'exited') {
       d.status = 'live'
       d.exitCode = undefined
     }
+    this.awaitingRebind = false
     // THE BIND IS A FULL STATEMENT from the daemon (POD-4771, design rev 3):
     // its size, when it carries one, is the kernel's, read by the host. The
     // terminal writes it (broadcasting only a change), resets what it last
@@ -837,13 +854,14 @@ export class Session {
 
   /**
    * The daemon holding this session's PTY bridge went away (daemon restart/crash —
-   * the durable master survives in its own scope). Drop a live/starting session to
-   * 'reconnecting' so the next daemon to attach re-binds it (markLive brings it back
-   * on the resulting bind). Returns true if the status changed.
+   * the durable master survives in its own scope). Mark a live/starting session
+   * {@link awaitingRebind} so the next daemon to attach re-binds it (markLive
+   * clears it on the resulting bind). The status does not change. Returns true
+   * if the session was marked.
    */
-  markReconnecting(d: SessionDurableFields = this): boolean {
-    if (d.status === 'live' || d.status === 'starting') {
-      d.status = 'reconnecting'
+  markAwaitingRebind(): boolean {
+    if (this.status === 'live' || this.status === 'starting') {
+      this.awaitingRebind = true
       return true
     }
     return false

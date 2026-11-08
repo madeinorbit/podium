@@ -367,8 +367,8 @@ export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
 export function sessionDotTone(s: SessionView): DotTone {
   // Exited (process gone, phase cleared server-side): no live status colour.
   if (s.status === 'exited') return 'neutral'
-  // Booting / brief reconnect: not working yet → blue.
-  if (s.status === 'starting' || s.status === 'reconnecting') return 'ready'
+  // Booting: not working yet → blue.
+  if (s.status === 'starting') return 'ready'
   const badge = agentBadge(s)
   if (badge) {
     switch (badge.tone) {

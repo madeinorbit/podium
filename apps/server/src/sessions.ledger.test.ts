@@ -509,7 +509,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).toBe('renamed-host')
   })
 
-  it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {
+  it('(j) a daemon disconnect writes nothing to the durable log: reconnecting is not synced (POD-6646)', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -520,17 +520,18 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.gateway.attachDaemon(host, () => {})
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
-    // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
-    // the disconnect seam captures the touched sessions as one explicit batch.
+    // The disconnect marks live/starting rows awaiting a rebind, server-side
+    // only. Reconnecting is a condition every reader derives from the machine's
+    // link (ADR 12 D1), so no session change reaches the synced log.
     registry.gateway.detachDaemon(host)
     await registry.modules.sessions.flushBroadcasts()
     const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
-    const flipped = healed.changes.find(
+    const flipped = healed.changes.filter(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(flipped?.value?.status).toBe('reconnecting')
+    ) as { value?: SessionMeta }[]
+    expect(flipped.map((c) => c.value?.status).filter((s) => s !== 'live')).toEqual([])
   })
 
   it('retires full-world session reconcile after boot while keeping every owning seam durable', async () => {
@@ -688,9 +689,21 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await first.dispose()
 
     const second = await makeRegistry(store)
+    // The generation starts over. Booting changes no session (its status is the
+    // stored one, POD-6646), so the first change after the restart is the bind.
+    expect(second.modules.sessions.sessionsGeneration()).toBeLessThan(generationBeforeRestart)
+    await attachHostDaemon(second, () => {})
+    await second.gateway.routeDaemonFrame(second.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'bash',
+      cwd: '/w',
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    await second.modules.sessions.flushBroadcasts()
     const generationAfterRestart = second.modules.sessions.sessionsGeneration()
     expect(generationAfterRestart).toBeGreaterThan(0)
-    expect(generationAfterRestart).toBeLessThan(generationBeforeRestart)
     const cursorAfterRecovery = (await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
     expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
     const recovered = await second.modules.sessions.syncChangesSince(cursorBeforeRestart, CHANGE_LOG_OBSERVER)

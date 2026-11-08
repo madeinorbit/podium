@@ -272,7 +272,7 @@ export class SessionRevival {
    */
   async findLiveByResume(resume: ResumeRef): Promise<SessionSubject | undefined> {
     const running = (s: SessionSubject) =>
-      s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
+      s.status === 'live' || s.status === 'starting'
     return (
       (await this.ports.records.withResume(resume, 'findLiveByResume'))
         // A HEADLESS session shares its harness's resume ref but is not a PTY

@@ -85,7 +85,7 @@ const transcriptKey = (machineId: MachineId, nativeId: string): string =>
   `${machineId}\u0000${nativeId}`
 
 /** A session that is still producing tokens — its figure is provisional. */
-const RUNNING: ReadonlySet<SessionRow['status']> = new Set(['live', 'starting', 'reconnecting'])
+const RUNNING: ReadonlySet<SessionRow['status']> = new Set(['live', 'starting'])
 
 /** How far a delegate chain is followed to the session that owns it. Subagents
  *  nest, but not deeply; the bound is what stops a cyclic identity row looping. */

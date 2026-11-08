@@ -25,13 +25,13 @@ describe('isAgentComputing', () => {
   })
 
   it('counts a reconnecting agent: the daemon link dropped, not the agent', () => {
-    expect(isAgentComputing(row({ status: 'reconnecting' }))).toBe(true)
+    expect(isAgentComputing(row({ status: 'live', reconnecting: true }))).toBe(true)
   })
 
   it('confirms only a process whose daemon is currently connected', () => {
     expect(isAgentConfirmedComputing(row(), NOW)).toBe(true)
     expect(isAgentConfirmedComputing(row({ status: 'starting' }), NOW)).toBe(false)
-    expect(isAgentConfirmedComputing(row({ status: 'reconnecting' }), NOW)).toBe(false)
+    expect(isAgentConfirmedComputing(row({ status: 'live', reconnecting: true }), NOW)).toBe(false)
     expect(isAgentConfirmedComputing(row({ status: 'hibernated' }), NOW)).toBe(false)
     expect(isAgentConfirmedComputing(row({ status: 'exited' }), NOW)).toBe(false)
   })

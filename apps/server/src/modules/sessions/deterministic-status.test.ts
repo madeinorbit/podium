@@ -94,6 +94,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     },
     sessionRefs: async (sessions) => await readSessionRefs(store, sessions),
     machineName: async (machineId) => await registry.modules.machines.machineName(machineId),
+    machineOnline: (machineId) => registry.modules.machines.hasDaemon(machineId),
     issues: ({
       reports: {
         resolveRef: async () => ISSUE.id,

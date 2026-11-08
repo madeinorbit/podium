@@ -1,4 +1,4 @@
-import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionView, SessionViewWithLink } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   discoveredPlacement,
@@ -116,7 +116,7 @@ export function issueSessions(
 /** Newest-active first, so "the session on this task" is a stable pick. */
 /** The agent-state word a dock session row wears — the vocabulary the rest of
  *  the shell already uses, not a second one. */
-export function sessionStateLabel(session: SessionView): string {
+export function sessionStateLabel(session: SessionViewWithLink): string {
   if (session.archived) return 'Retired'
   if (session.status === 'exited') return 'Exited'
   if (session.status === 'hibernated') return 'Paused'
@@ -125,7 +125,7 @@ export function sessionStateLabel(session: SessionView): string {
   if (phase === 'working') return 'Working'
   if (phase === 'waiting') return 'Waiting on you'
   if (phase === 'done') return 'Done'
-  if (session.status === 'starting' || session.status === 'reconnecting') return 'Starting'
+  if (session.status === 'starting' || session.reconnecting === true) return 'Starting'
   return 'Idle'
 }
 

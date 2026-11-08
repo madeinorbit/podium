@@ -2,6 +2,7 @@ import { omitGone } from './lookup'
 import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
+import { liveFixture } from './live-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
 import {
@@ -269,6 +270,32 @@ describe('incremental header sessions', () => {
     } finally { stop(); f.dispose() }
   })
 
+  it('stops counting a working session while its machine is read offline, resident or cold (ADR 12 D1)', () => {
+    const f = fixture(1)
+    const live = liveFixture(f.pool, () => NOW)
+    const stop = autorun(() => { headerView(f.pool).workingCount() })
+    try {
+      runInAction(() => {
+        f.change('resident-0', { agentState: state('working') })
+        f.change('cold-0', { status: 'live', agentState: state('working') })
+      })
+      expect(f.pool.tables.session.has('cold-0')).toBe(false)
+      expect(headerView(f.pool).workingCount()).toBe(2)
+      // Unknown is not offline: an app that has no reading yet counts as before.
+      live.online(HOSTS[0]!, undefined)
+      expect(headerView(f.pool).workingCount()).toBe(2)
+      // The machine's link drops. No session row changes: the count follows the
+      // LiveStore condition alone.
+      live.online(HOSTS[0]!, false)
+      expect(f.pool.sessionObject('resident-0').reconnecting).toBe(true)
+      expect(f.pool.sessionObject('resident-0').status).toBe('live')
+      expect(headerView(f.pool).workingCount()).toBe(0)
+      live.online(HOSTS[0]!, true)
+      expect(f.pool.sessionObject('resident-0').reconnecting).toBe(false)
+      expect(headerView(f.pool).workingCount()).toBe(2)
+    } finally { stop(); f.dispose() }
+  })
+
   it('releases header demand at the last reader and leaves untracked reads unsubscribed', () => {
     const f = fixture(1)
     const dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
@@ -465,7 +492,7 @@ describe('incremental header sessions', () => {
         f.change('resident-0', { agentState: state(phase) })
         parity()
       }
-      for (const status of ['starting', 'reconnecting', 'hibernated', 'exited', 'live'] as const) {
+      for (const status of ['starting', 'hibernated', 'exited', 'live'] as const) {
         f.change('resident-0', { status, agentState: state('working') })
         parity()
       }

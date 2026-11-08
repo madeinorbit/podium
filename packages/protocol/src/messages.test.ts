@@ -766,8 +766,8 @@ describe('codec', () => {
 })
 
 describe('Layer 3 reattach messages', () => {
-  it('SessionStatus includes reconnecting + hibernated', () => {
-    expect(SessionStatus.options).toContain('reconnecting')
+  it('SessionStatus includes hibernated, and not reconnecting (a derived condition, ADR 12 D1)', () => {
+    expect(SessionStatus.options).not.toContain('reconnecting')
     expect(SessionStatus.options).toContain('hibernated')
   })
 

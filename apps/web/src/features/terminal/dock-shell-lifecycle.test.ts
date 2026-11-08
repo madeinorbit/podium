@@ -61,7 +61,8 @@ describe('dock shell lifecycle', () => {
     expect(dockShellIsParked(session({ sessionId: 'exited', status: 'exited' }))).toBe(false)
     expect(dockShellIsDead(session({ sessionId: 'archived', archived: true }))).toBe(true)
     expect(dockShellIsDead(session({ sessionId: 'starting', status: 'starting' }))).toBe(false)
-    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'reconnecting' }))).toBe(
+    // Reconnecting (its machine's link down) is still `live` (ADR 12 D1).
+    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'live' }))).toBe(
       false,
     )
   })

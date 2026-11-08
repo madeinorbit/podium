@@ -605,6 +605,8 @@ export class MobxPool {
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => omitGone(this.row('issue', id)) as Loaded<SliceIssue>,
       loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
+      // The model's @lazy fact (ADR 12 D1): rows stay as stored (frontend-data rules 1, 3).
+      sessionReconnecting: (id) => this.sessionObject(id).reconnecting,
       openInteractions: (id) => this.sessionOpenInteractions(id),
       interactionSessions: () => this.sessionsWithOpenInteractions(),
       issueRead: (id) => this.readCursor(id),

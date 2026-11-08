@@ -608,8 +608,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const askAnswerable =
     pendingAsk !== null ||
     session.status === 'live' ||
-    session.status === 'starting' ||
-    session.status === 'reconnecting'
+    session.status === 'starting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)

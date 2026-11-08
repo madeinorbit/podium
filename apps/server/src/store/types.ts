@@ -54,7 +54,7 @@ export interface OfferRecord {
 /** sessionId → its live offer. */
 export type OfferMap = Record<string, OfferRecord>
 
-export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+export type SessionStatusPersisted = 'starting' | 'live' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
 
 /** Durable observer lease plus the last accepted causal checkpoint. */
@@ -190,7 +190,7 @@ export interface SessionRow {
    * design, while this is the decision reported before the launch and is
    * therefore a fact about how the session was started. Persisting it is what
    * lets a server restart rehydrate a headless row still knowing it has no
-   * terminal — without it the row comes back `reconnecting` and family-unknown,
+   * terminal — without it the row comes back unbound and family-unknown,
    * which the panel reads as "assume a terminal" and renders as the original
    * bug's dead pane.
    *

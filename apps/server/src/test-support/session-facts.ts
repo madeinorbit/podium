@@ -103,7 +103,7 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
 } {
   const facts = () => metasAsFacts(source())
-  const running = (s: SessionFacts) => s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
+  const running = (s: SessionFacts) => s.status === 'live' || s.status === 'starting'
   return {
     runningSessionFacts: () => facts().filter(running),
     readSessionFacts: async () => facts(),

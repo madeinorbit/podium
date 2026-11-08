@@ -622,7 +622,7 @@ describe('oracle: sessions.uploadImage', () => {
       // (below) and would let a future "refuse immediately when offline" change
       // land while this test stayed green.
       o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-      expect((await o.meta(sessionId)).status).toBe('reconnecting')
+      expect((await o.meta(sessionId)).status).toBe('live')
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
       o.daemon.length = 0
 

@@ -65,7 +65,8 @@ export const DockShellPanel = observer(function DockShellPanel({
   )
   const machines = usePaneMachines()
   const machineLabel = resolveShellMachineLabel(session, machines, machineId)
-  // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
+  // Dead = unrevivable in place. 'starting' (and a live shell whose machine is
+  // reconnecting) are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
   // Parked (hibernated) is NOT dead (POD-4429): the same session id resumes

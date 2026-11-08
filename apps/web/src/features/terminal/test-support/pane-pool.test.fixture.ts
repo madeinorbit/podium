@@ -8,6 +8,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { CHAT_CONTEXT_ENTITIES } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
@@ -125,6 +126,14 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
       release = () => { handle.dispose(); rows.dispose(); transactions.dispose() }
     }
     pool.ingestLiveMachines(machines.map(machine => ({ id: machine.id, value: machine })))
+    // A machine's online is a LiveStore condition (POD-5798): the fixture's
+    // `online` is its reading, so a session on an offline machine reads as
+    // reconnecting (ADR 12 D1).
+    const live = liveFixture(pool)
+    for (const machine of machines) {
+      const online = (machine as { online?: boolean }).online
+      if (typeof online === 'boolean') live.online(machine.id, online)
+    }
     headerEntities(pool).order('machine', machines.map(machine => machine.id))
     pool.applyLocals({ selectedIssueId: input.selectedIssueId ?? null, coarseNow: Date.parse('2026-06-03T00:00:00Z') }, new Set(['selectedIssueId']))
     for (const session of input.sessions) pool.row('session', session.sessionId)

@@ -2,7 +2,7 @@ import { here, omitGone } from './lookup'
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import type { MachineId } from '@podium/model/browser'
-import { compareShallow, compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
+import { compareShallow, compareStructural, computed, observable, observe, reaction, runInAction, untracked } from 'mobx'
 import { cachedKey } from './cached'
 import { seedHeaderSessions } from './enumerate'
 import {
@@ -108,6 +108,10 @@ export class HeaderSessions {
       if (entity === 'session') this.cold(id)
     })
     if (stopCold) this.stops.push(stopCold)
+    // A machine's link going down or up changes which cold sessions are
+    // reconnecting (ADR 12 D1) without changing any row: re-read the cold ones.
+    // Machine conditions change rarely (a connect or a drop), so a re-seed is cheap.
+    this.stops.push(reaction(() => machineLinks(pool), () => this.seed()))
     this.stops.push(pool.queries.onChange((event) => {
       if (event.type === 'replace') {
         this.clearCold()
@@ -178,4 +182,14 @@ export class HeaderSessions {
     for (const stop of this.stops) stop()
     this.clearCold()
   }
+}
+
+/** Which machines this user's LiveStore reads as offline: the cold index's one
+ *  input that no session row carries. */
+function machineLinks(pool: MobxPool): string {
+  const conditions = pool.live?.machineConditions
+  if (!conditions) return ''
+  const offline: string[] = []
+  for (const [id, reading] of conditions) if (reading.known && !reading.value.online) offline.push(id)
+  return offline.sort().join('\n')
 }

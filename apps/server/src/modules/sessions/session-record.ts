@@ -40,7 +40,7 @@ import type { SessionDurableFields, SessionDurableState, SessionInit } from './s
 
 /** The statuses of a session whose process runs or is expected back. */
 export function isRunningStatus(status: SessionDurableFields['status']): boolean {
-  return status === 'live' || status === 'starting' || status === 'reconnecting'
+  return status === 'live' || status === 'starting'
 }
 
 /** Fixed for the life of the row: who, what and how it was born. */
@@ -240,10 +240,11 @@ export function parseWorkState(raw: string | null): WorkState | undefined {
  * restore and a durable record share. `undefined` for a row whose agent kind
  * is not one this build knows (the caller logs it).
  *
- * A boot restore reads a row that was live or starting as `reconnecting`: its
- * process may have survived the restart, and a daemon rebind decides. A
- * headless row keeps its status (no terminal to reconnect). An issue restore
- * brings a tombstone back as `exited`: deletion killed its runtime.
+ * A boot restore keeps a live or starting row's status and marks it
+ * `awaitingRebind`: its process may have survived the restart, and a daemon
+ * rebind decides. A headless row is not marked (no terminal to reconnect). An
+ * issue restore brings a tombstone back as `exited`: deletion killed its
+ * runtime.
  */
 export function storedSessionInit(
   r: SessionRow,
@@ -252,14 +253,9 @@ export function storedSessionInit(
 ): StoredSessionInit | undefined {
   const kind = AgentKind.safeParse(r.agentKind)
   if (!kind.success) return undefined
-  const reloadStatus =
-    mode === 'restore'
-      ? 'exited'
-      : r.headless
-        ? r.status
-        : r.status === 'live' || r.status === 'starting'
-          ? 'reconnecting'
-          : r.status
+  const reloadStatus = mode === 'restore' ? 'exited' : r.status
+  const awaitingRebind =
+    mode === 'boot' && !r.headless && (r.status === 'live' || r.status === 'starting')
   const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
   return {
 
@@ -285,6 +281,7 @@ export function storedSessionInit(
     lastInputAt: r.lastInputAt,
     lastResumedAt: r.lastResumedAt,
     status: reloadStatus,
+    ...(awaitingRebind ? { awaitingRebind: true } : {}),
     exitCode: exitCode ?? undefined,
     ...(exitCode === -1 && r.spawnFailure ? { spawnFailure: r.spawnFailure } : {}),
     ...(r.name ? { name: r.name } : {}),
@@ -333,9 +330,9 @@ export function storedSessionInit(
       ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
       : {}),
     /**
-     * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). `reloadStatus` above
-     * turns a persisted live/starting row into `reconnecting`, and a
-     * reconnecting row with no driver family is exactly where the panel falls
+     * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). A boot restore holds a
+     * persisted live/starting row with no daemon bound until one rebinds, and
+     * such a row with no driver family is exactly where the panel falls
      * back to "assume a terminal" — the original bug's screen, driven live by
      * the reviewer with the daemon held down. `driverId` is deliberately NOT
      * restored beside it: that one names a live handle, and this row has none

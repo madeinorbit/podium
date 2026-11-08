@@ -46,6 +46,8 @@ export const SESSION_WORD_LABEL: Readonly<Record<SessionWord, string>> = {
  *  a wire view and a model can all be passed as they are. */
 export interface SessionWordFacts {
   readonly status?: string | null
+  /** The machine's daemon link is down right now (derived; see SeatSessionFacts). */
+  readonly reconnecting?: boolean | null
   readonly busy?: boolean | null
   readonly archived?: boolean | null
   readonly exitCode?: number | null

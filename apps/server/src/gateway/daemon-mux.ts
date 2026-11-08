@@ -326,8 +326,8 @@ export class DaemonMux {
 
   /**
    * That daemon's socket closed. `send` identifies WHICH socket: a superseded
-   * socket's late close must not evict the live registration, nor knock this
-   * machine's sessions back to 'reconnecting' behind the daemon's back.
+   * socket's late close must not evict the live registration, nor mark this
+   * machine's sessions as awaiting a rebind behind the daemon's back.
    *
    * `machine.disconnected` is emitted BEFORE the session sweep, preserving the
    * pre-module ordering (the hosts module drops this machine's health sample and

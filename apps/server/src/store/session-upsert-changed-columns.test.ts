@@ -355,13 +355,13 @@ describe('session upsert parity with the full write', () => {
 
   it('writes a row whole from a store that never wrote it', async () => {
     await both(put({ id: 'b1' }))
-    // A restart: a new store over the same rows. The session comes back as
-    // `reconnecting` while its row says `live`, and its first write (a rename)
-    // must store `reconnecting`, as the full write does.
+    // A restart: a new store over the same rows. The session's status differs
+    // from its row's `live` (here `starting`), and its first write (a rename)
+    // must store it, as the full write does.
     narrow = openSide(narrow.db, true)
-    const [first] = await both(put({ id: 'b1', status: 'reconnecting', title: 'renamed' }))
+    const [first] = await both(put({ id: 'b1', status: 'starting', title: 'renamed' }))
     expect(first).toContain('status')
-    const [second] = await both(put({ id: 'b1', status: 'reconnecting', title: 'renamed again' }))
+    const [second] = await both(put({ id: 'b1', status: 'starting', title: 'renamed again' }))
     expect(second).not.toContain('status')
   })
 
@@ -377,8 +377,8 @@ describe('session upsert parity with the full write', () => {
     expect(rename).toContain('title')
     expect(rename).not.toContain('status')
     expect(rename).not.toContain('issue_id')
-    // The restored session holds `reconnecting` for the stored `live`.
-    const [restored] = await both(put({ id: 'p2', status: 'reconnecting' }))
+    // The restored session holds another status than the stored `live`.
+    const [restored] = await both(put({ id: 'p2', status: 'starting' }))
     expect(restored).toContain('status')
     // A read inside a span may see that span's own writes: not recorded.
     narrow = openSide(narrow.db, true)

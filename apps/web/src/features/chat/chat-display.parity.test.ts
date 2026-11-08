@@ -160,7 +160,7 @@ const newAnswers = (view: ChatViewModel) => ({
 it('matches the old display answers for each session state and rejects a wrong visible field', () => {
   const f = fixture()
   try {
-    for (const status of ['starting', 'live', 'reconnecting', 'hibernated', 'exited']) {
+    for (const status of ['starting', 'live', 'hibernated', 'exited']) {
       f.pool.apply({ type: 'update', rows: [f.session('Shown', status)] })
       expect(newAnswers(f.view)).toEqual(oldAnswers(f))
     }

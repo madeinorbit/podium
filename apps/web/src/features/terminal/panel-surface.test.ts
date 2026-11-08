@@ -388,11 +388,11 @@ describe('panelGates machineOfflineBarShown', () => {
     }).machineOfflineBarShown
 
   it('shows over the live CLI of an offline machine', () => {
-    expect(gates(surfaceOf({ status: 'reconnecting' }), true)).toBe(true)
+    expect(gates(surfaceOf({ status: 'live' }), true)).toBe(true)
   })
 
   it('stays out of chat, whose composer already says the session is not running', () => {
-    expect(gates(surfaceOf({ status: 'reconnecting', mode: 'chat' }), true)).toBe(false)
+    expect(gates(surfaceOf({ status: 'live', mode: 'chat' }), true)).toBe(false)
   })
 
   it('leaves the parked and ended bars to say the more important thing', () => {
@@ -401,7 +401,7 @@ describe('panelGates machineOfflineBarShown', () => {
   })
 
   it('is absent while the machine is online', () => {
-    expect(gates(surfaceOf({ status: 'reconnecting' }), false)).toBe(false)
+    expect(gates(surfaceOf({ status: 'live' }), false)).toBe(false)
   })
 })
 

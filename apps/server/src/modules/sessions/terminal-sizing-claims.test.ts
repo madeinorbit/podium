@@ -667,20 +667,22 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
     agentKind: 'claude-code',
   })
 
-  it('after markReconnecting, a bare bind keeps the copy — same grid, no frame', async () => {
+  it('after a detach, a bare bind keeps the copy — same grid, no frame', async () => {
     const { reg, sessionId, session, watcher } = await boundSession()
 
     // The daemon holding the bridge went away.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect(session.status).toBe('reconnecting')
+    expect(session.status).toBe('live')
+    expect(session.awaitingRebind).toBe(true)
     watcher.sent.length = 0
 
     const send: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => send.push(m))
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    // The session comes back LIVE — the bind is still proof the agent is there.
+    // The session is bound again — the bind is still proof the agent is there.
     expect(session.status).toBe('live')
+    expect(session.awaitingRebind).toBe(false)
     // Nothing reported a size, so the last-known copy stands and nothing moved.
     expect(session.terminal.geometry).toEqual({ cols: 132, rows: 43 })
     expect(geometryFrames(watcher)).toEqual([])

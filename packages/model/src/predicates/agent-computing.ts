@@ -12,11 +12,18 @@
  * Liveness is therefore part of the question, not a caller's afterthought.
  * Structural shape on purpose (model is the L0 zero-dep root) so the server's
  * `Session` class and the client's `SessionMeta` can both be passed straight in.
+ * Whether the session is reconnecting is the reader's derived condition
+ * (`isSessionReconnecting`), passed in as `reconnecting`.
  */
 
 /** The minimal row shape the computing predicate reads. */
 export interface AgentComputingFields {
-  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  status: 'starting' | 'live' | 'hibernated' | 'exited'
+  /**
+   * The machine's daemon link is down right now ({@link isSessionReconnecting}).
+   * A condition the reader derives, never a stored status (ADR 12 D1).
+   */
+  reconnecting?: boolean | undefined
   archived?: boolean
   lastActiveAt?: string | undefined
   agentState?:
@@ -36,7 +43,7 @@ export const CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS = 15 * 60 * 1_000
  * mid-computation. `compacting` counts: the harness is still burning tokens,
  * just about its own context — the same reading `sessionDotTone` takes.
  *
- * `reconnecting` counts as alive: the daemon link dropped, not the agent.
+ * A reconnecting session counts as alive: the daemon link dropped, not the agent.
  */
 export function isAgentComputing(row: AgentComputingFields): boolean {
   if (row.status === 'exited' || row.status === 'hibernated') return false
@@ -48,7 +55,7 @@ export function isAgentComputing(row: AgentComputingFields): boolean {
 /**
  * True only when Podium can currently confirm the process and harness state.
  *
- * `isAgentComputing` deliberately treats `reconnecting` as alive for guards
+ * `isAgentComputing` deliberately treats a reconnecting session as alive for guards
  * that must not interrupt a turn during a short daemon outage. A fleet counter
  * has the opposite burden of proof: once the daemon link is gone, Podium no
  * longer knows that the preserved working phase still describes the process.
@@ -59,7 +66,7 @@ export function isAgentConfirmedComputing(
   row: AgentComputingFields,
   nowMs: number,
 ): boolean {
-  if (row.status !== 'live') return false
+  if (row.status !== 'live' || row.reconnecting) return false
   if (!isAgentComputing(row)) return false
   const activityAt = Math.max(
     ...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]

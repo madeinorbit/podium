@@ -36,7 +36,9 @@ describe('pod-4800: send queued across daemon restart', () => {
       geometry: { cols: 80, rows: 24 },
     })
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-    expect((await o.meta(sessionId)).status).toBe('reconnecting')
+    // Reconnecting is the machine's link (ADR 12 D1): the row stays live.
+    expect((await o.meta(sessionId)).status).toBe('live')
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'are you there' })
@@ -74,7 +76,9 @@ describe('pod-4800: send queued across daemon restart', () => {
       geometry: { cols: 80, rows: 24 },
     })
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-    expect((await o.meta(sessionId)).status).toBe('reconnecting')
+    // Reconnecting is the machine's link (ADR 12 D1): the row stays live.
+    expect((await o.meta(sessionId)).status).toBe('live')
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
 
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'wake up' })
     expect(woken.disposition).not.toBe('failed')

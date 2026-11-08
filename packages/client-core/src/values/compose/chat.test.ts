@@ -331,9 +331,11 @@ describe('composer, queue, offer and activity', () => {
   // composer stays sendable and the send routes straight through (the bubble
   // then reads queued, not failed). Gating reconnecting as "not running"
   // blocked Enter exactly in the window the server fix keeps open.
+  // A reconnecting session's status stays `live` (ADR 12 D1): only its
+  // machine's link is down.
   it('stays sendable while the session is reconnecting', () => {
     const composer = composerState({
-      session: session({ status: 'reconnecting' }),
+      session: session({ status: 'live' }),
       headless: false,
       turnRunning: false,
       compact: false,

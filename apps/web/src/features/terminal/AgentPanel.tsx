@@ -87,6 +87,7 @@ import {
   usePaneMachines,
   usePaneReferenceStages,
   usePaneSelectedIssueId,
+  usePaneReconnecting,
   usePaneSession,
   usePaneSpawnConfirmed,
 } from './use-session-pane-inputs'
@@ -134,6 +135,7 @@ export function AgentPanel({
     navigateToSession,
   } = useRuntimeActions(PANEL_ACTIONS)
   const session = usePaneSession(sessionId)
+  const reconnecting = usePaneReconnecting(sessionId)
   // A session its issue's closing stopped ends with that outcome (POD-2151).
   const outcome = usePaneIssueOutcome(sessionId)
   const machines = usePaneMachines()
@@ -651,7 +653,7 @@ export function AgentPanel({
    * legacy one that is perfectly fine — while together they are the window the
    * reviewer photographed the original bug in.
    */
-  const machineAway = session?.status === 'reconnecting' && terminalOutlook === 'unknown'
+  const machineAway = reconnecting && terminalOutlook === 'unknown'
   const awaitingSinceRef = useRef(0)
   if (!machineAway) awaitingSinceRef.current = 0
   else if (awaitingSinceRef.current === 0) awaitingSinceRef.current = Date.now()
@@ -1393,8 +1395,8 @@ return overlay.kind === 'hidden' ? null : (
                           : `Starting ${agentKind ? panelLabel(agentKind) : 'session'}…`}
                     </span>
                     {/* The one overlay arm that names a cause, because here the
-                    panel actually knows it: the session row is `reconnecting`
-                    and no driver fact has arrived, so what is missing is the
+                    panel actually knows it: the session is reconnecting (its
+                    machine is offline) and no driver fact has arrived, so what is missing is the
                     MACHINE, not the harness. Saying "Starting OpenCode…" over
                     this is the round-two bug in miniature — a claim about a
                     process nobody is talking to. [POD-2290] */}

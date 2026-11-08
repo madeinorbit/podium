@@ -419,8 +419,12 @@ describe('multi-daemon routing', () => {
     reg.gateway.detachDaemon('m1')
     const meta = async (id: string) =>
       (await clientSessionViews(reg)).find((s) => s.sessionId === id)
-    expect((await meta(a))?.status).toBe('reconnecting')
+    // Neither row changes: m1's session reads as reconnecting from m1's link
+    // (ADR 12 D1), which the server now reports as down.
+    expect((await meta(a))?.status).toBe('live')
     expect((await meta(b))?.status).toBe('live')
+    expect(reg.modules.machines.hasDaemon('m1' as never)).toBe(false)
+    expect(reg.modules.machines.hasDaemon('m2' as never)).toBe(true)
   })
 
   it('lists machines with their online status from the registry', async () => {

@@ -181,7 +181,7 @@ function createHeaderViews(pool: MobxPool) {
           const member =
             summary &&
             summary !== LOADING &&
-            ['live', 'starting', 'reconnecting'].includes(summary.status)
+            ['live', 'starting'].includes(summary.status)
               ? memo(`coldHost:${id}`, () => {
                   const value = omitGone(pool.row('session', id, 'summary')) as
                     | SessionView

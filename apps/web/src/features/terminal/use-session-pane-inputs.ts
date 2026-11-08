@@ -26,6 +26,12 @@ export function usePaneSession(id: SessionId | undefined): SessionView | undefin
   const read = useCallback((pool: MobxPool) => sessionPanes(pool).session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
+/** The session is running and its machine is known offline right now: the
+ *  derived condition (ADR 12 D1), read off the shared session model. */
+export function usePaneReconnecting(id: SessionId | undefined): boolean {
+  const read = useCallback((pool: MobxPool) => (id ? pool.sessionObject(id).reconnecting : false), [id])
+  return useWorklistPoolProjection(read, false)
+}
 const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
 /** How the session's issue ended, when that is what stopped it (POD-2151). */
 export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {

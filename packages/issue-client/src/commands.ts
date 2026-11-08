@@ -385,7 +385,7 @@ async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
  * Actionable session state for managers: process status when not live, else
  * agent phase. `needs_user` → `blocked` (the spawn-check vocabulary) [spec:SP-99d3].
  */
-function sessionStateLabel(s: {
+export function sessionStateLabel(s: {
   status: string
   phase?: string
   agentState?: { phase?: string }
@@ -393,6 +393,8 @@ function sessionStateLabel(s: {
   if (s.status === 'exited') return 'exited'
   if (s.status === 'hibernated') return 'hibernated'
   if (s.status === 'starting') return 'starting'
+  // The server sends the shown status: `reconnecting` over a running session
+  // whose machine it has no daemon link to (`shownSessionStatus`, ADR 12 D1).
   if (s.status === 'reconnecting') return 'reconnecting'
   const phase = s.phase ?? s.agentState?.phase
   if (phase === 'needs_user') return 'blocked'

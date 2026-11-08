@@ -20,7 +20,7 @@
  *   2. trigger the transcript-lake catch-up sweep
  *   3. reset + push relay priorities — a fresh daemon knows none of them
  *   4. PARK ARCHIVED SURVIVORS **BEFORE** the probe fan-out, so an archived
- *      'reconnecting' row is parked rather than reattached (POD-108)
+ *      row awaiting its rebind is parked rather than reattached (POD-108)
  *   5. probe survivors for reattach, view-priority first then most-recent
   *   6. re-establish headless sessions: bound tails rebind, never-bound
   *      sessions re-send their establish frame
@@ -48,7 +48,18 @@ const log = createLogger('server:sessions')
 export type ParkedOnMachine = Pick<
   Session,
   'sessionId' | 'machineId' | 'status' | 'archived' | 'headless' | 'durableLabel' | 'lastActiveAt'
->
+> &
+  /** Resident sessions only: a parked row read from the database never runs. */
+  Partial<Pick<Session, 'awaitingRebind'>>
+
+/**
+ * Still running, and no daemon has bound it since its daemon left or the server
+ * restarted. The flag alone is not enough: a row that exited or parked since
+ * keeps it until a bind, and must not be reattached for it.
+ */
+function awaitsRebind(s: ParkedOnMachine): boolean {
+  return s.awaitingRebind === true && (s.status === 'live' || s.status === 'starting')
+}
 
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
@@ -62,7 +73,7 @@ export interface MachineReconcilerPorts {
   /** Clear the relay-priority delta cache, then re-push the full map. */
   resetPriorities(): void
   pushPriorities(): void
-  /** Archive means stopped: park a survivor that is still live/reconnecting. */
+  /** Archive means stopped: park a survivor that still reads live or starting. */
   parkArchivedSession(sessionId: Session['sessionId']): Promise<void>
   /** Re-kill an archived row that reads parked over a running process (POD-6349). */
   retireArchivedSurvivor(sessionId: Session['sessionId']): Promise<void>
@@ -137,9 +148,9 @@ export class SessionMachineReconciler {
 
     // Archived survivors are never rebound — archive means stopped (POD-108).
     // Rows archived before archive learned to kill, or archived while this
-    // machine's daemon was away, are still 'live'/'reconnecting' here; parking
+    // machine's daemon was away, are still 'live'/'starting' here; parking
     // them sends the kill now that a daemon can receive it. MUST run BEFORE the
-    // probe fan-out below so an archived 'reconnecting' row is parked, not
+    // probe fan-out below so an archived row awaiting its rebind is parked, not
     // reattached.
     for (const s of this.ports.sessions()) {
       if (s.machineId === machineId && !s.headless && s.archived) {
@@ -147,8 +158,10 @@ export class SessionMachineReconciler {
       }
     }
 
-    // Re-bind survivor sessions ON THIS MACHINE. 'reconnecting' = was live/starting
-    // at boot. 'exited' (not archived) is also probed because a row can be wrongly
+    // Re-bind survivor sessions ON THIS MACHINE. `awaitingRebind` = live/starting
+    // with no daemon bound since its daemon left or the server restarted (a
+    // server-only flag; the status stays live). 'exited' (not archived) is also
+    // probed because a row can be wrongly
     // 'exited': its attach client died on a daemon restart while the master + agent
     // survived in their scope. The durable host, not the persisted row, is the
     // source of truth for liveness.
@@ -165,7 +178,7 @@ export class SessionMachineReconciler {
     const probe = (s: ParkedOnMachine) =>
       s.machineId === machineId &&
       !s.headless &&
-      (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived))
+      (awaitsRebind(s) || (s.status === 'exited' && !s.archived))
     const probes = await this.candidates(machineId, probe)
     const viewTiers = this.ports.viewTiers(probes.map((s) => s.sessionId))
     probes.sort(
@@ -178,7 +191,7 @@ export class SessionMachineReconciler {
         if (!s) return
         const message = await this.ports.reattachMessage(s, machineId)
         if (s.machineId !== machineId || s.archived ||
-            (s.status !== 'reconnecting' && s.status !== 'exited')) return
+            (!awaitsRebind(s) && s.status !== 'exited')) return
         this.ports.toMachine(machineId, message)
       })
     }
@@ -280,9 +293,9 @@ export class SessionMachineReconciler {
   /**
    * One parked row, one live process: believe the process.
    *
-   * `reconnecting` rather than `live` — the daemon disposed the PTY bridge when
-   * it took the kill, so there IS no attached client until the reattach below
-   * binds one. That reattach is the same frame {@link onAttached} sends for a
+   * `live` and {@link Session.awaitingRebind} — the daemon disposed the PTY
+   * bridge when it took the kill, so there IS no attached client until the
+   * reattach below binds one. That reattach is the same frame {@link onAttached} sends for a
    * survivor, so the recovery converges through machinery that already exists:
    * a master that turns out to be gone after all answers `reattachFailed`, and
    * `onExit` leaves a hibernated row hibernated — a wrong guess here costs a
@@ -382,9 +395,9 @@ export class SessionMachineReconciler {
       status: session.status,
       reason,
     })
-    // Set directly rather than through `markReconnecting`: that guard exists to
-    // stop a detach from dragging a PARKED row back, which is the very thing it
-    // would have to allow here. Its refusal stays intact for its own caller.
+    // Set directly rather than through `markAwaitingRebind`: that guard exists to
+    // stop a detach from marking a PARKED row, which is the very thing it would
+    // have to allow here. Its refusal stays intact for its own caller.
     // `lastActiveAt` is deliberately NOT stamped. The session is alive but it has
     // not done anything, and pretending otherwise would both reorder the board on
     // a bookkeeping repair and hide the row from the idle governor. If the park
@@ -392,11 +405,12 @@ export class SessionMachineReconciler {
     // reports whether that one landed.
     this.ports.markVolatileSessionDirty(session.sessionId, ['status'])
     await this.ports.write(session, (draft) => {
-      draft.status = 'reconnecting'
+      draft.status = 'live'
       draft.exitCode = undefined
     })
+    session.awaitingRebind = true
     const message = await this.ports.reattachMessage(session, machineId)
-    if (session.machineId !== machineId || session.archived || (session.status as Session['status']) !== 'reconnecting') return
+    if (session.machineId !== machineId || session.archived || !awaitsRebind(session)) return
     this.ports.toMachine(machineId, message)
     this.ports.broadcastSessions()
   }
@@ -410,13 +424,16 @@ export class SessionMachineReconciler {
   onDetached(principal: MachinePrincipal): void {
     const machineId = principal.machine
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
-    // restart/crash; durable masters survive in their own scopes). Drop only THIS
-    // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
-    // re-binds them — onAttached only probes 'reconnecting'/'exited'. Sessions on
+    // restart/crash; durable masters survive in their own scopes). Mark only THIS
+    // machine's live/starting sessions `awaitingRebind` so the next daemon to attach
+    // re-binds them — onAttached probes only those and exited rows. Sessions on
     // OTHER machines are untouched. Without this a daemon-only restart leaves sessions
     // 'live' but unattached: the server never re-asks and they orphan until a server
     // restart.
-    const changed: Session[] = []
+    //
+    // NO STATUS CHANGES and nothing is broadcast (ADR 12 D1, POD-6646): the agent
+    // is still meant to run. Readers show it as reconnecting from the machine's live
+    // connection, which the gateway's machine broadcast already carries.
     for (const s of this.ports.sessions()) {
       if (s.machineId !== machineId) continue
       // Its pictures went with the daemon (POD-4912): the returning daemon
@@ -427,12 +444,7 @@ export class SessionMachineReconciler {
       // sessions re-send their establish frame (reestablishHeadless) on the
       // next attach.
       if (s.headless) continue
-      if (s.markReconnecting()) changed.push(s)
-    }
-    if (changed.length > 0) {
-      for (const session of changed)
-        this.ports.markVolatileSessionDirty(session.sessionId, ['status'])
-      this.ports.broadcastSessions()
+      s.markAwaitingRebind()
     }
   }
 }

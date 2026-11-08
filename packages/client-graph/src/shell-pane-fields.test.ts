@@ -323,7 +323,7 @@ it('keeps pane lifecycle, host and birth grid equal to the row and quiet on acti
     expect(panes.loaded(id)?.session).toBe(session)
     expect(facts()).toEqual(old(f.sessions[0]!))
     const grid = { cols: 100, rows: 30 }
-    for (const status of ['starting', 'live', 'reconnecting', 'hibernated', 'exited'] as const) {
+    for (const status of ['starting', 'live', 'hibernated', 'exited'] as const) {
       const row: SessionView = { ...f.sessions[0]!, status, cwd: '/moved', issueId: undefined, geometry: grid }
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: row }] as never })
       expect(facts()).toEqual(old(row))

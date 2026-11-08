@@ -399,7 +399,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
   it('counts a session as a live conversation until it exits, is archived, deleted or purged', () => {
     const live = { status: 'live', archived: false, deletedAt: null } as const
     expect(isLiveConversation(live)).toBe(true)
-    for (const status of ['starting', 'reconnecting', 'hibernated'] as const) {
+    for (const status of ['starting', 'hibernated'] as const) {
       expect(isLiveConversation({ ...live, status })).toBe(true)
     }
     expect(isLiveConversation({ ...live, status: 'exited' })).toBe(false)
@@ -463,7 +463,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     await confirm(store, 'msg_a')
     await confirm(store, 'msg_other', S2)
     await move(S1, { status: 'hibernated' })
-    await move(S1, { status: 'reconnecting' })
+    await move(S1, { status: 'starting' })
     expect(await ids()).toEqual(['msg_a', 'msg_other'])
     // The table says live again by the time the retire reads it.
     await store.transact(async () => {

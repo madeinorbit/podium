@@ -33,16 +33,24 @@ interface ConcurrencyChange {
  * count must ask confirmed liveness too. Without it the skyline
  * had a floor that only ratcheted upward: every agent that ever died mid-turn
  * kept counting, and the strip read "13 agents working" for hours (POD-730).
- * Reconnecting sessions are excluded as well: the preserved phase is useful
- * for recovery, but it is no longer evidence of work happening now.
+ * A session no daemon has bound since its link dropped is excluded as well
+ * (`awaitingRebind`, passed as the predicate's `reconnecting`): the preserved
+ * phase is useful for recovery, but it is no longer evidence of work happening
+ * now.
  */
 export function workingAgentCount(
-  sessions: Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>,
+  sessions: Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt' | 'awaitingRebind'>>,
   nowMs: number,
 ): number {
   let count = 0
-  for (const session of sessions) if (isAgentConfirmedComputing(session, nowMs)) count += 1
+  for (const session of sessions) {
+    if (isAgentConfirmedComputing({ ...pickComputing(session), reconnecting: session.awaitingRebind }, nowMs)) count += 1
+  }
   return count
+}
+
+function pickComputing(s: Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>) {
+  return { agentState: s.agentState, status: s.status, archived: s.archived, lastActiveAt: s.lastActiveAt }
 }
 
 function concurrencyChange(event: PodiumEventRecord): ConcurrencyChange | null {
@@ -133,7 +141,7 @@ export class AgentConcurrencyHistory {
   constructor(
     private readonly deps: {
       sessions: () =>
-        Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>
+        Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt' | 'awaitingRebind'>>
       events: Pick<
         EventsRepository,
         'appendEventGrouped' | 'listKindSubjectSinceWithPrior' | 'listEventsSince'

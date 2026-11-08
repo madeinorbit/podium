@@ -360,8 +360,8 @@ describe('durable session records: the database answers as the session does', ()
     )
     await ask(
       'withStatuses.running',
-      records.withStatuses(['starting', 'live', 'reconnecting'], 'test'),
-      oracle.withStatuses(['starting', 'live', 'reconnecting'], 'test'),
+      records.withStatuses(['starting', 'live'], 'test'),
+      oracle.withStatuses(['starting', 'live'], 'test'),
     )
     for (const s of all.filter((session, index) => session.resume && index % 25 === 0)) {
       await ask(

@@ -1521,7 +1521,7 @@ describe('SessionRegistry', () => {
     expect(order).toEqual(['focused', 'visible', 'recent', 'idle'])
   })
 
-  it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', async () => {
+  it('daemon disconnect marks live sessions awaiting a rebind so the next daemon re-binds them', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -1532,9 +1532,7 @@ describe('SessionRegistry', () => {
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     // Daemon-only restart: its WS closes while the server keeps running.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     // A fresh daemon attaches with no bridges → it must be asked to reattach.
     const daemon2: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon2.push(m))
@@ -2226,12 +2224,12 @@ describe('SessionRegistry', () => {
         (m) => m.sessionId === sessionId,
       ),
     ).toMatchObject({
-      status: 'reconnecting',
+      status: 'live',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
       geometry: { cols: 173, rows: 47 },
     })
-    // Attaching the daemon fires a reattach for the reconnecting session.
+    // Attaching the daemon fires a reattach for the session awaiting its rebind.
     const control: import('@podium/protocol/daemon').ControlMessage[] = []
     await attachHostDaemon(reg2, (m) => control.push(m))
     expect(control).toContainEqual(
@@ -2266,7 +2264,7 @@ describe('SessionRegistry', () => {
     await store2.close()
   })
 
-  it('reattach success: bind on a reconnecting session makes it live', async () => {
+  it('reattach success: bind on a session awaiting its rebind binds it live', async () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
@@ -2282,9 +2280,7 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await attachHostDaemon(reg2, () => {})
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
   })
@@ -2292,7 +2288,7 @@ describe('SessionRegistry', () => {
   /**
    * POD-2290 ROUND 2, the seam the reviewer DROVE rather than read.
    *
-   * A server restart rehydrates persisted live/starting rows as `reconnecting`.
+   * A server restart rehydrates persisted live/starting rows awaiting a rebind.
    * Round two held the driver decision in memory only, so after a restart a
    * headless session came back with no driver family at all — and the web panel
    * reads a family-unknown live row as "assume a terminal", which is the
@@ -2331,7 +2327,8 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     const restored = (await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)
-    expect(restored?.status).toBe('reconnecting')
+    // Its stored status, unchanged by the boot (it never bound before the restart).
+    expect(restored?.status).toBe('starting')
     expect(restored?.driverFamily).toBe('server')
     // …and still no claim that a live handle exists, which is the other half:
     // `driverId` names a driver we are currently driving through, and after a
@@ -2429,9 +2426,7 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await attachHostDaemon(reg2, () => {})
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    ) // handler must drive the transition
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live') // handler must drive the transition
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
@@ -4258,11 +4253,9 @@ describe('hibernation', () => {
       reason: 'the durable host is still running',
     })
 
-    // Reconnecting, not live: the daemon disposed the PTY bridge when it took the
-    // kill, so the row is only honest once the reattach below binds a new one.
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    // Live and awaiting a rebind (server-only): the daemon disposed the PTY bridge
+    // when it took the kill, so the reattach below binds a new one.
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4392,9 +4385,7 @@ describe('hibernation', () => {
       labels: [`podium-${sessionId}`],
     })
 
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4551,9 +4542,7 @@ describe('hibernation', () => {
     daemon.length = 0
     await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4576,7 +4565,7 @@ describe('hibernation', () => {
       driverId: 'generic-pty',
       resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805193' },
       label: (id: SessionId) => `podium-${id}`,
-      status: 'reconnecting',
+      status: 'live',
       reattach: true,
     },
   ]) {
@@ -4683,7 +4672,7 @@ describe('hibernation', () => {
         s.status,
       ]),
     )
-    expect(byId.get(ghost)).toBe('reconnecting')
+    expect(byId.get(ghost)).toBe('live')
     // Absent from the census = the park told the truth. It must stay parked, or
     // every deliberate hibernation would come back on the next daemon connect.
     expect(byId.get(reallyParked)).toBe('hibernated')

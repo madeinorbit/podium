@@ -209,8 +209,7 @@ export class IssueAttentionModule {
             session.sessionId !== opts.sessionId &&
             !session.archived &&
             (session.status === 'live' ||
-              session.status === 'starting' ||
-              session.status === 'reconnecting'),
+              session.status === 'starting'),
         )
         if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
@@ -340,8 +339,7 @@ export class IssueAttentionModule {
               session.sessionId === coordinatorId &&
               !session.archived &&
               (session.status === 'live' ||
-                session.status === 'starting' ||
-                session.status === 'reconnecting') &&
+                session.status === 'starting') &&
               row.worktreePath != null &&
               isMemberCwd(row.worktreePath, session.cwd),
           )

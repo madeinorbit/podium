@@ -157,6 +157,9 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
+  /** Whether a session reads as reconnecting: its model's derived condition
+   *  (ADR 12 D1). Rows never carry it. Absent: not known, so not reconnecting. */
+  sessionReconnecting?(id: string): boolean
   /** Open pending interactions addressed to a session: one of its seat facts (`coordinatedSeat`). */
   openInteractions?(id: string): SeatInteractions
   /** The sessions holding an open pending interaction, in id order. */
@@ -453,18 +456,23 @@ export interface SessionVisibility {
 
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
 export function verdictPartOf(
-  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow'>,
+  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting'>,
   id: string,
 ): Loaded<SeatVerdict> {
   const row = input.loadedSession(id)
   if (row === undefined || typeof row === 'symbol') return row
   const task = row.issueId ? input.issueRow(row.issueId) : undefined
-  return seatVerdictOf(row, input.openInteractions?.(id), task === undefined || !isFinished(task))
+  return seatVerdictOf(
+    row,
+    input.openInteractions?.(id),
+    task === undefined || !isFinished(task),
+    input.sessionReconnecting?.(id) === true,
+  )
 }
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow'>,
+  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
@@ -539,7 +547,11 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
       for (const sessionId of ids) {
         const session = input.loadedSession(sessionId)
         if (session === LOADING) throw LOADING
-        working ||= Boolean(session && !session.archived && sessionWorkingFact(session as SeatSessionFacts))
+        working ||= Boolean(
+          session &&
+            !session.archived &&
+            sessionWorkingFact(session as SeatSessionFacts, input.sessionReconnecting?.(sessionId) === true),
+        )
       }
       return missionTaskBucket(issue, input.links.issue.bornSessions.size(id) > 0 || ids.length > 0, working)
     }),

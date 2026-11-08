@@ -49,7 +49,7 @@ export function sessionMenuEligibility(session: SessionView): {
   const phase = session.agentState?.phase
   const working = phase === 'working' || phase === 'compacting'
   const status = session.status
-  const running = status === 'live' || status === 'starting' || status === 'reconnecting'
+  const running = status === 'live' || status === 'starting'
   return {
     canHibernate: status === 'live' && session.resumable === true && !working,
     canResume: status === 'hibernated' || (status === 'exited' && session.resumable === true),

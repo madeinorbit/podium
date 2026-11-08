@@ -1249,7 +1249,8 @@ describe('buildFlightDeckRows', () => {
     it.each([
       ['mid-turn', { agentState: workingState }],
       ['still starting up', { status: 'starting' as const }],
-      ['reconnecting', { status: 'reconnecting' as const }],
+      // A live session whose model answers reconnecting (ADR 12 D1); rows never carry it.
+      ['reconnecting', { status: 'live' as const, reconnecting: true } as Partial<SessionViewInput>],
     ])('in Working keeps an open task whose agent is %s', (_label, over) => {
       const idle = [issue('root'), issue('c', { parentId: 'root', seq: 1, stage: 'planning' })]
       const staffed = [sess('s-c', { issueId: 'c', ...over })]

@@ -431,7 +431,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     if (own !== undefined) {
       stopped.push(own.sessionId)
       deferredKill =
-        own.status === 'live' || own.status === 'starting' || own.status === 'reconnecting'
+        own.status === 'live' || own.status === 'starting'
     }
     const kill = deferredKill
       ? {

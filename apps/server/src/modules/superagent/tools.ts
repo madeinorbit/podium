@@ -1,4 +1,4 @@
-import { machinePathsEqual } from '@podium/model'
+import { machinePathsEqual, shownSessionStatus } from '@podium/model'
 /**
  * The superagent's orchestrator tool belt (modules/superagent): the tool specs +
  * implementations shared by the MCP surface (mcpToolSpecs/callMcpTool) and the
@@ -11,6 +11,7 @@ import {
   asSessionId,
   asThreadId,
   isAgentKind,
+  type MachineId,
   type SessionId,
   spawnedByTag,
   type ThreadId,
@@ -138,6 +139,10 @@ export async function buildSuperagentTools(
     },
     ownerUserId && ownerRole ? userCommandPrincipal(ownerUserId, ownerRole) : undefined,
   )
+  /** The status as a harness agent is shown it: `reconnecting` over a running
+   *  session whose machine this server has no daemon link to (ADR 12 D1). */
+  const shownStatus = (s: { status: string; machineId?: MachineId | undefined }) =>
+    shownSessionStatus(s.status, s.machineId ? modules.machines.hasDaemon(s.machineId) : undefined)
   const getSession = async (id: string) =>
     (await ownerAccess.ownsSession(id as SessionId))
       ? await sessions.sessionById(id as SessionId)
@@ -179,7 +184,7 @@ export async function buildSuperagentTools(
                 name: s.name ?? s.title,
                 kind: s.agentKind,
                 cwd: s.cwd,
-                status: s.status,
+                status: shownStatus(s),
                 phase: s.agentState?.phase ?? 'unknown',
                 archived: s.archived,
                 lastActiveAt: s.lastActiveAt,
@@ -765,7 +770,7 @@ export async function buildSuperagentTools(
         })
         const s = await getSession(sessionId)
         const snapshot = s
-          ? { status: s.status, phase: s.agentState?.phase ?? 'unknown' }
+          ? { status: shownStatus(s), phase: s.agentState?.phase ?? 'unknown' }
           : { status: 'gone' }
         if (ack) {
           return JSON.stringify({

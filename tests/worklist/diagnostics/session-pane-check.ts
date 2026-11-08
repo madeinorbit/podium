@@ -26,7 +26,7 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
     recovery: exitedRecovery({ exitCode: row.exitCode, spawnFailure: row.spawnFailure,
       isShell: row.agentKind === 'shell', resumable: row.resumable === true, neverBound: row.neverBound === true }),
     terminalOutlook: sessionTerminalOutlook(row), chatCapable: row.transcriptAvailable ?? defaultChatCapable(row.agentKind),
-    canEnd: ['live', 'starting', 'reconnecting'].includes(row.status),
+    canEnd: ['live', 'starting'].includes(row.status),
     canHibernate: row.status === 'live' && row.resumable === true && phase !== 'working' && phase !== 'compacting',
     dockDead: row.archived || row.status === 'exited', dockParked: !row.archived && row.status === 'hibernated',
   }

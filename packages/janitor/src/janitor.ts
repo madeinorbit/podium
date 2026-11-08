@@ -1023,7 +1023,7 @@ export class WorktreeGcReader {
              AND i.closed_at <= ?
              AND NOT EXISTS (
                SELECT 1 FROM sessions s
-               WHERE s.status IN ('live', 'starting', 'reconnecting')
+               WHERE s.status IN ('live', 'starting')
                  AND (s.cwd = i.worktree_path OR s.cwd LIKE i.worktree_path || '/%')
              )
              ${after}

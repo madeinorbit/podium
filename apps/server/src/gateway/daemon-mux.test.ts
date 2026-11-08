@@ -414,8 +414,8 @@ describe('attach / detach orchestration', () => {
 
   it('does nothing when a superseded socket closes', () => {
     // machines.detach returning false means this close belongs to a socket the
-    // daemon already replaced; sweeping its sessions would knock a HEALTHY
-    // daemon's sessions to 'reconnecting' behind its back.
+    // daemon already replaced; sweeping its sessions would mark a HEALTHY
+    // daemon's sessions as awaiting a rebind behind its back.
     const calls: string[] = []
     const ports = {
       machines: {

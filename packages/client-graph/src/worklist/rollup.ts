@@ -134,11 +134,7 @@ export function attentionGroup(
     return session.status === 'exited' || session.status === 'hibernated' ? 'idle' : 'working'
   }
   if (session.agentKind === 'shell') return busy(session) ? 'working' : 'idle'
-  return session.status === 'live' ||
-    session.status === 'starting' ||
-    session.status === 'reconnecting'
-    ? 'working'
-    : 'idle'
+  return session.status === 'live' || session.status === 'starting' ? 'working' : 'idle'
 }
 
 /** `agentBadge(meta).tone` on an unfinished issue (`session-status.ts:154-230`). */
@@ -170,7 +166,7 @@ function badgeTone(session: SliceSession): string | null {
 /** `isSessionWorking` = `sessionDotTone(s) === 'working'` (`session-status.ts:361-386, 428`). */
 export function isSessionWorking(session: SliceSession): boolean {
   if (session.status === 'exited') return false
-  if (session.status === 'starting' || session.status === 'reconnecting') return false
+  if (session.status === 'starting') return false
   const tone = badgeTone(session)
   if (tone !== null) return tone === 'working' && session.status !== 'hibernated'
   return session.agentKind === 'shell' && busy(session)
@@ -272,11 +268,13 @@ export function seatVerdictOf(
   session: SliceSession,
   interactions: SeatInteractions = NO_INTERACTIONS,
   taskOpen = true,
+  /** Derived from the machine's LiveStore condition by the caller; rows never carry it. */
+  reconnecting = false,
 ): SeatVerdict {
   const working = isSessionWorking(session)
   const stateSince = Date.parse(stateOf(session)?.since ?? session.lastActiveAt)
   const role = (name: SeatRole): RoleVerdict =>
-    roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, name, interactions, taskOpen), stateSince)
+    roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, name, interactions, taskOpen, reconnecting), stateSince)
   const roles = { coordinator: role('coordinator'), delegate: role('delegate') }
   return {
     open: motionPhase(session, false),

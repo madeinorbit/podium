@@ -146,7 +146,6 @@ it('preserves source-order resume ties, winner positions and active/headless ide
     expect(settings.rows[0]?.sessionId).toBe('a-twin')
     f.update('z-first', { status: 'hibernated' }); check()
     f.update('z-first', { status: 'starting', stoppedAt: undefined }); check()
-    f.update('z-first', { status: 'reconnecting' }); check()
     f.update('z-first', { status: 'live' }); check()
     f.update('z-first', { status: 'exited', stoppedAt: stamp }); check()
     f.update('headless', { headless: false }); check()

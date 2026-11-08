@@ -35,7 +35,7 @@ function tracked<T>(read: () => T): T {
 
 const patches = [
   {}, { archived: true }, { headless: true }, { agentKind: 'shell' }, { status: 'exited' },
-  { status: 'starting' }, { status: 'reconnecting' }, { agentState: { phase: 'working' } },
+  { status: 'starting' }, { agentState: { phase: 'working' } },
   { agentState: { phase: 'needs_user' } }, { agentState: { phase: 'errored' } },
   { offer: { createdAt: stamp } }, { archived: true, offer: { createdAt: stamp } },
   { status: 'exited', agentState: { phase: 'errored' } },

@@ -59,7 +59,7 @@ export interface SessionInputGatewayPort {
 export interface SessionsDaemonPort {
   /** This machine's daemon just became reachable: drain, park, re-probe, re-bind. */
   onMachineAttached(principal: MachinePrincipal): Promise<void>
-  /** Its daemon went away: this machine's live sessions drop to 'reconnecting'. */
+  /** Its daemon went away: this machine's live sessions await a daemon rebind. */
   onMachineDetached(principal: MachinePrincipal): void
   /** One session-owned frame, attributed to the machine that sent it. */
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void

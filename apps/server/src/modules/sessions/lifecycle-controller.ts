@@ -130,7 +130,7 @@ export type ReconcileResult =
 export const NO_LONGER_ALLOWED = 'no longer allowed to use this machine'
 
 const isRunning = (status: SessionStatusPersisted): boolean =>
-  status === 'live' || status === 'starting' || status === 'reconnecting'
+  status === 'live' || status === 'starting'
 
 /**
  * Whether the observed state already is what `desired` asks, so there is

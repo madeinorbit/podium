@@ -235,7 +235,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         else out.delete('session:inbox')
       }
       if (!previous || status !== previous.status) {
-        if (['live', 'starting', 'reconnecting'].includes(status as string)) out.add('session:host')
+        if (['live', 'starting'].includes(status as string)) out.add('session:host')
         else out.delete('session:host')
       }
       if (!previous || row.refRepoId !== previous.refRepoId || row.refSeq !== previous.refSeq ||

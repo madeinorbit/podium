@@ -324,8 +324,7 @@ const SessionActionMenu = observer(function SessionActionMenu({ session, issue, 
     }
     if (
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
     ) {
       actions.push({
         label: 'Kill session',

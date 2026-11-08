@@ -31,6 +31,7 @@ import {
   type IssueReport,
   type MachineId,
   type SessionId,
+  shownSessionStatus,
   spawnedByTag,
   type ThreadId,
   type UserId,
@@ -1707,7 +1708,6 @@ export class SuperagentService {
     return await this.modules.sessions.readSessionFactsWithStatuses([
       'starting',
       'live',
-      'reconnecting',
       'hibernated',
     ])
   }
@@ -1737,7 +1737,7 @@ export class SuperagentService {
   private async terminalLockError(thread: SuperagentThreadRow): Promise<string | undefined> {
     if (!thread.terminalSessionId) return undefined
     const s = await this.sessionById(asSessionId(thread.terminalSessionId))
-    if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
+    if (s && (s.status === 'live' || s.status === 'starting')) {
       return 'this thread is open in a terminal session — close it to chat here'
     }
     await this.store.superagent.updateSuperagentThreadBinding(thread.id, {
@@ -2089,7 +2089,14 @@ export class SuperagentService {
       ...((s.name ?? s.title) ? { name: s.name ?? s.title } : {}),
       ...(s.agentKind ? { agentKind: s.agentKind } : {}),
       ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
-      ...(s.status ? { status: s.status } : {}),
+      ...(s.status
+        ? {
+            status: shownSessionStatus(
+              s.status,
+              s.machineId ? this.modules.machines.hasDaemon(s.machineId) : undefined,
+            ),
+          }
+        : {}),
       ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
       ...(s.cwd ? { cwd: s.cwd } : {}),
       ...(issue ? { issueSeq: issue.seq } : {}),

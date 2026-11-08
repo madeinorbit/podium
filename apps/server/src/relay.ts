@@ -2372,7 +2372,6 @@ export class SessionRegistry {
             await sessionsSvc.readSessionFactsWithStatuses([
               'starting',
               'live',
-              'reconnecting',
               'hibernated',
             ])
           ).map((s) => ({
@@ -2465,6 +2464,7 @@ export class SessionRegistry {
           forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
         ),
       machineName: async (machineId) => await machines.machineName(machineId),
+      machineOnline: (machineId) => machines.hasDaemon(machineId),
       // Shell lifetime verbs for the worktree-free trigger (POD-4525): live
       // reads off the registry map, viewer state for held/watched, and the
       // teardown/kill verbs the policy maps onto.
@@ -3221,6 +3221,7 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+        machineOnline: (machineId) => machines.hasDaemon(machineId),
         // A session's mail is its own owner's (POD-6284): the row, not its task.
         sessionOwnerUserId: async (sessionId) =>
           (await this.store.sessions.getSession(sessionId))?.ownerUserId,
@@ -3344,6 +3345,7 @@ export class SessionRegistry {
       messages: messagesSvc,
       sessionRefs: async (sessions) => await readSessionRefs(this.store, sessions),
       machineName: async (machineId) => await machines.machineName(machineId),
+      machineOnline: (machineId) => machines.hasDaemon(machineId),
       events: this.store.events,
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,

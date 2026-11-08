@@ -2,6 +2,7 @@ import '@podium/client-graph/synced-models'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { MobxPool } from '../pool'
+import { liveFixture } from '../live-fixture'
 import { aggregatePartOf, ownAttentionPartOf } from './rollup'
 import { worklistView } from './view-model'
 
@@ -600,6 +601,13 @@ describe('one derivation per seat (review round 2)', () => {
   })
 })
 
+const AWAY = 'machine-away'
+/** The pool with {@link AWAY} read offline in its LiveStore. */
+function away(pool: MobxPool): MobxPool {
+  liveFixture(pool).online(AWAY, false)
+  return pool
+}
+
 describe('review round 3', () => {
   const quiet = {
     coordinator: 'coord',
@@ -607,7 +615,8 @@ describe('review round 3', () => {
     reviewed: { agentState: { phase: 'working', since: stamp } },
   }
   const stale = [
-    { status: 'reconnecting', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } },
+    // Reconnecting: live on a machine the LiveStore reads as offline (ADR 12 D1).
+    { status: 'live', machineId: AWAY, agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } },
     {
       status: 'starting',
       agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos' } },
@@ -618,7 +627,7 @@ describe('review round 3', () => {
   it('R3-1: a starting or reconnecting child delegate with a stale finished phase reads Working', () => {
     for (const helper of stale) {
       // The child in review is idle too, so only the stale helper can make the epic work.
-      const pool = fixture({ ...quiet, reviewed: idleDone, busy: helper })
+      const pool = away(fixture({ ...quiet, reviewed: idleDone, busy: helper }))
       try {
         expectRow(pool, 'epic', { phase: 'working', asking: false })
       } finally {
@@ -629,12 +638,12 @@ describe('review round 3', () => {
 
   it('R3-1: the same on a same-row helper: phase and working agree', () => {
     for (const helper of stale) {
-      const pool = fixture({
+      const pool = away(fixture({
         ...quiet,
         reviewed: idleDone,
         busy: idleDone,
         extra: [{ kind: 'session', id: 'helper', value: session('helper', 'epic', helper) }],
-      })
+      }))
       try {
         expectRow(pool, 'epic', { phase: 'working' })
         let working = false

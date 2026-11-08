@@ -157,6 +157,13 @@ export class LiveStore {
     return this.machineConditions.get(machineId)
   }
 
+  /** A machine's online as this device knows it: undefined until its first
+   *  reading (the input `isSessionReconnecting` takes, ADR 12 D1). */
+  onlineOf(machineId: string): boolean | undefined {
+    const reading = this.machineConditions.get(machineId)
+    return reading?.known ? reading.value.online : undefined
+  }
+
   /**
    * A machine's host metrics. Reading it inside a reaction or an observer IS
    * the demand: the topic is held while somebody watches, and released when the

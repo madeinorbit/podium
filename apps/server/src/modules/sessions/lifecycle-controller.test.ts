@@ -100,7 +100,7 @@ const row = (
 describe('satisfied', () => {
   it('running is any running status; hibernated any parked one; stopped is never status alone', () => {
     expect(satisfied('running', 'live')).toBe(true)
-    expect(satisfied('running', 'reconnecting')).toBe(true)
+    expect(satisfied('running', 'starting')).toBe(true)
     expect(satisfied('running', 'hibernated')).toBe(false)
     expect(satisfied('hibernated', 'exited')).toBe(true)
     expect(satisfied('hibernated', 'live')).toBe(false)
@@ -134,7 +134,7 @@ describe('SessionLifecycleController', () => {
   })
 
   it('waits, without acting or acknowledging, while the machine has no daemon', async () => {
-    const f = fixture({ [S]: row('reconnecting', 'stopped', 2, 1) }, { connected: false })
+    const f = fixture({ [S]: row('live', 'stopped', 2, 1) }, { connected: false })
     expect(await f.controller.reconcile(S)).toEqual({
       kind: 'waiting',
       revision: 2,

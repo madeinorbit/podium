@@ -560,9 +560,9 @@ describe('the resume-twin collapse (session.collapse)', () => {
       { sessionId: 'a', status: 'hibernated', lastActiveAt: at(1), resume: ref },
       { sessionId: 'b', status: 'live', lastActiveAt: at(5), resume: ref },
     ],
-    'starting and reconnecting also keep the group': [
+    'starting also keeps the group': [
       { sessionId: 'a', status: 'exited', lastActiveAt: at(1), resume: ref },
-      { sessionId: 'b', status: 'reconnecting', lastActiveAt: at(2), resume: ref },
+      { sessionId: 'b', status: 'hibernated', lastActiveAt: at(2), resume: ref },
       {
         sessionId: 'c',
         status: 'exited',

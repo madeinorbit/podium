@@ -14,6 +14,12 @@ export interface SessionValues {
   handoffTarget?: string
 }
 export type SessionView = SessionMeta & SessionValues
+/**
+ * A session as a reader may hold it: a stored row, or the shared session model,
+ * which also answers whether it is reconnecting (its machine known offline right
+ * now, ADR 12 D1). A row never carries that; read it, never write it.
+ */
+export type SessionViewWithLink = SessionView & { readonly reconnecting?: boolean }
 export type SessionViewInput = SessionMetaInput & Partial<SessionValues>
 
 /** Structural inputs also admit cold summaries and unparsed offline rows. */

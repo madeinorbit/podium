@@ -69,6 +69,9 @@ export interface MessageGateDeps {
    *  REQUIRED since POD-3857: the full-list port it used to fall back to is
    *  gone, so the compiler is what keeps the gate off the projection. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** The server's own daemon link to a machine, for the shown session status
+   *  (`shownSessionStatus`, ADR 12 D1). Absent: not known. */
+  machineOnline?(machineId: MachineId): boolean
   /** A person's own chat message records, by id, as the feed scopes them
    *  (`readMessageRecords`, POD-4811) — `mail.records`. */
   messageRecords(userId: UserId, ids: readonly string[], transcriptSessionId?: SessionId): Promise<MessageRecordWire[]>

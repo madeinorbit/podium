@@ -101,7 +101,7 @@ describe('durable runtime turn state (POD-6160 D2h)', () => {
     const record = (await reg.modules.sessions.records.read([sessionId])).get(sessionId)
     expect(record?.status).toBe('hibernated')
     expect(record?.agentState).toMatchObject({ phase: 'needs_user' })
-    const replayed = await reg.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])
+    const replayed = await reg.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'hibernated'])
     expect(replayed.find((s) => s.sessionId === sessionId)?.agentState?.phase).toBe('needs_user')
 
     // After a restart: restored with the session, and replayed again.

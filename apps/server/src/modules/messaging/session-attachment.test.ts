@@ -48,6 +48,7 @@ const session = (over: Partial<AttachableSession> & Pick<AttachableSession, 'ses
   ownerUserId: USER,
   label: 'worker',
   status: 'live',
+  reconnecting: false,
   archived: false,
   headless: false,
   agentKind: 'claude-code',
@@ -153,7 +154,7 @@ async function makeHarness(
     }),
     describe: vi.fn(async (_userId: UserId, sessionId: SessionId) => sessions.get(sessionId)),
     listRunning: vi.fn(async () =>
-      [...sessions.values()].filter((s) => ['live', 'starting', 'reconnecting'].includes(s.status)),
+      [...sessions.values()].filter((s) => ['live', 'starting'].includes(s.status)),
     ),
     send: vi.fn(async () => opts.sendOutcome ?? { ok: true }),
     interrupt: vi.fn(async () => ({ ok: true })),

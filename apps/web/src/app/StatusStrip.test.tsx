@@ -318,20 +318,9 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
   })
 
-  it('does not present a preserved reconnecting phase as confirmed work', () => {
-    fixture.sessions.push({
-      sessionId: 'reconnecting',
-      agentKind: 'codex',
-      title: 'Reconnecting',
-      lastActiveAt: '2026-08-06T18:19:00.000Z',
-      status: 'reconnecting',
-      agentState: { phase: 'working' },
-    })
-
-    render(<StatusStrip />)
-
-    expect(screen.getByTestId('status-strip-working').textContent).toBe('no agents working')
-  })
+  // A reconnecting session's preserved phase is not confirmed work either; that
+  // is the machine's LiveStore condition (ADR 12 D1), pinned where the count is
+  // made: client-graph header-sessions.test.ts.
 })
 
 describe('StatusStrip token burn', () => {

@@ -9,7 +9,7 @@ function oldWorkBegun(issue: { stage: string; worktreePath?: string }, active: n
   return active > 0 || Boolean(issue.worktreePath) || begunStages.has(issue.stage)
 }
 const stamp = '2026-10-09T12:00:00Z'
-const statuses = ['starting', 'live', 'reconnecting', 'hibernated', 'exited']
+const statuses = ['starting', 'live', 'hibernated', 'exited']
 
 it.each(ALL_ISSUE_STAGES)('preserves enabled launch actions for %s across every checkout and session state', (stage) => {
   let fixtures = 0
@@ -38,7 +38,7 @@ it.each(ALL_ISSUE_STAGES)('preserves enabled launch actions for %s across every 
           fixtures++
         } finally { pool.dispose() }
       }
-  expect(fixtures).toBe(3 * 6 * 2 * 2)
+  expect(fixtures).toBe(3 * (statuses.length + 1) * 2 * 2)
 })
 
 it('follows attachment and process state while ignoring archived, moved and shell sessions', () => {

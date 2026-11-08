@@ -2572,7 +2572,7 @@ type Output_accounts_login = Pick<{
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
-    status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+    status: "exited" | "hibernated" | "live" | "starting";
     stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
     stoppedAt?: string | undefined;
     title: string;
@@ -2786,7 +2786,7 @@ type Output_accounts_login = Pick<{
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
-    status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+    status: "exited" | "hibernated" | "live" | "starting";
     stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
     stoppedAt?: string | undefined;
     title: string;
@@ -5025,7 +5025,7 @@ type Output_issues_get = (null) | ({
         sessionId: string & z.BRAND<"SessionId">;
         spawnFailure?: string | undefined;
         spawnedBy?: string | undefined;
-        status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+        status: "exited" | "hibernated" | "live" | "starting";
         stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
         stoppedAt?: string | undefined;
         title: string;

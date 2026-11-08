@@ -477,13 +477,12 @@ const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string
 // ---------------------------------------------------------------------------
 
 /** A group holding a row in one of these is kept in full. */
-const ACTIVE_SESSION_STATUSES: ReadonlySet<string> = new Set(['live', 'starting', 'reconnecting'])
+const ACTIVE_SESSION_STATUSES: ReadonlySet<string> = new Set(['live', 'starting'])
 
 /** Rank within a collapsing group; anything else (exited) ranks 0. */
 const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
   live: 3,
   starting: 2,
-  reconnecting: 2,
   hibernated: 1,
 }
 
@@ -830,7 +829,7 @@ const DECLARED = defineSchema({
         type: 'object',
         optional: true,
         source: meta(),
-        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting. The pool's declared session.collapse keeps the survivor consistent across per-row readers (POD-4566).",
+        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting. The pool's declared session.collapse keeps the survivor consistent across per-row readers (POD-4566).",
         parts: {
           kind: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
           value: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
@@ -933,7 +932,7 @@ const DECLARED = defineSchema({
       order: 'first-member',
       source:
         'dedupeSessionsByResume (model/src/identity/session-identity.ts), preserved by the pool resumeGroup collapse rule.',
-      why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting/reconnecting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
+      why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
     cold: SESSION_ACTIVE_WORK,
   },

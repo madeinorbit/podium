@@ -298,11 +298,11 @@ describe('boot-time draft retention', () => {
     expect(await reg2.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
 
-  it('keeps drafts with live (reconnecting) or hibernated sessions across boot', async () => {
+  it('keeps drafts with live (awaiting a rebind) or hibernated sessions across boot', async () => {
     const fixture = draftFixture()
     const reg1 = await fixture.createRegistry()
     await attachHostDaemon(reg1, () => {})
-    // Live session draft: comes back 'reconnecting' at boot — must survive.
+    // Live session draft: comes back live, awaiting a rebind, at boot — must survive.
     const live = await draftWithSession(reg1, '/repo-a')
     await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(live.sessionId))
     // Hibernated session draft: parked on purpose — must survive.
