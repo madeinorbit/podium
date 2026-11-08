@@ -173,6 +173,8 @@ export function kindLabel(kind: string): string {
     recordCreate: 'New record',
     recordEdit: 'Change',
     recordRemove: 'Removal',
+    effectCreate: 'Action',
+    effectDismiss: 'Dismiss the result',
   }
   return labels[kind] ?? kind
 }
@@ -258,8 +260,52 @@ const PATCH_FIELD_NOUNS: Record<string, string> = {
   estimateMin: 'estimate',
 }
 
+/** Names the author's requested action without reading its target or payload. */
+const EFFECT_LABELS: Readonly<Record<string, string>> = {
+  'session.launch': 'Start the agent',
+  'session.interrupt': 'Interrupt',
+  'session.configure': 'Change the model or effort',
+  'session.handoff': 'Hand off the session',
+  'session.answer': 'Answer the question',
+  'issue.start': 'Start a new task',
+  'issue.begin': 'Start the task',
+  'issue.stop': 'Stop the task',
+  'issue.addSession': 'Add a session',
+  'issue.cleanup': 'Clean up the task',
+  'issue.ship': 'Ship the task',
+  'issue.assistant': 'Refresh the assistant',
+  'issue.merge': 'Merge the task',
+  'issue.rebase': 'Rebase the task',
+  'issue.pr': 'Create a pull request',
+  'issue.integrate': 'Integrate the task',
+  'issue.artifactAdd': 'Add an artifact',
+  'issue.artifactPublish': 'Publish an artifact',
+  'issue.artifactRemove': 'Remove an artifact',
+  'file.write': 'Save the file',
+  'approval.execute': 'Run the approved action',
+  'server.update': 'Update the server',
+  'server.move': 'Move the server',
+}
+
+function describeEffect(input: unknown): QueuedChangeView {
+  const effect = record(input)
+  if (effect?.kind === 'session.configure') {
+    const patch = record(effect.input)
+    if (patch?.model !== undefined && patch.effort === undefined) {
+      return { label: 'Change the model', summary: null }
+    }
+    if (patch?.effort !== undefined && patch.model === undefined) {
+      return { label: 'Change the effort', summary: null }
+    }
+  }
+  const label = typeof effect?.kind === 'string' ? EFFECT_LABELS[effect.kind] : undefined
+  return { label: label ?? kindLabel('effectCreate'), summary: null }
+}
+
 export function describeQueuedChange(kind: string, input: unknown): QueuedChangeView {
   switch (kind) {
+    case 'effectCreate':
+      return describeEffect(input)
     case 'issueUpdate':
       return describeIssueUpdate(input)
     case 'recordEdit':
@@ -323,6 +369,9 @@ export function deadLetterNotice(kind: string, input: unknown, code: OutboxRejec
 export function couldNotSaveNotice(kind: string, input: unknown): string {
   const label = describeQueuedChange(kind, input).label
   const named = label.length === 0 ? 'this change' : label[0]!.toLowerCase() + label.slice(1)
+  if (kind === 'effectDismiss' || (kind === 'effectCreate' && label !== kindLabel(kind))) {
+    return `Couldn’t ${named}`
+  }
   return `Couldn’t save ${named}`
 }
 

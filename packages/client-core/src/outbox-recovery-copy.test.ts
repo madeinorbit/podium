@@ -8,6 +8,66 @@ import {
 } from './outbox-recovery-copy'
 
 describe('describeQueuedChange', () => {
+  it.each([
+    ['session.launch', 'Start the agent'],
+    ['session.interrupt', 'Interrupt'],
+    ['session.configure', 'Change the model or effort'],
+    ['session.handoff', 'Hand off the session'],
+    ['session.answer', 'Answer the question'],
+    ['issue.start', 'Start a new task'],
+    ['issue.begin', 'Start the task'],
+    ['issue.stop', 'Stop the task'],
+    ['issue.addSession', 'Add a session'],
+    ['issue.cleanup', 'Clean up the task'],
+    ['issue.ship', 'Ship the task'],
+    ['issue.assistant', 'Refresh the assistant'],
+    ['issue.merge', 'Merge the task'],
+    ['issue.rebase', 'Rebase the task'],
+    ['issue.pr', 'Create a pull request'],
+    ['issue.integrate', 'Integrate the task'],
+    ['issue.artifactAdd', 'Add an artifact'],
+    ['issue.artifactPublish', 'Publish an artifact'],
+    ['issue.artifactRemove', 'Remove an artifact'],
+    ['file.write', 'Save the file'],
+    ['approval.execute', 'Run the approved action'],
+    ['server.update', 'Update the server'],
+    ['server.move', 'Move the server'],
+  ])('names the %s effect without echoing its input', (kind, label) => {
+    const input = {
+      id: 'SECRET-EFFECT',
+      kind,
+      target: { kind: 'issue', id: 'SECRET-TARGET' },
+      input: { text: 'SECRET-TEXT', path: 'SECRET-PATH' },
+    }
+    expect(describeQueuedChange('effectCreate', input)).toEqual({ label, summary: null })
+    expect(couldNotSaveNotice('effectCreate', input)).toBe(
+      `Couldn’t ${label[0]!.toLowerCase()}${label.slice(1)}`,
+    )
+  })
+
+  it.each([
+    [{ model: 'SECRET-MODEL' }, 'Change the model'],
+    [{ effort: 'SECRET-EFFORT' }, 'Change the effort'],
+    [{ model: 'SECRET', effort: 'SECRET' }, 'Change the model or effort'],
+  ])('names the configuration fields being changed', (input, label) => {
+    expect(describeQueuedChange('effectCreate', { kind: 'session.configure', input })).toEqual({
+      label,
+      summary: null,
+    })
+  })
+
+  it('names dismissal and unknown effects without internal names', () => {
+    expect(couldNotSaveNotice('effectDismiss', { id: 'SECRET' })).toBe(
+      'Couldn’t dismiss the result',
+    )
+    for (const input of [null, {}, { kind: 'internal.future', input: { text: 'SECRET' } }]) {
+      expect(describeQueuedChange('effectCreate', input)).toEqual({
+        label: 'Action',
+        summary: null,
+      })
+    }
+  })
+
   it('names Settings inheritance for a queued auto harness', () => {
     expect(
       describeQueuedChange('issueUpdate', { id: 'issue', patch: { defaultAgent: 'auto' } }),
