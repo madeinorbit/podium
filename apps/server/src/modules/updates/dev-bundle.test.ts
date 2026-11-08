@@ -8,10 +8,16 @@ import type {
   ReleaseBuildTimingDeps,
   ReleaseBuildTimingRecord,
 } from '@podium/runtime/release-build-timing'
+import {
+  MIRROR_RELEASE_ORIGIN,
+  releaseChannelPath,
+  releaseUrl,
+} from '@podium/runtime/release-origins'
 import { fetchArtifact } from '@podium/runtime/update-delivery'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
+import { BuildTimeoutError, withBuildAttempt } from './build-attempt'
 import {
   type BuildRecord,
   buildBundlesDir,
@@ -44,6 +50,7 @@ import {
   devIdentityTarget,
   devReleaseBuildArgs,
   devTarget,
+  fetchStandingDesktopManifest,
   finalizeTimingIntoRecord,
   fleetHeadlessPlatforms,
   listDevBundles,
@@ -52,12 +59,57 @@ import {
   requireDefinedMigrations,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
-import { BuildTimeoutError, withBuildAttempt } from './build-attempt'
 import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
 import { classifyMachineFailure, describeUpdateOperationFailure } from './operation'
 import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
+
+describe('standing desktop release origins', () => {
+  it('binds a fallback shell to the mirror that served its manifest', async () => {
+    const mirrorManifest = releaseUrl(
+      releaseChannelPath('dev') + 'latest.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+      String(url) === mirrorManifest
+        ? Response.json({
+            version: '1.0.0',
+            platforms: { linux: { url: 'download/dev/shell.tgz', signature: 'signed' } },
+          })
+        : new Response(null, { status: 504 }),
+    )
+    try {
+      const result = await fetchStandingDesktopManifest('dev')
+      expect(result).toMatchObject({
+        raw: {
+          platforms: {
+            linux: { url: releaseUrl('download/dev/shell.tgz', MIRROR_RELEASE_ORIGIN) },
+          },
+        },
+      })
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('refuses a served shell from a foreign origin instead of treating it as absent', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        version: '1.0.0',
+        platforms: { linux: { url: 'https://foreign.example/shell.tgz', signature: 'signed' } },
+      }),
+    )
+    try {
+      await expect(fetchStandingDesktopManifest('dev')).rejects.toThrow('outside')
+      expect(spy).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
 const publisherDirs: string[] = []
 
 function publisherDir(): string {
@@ -481,7 +533,7 @@ describe('createServerDevBundleLock', () => {
     try {
       const cancel = vi.fn()
       const lock = createServerDevBundleLock('/repo/podium', {
-        acquire: () => ({ granted: false } as never),
+        acquire: () => ({ granted: false }) as never,
         cancel,
         renew: () => {},
         release: () => {},

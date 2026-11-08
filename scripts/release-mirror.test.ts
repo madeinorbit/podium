@@ -44,6 +44,19 @@ describe('mirror publication preparation', () => {
     expect(mirrored.notes).toEqual(manifest.notes)
   })
 
+  it('rebinds embedded desktop deliveries as well as standalone desktop manifests', () => {
+    const asset = {
+      url: releaseUrl('download/edge/shell.tgz'),
+      signature: 'signed',
+      digest: 'digest',
+    }
+    const text = JSON.stringify({ artifacts: { desktop: { platforms: { linux: asset } } } })
+    expect(JSON.parse(mirrorManifest(text)).artifacts.desktop.platforms.linux).toEqual({
+      ...asset,
+      url: releaseUrl('download/edge/shell.tgz', MIRROR_RELEASE_ORIGIN),
+    })
+  })
+
   it('requires credentials only after explicit activation', () => {
     expect(() =>
       publishReleaseMirror(

@@ -1925,22 +1925,26 @@ export type DesktopManifestSource = {
   fellBackBecause?: string
 }
 
-async function fetchStandingDesktopManifest(
+export async function fetchStandingDesktopManifest(
   channel: DesktopFeedChannel,
 ): Promise<StandingDesktopManifest> {
+  let result
   try {
-    const result = await fetchRelease(releaseChannelPath(channel) + 'latest.json', {
+    result = await fetchRelease(releaseChannelPath(channel) + 'latest.json', {
       signal: buildSignal(),
       timeoutMs: 5_000,
       read: (response) => response.json(),
     })
-    return { raw: validateDesktopFeedManifest(channel, result.data, result.origin) }
   } catch (error) {
+    if (error instanceof SyntaxError) throw error
     // A fetch failure says almost nothing on its own — `fetch failed` with the
     // DNS or TLS refusal one `cause` down is the shape this surface kept losing.
     const detail = describeError(error)
     return { missing: `${channel} desktop manifest could not be fetched: ${detail}` }
   }
+  // A served publication that lies about its origin is broken, not absent. Keep
+  // validation outside the network fallback so dev cannot silently become edge.
+  return { raw: validateDesktopFeedManifest(channel, result.data, result.origin) }
 }
 
 /**

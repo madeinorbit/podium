@@ -7,6 +7,7 @@ import { basename, join } from 'node:path'
 import {
   MIRROR_RELEASE_ORIGIN,
   PRIMARY_RELEASE_ORIGIN,
+  RELEASE_PATHS,
   type ReleaseChannel,
   releaseTagPath,
   releaseUrl,
@@ -30,6 +31,7 @@ export function mirrorManifest(text: string): string {
   }
   platforms(manifest.platforms)
   platforms(manifest.artifacts?.headless?.platforms)
+  platforms(manifest.artifacts?.desktop?.platforms)
   for (const delivery of manifest.artifacts?.headlessAlternatives ?? [])
     platforms(delivery.platforms)
   if (manifest.downloads) manifest.downloads = manifest.downloads.map(rebind)
@@ -37,7 +39,7 @@ export function mirrorManifest(text: string): string {
 }
 
 export function mirrorUploadPrefixes(channel: ReleaseChannel, tag: string): string[] {
-  return [releaseTagPath(tag), ...(channel === 'stable' ? ['latest/'] : [])]
+  return [releaseTagPath(tag), ...(channel === 'stable' ? [RELEASE_PATHS.latest] : [])]
 }
 
 export function publishReleaseMirror(
