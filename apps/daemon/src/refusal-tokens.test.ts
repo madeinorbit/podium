@@ -342,7 +342,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
    * above: the publishing server sees the mismatch first and answers a
    * fail-closed 404 carrying {@link UPDATE_ARTIFACT_REFUSAL_HEADER}. Without
    * that marker the sentence is `artifact download returned 404`, which is
-   * `download-failed` — a network problem, to whoever reads it. Both arms are
+   * a pending publication. The marker must still classify as an integrity refusal. Both arms are
    * driven through the real producer here, because the whole point is that the
    * two 404s must not classify alike.
    */
