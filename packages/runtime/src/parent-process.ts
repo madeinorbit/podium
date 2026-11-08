@@ -97,7 +97,24 @@ export const PARENT_SUCCESSOR_PID_ENV = 'PODIUM_PARENT_SUCCESSOR_PID'
 export const PARENT_HANDOVER_EXPECTED_VERSION_ENV = 'PODIUM_HANDOVER_EXPECTED_VERSION'
 /** Absolute predecessor-owned deadline; startup and later recovery share this budget. */
 export const PARENT_HANDOVER_DEADLINE_ENV = 'PODIUM_HANDOVER_DEADLINE'
+/**
+ * THE DEADLINE MOVES WHILE THE BOOT DOES (POD-6618).
+ *
+ * A first boot after migrations backs the database up, migrates it and catches
+ * the issue tree up before it listens; on ludovico that took 77 s of a fixed
+ * 90 s budget, the server was ready with 3 s to spare and the daemon never got
+ * the chance. So the 90 s is a STALL budget, not a boot budget: every boot step
+ * a child reports (`progress`, and its `ready`) restarts it, up to an absolute
+ * cap. Both are carried to the successor, which stretches its own gate the same
+ * way and writes how far it got into its gate verdict file; the predecessor
+ * reads that file and follows. A successor started without the cap is talking
+ * to an older predecessor that will not follow, so it does not stretch either.
+ */
+export const PARENT_HANDOVER_DEADLINE_CAP_ENV = 'PODIUM_HANDOVER_DEADLINE_CAP'
+export const PARENT_HANDOVER_STALL_MS_ENV = 'PODIUM_HANDOVER_STALL_MS'
 const HANDOVER_HEALTH_TIMEOUT_MS = 90_000
+/** Upper bound on a handover however steadily its boot progresses. */
+const HANDOVER_MAX_MS = 10 * 60_000
 export const PARENT_POST_UPDATE_ENV = 'PODIUM_PARENT_POST_UPDATE'
 /**
  * Set on a daemon child only when this parent also supervises its sibling
@@ -282,6 +299,8 @@ export interface ParentProcessDeps {
    * the gate is still open — the gap the re-review called R8.
    */
   handoverTimeoutMs?: number
+  /** Absolute ceiling on a progress-stretched handover; default ten minutes. */
+  handoverMaxMs?: number
 }
 
 function defaultInstallBinary(installDir: string, env: NodeJS.ProcessEnv): string {
@@ -521,6 +540,8 @@ export class ParentProcess {
   private onBootHealthy: ((signal: AbortSignal) => Promise<void> | void) | undefined
   private readonly bootAbort = new AbortController()
   private readonly incomingDeadline: number | undefined
+  /** Absolute cap and stall window for stretching {@link incomingDeadline}; see POD-6618. */
+  private readonly incomingStretch: { capMs: number; stallMs: number } | undefined
   private bootDeadlineTimer: ReturnType<typeof setTimeout> | undefined
 
   /** Cancels queued boot confirmation when this parent stops owning startup. */
@@ -562,6 +583,12 @@ export class ParentProcess {
         carried === undefined ? this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS : Number(carried)
       // A malformed inherited budget must not authorize unbounded recovery.
       this.incomingDeadline = Number.isFinite(deadline) && deadline > 0 ? deadline : 0
+      const cap = Number(this.env[PARENT_HANDOVER_DEADLINE_CAP_ENV])
+      const stall = Number(this.env[PARENT_HANDOVER_STALL_MS_ENV])
+      this.incomingStretch =
+        this.incomingDeadline > 0 && Number.isFinite(cap) && cap > 0 && Number.isFinite(stall) && stall > 0
+          ? { capMs: cap, stallMs: stall }
+          : undefined
     }
     const incoming = this.env[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     this.snap = incoming
@@ -592,12 +619,90 @@ export class ParentProcess {
     try {
       mkdirSync(join(this.deps.stateDir ?? stateDir(), 'run'), { recursive: true })
       const temporary = `${path}.tmp`
-      writeFileSync(temporary, JSON.stringify({ deadline: this.incomingDeadline, detail }), { mode: 0o600 })
+      const progress = this.lastBootProgress()
+      writeFileSync(
+        temporary,
+        JSON.stringify({
+          deadline: this.incomingDeadline,
+          until: this.successorDeadline(),
+          ...(progress ? { stage: progress.stage } : {}),
+          detail,
+        }),
+        { mode: 0o600 },
+      )
       renameSync(temporary, path)
     } catch (error) {
       log.warn('could not retain successor gate verdict', { err: error })
     }
   }
+  /**
+   * The successor's latest word on how long it is still entitled to boot, for
+   * the predecessor to follow. `undefined` unless the file speaks for THIS
+   * attempt (its `deadline` is the one this parent handed out).
+   */
+  private successorStretch(pid: number): { until: number; stage?: string } | undefined {
+    try {
+      const verdict = JSON.parse(readFileSync(this.gateVerdictPath(pid), 'utf8'))
+      if (verdict.deadline !== this.outgoingDeadline) return undefined
+      const until = Number(verdict.until)
+      if (!Number.isFinite(until)) return undefined
+      return { until, ...(typeof verdict.stage === 'string' ? { stage: verdict.stage } : {}) }
+    } catch {
+      return undefined
+    }
+  }
+
+  /** The most recent boot step a child reached for the FIRST time. */
+  private lastBootProgress(): { stage: string; atMs: number } | undefined {
+    return this.bootProgress
+  }
+  private bootProgress: { stage: string; atMs: number } | undefined
+  private readonly bootStagesSeen = new Set<string>()
+  /**
+   * Only a step no incarnation of that child reached before counts. A child
+   * that crashes and is respawned re-reports the same early steps; counting
+   * them would let a crash loop stretch the handover all the way to its cap.
+   */
+  private noteBootProgress(child: SupervisedChild, report: ChildLifecycleReport): void {
+    const steps = [
+      report.progress,
+      report.ready ? { stage: `${child} ready`, atMs: report.ready.atMs } : undefined,
+    ]
+    for (const step of steps) {
+      if (!step) continue
+      const key = `${child}:${step.stage}`
+      if (this.bootStagesSeen.has(key)) continue
+      this.bootStagesSeen.add(key)
+      if (!this.bootProgress || step.atMs >= this.bootProgress.atMs) this.bootProgress = step
+    }
+  }
+
+  /**
+   * A successor's absolute deadline: the inherited one, stretched to one stall
+   * window past the last boot progress, never past the inherited cap.
+   */
+  private successorDeadline(): number | undefined {
+    const base = this.incomingDeadline
+    if (base === undefined || !this.incomingStretch) return base
+    const progress = this.lastBootProgress()
+    const stretched = progress ? Math.max(base, progress.atMs + this.incomingStretch.stallMs) : base
+    return Math.min(this.incomingStretch.capMs, stretched)
+  }
+
+  private armBootDeadline(): void {
+    const deadline = this.successorDeadline()
+    if (deadline === undefined) return
+    this.bootDeadlineTimer = setTimeout(
+      () => {
+        const current = this.successorDeadline()
+        if (current !== undefined && this.deps.now() < current) this.armBootDeadline()
+        else this.bootAbort.abort()
+      },
+      Math.max(0, deadline - this.deps.now()),
+    )
+    this.bootDeadlineTimer.unref?.()
+  }
+
   private successorFailure(pid: number | undefined, because?: string): UpdateFailure {
     try {
       const verdict = JSON.parse(readFileSync(this.gateVerdictPath(pid!), 'utf8'))
@@ -1100,13 +1205,7 @@ export class ParentProcess {
   async start(onBootHealthy?: (signal: AbortSignal) => Promise<void> | void): Promise<void> {
     if (this.stopping || this.terminating || this.bootAbort.signal.aborted) return
     this.onBootHealthy = onBootHealthy
-    if (this.incomingDeadline !== undefined) {
-      this.bootDeadlineTimer = setTimeout(
-        () => this.bootAbort.abort(),
-        Math.max(0, this.incomingDeadline - this.deps.now()),
-      )
-      this.bootDeadlineTimer.unref?.()
-    }
+    this.armBootDeadline()
     // BEFORE the first spawn. See invariant 1.
     this.installSignalHandlers()
     for (const child of this.childOrder) {
@@ -1120,10 +1219,12 @@ export class ParentProcess {
     this.bootExpected = expected
     // A successor shares the outgoing parent's absolute deadline. A shorter
     // nested gate used to declare failure at 60s while handover still allowed 90s.
-    const bootBudgetMs = this.incomingDeadline === undefined
-      ? HANDOVER_HEALTH_TIMEOUT_MS
-      : Math.max(0, this.incomingDeadline - this.deps.now())
-    const healthy = await this.waitForHealthy(expected, bootBudgetMs)
+    // It is re-read on every probe, because progress stretches it (POD-6618).
+    const fixedDeadline = this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS
+    const healthy = await this.waitForHealthy(
+      expected,
+      () => this.successorDeadline() ?? fixedDeadline,
+    )
     if (this.stopping || this.terminating) return
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
@@ -1142,7 +1243,8 @@ export class ParentProcess {
   }
 
   private canCompleteBoot(): boolean {
-    if (this.incomingDeadline !== undefined && this.deps.now() >= this.incomingDeadline) {
+    const deadline = this.successorDeadline()
+    if (deadline !== undefined && this.deps.now() >= deadline) {
       this.bootAbort.abort()
     }
     return (
@@ -1243,8 +1345,7 @@ export class ParentProcess {
    * The gate polls every 200 ms within the shared handover deadline, so only the OUTCOME is
    * logged, carrying the probe it was last refused by.
    */
-  private async waitForHealthy(expectedVersion: string, budgetMs: number): Promise<boolean> {
-    const deadline = this.deps.now() + budgetMs
+  private async waitForHealthy(expectedVersion: string, deadline: () => number): Promise<boolean> {
     const startedAt = this.deps.now()
     const wantsDaemon = this.requiresDaemon()
     const wantsServer = this.childOrder.includes('server')
@@ -1261,10 +1362,10 @@ export class ParentProcess {
       if (ok) log.info('parent health gate passed', fields)
       else if (why === 'terminating')
         log.info('parent health gate abandoned; shutting down', fields)
-      else log.warn('parent health gate timed out', { ...fields, budgetMs })
+      else log.warn('parent health gate timed out', { ...fields, budgetMs: deadline() - startedAt })
       return ok
     }
-    while (this.deps.now() < deadline) {
+    while (this.deps.now() < deadline()) {
       if (!this.canCompleteBoot()) return settle(false, 'terminating')
       const result = await this.probeBootHealth(expectedVersion)
       last = result.detail
@@ -1439,6 +1540,9 @@ export class ParentProcess {
     delete childEnv[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     delete childEnv[PARENT_POST_UPDATE_ENV]
     delete childEnv[PARENT_RELEASE_MIGRATIONS_ENV]
+    delete childEnv[PARENT_HANDOVER_DEADLINE_ENV]
+    delete childEnv[PARENT_HANDOVER_DEADLINE_CAP_ENV]
+    delete childEnv[PARENT_HANDOVER_STALL_MS_ENV]
     // Nor a channel descriptor a Node-hosted parent was itself handed: the
     // child's line is the one spawned below, and it must be the only one it has.
     delete childEnv[NODE_CHANNEL_FD_ENV]
@@ -1462,11 +1566,13 @@ export class ParentProcess {
       identity: this.childIdentity(),
       now: this.deps.now,
       onReport: (report) => {
+        this.noteBootProgress(child, report)
         this.snap = { ...this.snap, lifecycle: { ...this.snap.lifecycle, [child]: report } }
         this.publish()
       },
       onMessage: (message) => {
-        if (message.type === 'heartbeat') return
+        // A boot step is already in the child's own log, with its timing.
+        if (message.type === 'heartbeat' || message.type === 'progress') return
         log.info('child lifecycle report', { child, ...message })
       },
       onControlRequest: (request, reply) => this.onChannelControlRequest(child, request, reply),
@@ -1755,8 +1861,13 @@ export class ParentProcess {
   async handover(expectedVersion: string): Promise<void> {
     if (this.stopping || this.terminating) return
     this.bootAbort.abort()
-    const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS)
-    this.outgoingDeadline = deadline
+    const startedAt = this.deps.now()
+    const stallMs = this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS
+    const initialDeadline = startedAt + stallMs
+    const capMs = startedAt + Math.max(stallMs, this.deps.handoverMaxMs ?? HANDOVER_MAX_MS)
+    // The initial deadline doubles as this attempt's identity in the verdict file.
+    this.outgoingDeadline = initialDeadline
+    let deadline = initialDeadline
     const priorPhase = this.snap.phase
     // BEFORE the phase change, so `handover_outgoing` is never announced, and
     // before the spawn below, so there is no instant at which both incarnations
@@ -1783,7 +1894,9 @@ export class ParentProcess {
       ...(this.deps.supervisorGeneration !== undefined
         ? { [PARENT_GENERATION_ENV]: String(this.deps.supervisorGeneration + 1) }
         : {}),
-      [PARENT_HANDOVER_DEADLINE_ENV]: String(deadline),
+      [PARENT_HANDOVER_DEADLINE_ENV]: String(initialDeadline),
+      [PARENT_HANDOVER_DEADLINE_CAP_ENV]: String(capMs),
+      [PARENT_HANDOVER_STALL_MS_ENV]: String(stallMs),
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',
       // Preserve release metadata for diagnostics, independently of execution receipts.
@@ -1823,7 +1936,11 @@ export class ParentProcess {
     try {
       const wantsServer = this.childOrder.includes('server')
       const wantsDaemon = this.requiresDaemon()
-      while (this.deps.now() < deadline) {
+      // Re-read the successor's stretch BEFORE judging the clock: a long poll
+      // gap must not end a handover whose boot moved the deadline meanwhile.
+      for (;;) {
+        deadline = this.followSuccessorDeadline(successorPid, deadline, capMs, expectedVersion)
+        if (this.deps.now() >= deadline) break
         if (this.terminating) return
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
@@ -1845,6 +1962,7 @@ export class ParentProcess {
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
+        deadline = this.followSuccessorDeadline(successorPid, deadline, capMs, expectedVersion)
         if (this.deps.now() >= deadline) break
         if (healthy && this.successorReady(successorPid, expectedVersion)) {
           // The gate has passed: NOW tell systemd where its main process moved.
@@ -1869,11 +1987,58 @@ export class ParentProcess {
         await this.deps.sleep(250)
       }
       if (this.stopping || this.terminating) return
-      await this.abortHandover(successor, expectedVersion, priorPhase)
-      throw new UpdateGateError(this.successorFailure(successor.pid))
+      const timedOut = this.handoverTimeoutFailure(successorPid, startedAt)
+      await this.abortHandover(successor, expectedVersion, priorPhase, undefined, timedOut)
+      throw new UpdateGateError(timedOut)
     } finally {
       successor.removeListener('exit', onSuccessorExit)
       try { unlinkSync(this.gateVerdictPath(successorPid)) } catch {}
+    }
+  }
+
+  /**
+   * Stretch this parent's handover deadline to the successor's own, as its gate
+   * verdict file reports it, never past `capMs`. The successor moves its
+   * deadline only on boot progress, so following it is following the boot.
+   */
+  private followSuccessorDeadline(
+    successorPid: number,
+    deadline: number,
+    capMs: number,
+    expectedVersion: string,
+  ): number {
+    const stretch = this.successorStretch(successorPid)
+    if (!stretch) return deadline
+    const next = Math.min(capMs, Math.max(deadline, stretch.until))
+    if (next > deadline && stretch.stage !== this.lastFollowedStage) {
+      this.lastFollowedStage = stretch.stage
+      log.info('handover deadline extended while the successor boots', {
+        successorPid,
+        expectedVersion,
+        stage: stretch.stage,
+        deadlineInMs: next - this.deps.now(),
+        capInMs: capMs - this.deps.now(),
+      })
+    }
+    return next
+  }
+  private lastFollowedStage: string | undefined
+
+  /**
+   * THE HONEST NAME FOR RUNNING OUT OF TIME (POD-6618). The successor's last
+   * gate refusal says what it was still waiting for, and stays in the detail;
+   * but the outcome is a timeout, and naming it after the child it happened to
+   * be waiting on ("daemon-silent") reads as a broken daemon.
+   */
+  private handoverTimeoutFailure(successorPid: number, startedAt: number): UpdateFailure {
+    const last = this.successorFailure(successorPid)
+    const stage = this.successorStretch(successorPid)?.stage
+    const waitedS = Math.round((this.deps.now() - startedAt) / 1000)
+    return {
+      reasonCode: 'handover-timeout',
+      detail:
+        `The new version did not become healthy within the handover deadline (${waitedS} s` +
+        `${stage ? `; last boot step: ${stage}` : ''}). ${last.detail}`,
     }
   }
 
@@ -1913,8 +2078,9 @@ export class ParentProcess {
     expectedVersion: string,
     priorPhase: ParentSnapshot['phase'],
     because = `the successor parent never became healthy on ${expectedVersion}`,
+    known?: UpdateFailure,
   ): Promise<void> {
-    const failure = this.successorFailure(successor.pid, because)
+    const failure = known ?? this.successorFailure(successor.pid, because)
     this.updateReporter?.(failure)
     log.error('handover failed — reclaiming supervision on the previous version', {
       successorPid: successor.pid,

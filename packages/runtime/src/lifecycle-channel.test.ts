@@ -17,6 +17,7 @@ import {
   LIFECYCLE_HEARTBEAT_MS,
   LIFECYCLE_PROTOCOL,
   NODE_CHANNEL_FD_ENV,
+  reportLifecycleProgress,
   withoutLifecycleChannel,
 } from './lifecycle-channel'
 import { detachSupervisedChild } from './parent-process'
@@ -277,6 +278,37 @@ describe('child end', () => {
       { podium: LIFECYCLE_PROTOCOL, type: 'degraded', reason: 'server unreachable' },
       { podium: LIFECYCLE_PROTOCOL, type: 'stopping', reason: 'SIGTERM' },
     ])
+  })
+
+  it('carries boot progress process-wide while the line is open, and drops it after close', () => {
+    const { child, parent } = wired()
+    const reports: Array<{ stage: string; atMs: number } | undefined> = []
+    attachChildChannel(parent, {
+      identity: { generation: 1 },
+      now: () => 42,
+      onReport: (report) => reports.push(report.progress),
+    })
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'server',
+        version: '1.0.0',
+        transport: child,
+        scheduler: manualScheduler(),
+      }),
+    )
+    // The server's boot-stage timer reaches the line without holding the client.
+    reportLifecycleProgress('migrations')
+    expect(child.sent).toContainEqual({
+      podium: LIFECYCLE_PROTOCOL,
+      type: 'progress',
+      stage: 'migrations',
+    })
+    client.close()
+    reportLifecycleProgress('listen')
+    expect(child.sent.filter((m) => (m as { type: string }).type === 'progress')).toHaveLength(1)
+    return Promise.resolve().then(() => {
+      expect(reports.at(-1)).toEqual({ stage: 'migrations', atMs: 42 })
+    })
   })
 
   it('heartbeats on the contract cadence until closed', () => {

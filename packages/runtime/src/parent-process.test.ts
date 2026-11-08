@@ -33,8 +33,10 @@ import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   detachSupervisedChild,
   defaultProbeDaemonHealth,
+  PARENT_HANDOVER_DEADLINE_CAP_ENV,
   PARENT_HANDOVER_DEADLINE_ENV,
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
+  PARENT_HANDOVER_STALL_MS_ENV,
   PARENT_HAS_SERVER_ENV,
   PARENT_POST_UPDATE_ENV,
   PARENT_RELEASE_MIGRATIONS_ENV,
@@ -1655,6 +1657,183 @@ describe('delayed successor boot ownership', () => {
     expect(predecessorExit).toHaveBeenCalledWith(0)
     expect(successorProcess.signalsReceived).toEqual([])
     expect(existsSync(`${install}.old`)).toBe(false)
+  })
+
+  /**
+   * POD-6618: a first boot after migrations listened at 77 s and was ready at
+   * 84 s of a fixed 90 s budget, and the handover was abandoned with the stack
+   * healthy seconds later. The 90 s is a stall budget now: each boot step the
+   * successor's server reports moves both parents' deadline, up to a cap.
+   */
+  async function slowBootHandover(opts: { progressUntilMs: number; readyAtMs: number }) {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const { install, state } = installDirs('1.0.0')
+    let incoming: ParentProcess | undefined
+    let incomingStart: Promise<void> | undefined
+    let readyAt = Infinity
+    let progressUntil = -Infinity
+    let nextProgress = Infinity
+    let updating = false
+    let successorEnv: NodeJS.ProcessEnv | undefined
+    const predecessorExit = vi.fn()
+    const reported: Array<{ reasonCode: string; detail: string }> = []
+    const successorProcess = new FakeChild(process.pid)
+    let successorServer: FakeChild | undefined
+    const probe = async () => healthy(updating && clock.now() >= readyAt ? '2.0.0' : '1.0.0')
+    /** The successor's server: a boot step every 20 s until it stops, then ready. */
+    const drive = (): void => {
+      const server = successorServer
+      if (!server) return
+      while (clock.now() >= nextProgress && nextProgress <= progressUntil) {
+        server.deliver(encodeLifecycle({ type: 'progress', stage: `step at ${nextProgress}` }))
+        nextProgress += 20_000
+      }
+      if (clock.now() >= readyAt) {
+        successorServer = undefined
+        server.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+      }
+    }
+    const outgoing = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        runningIdentity: { version: '1.0.0', digest: 'old' },
+        spawn: ((_cmd, args, options) => {
+          if (args[0] !== 'parent')
+            return channelChild(111, args, options) as unknown as ReturnType<SpawnChildFn>
+          successorEnv = options.env
+          incoming = track(
+            new ParentProcess({
+              port: 19099,
+              installDir: install,
+              stateDir: state,
+              installBinary: '/unused/podium',
+              children: ['server'],
+              env: options.env,
+              runningIdentity: { version: '2.0.0', digest: 'new' },
+              spawn: ((_c, childArgs) => {
+                const server = new FakeChild(222)
+                if (childArgs[0] === 'server') successorServer = server
+                return server as unknown as ReturnType<SpawnChildFn>
+              }) as SpawnChildFn,
+              probeHealth: probe,
+              now: clock.now,
+              sleep: async (ms) => {
+                clock.advance(ms)
+                drive()
+              },
+              notify: () => {},
+              exit: () => {},
+            }),
+          )
+          incomingStart = incoming.start()
+          return successorProcess as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: probe,
+        now: clock.now,
+        sleep: async (ms) => {
+          await incomingStart
+          clock.advance(ms)
+          drive()
+          await vi.advanceTimersByTimeAsync(ms)
+        },
+        notify: () => {},
+        exit: predecessorExit,
+      }),
+    )
+    outgoing.setUpdateReporter((failure) => reported.push(failure), () => {})
+    await outgoing.start()
+    updating = true
+    const startedAt = clock.now()
+    readyAt = startedAt + opts.readyAtMs
+    progressUntil = startedAt + opts.progressUntilMs
+    nextProgress = startedAt + 20_000
+    writeFileSync(join(install, 'ARTIFACT.sha256'), 'new')
+    retainBackup(install, '1.0.0')
+    const outcome = await outgoing.handover('2.0.0').then(
+      () => undefined,
+      (error: unknown) => error as Error & { reasonCode?: string },
+    )
+    return { clock, startedAt, outcome, incoming, predecessorExit, reported, successorEnv }
+  }
+
+  it('keeps a handover open while the successor reports boot progress past 90 seconds', async () => {
+    const run = await slowBootHandover({ progressUntilMs: 140_000, readyAtMs: 150_000 })
+    expect(Number(run.successorEnv?.[PARENT_HANDOVER_DEADLINE_ENV])).toBe(run.startedAt + 90_000)
+    expect(Number(run.successorEnv?.[PARENT_HANDOVER_STALL_MS_ENV])).toBe(90_000)
+    expect(Number(run.successorEnv?.[PARENT_HANDOVER_DEADLINE_CAP_ENV])).toBe(
+      run.startedAt + 10 * 60_000,
+    )
+    expect(run.outcome).toBeUndefined()
+    expect(run.clock.now() - run.startedAt).toBeGreaterThanOrEqual(150_000)
+    expect(run.incoming?.isBootHealthy()).toBe(true)
+    expect(run.predecessorExit).toHaveBeenCalledWith(0)
+    expect(run.reported).toEqual([])
+  })
+
+  it('times out one stall window after boot progress stops, and names it a handover timeout', async () => {
+    const run = await slowBootHandover({ progressUntilMs: 40_000, readyAtMs: Infinity })
+    const waited = run.clock.now() - run.startedAt
+    // The last step was at 40 s, so the stretched deadline is 130 s, not 90 s.
+    expect(waited).toBeGreaterThanOrEqual(130_000)
+    expect(waited).toBeLessThan(140_000)
+    expect(run.outcome?.reasonCode).toBe('handover-timeout')
+    expect(run.outcome?.message).toMatch(/did not become healthy within the handover deadline/)
+    expect(run.outcome?.message).toMatch(/last boot step: step at/)
+    expect(run.reported[0]?.reasonCode).toBe('handover-timeout')
+    expect(run.predecessorExit).not.toHaveBeenCalled()
+  })
+
+  it('does not let a crash-looping successor stretch the deadline by repeating its early steps', async () => {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const { install, state } = installDirs('2.0.0')
+    const servers: FakeChild[] = []
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['server'],
+        env: {
+          [PARENT_SUCCESSOR_ENV]: '1',
+          [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: '2.0.0',
+          [PARENT_HANDOVER_DEADLINE_ENV]: '91000',
+          [PARENT_HANDOVER_DEADLINE_CAP_ENV]: String(1_000 + 10 * 60_000),
+          [PARENT_HANDOVER_STALL_MS_ENV]: '90000',
+        },
+        runningIdentity: { version: '2.0.0', digest: 'new' },
+        spawn: (() => {
+          const server = new FakeChild(300 + servers.length)
+          servers.push(server)
+          return server as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        now: clock.now,
+        sleep: async (ms) => {
+          clock.advance(ms)
+          // Every incarnation reaches the same first step, then dies.
+          const current = servers.at(-1)
+          if (current && current.exitCode === null && clock.now() % 10_000 < ms) {
+            current.deliver(encodeLifecycle({ type: 'progress', stage: 'store open' }))
+            current.exitCode = 1
+            current.emit('exit', 1, null)
+          }
+        },
+        notify: () => {},
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(parent.isBootHealthy()).toBe(false)
+    // One new step at ~10 s stretches to ~100 s; the repeats must not.
+    expect(clock.now()).toBeLessThan(115_000)
   })
 
   it('retains daemon convergence proof after the initial timeout and refuses proof after the inherited deadline', async () => {
