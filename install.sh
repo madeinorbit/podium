@@ -158,11 +158,21 @@ install_prerequisites() {
   fi
 }
 
+release_downloader_available() {
+  command -v curl >/dev/null 2>&1 && return 0
+  # BusyBox wget cannot disable automatic redirects. Install curl on those hosts
+  # so a redirect is checked before it contacts any untrusted host.
+  if command -v wget >/dev/null 2>&1; then
+    case "$(wget --help 2>&1 || true)" in *--max-redirect*) return 0 ;; esac
+  fi
+  return 1
+}
+
 NEED_PREREQUISITES=""
 for tool in base64 openssl tar gzip; do
   command -v "$tool" >/dev/null 2>&1 || NEED_PREREQUISITES=1
 done
-if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+if ! release_downloader_available; then
   NEED_PREREQUISITES=1
 fi
 if [ ! -r /etc/ssl/certs/ca-certificates.crt ] && [ ! -r /etc/pki/tls/certs/ca-bundle.crt ]; then
@@ -173,8 +183,8 @@ if [ -n "$NEED_PREREQUISITES" ]; then install_prerequisites; fi
 for tool in base64 openssl tar gzip; do
   command -v "$tool" >/dev/null 2>&1 || { echo "podium: prerequisite '$tool' is still unavailable" >&2; exit 1; }
 done
-if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-  echo "podium: prerequisite 'curl or wget' is still unavailable" >&2
+if ! release_downloader_available; then
+  echo "podium: prerequisite 'curl or wget with --max-redirect' is still unavailable" >&2
   exit 1
 fi
 
