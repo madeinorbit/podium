@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type { MachineId } from '@podium/model'
 import { parseCheckoutTopicId, topicKey } from '@podium/protocol'
@@ -121,18 +121,18 @@ export function watchCheckout(
           changed()
           // Renames can add/remove a subtree. A watched directory replaced by an
           // atomic rename must acquire a fresh inode watch as well.
-          if (dir === root && String(name) === '.gitignore') void tree(root, true)
+          if (dir === root && String(name) === '.gitignore') void tree(root, true).then(changed)
           if (_event === 'rename') {
             if (name) {
               const child = join(dir, String(name))
               for (const [path, held] of watches)
-                if (path === child || path.startsWith(`${child}/`)) {
+                if (path === child || path.startsWith(`${child}${sep}`)) {
                   held.close()
                   watches.delete(path)
                   worktreeDirs.delete(path)
                 }
             }
-            void tree(dir, worktree)
+            void tree(dir, worktree).then(changed)
           }
         })
         watcher.on('error', fail)
@@ -170,13 +170,14 @@ export function watchCheckout(
       for (const [path, watcher] of watches) {
         if (
           path !== dir &&
-          path.startsWith(`${dir}/`) &&
+          path.startsWith(`${dir}${sep}`) &&
           !entries.some(
-            (e) => path === join(dir, e.name) || path.startsWith(`${join(dir, e.name)}/`),
+            (e) => path === join(dir, e.name) || path.startsWith(`${join(dir, e.name)}${sep}`),
           )
         ) {
           watcher.close()
           watches.delete(path)
+          worktreeDirs.delete(path)
         }
       }
       await Promise.all(
@@ -202,7 +203,7 @@ export function watchCheckout(
         const watcher = watchDir(dir, (_event, name) => {
           if (!name || /^(HEAD|index|packed-refs|refs|config|commondir)$/.test(String(name)))
             changed()
-          if (String(name) === 'refs') void tree(join(dir, 'refs'), false)
+          if (String(name) === 'refs') void tree(join(dir, 'refs'), false).then(changed)
         })
         watcher.on('error', fail)
         watches.set(dir, watcher)
