@@ -114,7 +114,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     }
   }
 
-  /** A signed-in device: its own session token for `user`, as a login mints. */
+  /** A signed-in device: its own session cookie for `user`, as a login sets. */
   async function signIn(user: UserId): Promise<string> {
     const token = randomBytes(32).toString('base64url')
     const expires = new Date(Date.now() + 3_600_000).toISOString()
@@ -127,7 +127,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       links: [
         httpBatchLink({
           url: `http://127.0.0.1:${server.port}/trpc`,
-          headers: { authorization: `Bearer ${token}` },
+          headers: { cookie: `podium_session=${token}` },
         }),
       ],
     })
@@ -179,7 +179,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     })
     const sourceDeps = {
       origin: `http://127.0.0.1:${server.port}`,
-      streamingFetch: { fetch, headers: () => ({ authorization: `Bearer ${token}` }) },
+      streamingFetch: { fetch, headers: () => ({ cookie: `podium_session=${token}` }) },
     }
     const bootstraps = new HttpBootstrapSource(sourceDeps)
     const deltas = new HttpDeltaSource(sourceDeps)
@@ -215,7 +215,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     // HTTP-sync capability a feed client advertises before and after upgrade.
     const url = `ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&vmin=${MIN_CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`
     const ws = new WebSocket(url, {
-      headers: { authorization: `Bearer ${token}` },
+      headers: { cookie: `podium_session=${token}` },
     })
     sockets.push(ws)
     ws.on('message', (data) => {
