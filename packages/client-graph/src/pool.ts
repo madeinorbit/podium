@@ -528,11 +528,11 @@ export class MobxPool {
     this.seatVerdicts = new SeatVerdicts({
       // untracked-read: seat-membership-maintenance
       seats: (id) => untracked(() => this.graph.members('issue', id, 'sessions')),
-      // untracked-read: seat-session-maintenance
       session: (id) =>
+        // untracked-read: seat-session-maintenance
         untracked(() => omitGone(this.row('session', id, 'peek'))) as SliceSession | undefined,
-      // untracked-read: seat-issue-maintenance
       issue: (id) =>
+        // untracked-read: seat-issue-maintenance
         untracked(() => omitGone(this.row('issue', id, 'peek'))) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
       at: (t, due) => this.clock.at(t, due),
