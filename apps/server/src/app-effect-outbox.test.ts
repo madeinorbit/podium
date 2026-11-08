@@ -171,7 +171,7 @@ describe('app effect actions on sync.submit', () => {
     }
   })
 
-  it('refuses the old nested mutationId even for the operator', async () => {
+  it('still refuses unrelated unknown input fields for the operator', async () => {
     const { o, issue } = await fixture()
     const create = issueSessionEffect({
       effectId: mintDeviceId('eff_'),
@@ -183,7 +183,7 @@ describe('app effect actions on sync.submit', () => {
       mutationId: asMutationId('m-envelope'),
       command: 'effects.create',
       version: 1,
-      input: { ...create, mutationId: 'm-nested' },
+      input: { ...create, unexpectedField: true },
     })
     expect(reply).toMatchObject({ outcome: 'rejected', refusal: { kind: 'invalid' } })
     expect(await o.store.effects.get(create.id)).toBeUndefined()
