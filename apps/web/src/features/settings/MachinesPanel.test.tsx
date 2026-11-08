@@ -25,10 +25,27 @@ vi.mock('@/app/store', () => ({
   useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 
+// The update-status reader (POD-6683) builds its own plain-HTTP client; here it
+// is this test's store client (whichever one the test set last), and the page's
+// `/version` reads answer nothing.
+vi.mock('@/app/trpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/trpc')>()),
+  makeTrpc: () =>
+    new Proxy(
+      {},
+      { get: (_target, key) => (storeState.trpc as Record<PropertyKey, unknown>)[key] },
+    ),
+}))
+vi.mock('@/lib/workspace-request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/workspace-request')>()),
+  workspaceFetch: async () => ({ ok: false }),
+}))
+
 // NetworkStep/RepoScanFlow drag in the whole setup flow; the card/row tests never render them.
 vi.mock('@/features/setup/network-step', () => ({ NetworkStep: () => null }))
 vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
 
+import { resetUpdateStatus } from '@/lib/update-status'
 import { MachinesPanel } from './MachinesPanel'
 import { SettingsOpening } from './SettingsOpening'
 
@@ -48,6 +65,7 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
 afterEach(() => {
   cleanup()
+  resetUpdateStatus()
   vi.restoreAllMocks()
   vi.useRealTimers()
   storeState.machines = []
@@ -104,6 +122,9 @@ describe('MachinesPanel supervisor fleet states', () => {
     act(() => vi.advanceTimersByTime(1))
     expect(screen.getByText(label(130_000))).toBeTruthy()
     view.unmount()
+    // The app-wide update-status reader (POD-6683) outlives the panel and keeps
+    // retrying an operation it could not read; only the panel's clocks must go.
+    resetUpdateStatus()
     expect(vi.getTimerCount()).toBe(0)
   })
 

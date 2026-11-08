@@ -17,7 +17,7 @@ const trpc = {
     approveProposal: { mutate: vi.fn().mockResolvedValue(null) },
     repairPayload: { mutate: vi.fn() },
   },
-  operations: { history: { query: vi.fn() } },
+  operations: { history: { query: vi.fn() }, active: { query: vi.fn().mockResolvedValue(null) } },
 }
 
 const machines = [
@@ -35,6 +35,17 @@ const machines = [
   },
 ]
 
+// The update-status reader (POD-6683) builds its own plain-HTTP client; here it
+// is the same fake, and the page's `/version` reads answer nothing.
+vi.mock('@/app/trpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/trpc')>()),
+  makeTrpc: () => trpc,
+}))
+vi.mock('@/lib/workspace-request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/workspace-request')>()),
+  workspaceFetch: async () => ({ ok: false }),
+}))
+
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
 }))
@@ -50,7 +61,8 @@ vi.mock('@/lib/logging/build-version', () => ({
   pageBuildDigest: () => webDigest,
 }))
 
-const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./updates')
+const { UpdatesSection } = await import('./updates')
+const { resetUpdateStatus, WATCHED_POLL_MS } = await import('@/lib/update-status')
 
 /**
  * Move the DOCUMENT, not a stub of the source module.
@@ -67,6 +79,7 @@ function pageServedFrom(url: string): void {
 
 afterEach(() => {
   cleanup()
+  resetUpdateStatus()
   vi.clearAllMocks()
   trpc.updates.proposal.query.mockReset().mockResolvedValue(null)
   trpc.updates.approveProposal.mutate.mockReset().mockResolvedValue(null)
@@ -131,7 +144,7 @@ describe('UpdatesSection', () => {
     expect(screen.getByText('First proposal')).toBeTruthy()
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(SETTINGS_RELEASE_PROPOSAL_POLL_MS)
+      await vi.advanceTimersByTimeAsync(WATCHED_POLL_MS)
     })
     expect(screen.getByText('Latest proposal')).toBeTruthy()
 

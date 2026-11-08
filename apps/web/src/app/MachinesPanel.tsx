@@ -10,7 +10,7 @@ import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,6 +50,7 @@ import { useClock } from '@/lib/clock-hooks'
 import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { updateStatus } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
@@ -101,17 +102,6 @@ export interface MachineConvergence {
   detail?: string
 }
 
-const CONVERGENCE_POLL_MS = 1_000
-
-/**
- * Convergence for every row, owned by the panel rather than the row.
- *
- * It is read from the server, so a row shows its progress no matter who started
- * the update — this row's Apply, the global update dialog, or a wave that was
- * already running before this page loaded. One read on mount answers "is
- * anything converging right now?"; polling continues only while something is.
- */
-
 /**
  * Whether the Machines panel offers to move the server: "Recommended: make this the server"
  * when adding a machine (and the guided VPS "Move the Podium server here after pairing"), and
@@ -125,44 +115,35 @@ export function offerServerMoveWhenPairing(machineCount: number): boolean {
   return SERVER_MOVE_OFFERED && machineCount === 1
 }
 
-function useFleetConvergence(trpc: Store['trpc']): {
+/**
+ * Convergence for every row, owned by the panel rather than the row.
+ *
+ * It is the update-status reader's fleet (POD-6683), so a row shows its progress
+ * no matter who started the update: this row's Apply, the global update panel,
+ * or a wave that was already running before this page loaded. The open panel is
+ * an update screen, so the reader polls while it shows, every second while any
+ * machine is converging.
+ */
+function useFleetConvergence(): {
   rows: ReadonlyMap<string, MachineConvergence>
   refresh: () => void
 } {
-  const [rows, setRows] = useState<ReadonlyMap<string, MachineConvergence>>(() => new Map())
-  const [nonce, setNonce] = useState(0)
-  const active = [...rows.values()].some((row) => CONVERGENCE_IN_FLIGHT.has(row.state))
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: The nonce requests a manual fleet refresh.
-  useEffect(() => {
-    let cancelled = false
-    const read = async (): Promise<void> => {
-      try {
-        const fleet = await trpc.updates.fleet.query()
-        if (cancelled) return
-        const next = new Map<string, MachineConvergence>()
-        for (const machine of fleet.allMachines ?? fleet.machines ?? []) {
-          next.set(machine.id, {
-            state: machine.state as ConvergenceRowState,
-            reason: machine.reason,
-            ...(machine.detail ? { detail: machine.detail } : {}),
-          })
-        }
-        setRows(next)
-      } catch {
-        // A failed fleet read is not a failed update. Keep the last snapshot.
-      }
+  const status = updateStatus()
+  useEffect(() => status.watch(), [status])
+  const fleet = status.fleet
+  // Rebuilt only when a new fleet reading lands, so rows redraw on news alone.
+  const rows = useMemo(() => {
+    const next = new Map<string, MachineConvergence>()
+    for (const machine of fleet?.allMachines ?? fleet?.machines ?? []) {
+      next.set(machine.id, {
+        state: machine.state as ConvergenceRowState,
+        reason: machine.reason,
+        ...(machine.detail ? { detail: machine.detail } : {}),
+      })
     }
-    void read()
-    if (!active) return
-    const timer = window.setInterval(() => void read(), CONVERGENCE_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [active, nonce, trpc])
-
-  return { rows, refresh: () => setNonce((value) => value + 1) }
+    return next
+  }, [fleet])
+  return { rows, refresh: () => void status.refresh() }
 }
 
 /**
@@ -220,7 +201,7 @@ function MachinesPanelView({
   const activeTransferMachine = machines.find((machine) => machine.id === activeTargetId) ?? null
   const sourceMachine =
     machines.find((machine) => machine.serverMoveEligibility?.reason === 'current-server') ?? null
-  const convergence = useFleetConvergence(trpc)
+  const convergence = useFleetConvergence()
   const newlyPairedMachine =
     makeServerAfterPair &&
     pairing.newMachine !== null &&

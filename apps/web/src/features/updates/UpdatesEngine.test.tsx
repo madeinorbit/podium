@@ -4,6 +4,7 @@
  */
 import type { ReleaseProposal } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from './operation-view'
@@ -23,6 +24,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
+// The panel's own reader is mocked with the hook; an open panel only watches it.
+vi.mock('@/lib/update-status', () => ({ updateStatus: () => ({ watch: () => () => {} }) }))
 vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
   makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
@@ -67,7 +70,7 @@ function Strip(): JSX.Element {
 }
 
 function mount(view: UpdatePanelView = OFFER) {
-  mocks.useUpdateState.mockReturnValue({
+  answerWith({
     view: {
       ...view,
       dismiss:
@@ -97,7 +100,19 @@ function mount(view: UpdatePanelView = OFFER) {
   )
 }
 
+/**
+ * THE HOOK'S ANSWER, AS OBSERVABLE STATE. The engine is an `observer` (POD-6683),
+ * so a re-render with the same props draws nothing new; the real hook's answers
+ * change through the update-status reader's observable state, and so does this
+ * stand-in's.
+ */
+const answer = observable.box<unknown>(undefined, { deep: false })
+function answerWith(value: unknown): void {
+  runInAction(() => answer.set(value))
+}
+
 beforeEach(() => {
+  mocks.useUpdateState.mockImplementation(() => answer.get())
   mocks.useRegisterSW.mockReturnValue({
     needRefresh: [false, mocks.setNeedRefresh],
     updateServiceWorker: vi.fn(),
@@ -114,7 +129,7 @@ afterEach(() => {
 
 describe('UpdatesEngine', () => {
   it('surfaces a new proposal in the indicator until explicitly opened', () => {
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       view: {
         state: 'none',
         title: '',
@@ -188,8 +203,8 @@ describe('UpdatesEngine', () => {
     const initialOptions = mocks.useRegisterSW.mock.calls[0]?.[0]
     const refreshState = vi.fn()
     mocks.useRegisterSW.mockReturnValue({ needRefresh: [true, mocks.setNeedRefresh] })
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    answerWith({
+      ...(answer.get() as object),
       refreshState,
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -209,8 +224,8 @@ describe('UpdatesEngine', () => {
   ] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
     const { rerender } = mount({ ...OFFER, state: 'waiting-you', operationId: 'op_same' })
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    answerWith({
+      ...(answer.get() as object),
       view: { ...OFFER, state, operationId: 'op_same' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -220,8 +235,8 @@ describe('UpdatesEngine', () => {
   it('reopens a hidden running operation when it fails', () => {
     const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    answerWith({
+      ...(answer.get() as object),
       view: { ...OFFER, state: 'failed', operationId: 'op_same' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -230,12 +245,12 @@ describe('UpdatesEngine', () => {
 
   it('collapses a newly discovered proposal and reopens its state change', () => {
     const { rerender } = mount()
-    const result = mocks.useUpdateState.mock.results.at(-1)?.value
+    const result = answer.get() as object
     const view = { ...OFFER, state: 'none' }
-    mocks.useUpdateState.mockReturnValue({ ...result, view, proposal: PROPOSAL })
+    answerWith({ ...result, view, proposal: PROPOSAL })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.queryByTestId('release-proposal-card')).toBeNull()
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       ...result,
       view,
       proposal: { ...PROPOSAL, state: 'building' },
@@ -265,7 +280,7 @@ describe('UpdatesEngine', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('update-panel')).toBeNull()
 
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       view: { ...OFFER, state: 'waiting-you', title: 'Podium 0.4.3 is ready here' },
       operation: null,
       server: {},
@@ -306,8 +321,8 @@ describe('UpdatesEngine', () => {
     try {
       const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
       fireEvent.mouseEnter(screen.getByTestId('update-panel'))
-      mocks.useUpdateState.mockReturnValue({
-        ...mocks.useUpdateState.mock.results.at(-1)?.value,
+      answerWith({
+        ...(answer.get() as object),
         view: {
           ...OFFER,
           state: 'done',

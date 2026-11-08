@@ -8942,7 +8942,7 @@
     },
     {
       "file": "apps/web/src/features/settings/sections/updates.tsx",
-      "holder": "UpdatesSection",
+      "holder": "UpdatesSection/UpdatesSection",
       "rule": "consume:map",
       "tokens": "31c8f4d390198b69d29bd58542e4bb7f717f5dd37b6e51c8f1b338abc9e61298",
       "gate": [
@@ -8951,31 +8951,31 @@
       "origin": [
         "1c5ee753b1b879289bd720f19c49bdc7856db316c27adc03d8d747e09a0a62dc"
       ],
-      "fingerprint": "d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7",
+      "fingerprint": "5d2bc51e27942e9a6af71303728886bb4f0f9e2b94a2daf2166d152387c572d8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of UpdatesSection",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e.",
+      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e. POD-6683 wraps UpdatesSection in observer (the update-status reader), which only renames the holder; predecessor: d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
       "file": "apps/web/src/features/settings/sections/updates.tsx",
-      "holder": "UpdatesSection/machineIds",
+      "holder": "UpdatesSection/UpdatesSection/machineIds",
       "rule": "reader-summary",
       "tokens": "03614cf6a46389236aa30ff335033e15ffff31ec1351247597d3f521a034edf4",
       "gate": [],
       "origin": [
         "1c5ee753b1b879289bd720f19c49bdc7856db316c27adc03d8d747e09a0a62dc"
       ],
-      "fingerprint": "a2a8443f2a0c320ae576a401be0740f93dd80551052879c1760b3681e1e1392c",
+      "fingerprint": "75604c6af2d746b3084409605c8284f3ab24b7799fb7a3b38b5a9cccddaeb281",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of UpdatesSection/machineIds",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-6683 wraps UpdatesSection in observer, which only renames the holder; predecessor: a2a8443f2a0c320ae576a401be0740f93dd80551052879c1760b3681e1e1392c.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -36930,6 +36930,47 @@
       "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
       "reason": "The launch paint's declared subset of the pool's effect models (session.launch and issue.start); it replaces the private replica index createRuntimeTransactions kept (POD-6411). No issue, session or lane rows are enumerated.",
       "guard": "packages/client-graph/src/write/launches.pool.test.ts proves the start list is the pool's own EffectModel and is not re-listed when a Stop's status moves."
+    },
+    {
+      "file": "packages/client-graph/src/write/operation-effects.ts",
+      "holder": "operationEffects/computed:callback",
+      "rule": "enumerate:keys",
+      "tokens": "a959a0023b73274f730dba7db4b4ae8ecbfd266952c7974d9a697fc7d9a91d8e",
+      "gate": [
+        "then:ccbed600cf99f1c147997f09323f37177097f6e8adf4ab6353619bd3ed4a1ff9"
+      ],
+      "origin": [
+        "7d510d2cafc875c1df18c6db604439467615e3239179c3004f9e4d888f77a2fc"
+      ],
+      "fingerprint": "5a5756e41278eb3541505cb2d2f3d0d410e4d25852b947bb9e4d00c0634410b0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6683",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves) while the update-status reader follows the pool; a record's kind never changes, so its status moving does not re-list.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The update-status reader's declared subset of the pool's effect models (server.update and server.move, POD-6358), used only as a trigger to read update status over plain HTTP. No issue, session or lane rows are enumerated.",
+      "guard": "apps/web/src/lib/update-status.effects.test.ts proves a new update effect record triggers exactly one read, an unrelated effect none, and that the reader works with no pool."
+    },
+    {
+      "file": "packages/client-graph/src/write/operation-effects.ts",
+      "holder": "operationEffects/computed:callback",
+      "rule": "loop:for-of",
+      "tokens": "159fcf96b669f8ddcdc110af9d0274b231dcf55eff0d4957212506159dbc84d2",
+      "gate": [
+        "then:ccbed600cf99f1c147997f09323f37177097f6e8adf4ab6353619bd3ed4a1ff9"
+      ],
+      "origin": [
+        "5c3a95d1222c9d02fe07ca2e5c35b79553905fbc06d42540ceffbb493901003b",
+        "7d510d2cafc875c1df18c6db604439467615e3239179c3004f9e4d888f77a2fc"
+      ],
+      "fingerprint": "b2ec8e1c26f054e33fb22add189182e621719a0a8e3598fe68ea8ddb060d0ff6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6683",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves) while the update-status reader follows the pool; a record's kind never changes, so its status moving does not re-list.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The update-status reader's declared subset of the pool's effect models (server.update and server.move, POD-6358), used only as a trigger to read update status over plain HTTP. No issue, session or lane rows are enumerated.",
+      "guard": "apps/web/src/lib/update-status.effects.test.ts proves a new update effect record triggers exactly one read, an unrelated effect none, and that the reader works with no pool."
     },
     {
       "file": "packages/mobx-helpers/src/keyed-computed.ts",

@@ -33,8 +33,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
+// The panel's own reader is mocked with the hook; an open panel only watches it.
+vi.mock('@/lib/update-status', () => ({ updateStatus: () => ({ watch: () => () => {} }) }))
 vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
+  makeTrpc: () => ({ updates: { checkSpace: { query: async () => ({ machines: [] }) } } }),
 }))
 
 import { UpdateIndicator } from './UpdateIndicator'

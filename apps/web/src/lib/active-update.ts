@@ -10,8 +10,9 @@
  * failure. It cannot ask anybody: the one party that knows how long a handover
  * takes is the server, and the server is precisely what is not answering.
  *
- * But the page was ALREADY TOLD, seconds earlier. The update panel polls
- * `operations.active` once a second while anything is running, so the last
+ * But the page was ALREADY TOLD, seconds earlier. The update-status reader
+ * (`update-status.ts`, POD-6683) polls `operations.active` once a second while
+ * anything is running, so the last
  * successful poll before the outage is a dated statement about whether this
  * outage is an update or something else. Remembering it costs one boolean and
  * turns "retry for a while and hope" into a decision with evidence behind it.

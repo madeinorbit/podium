@@ -6,12 +6,13 @@
  * The states themselves are table-tested in `operation-view.test.ts` — this file
  * is deliberately about the wiring, not the copy.
  */
+import { observer } from '@podium/client-graph/react'
 import type { ServedWebIdentity, UpdateTarget } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerUnavailableError } from '@/app/trpc'
-import { resetPolledQueryCache } from '@/lib/use-polled-query'
+import { ACTIVE_POLL_MS, resetUpdateStatus, updateStatus } from '@/lib/update-status'
 import { UpdatePanel } from './UpdatePanel'
 import {
   desktopChannelOf,
@@ -72,6 +73,9 @@ it('keeps update liveness ticking at one second while a server read is stuck', a
   })
   expect(results.at(-1)?.view.liveness).toBe('Running for 6 s')
   view.unmount()
+  // The update-status reader keeps following a running update with no view
+  // open, by design (POD-6683); only the view's own clock must be gone.
+  resetUpdateStatus()
   expect(vi.getTimerCount()).toBe(0)
 })
 
@@ -102,7 +106,8 @@ it('retires a recent failure at its deadline without a clock interval or another
   expect(mocks.history).toHaveBeenCalledTimes(reads)
 })
 
-function Probe({
+/** An observer, like every caller: the update-status reader's state redraws it. */
+const Probe = observer(function Probe({
   onResult,
   withReload = false,
   behind = 1,
@@ -137,7 +142,7 @@ function Probe({
       </output>
     </>
   )
-}
+})
 
 /** A tRPC path this server has never heard of answers exactly like this. */
 function notFound(path: string): Error & { data: { code: string } } {
@@ -268,9 +273,9 @@ function clearPageBundle(): void {
 
 afterEach(() => {
   cleanup()
-  // The poll cache is process-wide by design, so one test's answer would
+  // The update-status reader is app-wide by design, so one test's answer would
   // otherwise be the next test's first render.
-  resetPolledQueryCache()
+  resetUpdateStatus()
   globalThis.sessionStorage?.clear()
   // The restart handoff is deliberately localStorage — it has to outlive the
   // process — so it has to be swept here too, or one test's update becomes the
@@ -879,7 +884,7 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
 
     // The restart. Everything in memory goes; localStorage is what crosses.
     cleanup()
-    resetPolledQueryCache()
+    resetUpdateStatus()
     mocks.active.mockResolvedValue(null)
     mocks.history.mockResolvedValue([
       { ...waitingOnTheShell, state: 'done', awaiting: [], finishedAt: Date.now() - 2_000 },
@@ -926,6 +931,73 @@ describe('update mutation observations', () => {
     })
   }
   const button = () => screen.getByTestId('update-primary') as HTMLButtonElement
+
+  /**
+   * UPDATES WORK WITHOUT SYNC (POD-6683). Updates are often how a broken server
+   * is fixed, so the panel must show progress and start an update while the
+   * socket cannot open at all and the sync feed never answers.
+   */
+  it('starts an update and shows its progress with the socket and the sync feed broken', async () => {
+    const opened = vi.fn()
+    vi.stubGlobal(
+      'WebSocket',
+      class BrokenSocket {
+        constructor() {
+          opened()
+          throw new Error('the socket is down')
+        }
+      },
+    )
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} pollFleet />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    expect(results.at(-1)?.fleet.behind).toBe(1)
+
+    mocks.start.mockResolvedValue({ operationId: running.id, operation: running })
+    mocks.active.mockResolvedValue(running)
+    await act(async () => {
+      await results.at(-1)?.run('start')
+    })
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+    expect(mocks.start).toHaveBeenCalledTimes(1)
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('keeps showing progress through a server restart mid-update, and reconnects by itself', async () => {
+    setupTransport()
+    vi.useFakeTimers()
+    mocks.active.mockResolvedValue(running)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+
+    // The server restarts: every read is refused for a while.
+    mocks.active.mockRejectedValue(new ServerUnavailableError())
+    mocks.fleet.mockRejectedValue(new ServerUnavailableError())
+    mocks.proposal.mockRejectedValue(new ServerUnavailableError())
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ACTIVE_POLL_MS)
+      })
+      expect(screen.getByTestId('view-state').textContent).toBe('running')
+    }
+
+    // The successor server is up and has adopted the operation.
+    const calls = mocks.active.mock.calls.length
+    mocks.active.mockResolvedValue(running)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_POLL_MS)
+    })
+    await flush()
+    expect(mocks.active.mock.calls.length).toBeGreaterThan(calls)
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+    expect(updateStatus(window.location.origin).operation?.id).toBe(running.id)
+  })
 
   it.each([
     'start',

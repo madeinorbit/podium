@@ -1,8 +1,10 @@
 /**
  * THE PANEL'S INPUTS (POD-2102, spec §6).
  *
- * What is left of this hook after the operation took over: it POLLS, it holds
- * this surface's local facts, and it DISPATCHES actions. It no longer decides
+ * What is left of this hook after the operation took over: it READS the one
+ * update-status reader (`lib/update-status.ts`, POD-6683), it holds this
+ * surface's local facts, and it DISPATCHES actions. It polls nothing itself, and
+ * its caller must be an `observer` so the reader's state redraws it. It no longer decides
  * anything about the update — no client-side `done`/`total`, no optimistic
  * in-progress state fabricated at button-press time, and no wait loop spinning
  * inside a button for up to five silent minutes. Those three were the update's
@@ -20,7 +22,8 @@
  *    two tabs looking at one operation see different buttons.
  *  - the RENDER CLOCK. "No progress for 40 s" has to keep counting while the
  *    server says nothing at all — a liveness line that only moves when a poll
- *    lands cannot report the case it exists for.
+ *    lands cannot report the case it exists for. It is the shared clock, read
+ *    only while something is moving.
  */
 import {
   buildsDiffer,
@@ -29,16 +32,13 @@ import {
   classifySkew,
   isDevChannelVersion,
   type Operation,
-  parseBuildStamp,
-  parseServerVersion,
   type ReleaseProposal,
   ReleaseProposal as ReleaseProposalSchema,
   type ServerVersion,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isServerUnavailable, makeTrpc } from '@/app/trpc'
-import { noteActiveUpdate } from '@/lib/active-update'
+import { isServerUnavailable } from '@/app/trpc'
 import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import { updatesLog } from '@/lib/logging/update-logs'
@@ -53,8 +53,7 @@ import {
 import { pageSurface } from '@/lib/page-surface'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
 import { servedWebsiteForPage } from '@/lib/served-website'
-import { usePolledQuery } from '@/lib/use-polled-query'
-import { workspaceFetch } from '@/lib/workspace-request'
+import { type AwaitedOperation, updateStatus } from '@/lib/update-status'
 import {
   type ActionError,
   cancelRefusalSentence,
@@ -70,10 +69,7 @@ import {
   errorCode,
   errorDetail,
   errorMessage,
-  isMissingProcedure,
   isUpdateRequestTimeout,
-  readActiveOperation,
-  readLatestOperation,
   retryUpdate,
   type StartUpdateOutcome,
   startUpdate,
@@ -86,13 +82,10 @@ import {
   type UpdateView,
 } from './update-view'
 
-const BUILD_STAMP_FILE = 'podium-build.json'
-/** An operation is moving: one second is worth a machine's time. */
-const ACTIVE_POLL_MS = 1_000
-/** Idle cadence: enough to recover a failed first read, quiet enough to ignore. */
-const IDLE_POLL_MS = 30_000
-/** The render clock, only while something is actually running. */
+/** The render clock's precision, read only while something is actually running. */
 const CLOCK_MS = 1_000
+/** How long an action waits to see the operation it started. */
+const OBSERVATION_WAIT_MS = 90_000
 
 export interface UpdateMachineState {
   id: string
@@ -158,11 +151,6 @@ export interface UpdateStateResult {
   acknowledge: () => void
 }
 
-interface LocalBuild {
-  appDigest?: string
-  wireSchemaDigest?: string
-}
-
 const EMPTY_FLEET: UpdateFleetState = {
   total: 0,
   behind: 0,
@@ -186,24 +174,6 @@ function defaultServerName(httpOrigin: string): string | undefined {
  */
 export function surfaceFromDesktopBridge(): UpdateSurface {
   return pageSurface()
-}
-
-async function readJson(url: string): Promise<unknown> {
-  try {
-    const response = await workspaceFetch(url)
-    if (!response.ok) return undefined
-    return await response.json()
-  } catch {
-    return undefined
-  }
-}
-
-function localBuildFrom(raw: unknown): LocalBuild {
-  const stamp = parseBuildStamp(raw)
-  return {
-    ...(stamp.sourceSha ? { appDigest: stamp.sourceSha } : {}),
-    ...(stamp.wireSchemaDigest ? { wireSchemaDigest: stamp.wireSchemaDigest } : {}),
-  }
 }
 
 /**
@@ -261,36 +231,6 @@ async function readDesktopUpdate(selection: {
 }
 
 /**
- * ONE ARM'S FAILURE IS NOT THE READ'S FAILURE. Each fact the panel polls for is
- * separately unavailable — an unreachable fleet must not cost the panel the
- * operation it could read — and `Promise.all` would otherwise reject the batch
- * on the first one that broke. Catches a synchronous throw too, because a
- * transport that is not there yet throws rather than rejecting.
- */
-async function safely<T>(read: () => Promise<T>): Promise<T | undefined> {
-  try {
-    return await read()
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Old servers genuinely have no operations endpoint; that is a confirmed
- * "none". Every other failure leaves the fact unknown so a restart-cut request
- * cannot manufacture an offer.
- */
-async function safelyReadOperation(
-  read: () => Promise<Operation | null>,
-): Promise<Operation | null | undefined> {
-  try {
-    return await read()
-  } catch (error) {
-    return isMissingProcedure(error) ? null : undefined
-  }
-}
-
-/**
  * THE OUTCOME THIS SURFACE STILL OWES THE USER.
  *
  * `operations.active` cannot answer it (terminal states are filtered out there),
@@ -310,7 +250,7 @@ const FAILURE_VISIBLE_MS = 15 * 60_000
 
 function terminalToShow(
   latest: Operation | null,
-  context: { watched: ReadonlySet<string>; acknowledged?: string; now: number },
+  context: { watched: (id: string) => boolean; acknowledged?: string; now: number },
 ): Operation | null {
   if (!latest || !isOperationTerminal(latest)) return null
   if (latest.id === context.acknowledged) return null
@@ -319,7 +259,7 @@ function terminalToShow(
     const recent = finishedAt === undefined || context.now - finishedAt <= FAILURE_VISIBLE_MS
     return recent ? latest : null
   }
-  if (latest.state === 'done') return context.watched.has(latest.id) ? latest : null
+  if (latest.state === 'done') return context.watched(latest.id) ? latest : null
   return null
 }
 
@@ -461,42 +401,47 @@ function changeReporter(): (signature: string, emit: () => void) => void {
 }
 
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
-  const [server, setServer] = useState<ServerVersion>({})
-  const [localBuild, setLocalBuild] = useState<LocalBuild>({})
-  const [fleetState, setFleetState] = useState<UpdateFleetState | undefined>(options.fleet)
-  const [live, setOperation] = useState<Operation | null | undefined>()
-  const [latest, setLatest] = useState<Operation | null | undefined>()
   /**
-   * Operations THIS tab watched run. A completion is only news to those — and
-   * the seed is what carries that across a shell restart (see `watchedHandoff`).
+   * THE ONE READER (POD-6683). Its readings are this panel's server facts: the
+   * operation, the outcome, the fleet, `/version`, this page's build stamp and
+   * the release proposal. It polls only while something moves or an update
+   * screen is open, on plain HTTP, whatever the socket and the replica are doing.
    */
-  const watched = useRef<Set<string>>(new Set(watchedHandoff((options.now ?? Date.now)())))
+  const status = useMemo(() => updateStatus(options.httpOrigin), [options.httpOrigin])
+  useEffect(() => status.start(), [status])
+  const trpc = status.trpc
+  const live = status.operation
+  const latest = status.latest
+  const server = status.server
+  const localBuild = status.build
+  const proposal = status.proposal
+  /**
+   * Operations THIS tab watched run. A completion is only news to those. The
+   * reader remembers what this tab saw; the seed is what carries that across a
+   * shell restart (see `watchedHandoff`).
+   */
+  const handoff = useRef<ReadonlySet<string>>(new Set(watchedHandoff(Date.now())))
+  const wasWatched = (id: string): boolean => handoff.current.has(id) || status.watched.has(id)
+  const lastWatched = status.lastWatched
+  useEffect(() => {
+    if (lastWatched) rememberWatched(lastWatched.id, lastWatched.at)
+  }, [lastWatched])
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel | undefined>()
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
-  const [pending, setPending] = useState<PanelActionKind | null>(null)
-  const generation = useRef(0)
-  const awaitingObservation = useRef(false)
-  const recoveryWithoutId = useRef(false)
-  const actionBaseline = useRef<{ latestId: string | null | undefined; startedAt: number }>({
-    latestId: undefined,
-    startedAt: 0,
-  })
-  const [observationWait, setObservationWait] = useState(false)
-  const [proposal, setProposal] = useState<ReleaseProposal | null | undefined>()
+  const [pressed, setPressed] = useState<PanelActionKind | null>(null)
+  /** A start or retry stays pending until the reader sees its operation. */
+  const pending: PanelActionKind | null = pressed ?? status.awaiting?.kind ?? null
   const [proposalPending, setProposalPending] = useState(false)
   const [proposalError, setProposalError] = useState<string | undefined>()
   const [acknowledged, setAcknowledged] = useState<string | undefined>(() => readAcknowledged())
   const [checkedAt, setCheckedAt] = useState<number | undefined>()
 
-  const clock = options.now ?? Date.now
   /** Change gates. Refs, so they survive a re-render and belong to this hook. */
   const reportInputs = useRef(changeReporter())
-  const reportServer = useRef(changeReporter())
   const reportOperation = useRef(changeReporter())
-  const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
   const queryChannel = useCallback((): Promise<unknown> => trpc.setup.channel.query(), [trpc])
 
   useEffect(() => {
@@ -521,52 +466,46 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
 
-  /** The served-identity half of the poll's report: only when it moves. */
-  const noteServerChange = (next: ServerVersion): void => {
-    reportServer.current(
-      [
-        next.appVersion ?? '',
-        next.sourceDigest ?? '',
-        next.web?.bundle ?? '',
-        next.web?.digest ?? '',
-        next.installKind ?? '',
-        next.target?.version ?? '',
-      ].join('|'),
-      () =>
-        updatesLog.info('the server this page reads from changed identity', {
-          appVersion: next.appVersion,
-          ...(next.sourceDigest ? { sourceDigest: next.sourceDigest } : {}),
-          ...(next.installKind ? { installKind: next.installKind } : {}),
-          ...(next.web?.bundle ? { servedBundle: next.web.bundle } : {}),
-          ...(next.web?.digest ? { servedDigest: next.web.digest } : {}),
-          ...(next.target?.version ? { targetVersion: next.target.version } : {}),
-          pageBundle: pageBundleVersion() ?? 'unhashed',
-          pageVersion: pageBuildVersion(),
-        }),
-    )
-  }
-
-  const foldObservedOperation = useCallback((op: Operation | null, at: number): void => {
-    if (op) {
-      watched.current.add(op.id)
-      rememberWatched(op.id, at)
-    }
-    noteActiveUpdate(isOperationActive(op), at)
-    setOperation(op)
-  }, [])
-
+  const waiting = status.awaiting !== null
   useEffect(() => {
-    if (!observationWait) return
+    if (!waiting) return
     const timer = window.setTimeout(() => {
-      awaitingObservation.current = false
-      setObservationWait(false)
-      setPending(null)
+      status.stopAwaiting()
       setActionError({ message: 'The update could not be confirmed. Try again.' })
-    }, 90_000)
+    }, OBSERVATION_WAIT_MS)
     return () => window.clearTimeout(timer)
-  }, [observationWait])
+  }, [status, waiting])
 
-  const active = isOperationActive(live) || proposal?.state === 'building' || observationWait
+  const active = isOperationActive(live) || proposal?.state === 'building' || waiting
+
+  const refresh = useCallback((): void => {
+    void status.refresh()
+  }, [status])
+
+  const acceptStartOutcome = useCallback(
+    (
+      kind: AwaitedOperation['kind'],
+      baseline: AwaitedOperation['baseline'],
+      outcome?: StartUpdateOutcome,
+    ): void => {
+      if (outcome?.operation) {
+        status.noteOperation(outcome.operation, Date.now())
+        if (outcome.operationId) status.markWatched(outcome.operationId, Date.now())
+      } else {
+        status.expectOperation({
+          kind,
+          recoveryWithoutId: !outcome?.operationId,
+          baseline,
+          ...(outcome?.operationId ? { operationId: outcome.operationId } : {}),
+        })
+      }
+    },
+    [status],
+  )
+
+  // THE RENDER CLOCK: the shared one, ticking only while something is moving.
+  // A panel showing an offer has nothing that ages; a recent failure retires at
+  // its exact deadline instead of on a timer.
   const tickingNow = useClock(CLOCK_MS, active || pending !== null)
   const failureFinishedAt =
     latest?.state === 'failed' ? (latest.finishedAt ?? latest.updatedAt) : undefined
@@ -577,180 +516,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const deadlineNow = useDeadlineNow(failureDeadline)
   const now = options.now?.() ?? Math.max(tickingNow, deadlineNow)
 
-  const query = usePolledQuery<{
-    generation: number
-    operation: Operation | null | undefined
-    latest: Operation | null | undefined
-    fleet: UpdateFleetState | undefined
-    serverRaw: unknown
-    buildRaw: unknown
-    proposal: ReleaseProposal | null | undefined
-  }>({
-    key: `updates.operation:${options.httpOrigin}`,
-    intervalMs: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
-    // HALF AN ANSWER IS STILL AN ANSWER: each arm resolves to its own "unknown"
-    // rather than rejecting the batch, so an unreachable fleet never costs the
-    // panel the operation it could read.
-    read: async () => {
-      const observedGeneration = generation.current
-      const live = await safelyReadOperation(() => readActiveOperation(trpc))
-      const [latest, fleet, serverRaw, buildRaw, proposal] = await Promise.all([
-        // The OUTCOME, which `active` cannot carry: it filters terminal states
-        // out by design, so "done" and "failed" would blink out of existence at
-        // the moment they became true. Only asked when nothing is running.
-        live === null
-          ? safelyReadOperation(() => readLatestOperation(trpc, 'update'))
-          : Promise.resolve(undefined),
-        // The fleet snapshot only feeds the OFFER's place rows. While an
-        // operation exists the operation's own steps say where it is, so this
-        // stops asking rather than becoming a second opinion (P2). A caller
-        // that supplied its own fleet is not asked either.
-        live === null && options.fleet === undefined
-          ? safely(() => trpc.updates.fleet.query())
-          : Promise.resolve(undefined),
-        readJson(`${options.httpOrigin}/version`),
-        readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
-        safely(async () => {
-          const raw = await trpc.updates.proposal.query()
-          return raw === null ? null : ReleaseProposalSchema.parse(raw)
-        }),
-      ])
-      return {
-        generation: observedGeneration,
-        operation: live,
-        latest,
-        fleet,
-        serverRaw,
-        buildRaw,
-        proposal,
-      }
-    },
-    /**
-     * A READING THE PANEL ASKED FOR AND DID NOT GET (POD-3224 follow-up).
-     *
-     * On the first live trace the server answered the update mutation in 337 ms
-     * and this panel only entered `running` 5.4 s later. The gap was not the
-     * server and not the network: `run()` calls `refresh()` the moment the
-     * mutation returns, a read was already in flight, and `usePolledQuery` drops
-     * a reading rather than queueing it (its property 3). Nothing recorded that,
-     * so the five seconds were unattributable.
-     *
-     * A `superseded` answer is `info`: it means a reading that had already been
-     * paid for was thrown away and the wait restarted, which is bounded by how
-     * often something calls `refresh()` — actions, not time. A dropped `tick` is
-     * `debug`: at the 1 s active cadence a slow read produces one per second,
-     * which is exactly what must not reach the wire.
-     *
-     * NOT what the follow-up predicted, and worth saying so: an explicit
-     * `refresh()` is never dropped by the in-flight guard, because it restarts
-     * the effect. It abandons the read in flight instead — see `onDropped`.
-     */
-    onDropped: (reason) => {
-      const fields = { reason, cadence: active ? ACTIVE_POLL_MS : IDLE_POLL_MS }
-      if (reason === 'superseded') {
-        updatesLog.info('an update reading arrived after its poll was restarted', fields)
-      } else {
-        updatesLog.debug('an update poll tick was dropped; a read was already running', fields)
-      }
-    },
-    // Folded in the read's OWN turn: a reading routed through `data` and a
-    // follow-up effect lands one flush late, and the panel is supposed to move
-    // when the answer does.
-    onData: ({
-      generation: observedGeneration,
-      operation: live,
-      latest,
-      fleet,
-      serverRaw,
-      buildRaw,
-      proposal,
-    }) => {
-      const at = clock()
-      /**
-       * WHICH ARMS ANSWERED (POD-3224).
-       *
-       * `undefined` from an arm means the read FAILED, and the difference
-       * between "the server says there is no operation" and "we could not ask"
-       * is the difference between an offer and a blank panel. Every branch below
-       * turns on it, and none of it was visible: a panel stuck on stale facts
-       * during a restart looked identical to a panel with nothing to show.
-       *
-       * `debug`, because this fires on every poll and the poll runs at 1 s while
-       * anything is moving. What is worth forwarding is the CHANGE, logged
-       * below.
-       */
-      updatesLog.debug('update poll landed', {
-        cadence: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
-        live: live === undefined ? 'unread' : live === null ? 'none' : live.state,
-        ...(live ? { operationId: live.id } : {}),
-        latest: latest === undefined ? 'unread' : latest === null ? 'none' : latest.state,
-        fleet: fleet === undefined ? 'unread' : 'read',
-        server: serverRaw === undefined ? 'unread' : 'read',
-        build: buildRaw === undefined ? 'unread' : 'read',
-        proposal: proposal === undefined ? 'unread' : (proposal?.state ?? 'none'),
-      })
-      if (observedGeneration === generation.current) {
-        if (live !== undefined) foldObservedOperation(live, at)
-        if (latest !== undefined) setLatest(latest)
-        if (awaitingObservation.current && recoveryWithoutId.current && live === null && latest) {
-          const baseline = actionBaseline.current
-          // A new lifecycle history row can be the entire update after a cut
-          // answer. Do not turn an already-known completion into fresh news.
-          const newHistory =
-            latest.id !== baseline.latestId &&
-            (baseline.latestId !== undefined ||
-              (latest.createdAt ?? latest.startedAt ?? -Infinity) >= baseline.startedAt)
-          if (newHistory && isOperationTerminal(latest)) {
-            watched.current.add(latest.id)
-            rememberWatched(latest.id, at)
-          }
-        }
-        // A successful active read, or a complete active+history "none", is
-        // authoritative. Failed history cannot lose a fast terminal outcome.
-        if (awaitingObservation.current && (live || (live === null && latest !== undefined))) {
-          awaitingObservation.current = false
-          setObservationWait(false)
-          setPending(null)
-        }
-      }
-      if (serverRaw !== undefined) {
-        const next = parseServerVersion(serverRaw)
-        // WHAT THE SERVER IS SERVING, when it moves. This is the fact behind
-        // `assets === 'replaced'` and behind every "the page is stale" verdict,
-        // and it changes once per release rather than once per second — which is
-        // what makes it worth forwarding.
-        noteServerChange(next)
-        setServer(next)
-      }
-      if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
-      if (fleet !== undefined) setFleetState(fleet)
-      if (proposal !== undefined) setProposal(proposal)
-    },
-  })
-
-  const refresh = query.refresh
-
-  const acceptStartOutcome = useCallback(
-    (outcome?: StartUpdateOutcome): void => {
-      generation.current += 1
-      if (outcome?.operationId) {
-        watched.current.add(outcome.operationId)
-        rememberWatched(outcome.operationId, clock())
-      }
-      if (outcome?.operation) {
-        foldObservedOperation(outcome.operation, clock())
-      } else {
-        recoveryWithoutId.current = !outcome?.operationId
-        awaitingObservation.current = true
-        setObservationWait(true)
-        // Idle recovery changes cadence and reads immediately. Already-active
-        // polling needs an explicit post-action read, even if an old read hangs.
-        if (active) refresh()
-      }
-    },
-    [active, clock, foldObservedOperation, refresh],
-  )
-
   // What the panel is about right now: the running operation if there is one,
   // otherwise the outcome of the last one while it is still the user's business.
   const operation =
@@ -760,7 +525,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         (latest === undefined
           ? undefined
           : terminalToShow(latest, {
-              watched: watched.current,
+              watched: wasWatched,
               ...(acknowledged ? { acknowledged } : {}),
               now,
             })))
@@ -777,7 +542,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setNote(undefined)
   }, [operationId])
 
-  const fleetFact = options.fleet ?? fleetState
+  const fleetFact: UpdateFleetState | undefined = options.fleet ?? status.fleet
   // The concrete fallback keeps the public result and pure offer computation
   // ergonomic; `fleetFact` below decides whether those values are established
   // facts and therefore renderable.
@@ -1052,7 +817,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       ? {
           operationId: operation.id,
           state: operation.state,
-          watched: watched.current.has(operation.id),
+          watched: wasWatched(operation.id),
           ...(operation.error?.code ? { errorCode: operation.error.code } : {}),
         }
       : { operationId: 'none' }),
@@ -1078,25 +843,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
        * not be told apart from "I pressed Update and the answer was cut by the
        * restart the update itself requested".
        */
-      const startedAt = clock()
-      if (kind === 'start' || kind === 'retry') {
-        actionBaseline.current = { latestId: latest === null ? null : latest?.id, startedAt }
-      }
+      const startedAt = Date.now()
+      const baseline = { latestId: latest === null ? null : latest?.id, startedAt }
       updatesLog.info('update action started', {
         action: kind,
         surface,
         ...(operationId ? { operationId } : {}),
       })
-      setPending(kind)
+      setPressed(kind)
       setNote(undefined)
       setActionError(undefined)
       try {
         switch (kind) {
           case 'start':
-            acceptStartOutcome(await startUpdate(trpc, surface))
+            acceptStartOutcome('start', baseline, await startUpdate(trpc, surface))
             break
           case 'retry':
-            acceptStartOutcome(await retryUpdate(trpc, operationId))
+            acceptStartOutcome('retry', baseline, await retryUpdate(trpc, operationId))
             break
           case 'cancel': {
             if (!operationId) break
@@ -1144,7 +907,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         }
         updatesLog.info('update action finished', {
           action: kind,
-          elapsedMs: clock() - startedAt,
+          elapsedMs: Date.now() - startedAt,
         })
         if (kind !== 'start' && kind !== 'retry') refresh()
       } catch (error) {
@@ -1167,12 +930,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           if (isUpdateRequestTimeout(error)) {
             updatesLog.warn('update action got no answer in time; looking for its operation', {
               action: kind,
-              elapsedMs: clock() - startedAt,
+              elapsedMs: Date.now() - startedAt,
             })
           } else {
             updatesLog.info('update action lost its answer to the restart it asked for', {
               action: kind,
-              elapsedMs: clock() - startedAt,
+              elapsedMs: Date.now() - startedAt,
             })
           }
           /**
@@ -1181,12 +944,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
            * the write and never paint that expected handoff as a second,
            * contradictory failure; poll the operation that owns the progress.
            */
-          acceptStartOutcome()
+          acceptStartOutcome(kind, baseline)
         } else {
           const actionError = toActionError(error)
           updatesLog.warn('update action failed', {
             action: kind,
-            elapsedMs: clock() - startedAt,
+            elapsedMs: Date.now() - startedAt,
             ...(actionError.code ? { code: actionError.code } : {}),
             ...(actionError.message ? { detail: actionError.message } : {}),
             err: error,
@@ -1194,13 +957,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           setActionError(actionError)
         }
       } finally {
-        if (!awaitingObservation.current) setPending(null)
+        setPressed(null)
         setDesktopProgress(undefined)
       }
     },
     [
       acceptStartOutcome,
-      clock,
       desktopChannel,
       expectedDesktopVersion,
       latest,
@@ -1214,7 +976,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
   const checkNow = useCallback(async (): Promise<void> => {
     updatesLog.info('update action started', { action: 'check', surface })
-    setPending('check')
+    setPressed('check')
     setActionError(undefined)
     setDesktopChannel(undefined)
     try {
@@ -1223,7 +985,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       setDesktopChannel(selection.channel)
       const info = await readDesktopUpdate(selection)
       setDesktopUpdate(info)
-      setCheckedAt(clock())
+      setCheckedAt(Date.now())
       updatesLog.info('update action finished', {
         action: 'check',
         channel: selection.channel,
@@ -1240,9 +1002,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       })
       setActionError(actionError)
     } finally {
-      setPending(null)
+      setPressed(null)
     }
-  }, [clock, queryChannel, refresh, surface, trpc])
+  }, [queryChannel, refresh, surface, trpc])
 
   const approveProposal = useCallback(async (): Promise<void> => {
     setProposalPending(true)
@@ -1253,7 +1015,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         headSha: proposal.headSha,
         version: proposal.version,
       })
-      setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+      status.noteProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
       refresh()
     } catch (error) {
       setProposalError(errorMessage(error) ?? 'The development release was not approved.')
@@ -1261,7 +1023,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     } finally {
       setProposalPending(false)
     }
-  }, [proposal, refresh, trpc])
+  }, [proposal, refresh, status, trpc])
 
   /**
    * "I have seen this outcome." Clears a local action error and, for a terminal
@@ -1288,7 +1050,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     approveProposal,
     run,
     checkNow,
-    refreshState: query.refresh,
+    refreshState: refresh,
     acknowledge,
   }
 }

@@ -4,11 +4,9 @@ import { parseOperation } from '@podium/protocol'
 import { useCallback, useEffect, useState } from 'react'
 import type { Store } from '@/app/store'
 import { errorMessage, isMissingProcedure } from '@/features/updates/operations-client'
+import { updateStatus } from '@/lib/update-status'
 
 export const SERVER_MOVE_CONFIRMATION = 'TRANSFER SERVER'
-
-const ACTIVE_POLL_MS = 1_000
-const IDLE_POLL_MS = 10_000
 
 export const SERVER_MOVE_ERROR_COPY: Readonly<Record<string, string>> = {
   'active-transfer': 'Another server move is already active.',
@@ -53,46 +51,53 @@ export interface ServerMoveOperationsState {
   refresh: () => void
 }
 
-/** Reads only the generic operations contract; the transfer journal is never public state. */
+/**
+ * Reads only the generic operations contract; the transfer journal is never public state.
+ *
+ * The ACTIVE move is the update-status reader's operation (POD-6683): the one
+ * reader of `operations.active`, which polls while it runs. The caller is an
+ * `observer` and an open update screen, so it watches the reader. The HISTORY is
+ * a request answer: read on open, again whenever the active operation changes
+ * (a move that ends joins the history), and on `refresh()`.
+ */
 export function useServerMoveOperations(trpc: Store['trpc']): ServerMoveOperationsState {
-  const [active, setActive] = useState<Operation | null>(null)
+  const status = updateStatus()
+  useEffect(() => status.watch(), [status])
+  const operation = status.operation
+  const active = operation?.kind === 'server-move' ? operation : null
   const [history, setHistory] = useState<Operation[]>([])
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  const activeKey = active ? `${active.id}:${active.state}` : 'none'
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the nonce and the active move's key request a fresh history read
   useEffect(() => {
     let cancelled = false
-    let timer: number | undefined
-    const read = async (): Promise<void> => {
+    void (async () => {
       try {
-        const raw = await trpc.operations.active.query({ group: 'lifecycle' })
-        const operation = parseOperation(raw)
         const rows = await trpc.operations.history.query({ kind: 'server-move', limit: 20 })
         if (cancelled) return
-        setActive(operation?.kind === 'server-move' ? operation : null)
         setHistory(
           rows.map((row) => parseOperation(row)).filter((row): row is Operation => row !== null),
         )
         setError(null)
-        timer = window.setTimeout(read, operation ? ACTIVE_POLL_MS : IDLE_POLL_MS)
       } catch (cause) {
-        if (cancelled) return
-        setError(errorMessage(cause) ?? 'Server move status is unavailable.')
-        timer = window.setTimeout(read, IDLE_POLL_MS)
+        if (!cancelled) setError(errorMessage(cause) ?? 'Server move status is unavailable.')
       }
-    }
-    void read()
+    })()
     return () => {
       cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [nonce, trpc])
+  }, [activeKey, nonce, trpc])
 
   return {
     active,
     history,
     error,
-    refresh: useCallback(() => setNonce((value) => value + 1), []),
+    refresh: useCallback(() => {
+      void status.refresh()
+      setNonce((value) => value + 1)
+    }, [status]),
   }
 }
 

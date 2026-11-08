@@ -15,6 +15,7 @@ import {
 } from '@/lib/machine-version-skew'
 import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
 import { uiSource } from '@/lib/ui-source'
+import { updateStatus } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
 import { useSettingsMachine, useSettingsMachineIds, useSettingsMachineTargets } from '../readers'
 import { useSettingsTrpc } from '../stable-access'
@@ -88,7 +89,6 @@ interface MachineVersionRow {
 
 /** How many operations §9.2.6 retains, and therefore how many are worth asking for. */
 const HISTORY_LIMIT = 20
-export const SETTINGS_RELEASE_PROPOSAL_POLL_MS = 5_000
 
 /**
  * THE OPERATOR'S VIEW OF UPDATES (POD-2103, spec §3.7 / §6.3 / §9.2).
@@ -107,9 +107,15 @@ export const SETTINGS_RELEASE_PROPOSAL_POLL_MS = 5_000
  * "Podium development" on — but the selector itself is always here, because
  * choosing between released channels is ordinary operation. The channel type is
  * inlined so the web bundle never imports @podium/runtime (node:fs).
+ *
+ * An `observer`: the fleet and the release proposal are the update-status
+ * reader's (POD-6683), which polls while this section is open. The version info
+ * and the update history are this section's own request answers.
  */
-export function UpdatesSection(): JSX.Element {
+export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
   const trpc = useSettingsTrpc()
+  const status = updateStatus()
+  useEffect(() => status.watch(), [status])
   const machineIds = useSettingsMachineIds()
   const developing = useFeature('podium-development')
   const [channel, setChannel] = useState<FleetChannel | null>(null)
@@ -127,15 +133,18 @@ export function UpdatesSection(): JSX.Element {
   const [updateScope, setUpdateScope] = useState<'all' | 'fleet-only'>('all')
   const [channelError, setChannelError] = useState<string | null>(null)
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
-  const [fleet, setFleet] = useState<FleetSnapshot | null>(null)
-  const [checks, setChecks] = useState<ChannelCheck[] | null>(null)
-  const [readError, setReadError] = useState<string | null>(null)
+  const fleet: FleetSnapshot | null = status.fleet ?? null
+  /** What the last manual check answered, until a fleet reading carries the checks. */
+  const [checkRecords, setCheckRecords] = useState<ChannelCheck[] | null>(null)
+  const checks: ChannelCheck[] | null = fleet?.channelChecks ?? checkRecords ?? (fleet ? [] : null)
+  const [infoError, setInfoError] = useState<string | null>(null)
+  const readError = infoError ?? (fleet === null ? (status.fleetError ?? null) : null)
   const [history, setHistory] = useState<Operation[] | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkNote, setCheckNote] = useState<string | null>(null)
-  const [proposal, setProposal] = useState<ReleaseProposal | null>(null)
+  const proposal: ReleaseProposal | null = status.proposal ?? null
   const [approvingProposal, setApprovingProposal] = useState(false)
   const [proposalError, setProposalError] = useState<string | null>(null)
   const [repairing, setRepairing] = useState(false)
@@ -162,49 +171,15 @@ export function UpdatesSection(): JSX.Element {
     }
   }, [trpc])
 
-  const readProposal = useCallback(async (): Promise<ReleaseProposal | null> => {
-    const proposalQuery = (
-      trpc.updates as typeof trpc.updates & {
-        proposal?: { query: () => Promise<unknown> }
-      }
-    ).proposal
-    if (!proposalQuery) return null
-    const raw = await proposalQuery.query()
-    return raw === null ? null : ReleaseProposalSchema.parse(raw)
-  }, [trpc])
-
   useEffect(() => {
     let cancelled = false
-    const refresh = (): void => {
-      void readProposal()
-        .then((raw) => {
-          if (cancelled) return
-          setProposal(raw)
-        })
-        // Older servers and non-publisher profiles simply have no card.
-        .catch(() => {
-          if (!cancelled) setProposal(null)
-        })
-    }
-    refresh()
-    const timer = window.setInterval(refresh, SETTINGS_RELEASE_PROPOSAL_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [readProposal])
-
-  useEffect(() => {
-    let cancelled = false
-    Promise.all([trpc.setup.info.query(), trpc.updates.fleet.query()])
-      .then(([info, nextFleet]) => {
-        if (cancelled) return
-        setVersionInfo({ appVersion: info.appVersion })
-        setFleet(nextFleet)
-        setChecks(nextFleet.channelChecks ?? [])
+    trpc.setup.info
+      .query()
+      .then((info) => {
+        if (!cancelled) setVersionInfo({ appVersion: info.appVersion })
       })
       .catch((e) => {
-        if (!cancelled) setReadError(e instanceof Error ? e.message : String(e))
+        if (!cancelled) setInfoError(e instanceof Error ? e.message : String(e))
       })
     return () => {
       cancelled = true
@@ -261,14 +236,12 @@ export function UpdatesSection(): JSX.Element {
     setCheckNote(null)
     try {
       const records = (await trpc.updates.checkNow.mutate()) as ChannelCheck[]
-      setChecks(records)
+      setCheckRecords(records)
       setCheckNote(describeCheckOutcome(records, Date.now()))
       // The check may have resolved a target that was not there a moment ago, so
       // the fleet read model is now stale in exactly the way the user pressed the
       // button to fix.
-      const nextFleet = await trpc.updates.fleet.query()
-      setFleet(nextFleet)
-      if (nextFleet.channelChecks) setChecks(nextFleet.channelChecks)
+      await status.refresh()
     } catch (e) {
       setCheckNote(
         e instanceof Error
@@ -278,7 +251,7 @@ export function UpdatesSection(): JSX.Element {
     } finally {
       setChecking(false)
     }
-  }, [trpc])
+  }, [status, trpc])
 
   const approveProposal = useCallback(async () => {
     setApprovingProposal(true)
@@ -297,20 +270,16 @@ export function UpdatesSection(): JSX.Element {
         headSha: proposal.headSha,
         version: proposal.version,
       })
-      setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+      status.noteProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
     } catch (error) {
       setProposalError(error instanceof Error ? error.message : String(error))
       // A proposal-moved refusal is immediately actionable only if the stale
       // card is replaced with the proposal the server just named.
-      try {
-        setProposal(await readProposal())
-      } catch {
-        // Keep the refusal visible; the poller will retry server truth.
-      }
+      await status.refresh()
     } finally {
       setApprovingProposal(false)
     }
-  }, [proposal, readProposal, trpc])
+  }, [proposal, status, trpc])
 
   const repairPayload = useCallback(async () => {
     setRepairing(true)
@@ -319,7 +288,7 @@ export function UpdatesSection(): JSX.Element {
       const result = await trpc.updates.repairPayload.mutate(
         desktopMachineId ? { id: desktopMachineId } : undefined,
       )
-      setFleet(result.fleet)
+      status.noteFleet(result.fleet)
       setRepairNote('Repair granted. Podium will download the current payload and restart.')
     } catch (error) {
       if (desktop?.repairPayload) {
@@ -346,7 +315,7 @@ export function UpdatesSection(): JSX.Element {
     } finally {
       setRepairing(false)
     }
-  }, [desktop, desktopMachineId, trpc])
+  }, [desktop, desktopMachineId, status, trpc])
 
   // Development is appended, never substituted: the released channels stay in the
   // same place and the same order whether or not the flag is on. A machine already
@@ -452,7 +421,9 @@ export function UpdatesSection(): JSX.Element {
       title="Updates"
       hint="Which builds the self-updater (podium update) pulls, for this server and every machine that has not pinned a source of its own. stable = released builds · edge = latest from main."
     >
-      <Row label="Update disk space"><UpdateSpaceNotice client={trpc} scope="all" /></Row>
+      <Row label="Update disk space">
+        <UpdateSpaceNotice client={trpc} scope="all" />
+      </Row>
       <Row label="Running version">
         {showComponentVersions ? (
           <dl className="flex w-full flex-col gap-2" data-testid="component-version-breakdown">
@@ -827,7 +798,7 @@ export function UpdatesSection(): JSX.Element {
       {readError && <p className="mt-2 settings-prose text-destructive">{readError}</p>}
     </Section>
   )
-}
+})
 
 const SettingsUpdateMachine = observer(function SettingsUpdateMachine({
   id,

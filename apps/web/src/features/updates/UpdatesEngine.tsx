@@ -26,6 +26,7 @@
  * request in the same window as every other boot request, long before any update
  * can be offered.
  */
+import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
@@ -35,6 +36,7 @@ import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
 import { withReloadPreparation } from '@/lib/reload-preparation'
 import { serviceWorkerContainer } from '@/lib/sw-container'
+import { updateStatus } from '@/lib/update-status'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
@@ -50,7 +52,12 @@ export interface UpdatesEngineProps {
   httpOrigin?: string
 }
 
-export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element | null {
+/**
+ * An `observer`: the update-status reader's state (POD-6683) is what redraws it.
+ */
+export const UpdatesEngine = observer(function UpdatesEngine({
+  httpOrigin,
+}: UpdatesEngineProps): JSX.Element | null {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [reloadStatus, setReloadStatus] = useState<ReloadHandshakeStatus | null>(null)
   const refreshRef = useRef(() => {})
@@ -249,6 +256,10 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const hasPanelContent = view.state !== 'none' || showingProposal
   const open = hasPanelContent && !collapsed
 
+  // The expanded panel is an open update screen: the reader keeps it current
+  // while it shows, and stops when it collapses.
+  useEffect(() => (open ? updateStatus(resolvedOrigin).watch() : undefined), [open, resolvedOrigin])
+
   const hide = useCallback(() => {
     // Record the user's collapse choice and acknowledge terminal outcomes.
     updatesLog.info('the user hid the update panel', {
@@ -395,8 +406,10 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       {...(reloadStatus ? { reloadStatus } : {})}
       onResetCachedInterface={resetCachedInterface}
       {...(view.state === 'offer' && view.primary?.kind === 'start'
-        ? { spacePreview: <UpdateSpaceNotice client={spaceClient} expectedVersion={view.version} /> }
+        ? {
+            spacePreview: <UpdateSpaceNotice client={spaceClient} expectedVersion={view.version} />,
+          }
         : {})}
     />
   )
-}
+})

@@ -61,7 +61,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { FLIGHT_DECK_SIZING, readFlightDeckWidth } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
-import { ReplicaFailureScreen } from './ReplicaFailureScreen'
+import { ReplicaFailureShell } from './ReplicaFailureShell'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
@@ -86,6 +86,7 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
+import { UpdateEffectsObserver } from './UpdateEffectsObserver'
 import { useResponsiveSidebars } from './use-responsive-sidebars'
 
 /**
@@ -352,7 +353,7 @@ export function AppShell({
     // never going to be allowed to open (POD-1304).
     shell = (
       <TooltipProvider>
-        <ReplicaFailureScreen
+        <ReplicaFailureShell
           cause={kernel.cause}
           detail={kernel.failure}
           httpOrigin={config.httpOrigin}
@@ -395,6 +396,7 @@ export function AppShell({
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ServerFollowObserver />
+                <UpdateEffectsObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
                   initialHref={pendingInitialPodiumHref.current}
