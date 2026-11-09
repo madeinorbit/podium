@@ -762,6 +762,7 @@ describe('web pool navigation', () => {
         markers: () => initial.issueUserStates,
       }),
     )
+    runtime.start()
     referenceState(runtime).setView('workspace')
     referenceState(runtime).setSelectedIssueId(target)
     expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
@@ -821,7 +822,7 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('watches navigation fields without waking for display metadata', async () => {
+  it('watches read activity without waking for display metadata', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
@@ -829,22 +830,16 @@ describe('web pool navigation', () => {
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
     const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
+    runtime.start()
     const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
     await turn()
-    const reactions = (
-      runtime as unknown as {
-        reactions: {
-          updateIssueVisitBaseline(): void
-          updateIssueMarkReadTimer(): void
-          updateMarkReadTimer(): void
-        }
-      }
-    ).reactions
+    const markRead = runtime.root.services.markRead
+    if (!markRead) throw new Error('Mark-read service is not installed')
     const spies = [
       'updateIssueVisitBaseline',
       'updateIssueMarkReadTimer',
       'updateMarkReadTimer',
-    ].map((name) => vi.spyOn(reactions, name as keyof typeof reactions))
+    ].map((name) => vi.spyOn(markRead, name as keyof typeof markRead))
     try {
       const row = tracked(() => omitGone(handle.pool.row('issue', target))) as SliceIssue
       handle.pool.apply({
@@ -853,9 +848,19 @@ describe('web pool navigation', () => {
       })
       await turn()
       expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0])
+      // Advance the roll-up the service actually watches, past all child and
+      // session activity, instead of changing an older issue timestamp.
+      const current = tracked(() => createPoolNavigationProvider(handle.pool).activityAt(target))
+      if (typeof current !== 'string') throw new Error('Expected foreground activity')
       handle.pool.apply({
         type: 'update',
-        rows: [{ kind: 'issue', id: target, value: { ...row, updatedAt: ctx.stamp() } }],
+        rows: [
+          {
+            kind: 'issue',
+            id: target,
+            value: { ...row, updatedAt: new Date(Date.parse(current) + 1000).toISOString() },
+          },
+        ],
       })
       await vi.waitFor(() => expect(spies[0]).toHaveBeenCalled())
     } finally {

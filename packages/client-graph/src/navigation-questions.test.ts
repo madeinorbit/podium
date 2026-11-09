@@ -383,6 +383,7 @@ it('reads the first-worktree fallback imperatively under development diagnostics
   const reactions = new FollowService({
     state: () => state,
     publish: (patch) => Object.assign(state, patch),
+    checkoutsKnown: () => true,
     notices: {} as never,
     isVisible: () => false,
   })

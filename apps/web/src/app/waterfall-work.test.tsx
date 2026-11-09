@@ -18,10 +18,23 @@ const state = vi.hoisted(() => ({
 }))
 const query = (input: { sessionIds: string[] }) =>
   state.history?.(input) ?? Promise.resolve({ sessions: {} })
+const preferences = new Map<string, string>()
+const preferenceListeners = new Set<(keys: ReadonlySet<string>) => void>()
 const owner = {
   access: {
     renameSession: async () => {},
-    uiState: { get: () => null, set: () => {} },
+    uiState: {
+      get: (key: string) => preferences.get(key) ?? null,
+      set: (key: string, value: string | null) => {
+        if (value === null) preferences.delete(key)
+        else preferences.set(key, value)
+        for (const notify of preferenceListeners) notify(new Set([key]))
+      },
+      subscribe: (notify: (keys: ReadonlySet<string>) => void) => {
+        preferenceListeners.add(notify)
+        return () => preferenceListeners.delete(notify)
+      },
+    },
     trpc: { sessions: { activityHistory: { query } } },
   },
 }
@@ -74,6 +87,7 @@ async function minuteStep() {
 }
 
 async function mount(count: number) {
+  preferences.clear()
   const f = await waterfallFixture(count)
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)

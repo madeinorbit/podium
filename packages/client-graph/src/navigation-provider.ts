@@ -24,7 +24,11 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     issueSessions(id) {
       const rows: SessionView[] = []
-      for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
+      for (const key of pool.queries.ids({
+        kind: 'commandIssueSessions',
+        issueId: id,
+        archived: false,
+      })) {
         const row = omitGone(pool.row('session', key))
         if (row === LOADING) return NAVIGATION_LOADING
         if (row) rows.push(row as unknown as SessionView)
@@ -60,12 +64,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return ids === LOADING ? NAVIGATION_LOADING : ids
     },
     session(id) {
-      let row = omitGone(pool.row('session', id))
-      if (row === LOADING) return NAVIGATION_LOADING
-      if (row !== undefined || !parseSessionRef(id.trim())) return row as SessionView | undefined
-      const key = pool.queries.sessionReferenceId(id.trim())
+      const token = id.trim()
+      const key = parseSessionRef(token) ? pool.queries.sessionReferenceId(token) : id
       if (!key) return undefined
-      row = omitGone(pool.row('session', key))
+      const row = omitGone(pool.row('session', key))
       return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },
     sessionMembership(id) {
@@ -132,12 +134,15 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
         read,
       ),
     // This port returns small scalar tuples, not memoized row identities.
-    watch: (read, changed) => createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
+    watch: (read, changed) =>
+      createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
   }
   // Runtime actions also use this port outside a reactive read. Permit those
   // addressed reads without detaching the same methods from watched projections.
-  const read = <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A): R =>
-    allowImperativeRead(() => transaction(() => fn(...args)))
+  const read =
+    <A extends unknown[], R>(fn: (...args: A) => R) =>
+    (...args: A): R =>
+      allowImperativeRead(() => transaction(() => fn(...args)))
   return {
     ...provider,
     issue: read(provider.issue),

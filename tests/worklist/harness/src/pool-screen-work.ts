@@ -1,9 +1,3 @@
-import {
-  replicaSourcePorts,
-  noticeSourcePorts,
-  superagentSourcePorts,
-  chatSourcePorts,
-} from '@podium/client-graph/source-ports'
 import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
@@ -18,6 +12,12 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { settingsView } from '@podium/client-graph/settings-views'
+import {
+  chatSourcePorts,
+  noticeSourcePorts,
+  replicaSourcePorts,
+  superagentSourcePorts,
+} from '@podium/client-graph/source-ports'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
@@ -314,7 +314,18 @@ export async function poolScreenCellsAt(
   // schedules, the startup ones included, is tagged and can be settled.
   const ledger = installAsyncLedger({ holdBeyondMs: SETTLE_MAX_DELAY_MS, startAt: FIXED_NOW })
   try {
-    const ctx = await startScenarioEngine(scale, { ownRows: true })
+    let ctx!: ScenarioEngine
+    ctx = await startScenarioEngine(scale, {
+      ownRows: true,
+      server: {
+        issueUpdate: async ({ id, patch }) => {
+          const row = ctx.cache.read('issueProjection', id)?.value
+          if (!row) throw new Error(`Unknown fixture issue: ${id}`)
+          upsertIssue(ctx, id, { ...(row as object), ...patch }, 3)
+          return {}
+        },
+      },
+    })
     try {
       return await measureScreenCells(ctx, scale, ledger, onCell, only, actions, scene)
     } finally {
