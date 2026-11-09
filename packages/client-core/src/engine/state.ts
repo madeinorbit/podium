@@ -50,7 +50,6 @@ import {
   type WorkspaceMap,
   workspaceKeyFor,
 } from '../values'
-import type { SuperThreadView } from '../values/compose/superagent'
 import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
@@ -84,7 +83,6 @@ export interface EngineState {
   dockTab: DockTab
   /** The signed-in user's superagent threads, published by the store (POD-330,
    *  audit item zero). The view no longer keeps its own copy. */
-  superThreads: SuperThreadView[]
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
@@ -628,7 +626,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     superOpen: seed.persisted.superOpen,
     attachedSessionId: null,
     dockTab: seed.persisted.dockTab,
-    superThreads: [],
     paletteOpen: false,
     // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
     selectedWorktree: seed.persisted.selectedWorktree,

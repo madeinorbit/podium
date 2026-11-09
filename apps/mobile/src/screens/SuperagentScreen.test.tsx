@@ -2,8 +2,14 @@
  * Phone Superagent chrome: the large Screen header Work/Tasks wear, no
  * leftover OVERARCHING bar, and sendTurn carries the prompt-box backend.
  */
-import type { SuperagentTurnFailure } from '@podium/client-core/api'
-import type { TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  asUserId,
+  type SuperagentThreadWire,
+  type SuperagentTurnFailureWire,
+  type TranscriptItem,
+} from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
@@ -170,32 +176,50 @@ vi.mock('../components/WorkingMark', () => ({
 
 const { SuperagentScreen } = await import('./SuperagentScreen')
 
-const savedFailure: SuperagentTurnFailure = {
-  inputId: 'input:failed',
+const savedFailure: SuperagentTurnFailureWire = {
   userText: 'first failed prompt',
-  error: 'Original send failed',
+  message: 'Original send failed',
   at: '2026-09-29T01:31:27.000Z',
 }
 
+/** My global thread's synced record (POD-6675), as the feed delivers it. */
+function threadRecord(patch: Partial<SuperagentThreadWire> = {}): SuperagentThreadWire {
+  return {
+    threadId: asThreadId('global'),
+    ownerUserId: asUserId('user:test'),
+    kind: 'global',
+    podiumSessionId: asSessionId('session:superagent'),
+    archived: false,
+    resumable: false,
+    turnRunning: false,
+    lastTurnFailure: null,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    ...patch,
+  }
+}
+
+/** The server moved my thread's last failure: the feed delivers the record. */
+async function deliverFailure(
+  view: {
+    replica: { applySnapshot(kind: 'superagentThreads', rows: SuperagentThreadWire[]): void }
+  },
+  failure: SuperagentTurnFailureWire | null,
+): Promise<void> {
+  await frameAct(() =>
+    view.replica.applySnapshot('superagentThreads', [threadRecord({ lastTurnFailure: failure })]),
+  )
+}
+
 function failureFixture(
-  latestTurnFailure: () => Promise<SuperagentTurnFailure | null>,
+  failure: SuperagentTurnFailureWire | null,
   readItems: () => TranscriptItem[] | Promise<TranscriptItem[]> = () => [],
   sendTurn = async () => ({ threadId: 'global', podiumSessionId: 'session:superagent' }),
 ): MobileStoreFixture {
   return {
+    superagentThreads: [threadRecord({ lastTurnFailure: failure })],
     api: {
       superagent: {
-        listThreads: {
-          query: async () => [
-            {
-              id: 'global',
-              kind: 'global',
-              podiumSessionId: 'session:superagent',
-              turnRunning: false,
-            },
-          ],
-        },
-        latestTurnFailure: { query: latestTurnFailure },
         sendTurn: { mutate: sendTurn },
         clear: { mutate: async () => {} },
         interruptTurn: { mutate: async () => {} },
@@ -226,22 +250,14 @@ describe('SuperagentScreen chrome', () => {
           return '2026-09-29T01:30:00.000Z'
         },
       }))
-      let resolveFailure: ((failure: SuperagentTurnFailure) => void) | undefined
-      const latestTurnFailure = vi.fn(
-        () =>
-          new Promise<SuperagentTurnFailure>((resolve) => {
-            resolveFailure = resolve
-          }),
-      )
       const sendTurn = vi.fn(async () => ({
         threadId: 'global',
         podiumSessionId: 'session:superagent',
       }))
       const view = await renderWithMobileStore(<SuperagentScreen />, {
-        ...failureFixture(latestTurnFailure, () => items, sendTurn),
+        ...failureFixture(null, () => items, sendTurn),
         principal: `user:superagent-facts-${scale}`,
       })
-      await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
       await waitFor(() => expect(transcriptProps.at(-1)?.transcript?.initialLoaded).toBe(true))
       expect(transcriptProps.at(-1)?.items).toHaveLength(items.length)
       expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
@@ -252,9 +268,9 @@ describe('SuperagentScreen chrome', () => {
         return { work: result.work, roleReads, timeReads }
       }
       const restore = await measure(async () => {
-        await frameAct(async () => resolveFailure?.(savedFailure))
+        await deliverFailure(view, savedFailure)
       })
-      expect(screen.getByText(savedFailure.error)).toBeTruthy()
+      expect(screen.getByText(savedFailure.message)).toBeTruthy()
       const send = await measure(async () => {
         await frameAct(async () => {
           composerProps.at(-1)?.onSend('a new prompt')
@@ -310,10 +326,7 @@ describe('SuperagentScreen chrome', () => {
     let items = [question]
     const view = await renderWithMobileStore(
       <SuperagentScreen />,
-      failureFixture(
-        async () => null,
-        () => items,
-      ),
+      failureFixture(null, () => items),
     )
     await waitFor(() => expect(transcriptProps.at(-1)?.transcriptQuestion?.id).toBe('question'))
     await frameAct(() =>
@@ -344,12 +357,11 @@ describe('SuperagentScreen chrome', () => {
   it('does not create an attachment session when the screen opens', async () => {
     const ensureSession = vi.fn(async () => ({ podiumSessionId: 'session:unused' }))
     await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [threadRecord({ podiumSessionId: undefined })],
       api: {
         superagent: {
-          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
           ensureSession: { mutate: ensureSession },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
         },
@@ -368,12 +380,11 @@ describe('SuperagentScreen chrome', () => {
       path: `/uploads/${filename}`,
     }))
     await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [threadRecord({ podiumSessionId: undefined })],
       api: {
         superagent: {
-          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
           ensureSession: { mutate: ensureSession },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
         },
@@ -419,12 +430,11 @@ describe('SuperagentScreen chrome', () => {
       path: `/uploads/${filename}`,
     }))
     await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [threadRecord({ podiumSessionId: undefined })],
       api: {
         superagent: {
-          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
           ensureSession: { mutate: ensureSession },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: clear },
           interruptTurn: { mutate: async () => {} },
         },
@@ -464,9 +474,7 @@ describe('SuperagentScreen chrome', () => {
     await renderWithMobileStore(<SuperagentScreen />, {
       api: {
         superagent: {
-          listThreads: { query: async () => [] },
           sendTurn: { mutate: sendTurn },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
         },
@@ -496,13 +504,10 @@ describe('SuperagentScreen chrome', () => {
         }),
     )
     await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [threadRecord({ podiumSessionId: undefined })],
       api: {
         superagent: {
-          listThreads: {
-            query: async () => [{ id: 'global', kind: 'global', turnRunning: false }],
-          },
           sendTurn: { mutate: sendTurn },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
         },
@@ -526,20 +531,10 @@ describe('SuperagentScreen chrome', () => {
 
   it('orders coalesced text behind newer status and invalidates cancelled frames', async () => {
     const view = await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [threadRecord({ turnRunning: true })],
       api: {
         superagent: {
-          listThreads: {
-            query: async () => [
-              {
-                id: 'global',
-                kind: 'global',
-                podiumSessionId: 'session:superagent',
-                turnRunning: true,
-              },
-            ],
-          },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
-          latestTurnFailure: { query: async () => null },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
         },
@@ -630,27 +625,18 @@ describe('SuperagentScreen chrome', () => {
 
   it('restores the offline failure and the user message after reload (POD-4806)', async () => {
     await renderWithMobileStore(<SuperagentScreen />, {
+      superagentThreads: [
+        threadRecord({
+          lastTurnFailure: {
+            userText: 'Reply with exactly the word PONG-SUPER.',
+            message:
+              "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+            at: '2026-09-29T01:31:27.000Z',
+          },
+        }),
+      ],
       api: {
         superagent: {
-          listThreads: {
-            query: async () => [
-              {
-                id: 'global',
-                kind: 'global',
-                podiumSessionId: 'session:superagent',
-                turnRunning: false,
-              },
-            ],
-          },
-          latestTurnFailure: {
-            query: async () => ({
-              inputId: 'input-1',
-              userText: 'Reply with exactly the word PONG-SUPER.',
-              error:
-                "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
-              at: '2026-09-29T01:31:27.000Z',
-            }),
-          },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
           clear: { mutate: async () => {} },
           interruptTurn: { mutate: async () => {} },
@@ -672,28 +658,35 @@ describe('SuperagentScreen chrome', () => {
 
   it('does not restore an old failure after a failed send, a success, and reopening', async () => {
     const failure = savedFailure
-    let durableFailure: SuperagentTurnFailure | null = null
     let items: TranscriptItem[] = []
-    const latestTurnFailure = vi.fn(async () => durableFailure)
+    // What the server's record holds: the failure once the first send failed,
+    // cleared when the next turn started.
+    let durableFailure: SuperagentTurnFailureWire | null = null
     const sendTurn = vi
       .fn()
       .mockImplementationOnce(async () => {
         durableFailure = failure
-        throw new Error(failure.error)
+        throw new Error(failure.message)
       })
-      .mockResolvedValue({ threadId: 'global', podiumSessionId: 'session:superagent' })
-    const fixture = failureFixture(latestTurnFailure, () => items, sendTurn)
-    const first = await renderWithMobileStore(<SuperagentScreen />, fixture)
-    await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
+      .mockImplementation(async () => {
+        durableFailure = null
+        return { threadId: 'global', podiumSessionId: 'session:superagent' }
+      })
+    const first = await renderWithMobileStore(
+      <SuperagentScreen />,
+      failureFixture(null, () => items, sendTurn),
+    )
     await frameAct(() => composerProps.at(-1)?.onSend('first failed prompt'))
     await waitFor(() =>
       expect(transcriptProps.at(-1)?.pendingTurns).toEqual([
-        expect.objectContaining({ text: failure.userText, failed: failure.error }),
+        expect.objectContaining({ text: failure.userText, failed: failure.message }),
       ]),
     )
+    await deliverFailure(first, durableFailure)
 
     await frameAct(() => composerProps.at(-1)?.onSend('later successful prompt'))
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(2))
+    await deliverFailure(first, durableFailure)
     items = [
       {
         id: 'user:success',
@@ -718,22 +711,25 @@ describe('SuperagentScreen chrome', () => {
     first.unmount()
     transcriptProps.length = 0
 
-    await renderWithMobileStore(<SuperagentScreen />, fixture)
-    await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledTimes(2))
-    expect(screen.getByTestId('superagent-live-text').textContent).toBe('Successful reply')
+    await renderWithMobileStore(
+      <SuperagentScreen />,
+      failureFixture(durableFailure, () => items, sendTurn),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('superagent-live-text').textContent).toBe('Successful reply'),
+    )
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
-    expect(screen.queryByText(failure.error)).toBeNull()
+    expect(screen.queryByText(failure.message)).toBeNull()
   })
 
   it.each([
     'unrecorded user words',
     null,
   ])('suppresses the restored row and reason for a newer raw transcript item (userText: %s)', async (userText) => {
-    const latestTurnFailure = vi.fn(async () => ({ ...savedFailure, userText }))
     await renderWithMobileStore(
       <SuperagentScreen />,
-      failureFixture(latestTurnFailure, () => [
+      failureFixture({ ...savedFailure, userText }, () => [
         // Results can be folded out of the visible transcript; they still supersede a failure.
         {
           id: 'call:older',
@@ -753,18 +749,15 @@ describe('SuperagentScreen chrome', () => {
         },
       ]),
     )
-    await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
+    await waitFor(() => expect(transcriptProps.at(-1)?.transcript?.initialLoaded).toBe(true))
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
-    expect(screen.queryByText(savedFailure.error)).toBeNull()
+    expect(screen.queryByText(savedFailure.message)).toBeNull()
   })
 
   it('drops the restored row and reason when newer transcript history arrives', async () => {
-    const view = await renderWithMobileStore(
-      <SuperagentScreen />,
-      failureFixture(async () => savedFailure),
-    )
-    await waitFor(() => expect(screen.getByText(savedFailure.error)).toBeTruthy())
+    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(savedFailure))
+    await waitFor(() => expect(screen.getByText(savedFailure.message)).toBeTruthy())
     expect(screen.getByTestId('superagent-failed-row')).toBeTruthy()
     await frameAct(() =>
       view.emit(
@@ -783,23 +776,25 @@ describe('SuperagentScreen chrome', () => {
     )
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
-    expect(screen.queryByText(savedFailure.error)).toBeNull()
+    expect(screen.queryByText(savedFailure.message)).toBeNull()
   })
 
   it('keeps an unsuperseded post-dispatch reason without duplicating the user row', async () => {
     await renderWithMobileStore(
       <SuperagentScreen />,
-      failureFixture(
-        async () => ({ ...savedFailure, userText: null }),
-        () => [{ id: 'user:failed', role: 'user', text: 'recorded prompt', ts: savedFailure.at }],
-      ),
+      failureFixture({ ...savedFailure, userText: null }, () => [
+        { id: 'user:failed', role: 'user', text: 'recorded prompt', ts: savedFailure.at },
+      ]),
     )
-    await waitFor(() => expect(screen.getByText(savedFailure.error)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(savedFailure.message)).toBeTruthy())
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
   })
 
-  describe.each(['before', 'after'])('restoration resolves %s live activity', (timing) => {
+  // The failure is on the thread's record from the start (POD-6675): there is
+  // no request to resolve late, so only "before" remains. A failure the server
+  // sets AFTER this view's activity is that activity's own failure, and shows.
+  describe.each(['before'])('the record holds a failure %s live activity', (timing) => {
     it.each([
       'send',
       'turn-start',
@@ -808,25 +803,16 @@ describe('SuperagentScreen chrome', () => {
       'turn-end',
       'failed turn-end',
     ])('does not revive the restored row or reason after %s', async (activity) => {
-      let resolveFailure: ((failure: SuperagentTurnFailure) => void) | undefined
-      const latestTurnFailure = vi.fn(
-        () =>
-          new Promise<SuperagentTurnFailure>((resolve) => {
-            resolveFailure = resolve
-          }),
-      )
       const sendTurn = vi.fn(async () => ({
         threadId: 'global',
         podiumSessionId: 'session:superagent',
       }))
       const view = await renderWithMobileStore(
         <SuperagentScreen />,
-        failureFixture(latestTurnFailure, () => [], sendTurn),
+        failureFixture(savedFailure, () => [], sendTurn),
       )
-      await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
       if (timing === 'before') {
-        await frameAct(async () => resolveFailure?.(savedFailure))
-        expect(screen.getByText(savedFailure.error)).toBeTruthy()
+        await waitFor(() => expect(screen.getByText(savedFailure.message)).toBeTruthy())
         expect(screen.getByTestId('superagent-failed-row')).toBeTruthy()
       }
 
@@ -860,11 +846,10 @@ describe('SuperagentScreen chrome', () => {
           view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }),
         )
       }
-      if (timing === 'after') await frameAct(async () => resolveFailure?.(savedFailure))
 
       expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
       expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
-      expect(screen.queryByText(savedFailure.error)).toBeNull()
+      expect(screen.queryByText(savedFailure.message)).toBeNull()
       expect(screen.queryByTestId('superagent-working-indicator')).toBeNull()
       if (activity === 'failed turn-end') {
         expect(screen.getByText('Current live failure')).toBeTruthy()
@@ -878,14 +863,13 @@ describe('SuperagentScreen chrome', () => {
       new Promise<TranscriptItem[]>((resolve) => {
         resolveItems = resolve
       })
-    const latestTurnFailure = vi.fn(async () => savedFailure)
     const sendTurn = vi.fn(async () => ({
       threadId: 'global',
       podiumSessionId: 'session:superagent',
     }))
     const view = await renderWithMobileStore(
       <SuperagentScreen />,
-      failureFixture(latestTurnFailure, readItems, sendTurn),
+      failureFixture(savedFailure, readItems, sendTurn),
     )
     await waitFor(() => expect(resolveItems).toBeDefined())
     await frameAct(() => composerProps.at(-1)?.onSend('hello'))
@@ -894,16 +878,12 @@ describe('SuperagentScreen chrome', () => {
       view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' })
       resolveItems?.([{ id: 'user:sent', role: 'user', text: 'hello' }])
     })
-    expect(latestTurnFailure).not.toHaveBeenCalled()
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
-    expect(screen.queryByText(savedFailure.error)).toBeNull()
+    expect(screen.queryByText(savedFailure.message)).toBeNull()
   })
 
   it('preserves a current live failure when newer transcript items arrive, then clears it on success', async () => {
-    const view = await renderWithMobileStore(
-      <SuperagentScreen />,
-      failureFixture(async () => null),
-    )
+    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(null))
     await frameAct(() => {
       view.emit('headlessActivity', 'session:superagent', {
         kind: 'turn-end',
@@ -934,10 +914,7 @@ describe('SuperagentScreen chrome', () => {
 it('does not poll the thread every five seconds while a turn is running', async () => {
   const interval = vi.spyOn(globalThis, 'setInterval')
   try {
-    const view = await renderWithMobileStore(
-      <SuperagentScreen />,
-      failureFixture(async () => null),
-    )
+    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(null))
     await screen.findByText('transcript')
     await frameAct(() =>
       view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' }),

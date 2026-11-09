@@ -19,9 +19,9 @@
  * migration that moved a liveness check into a transport would be a migration
  * that changed behaviour while claiming not to.
  *
- * The two READS this surface serves (`listThreads`, `history`) are not here and
- * are not contracts: a `visibility` class describes what a command WRITES, and a
- * read writes nothing. They stay hand-written queries on the router, and the
+ * The READ this surface serves (`history`) is not here and is not a contract:
+ * a `visibility` class describes what a command WRITES, and a read writes
+ * nothing. It stays a hand-written query on the router, and the
  * audit checks procedure TYPE so a read cannot hide a write.
  */
 

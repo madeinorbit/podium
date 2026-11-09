@@ -588,6 +588,18 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     "Whole-table read (POD-6673): every person's pins for the `pin` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
   ],
   [
+    'apps/server/src/store/superagent.ts:allThreads',
+    "Whole-table read (POD-6675): every person's superagent threads for the `superagentThread` kind's full-truth reconcile at boot (reconcileSuperagentThreads), once per boot.",
+  ],
+  [
+    'apps/server/src/store/superagent.ts:syncTurnRunning',
+    "Whole-table update (POD-6675): the boot truth of every thread's `turn_running`, set from its pending-turn row (each probe on the pending table's unique thread index), once per boot before the reconcile.",
+  ],
+  [
+    'apps/server/src/store/superagent.ts:seedMemberGlobals',
+    "Whole-table read (POD-6675): every active member without a global superagent thread gets one, once per boot (the users table is the roster; each probe of superagent_threads is on its owner index).",
+  ],
+  [
     'apps/server/src/store/user-preferences.ts:allPreferenceRows',
     "Whole-table read (POD-6673): every person's preference leaves for the `userPreferences` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
   ],

@@ -15347,6 +15347,99 @@
       "encoded": "\"blocked-by\""
     },
     {
+      "schema": "SuperagentThreadKind",
+      "variant": "minimal",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "SuperagentThreadKind",
+      "variant": "full",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "SuperagentThreadWire",
+      "variant": "minimal",
+      "wire": {
+        "threadId": "threadId",
+        "ownerUserId": "ownerUserId",
+        "kind": "global",
+        "archived": true,
+        "resumable": true,
+        "turnRunning": true,
+        "lastTurnFailure": null,
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"threadId\":\"threadId\",\"ownerUserId\":\"ownerUserId\",\"kind\":\"global\",\"archived\":true,\"resumable\":true,\"turnRunning\":true,\"lastTurnFailure\":null,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SuperagentThreadWire",
+      "variant": "full",
+      "wire": {
+        "threadId": "threadId",
+        "ownerUserId": "ownerUserId",
+        "kind": "global",
+        "originSessionId": "originSessionId",
+        "repoPath": "repoPath",
+        "agentKind": "agentKind",
+        "podiumSessionId": "podiumSessionId",
+        "title": "title",
+        "archived": true,
+        "model": "model",
+        "effort": "effort",
+        "resumable": true,
+        "turnRunning": true,
+        "lastTurnFailure": {
+          "at": "lastTurnFailure.at",
+          "message": "lastTurnFailure.message",
+          "userText": "lastTurnFailure.userText"
+        },
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"threadId\":\"threadId\",\"ownerUserId\":\"ownerUserId\",\"kind\":\"global\",\"originSessionId\":\"originSessionId\",\"repoPath\":\"repoPath\",\"agentKind\":\"agentKind\",\"podiumSessionId\":\"podiumSessionId\",\"title\":\"title\",\"archived\":true,\"model\":\"model\",\"effort\":\"effort\",\"resumable\":true,\"turnRunning\":true,\"lastTurnFailure\":{\"at\":\"lastTurnFailure.at\",\"message\":\"lastTurnFailure.message\",\"userText\":\"lastTurnFailure.userText\"},\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SuperagentTurnFailureWire",
+      "variant": "minimal",
+      "wire": {
+        "at": "at",
+        "message": "message",
+        "userText": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"message\":\"message\",\"userText\":null}"
+    },
+    {
+      "schema": "SuperagentTurnFailureWire",
+      "variant": "full",
+      "wire": {
+        "at": "at",
+        "message": "message",
+        "userText": "userText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"message\":\"message\",\"userText\":\"userText\"}"
+    },
+    {
       "schema": "TabOrderState",
       "variant": "minimal",
       "wire": {

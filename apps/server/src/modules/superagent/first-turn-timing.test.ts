@@ -157,9 +157,10 @@ describe('POD-4872: first turn on an online machine', () => {
       )
     expect(err).toContain('is offline')
     expect(err).not.toContain('TRPCError')
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
-    expect(failure?.error).toContain('is offline')
-    expect(failure?.error).not.toContain('TRPCError')
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
+    expect(failure?.message).toContain('is offline')
+    expect(failure?.message).not.toContain('TRPCError')
   })
 
   it('the global seed reuses fetched issues instead of re-listing per live session', async () => {

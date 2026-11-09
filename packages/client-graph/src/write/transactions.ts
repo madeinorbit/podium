@@ -53,6 +53,7 @@ const PER_USER_POOL_KIND = {
   tabOrders: 'tabOrder',
   userPreferences: 'userPreferences',
   userReadPositions: 'userReadPosition',
+  superagentThreads: 'superagentThread',
 } as const satisfies Record<PerUserRecordTarget, string>
 export type PerUserPoolKind = (typeof PER_USER_POOL_KIND)[PerUserRecordTarget]
 const isPerUserTarget = (entity: string): entity is PerUserRecordTarget =>
@@ -88,6 +89,7 @@ const TARGETS: readonly OverlayTarget[] = [
   'userReadPositions',
   // A human gate's decision on an effect record (POD-6674).
   'effects',
+  'superagentThreads',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -214,6 +216,7 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
     case 'tabOrders':
     case 'userPreferences':
     case 'userReadPositions':
+    case 'superagentThreads':
       return `${PER_USER_POOL_KIND[kind]}:${id}`
     case 'effects':
       return `effect:${id}`
@@ -248,6 +251,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     userPreferences: new Map(),
     userReadPositions: new Map(),
     effects: new Map(),
+    superagentThreads: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []

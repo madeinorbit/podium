@@ -202,7 +202,7 @@ export class ChatViewModel {
           this.conversation.sends.justSent
   }
   @lazy get turnError(): string | null {
-    return this.conversation.turnError ?? this.conversation.visibleFailure?.error ?? null
+    return this.conversation.turnError ?? this.conversation.visibleFailure?.message ?? null
   }
   @lazy({ equals: compareShallow }) get pending(): PendingItem[] {
     return this.conversation.sends.bubbles.map((bubble) =>

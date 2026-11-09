@@ -206,11 +206,6 @@ function makeApi(): any {
       list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) },
       set: { mutate: async () => ({ panels: [], worktrees: [], repos: [] }) },
     },
-    superagent: {
-      listThreads: {
-        query: vi.fn(async () => [{ id: 'global', kind: 'global' as const }]),
-      },
-    },
     tabs: {
       listOrders: { query: async () => ({}) },
       setOrder: { mutate: async () => ({}) },
@@ -657,7 +652,7 @@ describe('engine lifecycle', () => {
     const publish = vi.fn()
     const machinePublish = vi.fn()
     let previousMachines = engine.access.machines
-    engine.onLocals(['machines', 'repos', 'superThreads'], () => {
+    engine.onLocals(['machines', 'repos'], () => {
       publish()
       const machines = engine.access.machines
       if (machines !== previousMachines) machinePublish()
@@ -718,7 +713,7 @@ describe('engine lifecycle', () => {
     const machine = { id: 'machine-a', online: true }
     hub.emit('machines', [machine])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
+    engine.onLocals(['machines', 'repos'], publish)
     hub.emit('machines', [{ ...machine, ...patch }])
     expect(publish).toHaveBeenCalledTimes(1)
     engine.dispose()
@@ -732,7 +727,7 @@ describe('engine lifecycle', () => {
     const b = { id: 'b', online: true }
     hub.emit('machines', [a, b])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
+    engine.onLocals(['machines', 'repos'], publish)
     hub.emit('machines', [b, a])
     expect(publish).not.toHaveBeenCalled()
     hub.emit('machines', [a])
@@ -829,31 +824,14 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
-  it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
-    // The view used to fetch this list itself and hold it in useState. It is
-    // store state now, so boot must actually load it — a store field nobody
-    // fills is the same bug as the mirror, one layer down.
+  it('asks nothing for superagent threads at boot: they are synced records (POD-6675)', async () => {
     const api = makeApi()
-    const { engine } = makeEngine({ api })
-    engine.start()
-    await settle()
-    expect(api.superagent.listThreads.query).toHaveBeenCalled()
-    expect(engine.access.superThreads).toEqual([{ id: 'global', kind: 'global' }])
-    engine.dispose()
-  })
-
-  it('keeps serving the persisted world when the thread list is offline', async () => {
-    const api = makeApi()
-    api.superagent.listThreads.query = async (): Promise<never> => {
-      throw new TypeError('Failed to fetch')
-    }
     const { engine, fatals } = makeEngine({ api })
     engine.start()
     await settle()
-    // An empty list, not a fatal and not a spinner: boot enrichments are not the
-    // source of truth for the principal slice.
     expect(fatals).toEqual([])
-    expect(engine.access.superThreads).toEqual([])
+    expect((api as { superagent?: unknown }).superagent).toBeUndefined()
+    expect('superThreads' in engine.access).toBe(false)
     engine.dispose()
   })
 

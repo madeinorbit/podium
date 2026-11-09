@@ -589,6 +589,18 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
+  'apps/server/src/store/superagent.ts#SuperagentRepository.query': {
+    kind: 'opaque',
+    why: "The superagent repository's own thread write callback, handed to its write funnel (writeThreads) [POD-6675]; every caller's query is declared in the same file and is checked there, exactly as EffectsRepository.query is.",
+  },
+  'apps/server/src/store/superagent.ts#SuperagentThreadFeedCapture.SuperagentThreadFeedCapture': {
+    kind: 'contained',
+    why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/modules/superagent/thread-records.ts#ThreadRecordDeps.threads': {
+    kind: 'contained',
+    why: "The superagent repository's thread read and spec write for an owner's generic edit [POD-6675]: composition binds it to SuperagentRepository, whose statements join the entry point's transaction and whose feed capture appends the record's change in the same unit, so a rollback takes both with it and nothing outside the process saw them.",
+  },
   'apps/server/src/store/messages.ts#MessagesRepository.fail': {
     kind: 'opaque',
     why: "The status move a failure runs beside its sender's notice [POD-4778], handed to the repository's own failWith; every such move is declared in the same file, through its write funnel, and is checked there, exactly as MessagesRepository.query is.",

@@ -2863,6 +2863,45 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
     },
     open: [],
   },
+  {
+    id: ROW.superagentThreadFields,
+    section: 'messaging-and-superagent',
+    title:
+      'Superagent thread record (`superagentThread`): spec `title`, `archived`, `model`, `effort`; status `turnRunning`, `lastTurnFailure`, the headless binding',
+    sites: [
+      '`superagent_threads` (the row; `turn_running` and `last_turn_failure_*` since POD-6675)',
+      'packages/model/src/user-state/synced-records.ts (`SuperagentThreadWire`)',
+      'apps/server/src/modules/superagent/thread-records.ts',
+    ],
+    home: 'server',
+    idMinting: 'Server id',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    replicationNote:
+      'A synced per-user record (ADR 12 D1, POD-6675): every write of the row publishes it to its owner’s devices.',
+    conflict: 'field-LWW',
+    conflictNote:
+      'Each spec field is its own independent group, last writer wins (the owner’s devices edit a title, an archive flag, a model or an effort; a merge of two titles has no meaning). Clock: the Authority-assigned event time at commit. Status fields are the server’s alone: `turnRunning` is set at turn start and end, `lastTurnFailure` when a turn fails and cleared when the next one starts. The turn machine itself stays `cmd` (superagent-state).',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Archive a thread (`archived`).',
+    offline: 'offline-eligible',
+    secret: 'public',
+    secretNote:
+      'The harness’s own session id, the watermarks and the terminal lock never leave the server; the record says only whether a harness conversation exists (`resumable`).',
+    owner: { kind: 'inherits', from: ROW.superagentState },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.superagentState },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.superagentState },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'The owner’s alone, as the thread it describes.',
+    },
+    open: [],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -3417,6 +3456,8 @@ export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   ROW.issueDocumentFields,
   // ADR 12 D3 (POD-6406): a session's labels, each its own group.
   ROW.sessionLabels,
+  // ADR 12 D1/D3 (POD-6675): a superagent thread's spec fields, each its own group.
+  ROW.superagentThreadFields,
 ]
 
 /**

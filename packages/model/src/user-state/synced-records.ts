@@ -25,7 +25,15 @@
  */
 
 import { z } from 'zod'
-import { asUserId, type UserId, UserIdField } from '../ids'
+import {
+  asThreadId,
+  asUserId,
+  SessionIdField,
+  type ThreadId,
+  ThreadIdField,
+  type UserId,
+  UserIdField,
+} from '../ids'
 import { joinKeyParts, splitKeyParts } from '../ids/keys'
 import { PersonalPreferences } from '../settings/preferences'
 import { PinKind, perUserKeyOfString } from './session-state'
@@ -158,4 +166,72 @@ export function resolveUserPreferences(
   }
   const parsed = PersonalPreferences.safeParse(nested)
   return parsed.success ? parsed.data : PersonalPreferences.parse({ userId })
+}
+
+// ---------------------------------------------------------------------------
+// superagentThread (POD-6675, design POD-5620 §1.7)
+// ---------------------------------------------------------------------------
+
+/** What a superagent thread is: the always-there global thread, a session's
+ *  "by the way" thread, or a repo's concierge intake thread. */
+export const SuperagentThreadKind = z.enum(['global', 'btw', 'concierge'])
+export type SuperagentThreadKind = z.infer<typeof SuperagentThreadKind>
+
+/**
+ * The thread's last turn failed (status, written by the server when a turn
+ * fails, cleared when the next turn starts). `message` is the durable failure
+ * line; `userText` is what the person sent when that turn never reached a
+ * harness (so the transcript cannot show it), else null.
+ */
+export const SuperagentTurnFailureWire = z.object({
+  at: z.string(),
+  message: z.string(),
+  userText: z.string().nullable(),
+})
+export type SuperagentTurnFailureWire = z.infer<typeof SuperagentTurnFailureWire>
+
+/**
+ * ONE SUPERAGENT THREAD, its owner's alone (`per-user-state`).
+ *
+ * Spec fields, edited by the owner (`records.superagentThread.edit`): `title`,
+ * `archived`, `model`, `effort`. Everything else is status the server writes:
+ * which thread it is, its headless session, whether a turn is running
+ * (`turnRunning`, set at turn start and end) and whether the last one failed.
+ *
+ * Never on the wire: the watermarks, the harness's own session id and the
+ * terminal lock. `resumable` says only whether the server holds a harness
+ * conversation to open in a terminal.
+ */
+export const SuperagentThreadWire = z.object({
+  threadId: ThreadIdField,
+  ownerUserId: UserIdField,
+  kind: SuperagentThreadKind,
+  originSessionId: SessionIdField.optional(),
+  repoPath: z.string().optional(),
+  agentKind: z.string().optional(),
+  podiumSessionId: SessionIdField.optional(),
+  title: z.string().optional(),
+  archived: z.boolean(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  resumable: z.boolean(),
+  turnRunning: z.boolean(),
+  lastTurnFailure: SuperagentTurnFailureWire.nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type SuperagentThreadWire = z.infer<typeof SuperagentThreadWire>
+
+/** The feed id names the owner, so the per-user visibility reads it from the id. */
+export function superagentThreadRowId(ownerUserId: UserId, threadId: string): string {
+  return joinKeyParts(ROW_SEP, [ownerUserId, threadId])
+}
+
+/** Inverse of {@link superagentThreadRowId}. Throws on a malformed id. */
+export function parseSuperagentThreadRowId(id: string): { userId: UserId; threadId: ThreadId } {
+  const [user, thread] = splitKeyParts(ROW_SEP, id, 2) as [string, string]
+  if (user === '' || thread === '') {
+    throw new Error(`malformed superagent thread row id: ${JSON.stringify(id)}`)
+  }
+  return { userId: asUserId(user), threadId: asThreadId(thread) }
 }

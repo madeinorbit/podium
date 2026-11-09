@@ -86,7 +86,6 @@ function harness(
     superOpen: false,
     attachedSessionId: null,
     dockTab: 'chat' as const,
-    superThreads: [],
     paletteOpen: false,
     selectedWorktree: null,
     selectedIssueId: null,

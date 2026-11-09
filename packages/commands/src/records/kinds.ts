@@ -32,6 +32,7 @@ import {
   parseLayoutRowId,
   parsePinRowId,
   parseReadPositionRowId,
+  parseSuperagentThreadRowId,
   parseTabOrderRowId,
   parseUserEntityKey,
   parseUserPreferencesRowId,
@@ -43,7 +44,11 @@ import {
   SessionLifecycleFailure,
   SessionMeta,
   SessionUserStateWire,
+  SuperagentThreadKind,
+  SuperagentThreadWire,
+  SuperagentTurnFailureWire,
   TabOrderWire,
+  ThreadIdField,
   USER_PREFERENCE_LEAVES,
   UserIdField,
   UserPreferencesWire,
@@ -722,6 +727,68 @@ export const EFFECT_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// superagentThread (POD-6675, design POD-5620 §1.7)
+// ---------------------------------------------------------------------------
+
+const THREAD = ROW.superagentThreadFields
+
+/**
+ * ONE SUPERAGENT THREAD, its owner's alone. The owner edits its title, archives
+ * it, and picks its model and effort (cleared, `unset`, follows the superagent
+ * settings role again); each is its own field, last writer wins. Everything
+ * else is status the server writes: no client creates a thread by an edit (a
+ * thread is made by the superagent's own commands, the global one by the
+ * server), and `turnRunning` and `lastTurnFailure` follow the turns.
+ */
+export const SUPERAGENT_THREAD_RECORD = defineSyncedKind({
+  kind: 'superagentThread',
+  title: 'superagent thread',
+  wire: SuperagentThreadWire,
+  ref: rowRef(parseSuperagentThreadRowId, 'a superagent thread row id'),
+  conflict: 'field-LWW',
+  fields: {
+    threadId: key(ThreadIdField, THREAD),
+    ownerUserId: key(UserIdField, THREAD),
+    title: spec(z.string().trim().min(1).max(200), THREAD),
+    archived: spec(z.boolean(), THREAD),
+    model: spec(z.string().min(1), THREAD),
+    effort: spec(z.string().min(1), THREAD),
+    kind: status(SuperagentThreadKind, THREAD),
+    originSessionId: status(SessionIdField, THREAD),
+    repoPath: status(z.string(), THREAD),
+    agentKind: status(z.string(), THREAD),
+    podiumSessionId: status(SessionIdField, THREAD),
+    resumable: status(z.boolean(), THREAD),
+    turnRunning: status(z.boolean(), THREAD),
+    lastTurnFailure: status(SuperagentTurnFailureWire.nullable(), THREAD),
+    createdAt: status(z.string(), THREAD),
+    updatedAt: status(z.string(), THREAD),
+  },
+  ops: {
+    edit: {
+      policy: OWN_ROW_WRITE,
+      note: 'Rename or archive one of my superagent threads, or set its model and effort.',
+    },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A title, an archive flag and a model choice; the harness session id and the terminal lock never leave the server.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another person’s thread fails as an unknown one, as the superagent commands do.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -734,6 +801,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   USER_PREFERENCES_RECORD,
   USER_READ_POSITION_RECORD,
   EFFECT_RECORD,
+  SUPERAGENT_THREAD_RECORD,
 ]
 
 /**

@@ -7,7 +7,7 @@ type Store = ReferenceState & { drafts: Record<string, string> }
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asIssueId, asMachineId, asRepoId, asMutationId, asSessionId, DEFAULT_HARNESS_AGENT, type SessionId } from '@podium/model/browser'
-import { dedupeSessionsByResume } from '@podium/model'
+import { asThreadId, asUserId, dedupeSessionsByResume, type SuperagentThreadWire, superagentThreadRowId } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
@@ -68,9 +68,14 @@ export async function createChatContextFixture(resumeTwins = false) {
       subscribeAddressedBatch: (fn: (batch: ReplicaAddressedBatch) => void) => { addressed.add(fn); return () => { addressed.delete(fn) } } },
     outbox: { pending: () => queued, deadLetters: () => parked, subscribe: (fn: () => void) => { outboxListeners.add(fn); return () => { outboxListeners.delete(fn) } } },
   }) as unknown as ClientRuntime
+  // My one synced thread record (POD-6675).
+  const ownThread: SuperagentThreadWire = { threadId: asThreadId('own-thread'), ownerUserId: asUserId('operator'), kind: 'global',
+    title: 'Synthetic thread', podiumSessionId: sessions[0]!.sessionId, archived: false, resumable: false, turnRunning: false,
+    lastTurnFailure: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }
+  const ownThreadId = superagentThreadRowId(ownThread.ownerUserId, ownThread.threadId)
   state = { sessions, messageRecords: messages, pendingInteractions: interactions, issueProjections: issues,
     drafts: { [sessions[0]!.sessionId]: 'Saved draft' }, attachedSessionId: sessions[1]!.sessionId, transcriptReveal: null,
-    superThreads: [{ id: 'own-thread', kind: 'global', title: 'Synthetic thread', podiumSessionId: sessions[0]!.sessionId }],
+    superagentThreads: [ownThread],
     superThreadId: 'own-thread', paneA: null, selectedWorktree: null, machines: [{ id: 'chat-machine', name: 'Synthetic host', online: true }],
     repos: [{ path: '/synthetic/project', worktrees: [] }], chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id), replica: owner.replica,
     setSessionDraft: (id: string, text: string) => {
@@ -85,6 +90,8 @@ export async function createChatContextFixture(resumeTwins = false) {
     { kind: 'repo', id: 'chat-repo', value: { id: 'chat-repo', repoPath: '/synthetic/project', prefix: 'SYN' } as never },
     ...issues.map(row => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ...rawSessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
+    // My synced thread record (POD-6675), its feed id stamped as `id`.
+    { kind: 'superagentThread' as const, id: ownThreadId, value: { ...ownThread, id: ownThreadId } as never },
   ] })
   headerEntities(pool).apply([{ kind: 'machine', id: 'chat-machine', value: state.machines[0]! },
     { kind: 'repository', id: '/synthetic/project', value: state.repos[0]! }])

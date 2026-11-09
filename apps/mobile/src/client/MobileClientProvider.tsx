@@ -1,7 +1,6 @@
 import {
   createDemoReplica,
   DEMO_PRINCIPAL,
-  DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
   publishDemoSlice,
@@ -101,12 +100,12 @@ import { platformClockWakeSource } from './clock-wake-source'
 import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
-import { mobileTranscriptDatabases } from './mobile-transcript-store'
 import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
+import { mobileTranscriptDatabases } from './mobile-transcript-store'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { makePlatformSocketLogin } from './native-websocket'
 import { createPlatformConnectivity } from './platform-connectivity'
@@ -439,13 +438,7 @@ function demoTrpc(): MobileTrpc {
   const noop = async () => {}
   return {
     superagent: {
-      // The screen reads this thread's session transcript, so the demo thread
-      // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
-      listThreads: {
-        query: async () => [
-          { id: 'global', kind: 'global' as const, podiumSessionId: DEMO_SUPER_SESSION },
-        ],
-      },
+      // The demo thread is a record of the demo replica (POD-6675).
       sendTurn: { mutate: async () => ({ threadId: 'global' }) },
       interruptTurn: { mutate: noop },
       clear: { mutate: noop },

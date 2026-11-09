@@ -255,6 +255,10 @@ import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import type { SuperagentService } from './modules/superagent/service'
+import {
+  makeThreadFeedCapture,
+  reconcileSuperagentThreads,
+} from './modules/superagent/thread-records'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
@@ -707,6 +711,9 @@ export class SessionRegistry {
     // The per-user records (POD-6673): every stored pin, tab order and
     // preference onto the log, so a device's first bootstrap holds them.
     await reconcileUserRecords(this.writes.system('boot.reconcile'), this.store)
+    // Superagent threads (POD-6675): every member's global thread, the running
+    // flag from the pending turns, and every thread onto the log.
+    await reconcileSuperagentThreads(this.writes.system('boot.reconcile'), this.store)
     await this.writes
       .system('boot.reconcile')
       .reconcile('machine', await this.modules.machines.projectionRows())
@@ -1264,6 +1271,12 @@ export class SessionRegistry {
     })
     this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
+    // ONE HOOK ON THE THREAD WRITE FUNNEL (POD-6675): every write to
+    // `superagent_threads` publishes the thread's record to its owner's devices
+    // inside its own transaction, whoever made it.
+    this.store.superagent.setThreadFeedCapture(
+      makeThreadFeedCapture(writes.system('feed.superagentThreads')),
+    )
     const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered

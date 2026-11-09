@@ -8,15 +8,18 @@ import {
   asThreadId,
   firstAdminMemberId,
   type SessionId,
+  type SuperagentTurnFailureWire,
   type ThreadId,
+  USER_ROLES,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, inArray, isNull, ne, notExists, sql } from 'drizzle-orm'
 import {
   superagentMessages,
   superagentPendingTurns,
   superagentQueuedInputs,
   superagentThreads,
+  users,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
@@ -63,6 +66,7 @@ const seedGlobal = prepared((db: StoreDrizzle) =>
       updatedAt: P('now'),
     })
     .onConflictDoNothing()
+    .returning()
     .prepare(),
 )
 
@@ -102,7 +106,12 @@ const insertMessage = prepared((db: StoreDrizzle) =>
 )
 
 const touchThread = prepared((db: StoreDrizzle) =>
-  db.update(superagentThreads).set({ updatedAt: P('updatedAt') }).where(threadIdIs()).prepare(),
+  db
+    .update(superagentThreads)
+    .set({ updatedAt: P('updatedAt') })
+    .where(threadIdIs())
+    .returning()
+    .prepare(),
 )
 
 const deleteThreadMessages = prepared((db: StoreDrizzle) =>
@@ -166,6 +175,7 @@ const upsertThread = prepared((db: StoreDrizzle) =>
         updatedAt: P('now'),
       },
     })
+    .returning()
     .prepare(),
 )
 
@@ -183,11 +193,87 @@ const setThreadBinding = preparedFamily((db: StoreDrizzle, shape: string) =>
     .update(superagentThreads)
     .set(placeholdersFor(shape) as unknown as Partial<typeof superagentThreads.$inferInsert>)
     .where(threadIdIs())
+    .returning()
     .prepare(),
 )
 
 const archiveThread = prepared((db: StoreDrizzle) =>
-  db.update(superagentThreads).set({ archived: true }).where(threadIdIs()).prepare(),
+  db
+    .update(superagentThreads)
+    .set({ archived: true })
+    .where(threadIdIs())
+    .returning()
+    .prepare(),
+)
+
+/** Every thread, archived ones included: the `superagentThread` boot reconcile. */
+const allThreads = prepared((db: StoreDrizzle) =>
+  db.select().from(superagentThreads).orderBy(asc(superagentThreads.id)).prepare(),
+)
+
+/** A pending-turn row of the outer thread (its unique `thread_id` index). */
+const pendingTurnOfThread = (db: StoreDrizzle) =>
+  db
+    .select({ one: sql`1` })
+    .from(superagentPendingTurns)
+    .where(eq(superagentPendingTurns.threadId, superagentThreads.id))
+
+/**
+ * BOOT TRUTH OF `turn_running` (POD-6675): a thread runs a turn exactly when it
+ * has a pending-turn row, the durable record of a dispatched turn. A restart in
+ * the middle of a turn's preparation (no pending row yet) leaves the flag set
+ * with nothing to clear it; this clears it, and a thread whose pending row
+ * survived keeps it until that turn ends. Only rows that change are written.
+ */
+const syncTurnRunning = prepared((db: StoreDrizzle) =>
+  db
+    .update(superagentThreads)
+    .set({ turnRunning: exists(pendingTurnOfThread(db)) })
+    .where(ne(superagentThreads.turnRunning, exists(pendingTurnOfThread(db))))
+    .returning()
+    .prepare(),
+)
+
+/**
+ * The global thread of every active member who has none (POD-6675, design §1.7:
+ * the server creates it, no read does). The bare `global` id is the first
+ * admin's (`seedGlobalThread`); everyone else's is `global:<member>`, which is
+ * what `SuperagentService.personalThreadId` resolves for them.
+ */
+const seedMemberGlobals = prepared((db: StoreDrizzle) =>
+  db
+    .insert(superagentThreads)
+    .select(
+      db
+        .select({
+          id: sql<ThreadId>`'global:' || ${users.id}`.as('id'),
+          ownerUserId: users.id,
+          kind: sql<string>`'global'`.as('kind'),
+          createdAt: sql<string>`${P('now')}`.as('created_at'),
+          updatedAt: sql<string>`${P('now')}`.as('updated_at'),
+        })
+        .from(users)
+        .where(
+          and(
+            isNull(users.disabledAt),
+            inArray(users.role, [...USER_ROLES]),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(superagentThreads)
+                .where(
+                  and(
+                    eq(superagentThreads.ownerUserId, users.id),
+                    eq(superagentThreads.kind, 'global'),
+                  ),
+                ),
+            ),
+          ),
+        ),
+    )
+    .onConflictDoNothing()
+    .returning()
+    .prepare(),
 )
 
 const insertQueuedInput = prepared((db: StoreDrizzle) =>
@@ -257,9 +343,18 @@ const deletePendingTurnRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Called with the rows of every write to `superagent_threads`, inside that
+ * write's transaction (POD-6675): the `superagentThread` feed capture.
+ */
+export type SuperagentThreadFeedCapture = (rows: readonly SuperagentThreadRow[]) => Promise<void>
+
+type ThreadSelect = typeof superagentThreads.$inferSelect
+
 export class SuperagentRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
+  private threadFeedCapture: SuperagentThreadFeedCapture | undefined
 
   private readonly users: UsersRepository
 
@@ -280,6 +375,30 @@ export class SuperagentRepository {
     return this.rootDb
   }
 
+  /** Install the thread feed capture, run inside every thread write's transaction. */
+  setThreadFeedCapture(capture: SuperagentThreadFeedCapture): () => void {
+    this.threadFeedCapture = capture
+    return () => {
+      if (this.threadFeedCapture === capture) this.threadFeedCapture = undefined
+    }
+  }
+
+  /**
+   * THE ONE THREAD WRITE FUNNEL (POD-6675). `superagent_threads` is a synced
+   * table: every write returns the rows it wrote and hands them to the feed
+   * capture in the same transaction, so a thread's record reaches its owner's
+   * devices from the write path, whichever module moved it, and the table and
+   * the change log commit or roll back together.
+   */
+  private async writeThreads(query: () => Promise<ThreadSelect[]>): Promise<SuperagentThreadRow[]> {
+    return await this.createOrJoinTransaction(async () => {
+      const written = (await query()).map((row) => this.mapSuperagentThread(row))
+      const capture = this.threadFeedCapture
+      if (written.length > 0 && capture !== undefined) await capture(written)
+      return written
+    })
+  }
+
   /** Per-boot heal: idempotent seed of the always-there 'global' thread.
    *  BOOTSTRAP (POD-6285): with no owner given, the bare id is seeded for the
    *  first admin, the install's original person; other members get their own
@@ -288,7 +407,66 @@ export class SuperagentRepository {
     ownerUserId ??= await firstAdminMemberId({ users: this.users })
     const saNow = new Date().toISOString()
     // `DO NOTHING` matches `OR IGNORE` here: see `seedGlobal`.
-    await seedGlobal(this.db).run({ ownerUserId, now: saNow })
+    await this.writeThreads(async () => await seedGlobal(this.db).all({ ownerUserId, now: saNow }))
+  }
+
+  /**
+   * The global thread of every active member who has none (POD-6675): the boot
+   * back-fill, and the server's own creation once a member exists. One
+   * statement whatever the roster's size.
+   */
+  async seedMemberGlobalThreads(): Promise<void> {
+    await this.seedGlobalThread()
+    const now = new Date().toISOString()
+    await this.writeThreads(async () => await seedMemberGlobals(this.db).all({ now }))
+  }
+
+  /** Every thread, archived ones included, as the boot reconcile publishes them. */
+  async allThreadsForBootReconcile(): Promise<SuperagentThreadRow[]> {
+    return (await allThreads(this.db).all()).map((row) => this.mapSuperagentThread(row))
+  }
+
+  /** Boot truth of `turnRunning`: set exactly on threads with a pending turn. */
+  async syncTurnRunningWithPendingTurns(): Promise<void> {
+    await this.writeThreads(async () => await syncTurnRunning(this.db).all())
+  }
+
+  /**
+   * A turn started or ended on the thread (POD-6675). A NEW turn also clears the
+   * last failure (`clearFailure`); a turn re-driven after a restart is the same
+   * turn and leaves it. The status leaves `updatedAt` alone (it orders the
+   * threads by conversation), and the feed appends only a record that changed.
+   */
+  async setTurnRunning(
+    id: ThreadId,
+    running: boolean,
+    opts: { clearFailure?: boolean } = {},
+  ): Promise<void> {
+    const set: Partial<typeof superagentThreads.$inferInsert> = { turnRunning: running }
+    if (opts.clearFailure === true) {
+      set.lastTurnFailureAt = null
+      set.lastTurnFailureMessage = null
+      set.lastTurnFailureUserText = null
+    }
+    await this.writeTurnStatus(id, set)
+  }
+
+  /** The thread's last turn failed, or (null) its failure is cleared. */
+  async setTurnFailure(id: ThreadId, failure: SuperagentTurnFailureWire | null): Promise<void> {
+    await this.writeTurnStatus(id, {
+      lastTurnFailureAt: failure?.at ?? null,
+      lastTurnFailureMessage: failure?.message ?? null,
+      lastTurnFailureUserText: failure?.userText ?? null,
+    })
+  }
+
+  private async writeTurnStatus(
+    id: ThreadId,
+    set: Partial<typeof superagentThreads.$inferInsert>,
+  ): Promise<void> {
+    await this.writeThreads(
+      async () => await setThreadBinding(this.db, shapeOf(set)).all({ ...set, id }),
+    )
   }
 
   async loadSuperagentMessages(threadId = 'global', limit = 200): Promise<SuperagentMessageRow[]> {
@@ -327,7 +505,9 @@ export class SuperagentRepository {
       toolName: m.toolName ?? null,
       createdAt,
     })
-    await touchThread(this.db).run({ id: threadId, updatedAt: createdAt })
+    await this.writeThreads(
+      async () => await touchThread(this.db).all({ id: threadId, updatedAt: createdAt }),
+    )
     return { ...m, ownerUserId, id: Number(result.lastInsertRowid), createdAt }
   }
 
@@ -337,7 +517,7 @@ export class SuperagentRepository {
 
   async listSuperagentThreads(ownerUserId: UserId): Promise<SuperagentThreadRow[]> {
     const rows = await openThreadsOf(this.db).all({ ownerUserId })
-    return await Promise.all(rows.map(async (r) => await this.mapSuperagentThread(r)))
+    return rows.map((r) => this.mapSuperagentThread(r))
   }
 
   async getSuperagentThread(
@@ -347,7 +527,7 @@ export class SuperagentRepository {
     const r = ownerUserId
       ? await ownedThreadById(this.db).get({ id: asThreadId(id), ownerUserId })
       : await threadById(this.db).get({ id: asThreadId(id) })
-    return r ? await this.mapSuperagentThread(r) : undefined
+    return r ? this.mapSuperagentThread(r) : undefined
   }
 
   async upsertSuperagentThread(t: {
@@ -359,17 +539,20 @@ export class SuperagentRepository {
     title?: string
   }): Promise<void> {
     const now = new Date().toISOString()
-    await upsertThread(this.db).run({
+    await this.writeThreads(
+      async () =>
+        await upsertThread(this.db).all({
       // EXTERNAL INPUT BRAND DECODE: this legacy writer accepts the
       // service-facing string id and brands it at the persistence boundary.
       id: asThreadId(t.id),
       ownerUserId: t.ownerUserId,
       kind: t.kind,
       originSessionId: t.originSessionId ?? null,
-      repoPath: t.repoPath ?? null,
-      title: t.title ?? null,
-      now,
-    })
+          repoPath: t.repoPath ?? null,
+          title: t.title ?? null,
+          now,
+        }),
+    )
   }
 
   async setThreadWatermark(id: string, itemId: string, ts: string | undefined): Promise<void> {
@@ -394,6 +577,9 @@ export class SuperagentRepository {
        *  `superagent` settings role (POD-782). */
       model?: string | null
       effort?: string | null
+      /** The owner's edits (POD-6675, `records.superagentThread.edit`). */
+      title?: string | null
+      archived?: boolean
     },
   ): Promise<void> {
     // ONLY THE FIELDS PRESENT IN `patch` ARE WRITTEN, which is what the
@@ -407,13 +593,17 @@ export class SuperagentRepository {
     if (patch.terminalSessionId !== undefined) set.terminalSessionId = patch.terminalSessionId
     if (patch.model !== undefined) set.model = patch.model
     if (patch.effort !== undefined) set.effort = patch.effort
+    if (patch.title !== undefined) set.title = patch.title
+    if (patch.archived !== undefined) set.archived = patch.archived
     if (Object.keys(set).length === 0) return
     set.updatedAt = new Date().toISOString()
-    await setThreadBinding(this.db, shapeOf(set)).run({ ...set, id: asThreadId(id) })
+    await this.writeThreads(
+      async () => await setThreadBinding(this.db, shapeOf(set)).all({ ...set, id: asThreadId(id) }),
+    )
   }
 
   async archiveSuperagentThread(id: string): Promise<void> {
-    await archiveThread(this.db).run({ id: asThreadId(id) })
+    await this.writeThreads(async () => await archiveThread(this.db).all({ id: asThreadId(id) }))
   }
 
   async putQueuedInput(
@@ -517,9 +707,7 @@ export class SuperagentRepository {
    * nothing else. Every cast this used to carry is gone — the names and the
    * brands come off the schema now.
    */
-  private async mapSuperagentThread(
-    r: typeof superagentThreads.$inferSelect,
-  ): Promise<SuperagentThreadRow> {
+  private mapSuperagentThread(r: ThreadSelect): SuperagentThreadRow {
     return {
       id: r.id,
       ownerUserId: r.ownerUserId,
@@ -538,6 +726,15 @@ export class SuperagentRepository {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       archived: r.archived,
+      turnRunning: r.turnRunning,
+      lastTurnFailure:
+        r.lastTurnFailureAt !== null && r.lastTurnFailureMessage !== null
+          ? {
+              at: r.lastTurnFailureAt,
+              message: r.lastTurnFailureMessage,
+              userText: r.lastTurnFailureUserText,
+            }
+          : null,
     }
   }
 }

@@ -62,7 +62,6 @@ const pickActions = (s: MobileStore) => ({
   issueAction: s.issueAction,
   answerSession: s.answerSession,
   spawnIssueAgent: s.spawnIssueAgent,
-  refreshSuperThreads: s.refreshSuperThreads,
 })
 
 export type StoreActions = ReturnType<typeof pickActions>

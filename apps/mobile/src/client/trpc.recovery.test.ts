@@ -19,7 +19,9 @@ describe('mobile shared server-call recovery', () => {
       { workspaceId: 'ws_blue' },
       { recoveryDelaysMs: [0] },
     )
-    await expect(client.superagent.listThreads.query()).resolves.toEqual([])
+    await expect(
+      client.superagent.history.query({ threadId: asThreadId('global') }),
+    ).resolves.toEqual([])
     expect(fetch).toHaveBeenCalledTimes(3)
     expect(fetch.mock.calls[1]?.[0]).toBe('https://relay.test/readiness')
     for (const [, init] of fetch.mock.calls) {
@@ -58,7 +60,9 @@ describe('mobile shared server-call recovery', () => {
       fetch,
       recoveryDelaysMs: [0],
     })
-    await expect(client.superagent.listThreads.query()).rejects.toMatchObject({
+    await expect(
+      client.superagent.history.query({ threadId: asThreadId('global') }),
+    ).rejects.toMatchObject({
       message: 'Sign in required',
     })
     expect(fetch).toHaveBeenCalledOnce()

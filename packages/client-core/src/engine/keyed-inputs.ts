@@ -49,7 +49,6 @@ const LIST_KEYS = {
   machines: (row: { id: string }) => row.id,
   repos: discoveryRepoId,
   fileTabs: (row: { id: string }) => row.id,
-  superThreads: (row: { id: string }) => row.id,
   /** A record: its keys are the ids, in insertion order. */
   workspaces: null,
 } as const

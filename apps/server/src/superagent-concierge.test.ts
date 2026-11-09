@@ -307,9 +307,9 @@ describe('concierge threads (issue #64)', () => {
     expect(a.threadId).toBe(b.threadId)
     expect(a.isNew).toBe(false)
     expect(b.isNew).toBe(false)
-    const threads = (await sa.listThreads(firstAdminMemberId())).filter(
-      (t) => t.kind === 'concierge',
-    )
+    const threads = (
+      await registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())
+    ).filter((t) => t.kind === 'concierge')
     expect(threads).toHaveLength(1)
     expect(threads[0]).toMatchObject({ id: conciergeThreadId('/r'), repoPath: '/r' })
   })
@@ -399,7 +399,9 @@ describe('concierge threads (issue #64)', () => {
       }),
     ).rejects.toThrow(/unknown repo/)
     expect(
-      (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
+      (await registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).filter(
+        (t) => t.kind === 'concierge',
+      ),
     ).toHaveLength(1)
   })
 
@@ -738,10 +740,11 @@ describe('thread ownership after administrator removal', () => {
       },
       'scrypt:hash',
     )
-    await sa.history(replacement)
+    // The server makes each member's global thread (POD-6675); no read does.
+    await store.superagent.seedMemberGlobalThreads()
     const before = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     await store.users.removeMember(original, replacement)
-    await sa.history(replacement)
+    await store.superagent.seedMemberGlobalThreads()
     const after = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     expect(after).toEqual({ threadId: before.threadId, isNew: false })
     expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(
@@ -775,7 +778,9 @@ it.each([
   await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId)
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
   expect(
-    (await sa.listThreads(firstAdminMemberId())).find((t) => t.id === thread.threadId)?.title,
+    (await registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).find(
+      (t) => t.id === thread.threadId,
+    )?.title,
   ).toBe('concierge · podium')
 })
 

@@ -91,11 +91,4 @@ export class BootFetches<TApi extends PodiumClientApi> {
       }
     }
   }
-
-  /** The signed-in user's superagent threads (POD-330, audit item zero). The
-   *  authority scopes the query to the caller, so this is the ONLY thread list
-   *  the client can obtain — there is no by-user variant to reach for. */
-  async refreshSuperThreads(): Promise<void> {
-    this.ports.publish({ superThreads: await this.ports.api.superagent.listThreads.query() })
-  }
 }

@@ -98,6 +98,7 @@ export type ModelSchemaName =
   | 'TabOrderWire'
   | 'PersonalPreferences'
   | 'ReadPositionWire'
+  | 'SuperagentThreadWire'
   | 'AccountView'
   | 'MemberView'
   | 'MobileClientSession'
@@ -134,6 +135,7 @@ export type RowArrival =
   | 'replica:tabOrders'
   | 'replica:userPreferences'
   | 'replica:userReadPositions'
+  | 'replica:superagentThreads'
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
@@ -193,7 +195,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition'
+export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread'
 
 /**
  * Four kinds, and no more.
@@ -1174,6 +1176,28 @@ const DECLARED = defineSchema({
     streamId: { type: 'enum', note: 'The stream (`issueEvents`).' },
     lastEventId: { type: 'number', note: 'The last event read; only ever moves forward.' },
     seenAt: { type: 'isoDate', nullable: true, note: 'When it was read.' },
+  }),
+  /**
+   * MY SUPERAGENT THREADS (POD-6675): synced per-user records, the owner's alone.
+   * The open thread is UiStore state (POD-5797), not a field here.
+   */
+  superagentThread: perUser('SuperagentThreadWire', 'replica:superagentThreads', 'One of my superagent threads: the global one, a session\'s btw thread or a repo\'s concierge.', {
+    threadId: { type: 'id', note: 'The thread id the superagent commands take (`global`, `btw_<session>`, …).' },
+    ownerUserId: { type: 'id', note: 'Its owner: always the principal.' },
+    kind: { type: 'enum', note: '`global`, `btw` or `concierge`.' },
+    originSessionId: { type: 'id', note: 'A btw thread\'s session; absent on the others.' },
+    repoPath: { type: 'string', note: 'A concierge thread\'s repo; absent on the others.' },
+    agentKind: { type: 'string', note: 'The harness the thread last ran.' },
+    podiumSessionId: { type: 'id', note: 'The headless session that renders the thread; absent until it has one.' },
+    title: { type: 'string', note: 'Its title (spec: my edit).' },
+    archived: { type: 'boolean', note: 'Archived (spec: my edit); the global thread never is.' },
+    model: { type: 'string', note: 'Its own model (spec); absent follows the superagent settings role.' },
+    effort: { type: 'string', note: 'Its own effort (spec); absent follows the role.' },
+    resumable: { type: 'boolean', note: 'The server holds a harness conversation, so it can open in a terminal.' },
+    turnRunning: { type: 'boolean', note: 'A turn is running (status, set at turn start and end).' },
+    lastTurnFailure: { type: 'object', nullable: true, note: 'The last turn failed (status); cleared when the next one starts.' },
+    createdAt: { type: 'isoDate', note: 'When it was made.' },
+    updatedAt: { type: 'isoDate', note: 'Its last conversation write; threads list newest first.' },
   }),
   messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
   pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),

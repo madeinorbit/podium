@@ -452,10 +452,10 @@ describe('repos router', () => {
     await expect(p).resolves.toEqual({ repositories: [], diagnostics: [] })
   })
 
-  it('superagent.listThreads includes the global thread', async () => {
-    const { call } = await caller()
-    const threads = await call.superagent.listThreads()
-    expect(threads.some((t) => t.id === 'global')).toBe(true)
+  it('the server makes the global thread: no read creates it (POD-6675)', async () => {
+    const { registry } = await caller()
+    const global = await registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(global?.kind).toBe('global')
   })
 
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {

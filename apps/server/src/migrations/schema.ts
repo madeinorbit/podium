@@ -858,6 +858,22 @@ export const superagentThreads = sqliteTable(
      */
     model: text(),
     effort: text(),
+    /**
+     * A turn is running on the thread (POD-6675): the synced `turnRunning`
+     * status, set when a turn starts and cleared when it ends. The pending-turn
+     * rows remain the durable truth of a dispatched turn; the boot reconcile
+     * sets this from them, so a restart mid-turn never leaves it stuck.
+     */
+    turnRunning: integer('turn_running', { mode: 'boolean' }).default(sql`0`).notNull(),
+    /**
+     * The thread's last turn failed (POD-6675): the synced `lastTurnFailure`
+     * status, set when a turn fails and cleared when the next one starts. All
+     * three are null together when there is no failure; `user_text` alone may
+     * be null (the turn reached a harness, whose transcript holds the prompt).
+     */
+    lastTurnFailureAt: text('last_turn_failure_at'),
+    lastTurnFailureMessage: text('last_turn_failure_message'),
+    lastTurnFailureUserText: text('last_turn_failure_user_text'),
   },
   // A user's open threads, most recently updated first (POD-6148).
   (table) => [

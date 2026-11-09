@@ -6,13 +6,13 @@ import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-cor
 import type { MobxPool } from '@podium/client-graph'
 import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
 import { asThreadId, type SessionId } from '@podium/model'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { action } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useThreadConversation } from '../client/use-thread-conversation'
 import { pendingTurnOf } from '../components/pending-delivery'
 import { StyleSheet, Text, View } from 'react-native'
-import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { useHttpOrigin, useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { menuAnswer, useAnswerSession } from '../lib/answer-session'
@@ -83,7 +83,6 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // either an identity-stable static or the sessions slice it paints from.
   const trpc = useTrpc()
   const answerSession = useAnswerSession()
-  const { refreshSuperThreads } = useStoreActions()
   const httpOrigin = useHttpOrigin()
   // The signed-in user's threads, from the store's published slice — the same
   // one the desktop superagent column reads. The screen used to fetch the list
@@ -101,7 +100,6 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const tabBarInset = useTabBarInset()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
-  const [threadsLoaded, setThreadsLoaded] = useState(false)
   const { conversation, podiumSid, binding } = useThreadConversation()
   const followTranscript = useCallback((following: boolean) => {
     conversation?.setFollowing(following)
@@ -139,21 +137,6 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // screen even if the operator had scrolled up (the web chat's pinToBottom).
   const [pinRequest, setPinRequest] = useState(0)
   const keyboardLift = useKeyboardLift()
-  // The store owns the thread list; this completion bit only distinguishes an
-  // unresolved first read from a genuinely empty global thread. The engine's
-  // boot refresh may already have won, in which case this is a cheap refresh.
-  useEffect(() => {
-    let alive = true
-    void refreshSuperThreads()
-      .catch(() => {})
-      .finally(() => {
-        if (alive) setThreadsLoaded(true)
-      })
-    return () => {
-      alive = false
-    }
-  }, [refreshSuperThreads])
-
   const pendingTurns = conversation?.bubbles.map(pendingTurnOf) ?? []
   const loadOlder = useCallback(() => {
     void conversation?.loadOlder()
@@ -211,11 +194,10 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
       })()
       attachments.clear()
       conversation?.clear()
-      void refreshSuperThreads().catch(() => {})
     } catch (error) {
       conversation?.setTurnError(humanizeSendFailure(error))
     }
-  }, [attachments.clear, binding, conversation, podiumSid, refreshSuperThreads, trpc])
+  }, [attachments.clear, binding, conversation, podiumSid, trpc])
 
   const hasStreamingText = conversation?.hasStreamingText ?? false
   const visibleRestoredFailure =
@@ -223,22 +205,24 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const restoredRow = useMemo((): LocalPendingTurn | null => {
     if (!visibleRestoredFailure?.userText) return null
     return {
-      id: `restored:${visibleRestoredFailure.inputId}`,
+      id: `restored:${visibleRestoredFailure.at}`,
       text: visibleRestoredFailure.userText,
       wire: visibleRestoredFailure.userText,
-      failed: visibleRestoredFailure.error,
+      failed: visibleRestoredFailure.message,
     }
   }, [visibleRestoredFailure])
-  const visibleError = error ?? visibleRestoredFailure?.error ?? null
+  const visibleError = error ?? visibleRestoredFailure?.message ?? null
   const visiblePendingTurns = useMemo(
     () => (restoredRow ? [...pendingTurns, restoredRow] : pendingTurns),
     [pendingTurns, restoredRow],
   )
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
+  // With no session yet, the thread record is all there is: it is resident
+  // once the replica has booted (POD-6675).
   const transcriptResolved = podiumSid
     ? transcriptLoaded || itemCount > 0 || hasStreamingText
-    : threadsLoaded
+    : true
   const resolved = !booting && transcriptResolved
   const empty =
     resolved &&

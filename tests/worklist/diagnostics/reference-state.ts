@@ -92,6 +92,7 @@ export function referenceState<
       'automationRuns',
       'sessionUserStates',
       'userLayouts',
+      'superagentThreads',
     ] as const
     const records = Object.fromEntries(kinds.map((kind) => [kind, read(kind)]))
     const sessions = dedupeSessions(

@@ -54,7 +54,7 @@ async function main() {
   const state = { replica, sessions, machines: replica.rows('machines'), repos, issueProjections: replica.rows('issueProjections'),
     issueUserStates: replica.rows('issueUserStates'), messageRecords: messages, pendingInteractions: interactions,
     coarseNow: Date.now(), selectedIssueId: null, panelMode: {}, dockShells: {}, pendingSpawnIds: new Set(),
-    drafts: {}, attachedSessionId: null, transcriptReveal: null, superThreads: [], superThreadId: null,
+    drafts: {}, attachedSessionId: null, transcriptReveal: null, superagentThreads: [], superThreadId: null,
     selectedWorktree: null, paneA: null, chatSendsFor: () => [],
   } as unknown as Store
   const runtime = withKeyedInputs({ replica, outbox, getSnapshot: () => state, subscribe: () => () => {},

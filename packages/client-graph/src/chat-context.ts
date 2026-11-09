@@ -12,6 +12,7 @@ import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { headerIds } from './enumerate'
 import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
+import { superagentState } from './superagent'
 import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
@@ -316,18 +317,8 @@ export function createChatContextReader(pool: MobxPool) {
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),
     repositoryKey: () => chatRepositoryKey(pool),
-    threads() {
-      const catalog = omitGone(pool.row('superThreadCatalog', 'catalog'))
-      const threads: import('@podium/client-core/values').SuperThreadView[] = []
-      let pending = loading(catalog) ? 1 : 0
-      if (catalog && !loading(catalog))
-        for (const id of catalog.ids) {
-          const row = omitGone(pool.row('superThread', id))
-          if (loading(row)) pending++
-          else if (row) threads.push(row)
-        }
-      return { threads, pending }
-    },
+    // My threads are synced records in the pool (POD-6675): always resident.
+    threads: () => ({ threads: superagentState(pool).threads, pending: 0 }),
   }
 }
 

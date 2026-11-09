@@ -1,6 +1,12 @@
 import type { IssueEventWire, SessionId } from '@podium/model'
 import '@/test-support/mock-core-store-handle'
-import { asSessionId, issueEventRowId } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  asUserId,
+  issueEventRowId,
+  type SuperagentThreadWire,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,17 +36,19 @@ const fakeHub = {
   },
 }
 
+/** My global thread's synced record (POD-6675), in the shape the test sets. */
 type SuperThreadFake = {
   id: string
   kind: 'global'
-  harnessSessionId?: string
+  /** The server holds a harness conversation (the record's `resumable`). */
+  resumable?: boolean
   podiumSessionId?: SessionId
   agentKind?: string
 }
 const GLOBAL_THREAD: SuperThreadFake = {
   id: 'global',
   kind: 'global' as const,
-  harnessSessionId: 'harness-1',
+  resumable: true,
   // POD-782: a thread has its headless session from the moment the pane opens
   // (superagent.ensureSession), which is what lets this pane mount the ORDINARY
   // ChatView instead of carrying a second composer for the empty case.
@@ -48,6 +56,21 @@ const GLOBAL_THREAD: SuperThreadFake = {
   agentKind: 'claude-code',
 }
 let superagentThreads: SuperThreadFake[] = [GLOBAL_THREAD]
+/** The records the replica holds for those threads. */
+const threadRecords = (): SuperagentThreadWire[] =>
+  superagentThreads.map((thread) => ({
+    threadId: asThreadId(thread.id),
+    ownerUserId: asUserId('operator'),
+    kind: thread.kind,
+    ...(thread.podiumSessionId ? { podiumSessionId: thread.podiumSessionId } : {}),
+    ...(thread.agentKind ? { agentKind: thread.agentKind } : {}),
+    archived: false,
+    resumable: thread.resumable === true,
+    turnRunning: false,
+    lastTurnFailure: null,
+    createdAt: '2026-07-22T00:00:00.000Z',
+    updatedAt: '2026-07-22T00:00:00.000Z',
+  }))
 
 let isMobile = false
 let storeSessions: Array<{ sessionId: SessionId; cwd: string }> = []
@@ -95,14 +118,12 @@ const setView = vi.fn()
 const setSessionDraft = vi.fn()
 const fakeTrpc = {
   superagent: {
-    listThreads: { query: vi.fn(async () => superagentThreads) },
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
     openInTerminal: { mutate: vi.fn(async () => ({ sessionId: asSessionId('pty-1') })) },
     ensureSession: {
       mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: asSessionId('hp-1') })),
     },
-    latestTurnFailure: { query: vi.fn(async () => null) },
   },
   issues: {
     events: { query: vi.fn(async () => []) },
@@ -139,11 +160,9 @@ vi.mock('@/app/store', () => {
     issues: normalizedIssues(),
     issueEvents: storeIssueEvents,
     selectedIssueId: storeSelectedIssueId,
-    // POD-330: the thread list is STORE state now, not a view-local mirror
-    // refetched off a `superRefreshKey` bump.
-    superThreads: superagentThreads,
+    // POD-6675: the thread list is synced records the replica holds.
+    superagentThreads: threadRecords(),
     superThreadId: 'global',
-    refreshSuperThreads: async () => {},
     uiState,
     readPosition,
     setPane,
@@ -274,7 +293,7 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
    * a different screen.
    */
   it('mints the thread’s headless session so the chat has something to render', async () => {
-    superagentThreads = [{ id: 'global', kind: 'global', harnessSessionId: 'harness-1' }]
+    superagentThreads = [{ id: 'global', kind: 'global', resumable: true }]
     await mount()
     expect(fakeTrpc.superagent.ensureSession.mutate).toHaveBeenCalledWith({ threadId: 'global' })
   })

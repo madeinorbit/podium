@@ -20,6 +20,7 @@ import {
   type SessionId,
   SessionMeta,
   SessionUserStateWire,
+  SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
 } from '@podium/model'
@@ -264,6 +265,10 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('pin'), PinWire),
   metadataChangeArm(z.literal('tabOrder'), TabOrderWire),
   metadataChangeArm(z.literal('userPreferences'), UserPreferencesWire),
+  /** A superagent thread (POD-6675, ADR 12 D1), keyed `superagentThreadRowId`.
+   *  Visibility class `per-user-state`: its owner's principals only. Additive:
+   *  an older build parses these rows as {@link UnknownMetadataChange}. */
+  metadataChangeArm(z.literal('superagentThread'), SuperagentThreadWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -289,6 +294,7 @@ export const MetadataEntityKind = z.enum([
   'pin',
   'tabOrder',
   'userPreferences',
+  'superagentThread',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

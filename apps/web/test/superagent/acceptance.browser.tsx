@@ -1,17 +1,17 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { checkSuperagent } from '../../../../tests/worklist/diagnostics/superagent-check'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+import { checkSuperagent } from '../../../../tests/worklist/diagnostics/superagent-check'
 import { ConciergeButton } from '../../src/features/superagent/ConciergeButton'
-import { createSuperagentFixture } from './fixture'
 import { SuperagentView } from '../../src/features/superagent/SuperagentView'
+import { createSuperagentFixture } from './fixture'
 import '@/index.css'
 
 const data = createSuperagentFixture(5600, 5014),
@@ -63,7 +63,6 @@ root.render(
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })
       const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-      void referenceState(owner).refreshSuperThreads()
       void referenceState(owner).refreshRepos()
       return stop
     }}
@@ -90,7 +89,7 @@ const driver = {
   },
   async threads(count: number) {
     for (let step = 1; step <= count; step++) {
-      await data.updateThread(runtime, !!(step % 2))
+      await data.updateThread(!!(step % 2))
       await frame()
     }
   },

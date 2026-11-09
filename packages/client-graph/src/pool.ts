@@ -83,6 +83,7 @@ import type {
   PersonalPreferences,
   PinWire,
   ReadPositionWire,
+  SuperagentThreadWire,
   TabOrderWire,
 } from '@podium/model'
 import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
@@ -286,6 +287,8 @@ export interface PoolRows {
   tabOrder: Readonly<TabOrderWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   userPreferences: Readonly<PersonalPreferences> & { readonly id: string } & Readonly<Record<string, unknown>>
   userReadPosition: Readonly<ReadPositionWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
+  superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>

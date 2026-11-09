@@ -43,9 +43,10 @@ import {
   parseMessageRecordRowId,
   parsePinRowId,
   parseReadPositionRowId,
+  parseSessionUserStateRowId,
+  parseSuperagentThreadRowId,
   parseTabOrderRowId,
   parseUserPreferencesRowId,
-  parseSessionUserStateRowId,
   type RepoId,
   shipLaneId,
   type UserId,
@@ -276,6 +277,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (entity === 'pin' || entity === 'tabOrder' || entity === 'userPreferences') {
           return 'per-user-state'
         }
+        // A superagent thread (POD-6675): its owner's alone, as ADR 9 D8 S2 says.
+        if (entity === 'superagentThread') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
@@ -430,6 +433,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             if (ref.entity === 'pin') return parsePinRowId(ref.entityId).userId
             if (ref.entity === 'tabOrder') return parseTabOrderRowId(ref.entityId).userId
             return parseUserPreferencesRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'superagentThread') {
+          try {
+            return parseSuperagentThreadRowId(ref.entityId).userId
           } catch {
             return null
           }

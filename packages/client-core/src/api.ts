@@ -51,7 +51,6 @@ import type {
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
-import type { SuperThreadView } from './values/compose/superagent'
 
 export interface ApiQuery<I, O> {
   query(input: I): Promise<O>
@@ -383,10 +382,6 @@ export interface PodiumClientApi {
     history: ApiQuery<{ days?: number } | void, QuotaWindowHistoryWire[]>
   }
   superagent: {
-    /** The signed-in principal's own threads. The authority scopes this to the
-     *  caller (doc §3.1.6 S2: superagent state is per-user and private), so the
-     *  client never asks for "a user's" threads — only for its own. */
-    listThreads: ApiQuery<void, SuperThreadView[]>
     /** `superagent.startBtw` is NOT declared here. The server still serves it —
      *  it mints a `btw_<sessionId>` thread, which MCP and the CLI can still use
      *  — but no client calls it since POD-1069 folded "Ask superagent (BTW)"
@@ -423,23 +418,4 @@ export interface PodiumClientApi {
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >
   }
-}
-
-/**
- * A durable superagent turn failure (POD-4806). Mirrors the server's
- * `SuperagentTurnFailure` field for field: the web reads it off its
- * AppRouter-typed client and the phone declares it in its hand-written
- * extras, so drift fails a typecheck rather than reaching a phone.
- *
- * Deliberately NOT on the `PodiumClientApi` seam below: the seam is what the
- * SHARED store/actions layer calls, and restoration is read by the two
- * shells (web's headless hook, the phone screen), not by shared code.
- */
-export interface SuperagentTurnFailure {
-  inputId: string
-  userText: string | null
-  error: string
-  /** ISO 8601 recording time, for the structural supersede check against the
-   *  transcript tail (never a text comparison). */
-  at: string
 }

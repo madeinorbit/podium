@@ -1244,8 +1244,9 @@ describe('sendTurn (headless harness turns)', () => {
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind,
     ).toBe(meta?.agentKind)
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')
-        ?.turnRunning,
+      (await h.registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).find(
+        (thread) => thread.id === 'global',
+      )?.turnRunning,
     ).toBe(true)
     // The API ack reserves the thread, but this fake daemon has not reported
     // any activity yet. Only the driver's causal state stream owns the phase.
@@ -1257,8 +1258,9 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')
-        ?.turnRunning,
+      (await h.registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).find(
+        (thread) => thread.id === 'global',
+      )?.turnRunning,
     ).toBe(false)
     await expect(
       h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
@@ -1570,7 +1572,9 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       }),
     ).rejects.toThrow(/unknown repo/)
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
+      (await h.registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).filter(
+        (t) => t.kind === 'concierge',
+      ),
     ).toHaveLength(0)
   })
 
@@ -1625,7 +1629,9 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // NO SECOND THREAD. The old action minted one per session; a thread nothing
     // renders is the whole defect, so this path must not create one.
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'btw'),
+      (await h.registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).filter(
+        (t) => t.kind === 'btw',
+      ),
     ).toHaveLength(0)
     // The turn still runs where the GLOBAL thread runs — an attachment is
     // context, not a change of machine or checkout.
@@ -1894,10 +1900,16 @@ describe('boot reconciliation for headless sessions', () => {
     })
     const original = h.turnReqs[0]!
     expect(await h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(1)
+    // The running turn is synced status on the thread's record (POD-6675).
+    const running = async () =>
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.turnRunning
+    expect(await running()).toBe(true)
 
     const store = h.registry.sessionStore
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
+    // A restart mid-turn keeps it: the pending row says the turn is still out.
+    expect(await running()).toBe(true)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
     const rebornEpochs = new Map<string, number>()
@@ -2046,6 +2058,8 @@ describe('boot reconciliation for headless sessions', () => {
     await new Promise((resolve) => setTimeout(resolve))
 
     expect(await store.superagent.listPendingTurns()).toHaveLength(0)
+    // The replayed turn ended: the record says so, on every device.
+    expect(await running()).toBe(false)
     expect(acknowledgements).toContainEqual({
       type: 'headlessTurnAck',
       turnId: original.turnId,

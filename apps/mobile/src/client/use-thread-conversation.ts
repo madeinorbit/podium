@@ -48,10 +48,9 @@ export function useThreadConversation() {
       initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
       hub: owner.hub,
       connection: hubConnection(owner.hub),
-      latestTurnFailure: () =>
-        readSid()
-          ? owner.access.trpc.superagent.latestTurnFailure.query({ threadId: THREAD_ID })
-          : Promise.resolve(null),
+      // The last failure is status on the thread's synced record (POD-6675).
+      readTurnFailure: () =>
+        pool && readSid() ? (superagentState(pool).active?.lastTurnFailure ?? null) : null,
       scheduler: {
         visible: () =>
           AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
@@ -126,7 +125,6 @@ export function useThreadConversation() {
               action(() => {
                 thread.acked = ack.podiumSessionId
               })()
-            void owner.access.refreshSuperThreads().catch(() => {})
           } catch (error) {
             throw new Error(humanizeSendFailure(error))
           }

@@ -1,7 +1,4 @@
 import { omitGone } from '@podium/client-graph/lookup'
-/** Fixture and private-replay comparison. Reference values stay in memory; only
- * counts, positions and field paths leave a replay or browser fixture. */
-import type { ReferenceState as Store } from './reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   superagentCursor,
@@ -11,11 +8,14 @@ import {
   superagentState,
   superagentThread,
 } from '@podium/client-graph/superagent'
+/** Fixture and private-replay comparison. Reference values stay in memory; only
+ * counts, positions and field paths leave a replay or browser fixture. */
+import type { ReferenceState as Store } from './reference-state'
 import { type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 type State = Pick<
   Store,
-  | 'superThreads'
+  | 'superagentThreads'
   | 'superThreadId'
   | 'issueEvents'
   | 'pendingInteractions'
@@ -25,29 +25,66 @@ type State = Pick<
   | 'selectedWorktree'
   | 'readPosition'
 >
+/** One reference thread record as the superagent screens render it: the
+ * synced `superagentThread` row (POD-6675), named by its thread id. */
+function expectedThread(row: State['superagentThreads'][number]) {
+  return {
+    id: row.threadId,
+    kind: row.kind,
+    archived: row.archived,
+    resumable: row.resumable,
+    turnRunning: row.turnRunning,
+    lastTurnFailure: row.lastTurnFailure,
+    ...(row.originSessionId ? { originSessionId: row.originSessionId } : {}),
+    ...(row.title !== undefined ? { title: row.title } : {}),
+    ...(row.repoPath !== undefined ? { repoPath: row.repoPath } : {}),
+    ...(row.podiumSessionId ? { podiumSessionId: row.podiumSessionId } : {}),
+    ...(row.agentKind !== undefined ? { agentKind: row.agentKind } : {}),
+    ...(row.model !== undefined ? { model: row.model } : {}),
+    ...(row.effort !== undefined ? { effort: row.effort } : {}),
+  }
+}
+
+/** My open threads, newest write first: the order `superagentState` lists. */
+export function expectedThreads(rows: readonly State['superagentThreads'][number][]) {
+  return rows
+    .filter((row) => !row.archived)
+    .sort((a, b) =>
+      a.updatedAt === b.updatedAt
+        ? a.threadId < b.threadId
+          ? -1
+          : 1
+        : a.updatedAt < b.updatedAt
+          ? 1
+          : -1,
+    )
+    .map(expectedThread)
+}
+
 export function checkSuperagent(pool: MobxPool, state: State) {
   const threads = superagentState(pool),
     global = superagentThread(pool, 'global'),
     feed = superagentFeed(pool),
     cursor = superagentCursor(pool),
     focus = superagentFocus(pool)
-  const active = state.superThreads.find((row) => row.id === state.superThreadId)
+  const threadRows = expectedThreads(state.superagentThreads ?? [])
+  // `global` under the server's rule: the bare row, else `global:<owner>`.
+  const owners = new Map((state.superagentThreads ?? []).map((row) => [row.threadId, row.ownerUserId]))
+  const named = (id: string) =>
+    id !== 'global'
+      ? threadRows.find((row) => row.id === id)
+      : (threadRows.find((row) => row.kind === 'global' && row.id === 'global') ??
+        threadRows.find((row) => row.kind === 'global' && row.id === `global:${owners.get(row.id)}`))
+  const active = named(state.superThreadId)
   const expected: CheckSection[] = [
     {
       key: 'threads',
       fields: {
         active,
         activeSessionId: active?.podiumSessionId,
-        global: state.superThreads.find((row) => row.id === 'global'),
+        global: named('global'),
       },
-      rows: state.superThreads.map((row) => ({
-        id: row.id,
-        fields: {
-          ...row,
-          session: row.podiumSessionId ? [row.podiumSessionId] : [],
-          originSession: row.originSessionId ? [row.originSessionId] : [],
-        },
-      })),
+      rows: threadRows.map((row) => ({ id: row.id, fields: { ...row } })),
     },
     {
       key: 'events',
@@ -87,14 +124,7 @@ export function checkSuperagent(pool: MobxPool, state: State) {
         activeSessionId: threads.activeSessionId,
         global: global.thread,
       },
-      rows: threads.threads.map((row) => ({
-        id: row.id,
-        fields: {
-          ...row,
-          session: pool.sources.related('superThread', row.id, 'session'),
-          originSession: pool.sources.related('superThread', row.id, 'originSession'),
-        },
-      })),
+      rows: threads.threads.map((row) => ({ id: row.id, fields: { ...row } })),
     },
     {
       key: 'events',
@@ -121,7 +151,7 @@ export function checkSuperagent(pool: MobxPool, state: State) {
     Number(focus.loading)
   const ids = [
     ...new Set([
-      ...state.superThreads.flatMap((row) => (row.podiumSessionId ? [row.podiumSessionId] : [])),
+      ...threadRows.flatMap((row) => (row.podiumSessionId ? [row.podiumSessionId] : [])),
       ...state.pendingInteractions.map((row) => row.sessionId),
     ]),
   ]

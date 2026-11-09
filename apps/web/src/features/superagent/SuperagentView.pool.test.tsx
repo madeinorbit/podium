@@ -6,14 +6,14 @@ import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { checkSuperagent } from '../../../../../tests/worklist/diagnostics/superagent-check'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { ConciergeButton } from './ConciergeButton'
+import { checkSuperagent } from '../../../../../tests/worklist/diagnostics/superagent-check'
 import { createSuperagentFixture } from '../../../test/superagent/fixture'
+import { ConciergeButton } from './ConciergeButton'
 import { SuperagentView } from './SuperagentView'
 
 // The conversation is POD-5173's separately allocated surface. This proof
@@ -70,7 +70,6 @@ async function mount() {
           issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
         })
         const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-        void referenceState(owner).refreshSuperThreads()
         void referenceState(owner).refreshRepos()
         return stop
       }}
@@ -132,7 +131,7 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
   await act(async () => {
     enabled.data.activity(1)
     referenceState(enabled.runtime).setSuperThreadId('btw-private' as never)
-    await enabled.data.updateThread(enabled.runtime, true)
+    await enabled.data.updateThread(true)
   })
   expect(
     enabled.view.container

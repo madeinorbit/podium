@@ -300,7 +300,6 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
       set: { mutate: async () => [] },
       clear: { mutate: async () => [] },
     },
-    superagent: { listThreads: { query: async () => [] } },
   })
   const view = render(
     <StoreProvider

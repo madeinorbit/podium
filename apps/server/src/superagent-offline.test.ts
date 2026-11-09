@@ -210,11 +210,12 @@ describe('superagent offline machine (POD-4806)', () => {
     expect(err).toContain('is offline')
     expect(err).not.toContain('SessionBinding')
     // The user's message and a visible failure survive a reload: the typed
-    // read finds them by column, and the history holds both rows.
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    // thread's record carries the failure (POD-6675), and the history holds both rows.
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
     expect(failure?.userText).toBe('Reply with exactly the word PONG-SUPER.')
-    expect(failure?.error).toContain('is offline')
-    expect(failure?.error).not.toContain('SessionBinding')
+    expect(failure?.message).toContain('is offline')
+    expect(failure?.message).not.toContain('SessionBinding')
     const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
     const contents = history.map((m) => m.content)
     expect(contents).toContain('Reply with exactly the word PONG-SUPER.')
@@ -288,9 +289,10 @@ describe('superagent offline machine (POD-4806)', () => {
     }
     expect(history.some((m) => m.content.includes(TURN_FAILED_MARKER))).toBe(true)
     expect(history.some((m) => m.role === 'user' && m.content === 'run it')).toBe(false)
-    // The typed read still names the failure, with no user words to duplicate.
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
-    expect(failure?.error).toContain(TURN_FAILED_MARKER)
+    // The thread's record still names the failure, with no user words to duplicate.
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
+    expect(failure?.message).toContain(TURN_FAILED_MARKER)
     expect(failure?.userText).toBeNull()
   })
 })

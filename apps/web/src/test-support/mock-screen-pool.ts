@@ -32,7 +32,13 @@ import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
-import { isExcluded, isFinished, isMessageRecordAttention } from '@podium/model'
+import {
+  isExcluded,
+  isFinished,
+  isMessageRecordAttention,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
+} from '@podium/model'
 import { sessionWorkingFact } from '@podium/model/browser'
 import { computed, observable, reaction, runInAction } from 'mobx'
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
@@ -61,6 +67,8 @@ type Inputs = Partial<Store> & {
   /** The gesture context the suite declares for its selection (R-GROUP 5):
    * true when the row was folded when clicked, false/undefined otherwise. */
   selectedIssueWasFolded?: boolean | null
+  /** My synced superagent thread records (POD-6675), as the replica holds them. */
+  superagentThreads?: readonly SuperagentThreadWire[]
 }
 const none = () => () => {}
 let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
@@ -81,7 +89,7 @@ const selectInputs = (state: Store): Inputs => ({
   transcriptReveal: state.transcriptReveal,
   messageRecords: state.messageRecords,
   pendingInteractions: state.pendingInteractions,
-  superThreads: state.superThreads,
+  superagentThreads: (state as Inputs).superagentThreads,
   superThreadId: state.superThreadId,
   paneA: state.paneA,
   selectedWorktree: state.selectedWorktree,
@@ -444,7 +452,7 @@ function useFixturePool(): MobxPool {
     // through the shared fixture signal so their observers see later receipts.
     const messages = () => signal.get().state.messageRecords ?? []
     const interactions = () => current().pendingInteractions ?? []
-    const threads = () => current().superThreads ?? []
+    const threads = () => current().superagentThreads ?? []
     const repos = () => current().repos ?? []
     // The eviction gate's memory (the real SidebarIndex `seenSelected`): a
     // selected id only counts as evicted once it was seen resident. A cold
@@ -609,10 +617,6 @@ function useFixturePool(): MobxPool {
             return { messages: messages().filter(row => isMessageRecordAttention(row.status)).map(row => row.id) }
           case 'noticeRecoveryCatalog':
             return { deadLetters: [] }
-          case 'superThread':
-            return threads().find((row) => row.id === id)
-          case 'superThreadCatalog':
-            return { ids: threads().map((row) => row.id) }
           case 'superagentLocal':
             return {
               superThreadId: current().superThreadId,
@@ -839,6 +843,13 @@ function useFixturePool(): MobxPool {
         },
       },
       tables: {
+        // My thread records, each with its feed id stamped as `id` (POD-6675).
+        superagentThread: {
+          values: (): IterableIterator<unknown> =>
+            threads()
+              .map((row) => ({ ...row, id: superagentThreadRowId(row.ownerUserId, row.threadId) }))
+              [Symbol.iterator](),
+        },
         session: {
           has: (id: string) => sessions().some((row) => row.sessionId === id),
           keys: (): IterableIterator<string> =>

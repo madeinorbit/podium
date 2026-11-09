@@ -89,7 +89,6 @@ import {
   tabIdFor,
   workspaceKeyFor,
 } from '../values'
-import type { SuperThreadView } from '../values/compose/superagent'
 import {
   discardChatThroughOutbox,
   newChatMessageId,
@@ -237,7 +236,6 @@ type ActionState = {
   superOpen: boolean
   attachedSessionId: SessionId | null
   dockTab: DockTab
-  superThreads: SuperThreadView[]
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null

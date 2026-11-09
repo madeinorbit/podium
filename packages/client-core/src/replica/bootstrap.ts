@@ -45,9 +45,9 @@
 
 import type { MetadataChangeLenient, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
+import type { Replica, ReplicaKind, ReplicaRows } from './contract'
 import type { FeedCursor } from './feed'
 import { entityForKind, retainReplicaEntity, rowKey } from './kernel/kinds'
-import type { Replica, ReplicaKind, ReplicaRows } from './contract'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
  *  replica says `sessions`; this is the only place the two vocabularies meet. */
@@ -75,6 +75,7 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   tabOrder: 'tabOrders',
   userPreferences: 'userPreferences',
   userReadPosition: 'userReadPositions',
+  superagentThread: 'superagentThreads',
 }
 
 type SnapshotKind = Extract<

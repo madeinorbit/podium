@@ -15,7 +15,6 @@
 import {
   createDemoReplica,
   DEMO_PRINCIPAL,
-  DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
   publishDemoSlice,
@@ -91,13 +90,7 @@ export function demoTrpc(): Trpc {
       summary: { query: async () => ({ hostname: 'demo', buckets: [] }) },
     },
     superagent: {
-      // The screen reads this thread's session transcript, so the demo thread
-      // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
-      listThreads: {
-        query: async () => [
-          { id: 'global', kind: 'global' as const, podiumSessionId: DEMO_SUPER_SESSION },
-        ],
-      },
+      // The demo thread is a record of the demo replica (POD-6675).
       sendTurn: { mutate: async () => ({ threadId: 'global' }) },
       interruptTurn: { mutate: noop },
       clear: { mutate: noop },

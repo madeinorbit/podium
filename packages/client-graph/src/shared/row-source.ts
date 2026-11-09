@@ -36,6 +36,7 @@ import {
   readPositionRowId,
   resolveUserPreferences,
   sessionUserStateRowId,
+  superagentThreadRowId,
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
@@ -134,6 +135,7 @@ export type RepaintKind =
   | 'tabOrder'
   | 'userPreferences'
   | 'userReadPosition'
+  | 'superagentThread'
 
 /** What the pool's transaction log reaches through the feed (POD-5431). */
 export interface RowSourceRepaint {
@@ -178,6 +180,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'tabOrders',
   'userPreferences',
   'userReadPositions',
+  // POD-6675: my superagent threads.
+  'superagentThreads',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -190,6 +194,7 @@ const OVERLAID: readonly OverlayTarget[] = [
   'userPreferences',
   // A human gate's decision, painted on its effect record (POD-6674).
   'effects',
+  'superagentThreads',
 ]
 
 /**
@@ -201,6 +206,8 @@ const PER_USER_KINDS = {
   tabOrder: { replica: 'tabOrders', target: 'tabOrders' },
   userPreferences: { replica: 'userPreferences', target: 'userPreferences' },
   userReadPosition: { replica: 'userReadPositions', target: 'userReadPositions' },
+  // POD-6675: a superagent thread, keyed `superagentThreadRowId`.
+  superagentThread: { replica: 'superagentThreads', target: 'superagentThreads' },
 } as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
 type PerUserKind = keyof typeof PER_USER_KINDS
 const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
@@ -225,6 +232,11 @@ function idOf(row: AnyRow): string | null {
 
 /** A per-user record's feed id, from its key fields (POD-6673). */
 function perUserIdOf(kind: string, row: AnyRow): string | undefined {
+  if (kind === 'superagentThread') {
+    return typeof row.ownerUserId === 'string' && typeof row.threadId === 'string'
+      ? superagentThreadRowId(asUserId(row.ownerUserId), row.threadId)
+      : undefined
+  }
   const user = typeof row.userId === 'string' ? asUserId(row.userId) : undefined
   if (user === undefined) return undefined
   try {
@@ -456,6 +468,7 @@ export function createRowSource(
       userPreferences: pooled.byRow('userPreferences'),
       userReadPositions: pooled.byRow('userReadPositions'),
       effects: pooled.byRow('effects'),
+      superagentThreads: pooled.byRow('superagentThreads'),
     }
   }
 
@@ -1166,7 +1179,12 @@ export function createRowSource(
     diagnostics,
     issueSessionFact: issueSessionFacts.read,
     snapshot,
-    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect')],
+    // The per-user records (POD-6673, POD-6675) are companions too: a pool
+    // attached over a replica that already holds them (a warm start, a seeded
+    // fixture) paints them from its first publication, not only after the next
+    // replace.
+    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect'),
+      ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, readPending()))],
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind
@@ -1265,6 +1283,7 @@ export function createRowSource(
       case 'pins':
       case 'tabOrders':
       case 'userPreferences':
+      case 'superagentThreads':
         return authority(entity, id)
       case 'effects':
         return authority('effects', id)

@@ -2324,6 +2324,8 @@ export class SocketHub {
         case 'tabOrder':
         case 'userPreferences':
         case 'userReadPosition':
+        // POD-6675: my superagent threads.
+        case 'superagentThread':
           // These rows belong to the Replica. Session, conversation and
           // automation consumers read synced data without a hub projection.
           break

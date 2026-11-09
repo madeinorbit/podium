@@ -104,20 +104,10 @@ export const TURN_FAILED_MARKER = 'the headless harness turn failed'
  * Structural marker for a persisted turn failure (POD-4806 review). The
  * assistant row of every durable user + failure pair carries this in its
  * `tool_name` column and the failed input's id in `tool_call_id` (the user
- * row carries the same id), so `latestTurnFailure` selects failures by column
- * — never by matching prose in content.
+ * row carries the same id), so a failure is found by column, never by matching
+ * prose in content.
  */
 export const TURN_FAILURE_TOOL = 'superagent-turn-failure'
-
-/** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
- *  null when the turn reached a harness (the transcript carries the prompt);
- *  the user row is persisted only for turns that provably never dispatched. */
-export interface SuperagentTurnFailure {
-  inputId: string
-  userText: string | null
-  error: string
-  at: string
-}
 
 /**
  * How many times a proven pre-write dispatch refusal (an unreachable
@@ -352,7 +342,42 @@ export class SuperagentService {
    */
   private async adoptPendingTurns(): Promise<void> {
     for (const pending of await this.store.superagent.listPendingTurns()) {
-      this.turnInFlight.add(pending.threadId)
+      // The same turn, re-adopted: its failure state is left as it was.
+      await this.holdTurn(pending.threadId, { newTurn: false })
+    }
+  }
+
+  /**
+   * THE THREAD'S TURN LOCK AND ITS SYNCED STATUS, MOVED TOGETHER (POD-6675).
+   *
+   * `turnInFlight` is this process's one-writer lock on a thread's harness
+   * session (live runtime state). `turnRunning` on the thread's record is what
+   * every device reads, so each move of the lock writes it: set when a turn takes
+   * the thread, cleared when it lets go. A NEW turn also clears the last failure;
+   * a turn re-driven after a restart is the same turn. The lock moves first and
+   * synchronously, so the order the lock had is unchanged; a failed status write
+   * is logged and never takes the turn down (the boot reconcile sets the flag
+   * from the pending-turn rows again).
+   */
+  private async holdTurn(threadId: ThreadId, opts: { newTurn: boolean }): Promise<void> {
+    this.turnInFlight.add(threadId)
+    await this.writeTurnStatus(threadId, true, opts.newTurn)
+  }
+
+  private async releaseTurn(threadId: ThreadId): Promise<void> {
+    this.turnInFlight.delete(threadId)
+    await this.writeTurnStatus(threadId, false, false)
+  }
+
+  private async writeTurnStatus(
+    threadId: ThreadId,
+    running: boolean,
+    clearFailure: boolean,
+  ): Promise<void> {
+    try {
+      await this.store.superagent.setTurnRunning(threadId, running, { clearFailure })
+    } catch (err) {
+      log.error('superagent: turn status write failed', { err, threadId, running })
     }
   }
 
@@ -515,46 +540,15 @@ export class SuperagentService {
     ownerUserId: UserId,
     requested: ThreadId = asThreadId('global'),
   ): Promise<SuperagentMessageRow[]> {
-    const thread =
-      requested === 'global'
-        ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
-        : await this.ownedThread(ownerUserId, requested)
-    return await this.store.superagent.loadSuperagentMessages(thread.id)
-  }
-
-  /**
-   * The thread's most recent durable turn failure, if any (POD-4806). Selected
-   * by column — the failure row's `TURN_FAILURE_TOOL` marker and the failed
-   * input's id shared with its user row — never by matching prose in content.
-   * A turn that never dispatched persists both rows; a post-dispatch failure
-   * persists only the failure row (the transcript carries the prompt), so
-   * `userText` is null there and the client renders the banner without a
-   * second user bubble.
-   */
-  async latestTurnFailure(
-    ownerUserId: UserId,
-    requested: ThreadId = asThreadId('global'),
-  ): Promise<SuperagentTurnFailure | null> {
-    const thread =
-      requested === 'global'
-        ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
-        : await this.ownedThread(ownerUserId, requested)
-    const rows = await this.store.superagent.loadSuperagentMessages(thread.id)
-    for (let i = rows.length - 1; i >= 0; i--) {
-      const row = rows[i]!
-      if (row.role !== 'assistant' || row.toolName !== TURN_FAILURE_TOOL || !row.toolCallId)
-        continue
-      const user = [...rows.slice(0, i)]
-        .reverse()
-        .find((r) => r.role === 'user' && r.toolCallId === row.toolCallId)
-      return {
-        inputId: row.toolCallId,
-        userText: user?.content ?? null,
-        error: row.content,
-        at: row.createdAt,
-      }
+    // A read creates nothing (POD-6675): a global thread the server has not
+    // made yet has no history.
+    const threadId = await this.resolveThreadId(ownerUserId, requested)
+    const thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
+    if (!thread) {
+      if (requested === 'global') return []
+      throw new SuperagentRefusal('target-not-found', `unknown thread: ${requested}`)
     }
-    return null
+    return await this.store.superagent.loadSuperagentMessages(thread.id)
   }
 
   /**
@@ -587,6 +581,8 @@ export class SuperagentService {
       return
     }
     await this.store.superagent.clearSuperagentMessages(threadId)
+    // The failure line went with the messages: so does the thread's failure.
+    await this.store.superagent.setTurnFailure(threadId, null)
     await this.store.superagent.updateSuperagentThreadBinding(threadId, {
       harnessSessionId: null,
       podiumSessionId: null,
@@ -607,20 +603,6 @@ export class SuperagentService {
         }
       }, 'superagent-clear-kill')
     }
-  }
-
-  async listThreads(
-    ownerUserId: UserId,
-  ): Promise<(SuperagentThreadRow & { turnRunning: boolean })[]> {
-    await this.ensureGlobalThread(ownerUserId)
-    // headlessActivity is intentionally ephemeral, but the composer must still
-    // know that a turn is running after a browser reload/reconnect. The durable
-    // pending rows repopulate turnInFlight at boot, so this query-backed flag is
-    // the late-joiner/reload source of truth while live events keep it current.
-    return (await this.store.superagent.listSuperagentThreads(ownerUserId)).map((thread) => ({
-      ...thread,
-      turnRunning: this.turnInFlight.has(thread.id),
-    }))
   }
 
   /**
@@ -671,7 +653,12 @@ export class SuperagentService {
       agentKind?: HarnessAgentKind
     },
   ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
-    let thread = await this.ownedThread(ownerUserId, requested)
+    // The caller's own global thread is theirs to create by their command; no
+    // read makes it (POD-6675).
+    let thread =
+      requested === 'global'
+        ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
+        : await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     const lockError = await this.terminalLockError(thread)
     if (lockError) throw new SuperagentRefusal('conflict', lockError)
@@ -755,7 +742,7 @@ export class SuperagentService {
     ownerUserId: UserId,
   ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const { threadId } = queued
-    this.turnInFlight.add(threadId)
+    await this.holdTurn(threadId, { newTurn: true })
     try {
       return await this.prepareQueuedInput(queued, true)
     } catch (err) {
@@ -772,7 +759,7 @@ export class SuperagentService {
       )
       await this.store.superagent.deleteQueuedInput(queued.inputId)
       this.queuedHarness.delete(queued.inputId)
-      this.turnInFlight.delete(threadId)
+      await this.releaseTurn(threadId)
       // A typed refusal (a TRPCError such as the offline-machine refusal)
       // keeps its code across the durable write: rewrapping it in a bare
       // Error would turn the client's typed error back into a 500 (POD-4827).
@@ -855,7 +842,7 @@ export class SuperagentService {
     if (this.turnInFlight.has(threadId)) return
     const next = (await this.store.superagent.listQueuedInputs(threadId))[0]
     if (!next) return
-    this.turnInFlight.add(threadId)
+    await this.holdTurn(threadId, { newTurn: true })
     // Same MCP exemption a DIRECT send gets, and for the same reason: this is a
     // message the human sent through the front door, which merely arrived while
     // something else was running. Holding a drained message to a stricter rule
@@ -866,7 +853,7 @@ export class SuperagentService {
     void this.prepareQueuedInput(next, true).catch(async (error) => {
       await this.store.superagent.deleteQueuedInput(next.inputId)
       await this.failQueuedInput(next, error)
-      this.turnInFlight.delete(threadId)
+      await this.releaseTurn(threadId)
       await this.pump(threadId)
     })
   }
@@ -896,7 +883,7 @@ export class SuperagentService {
    * the first turn: the pane needs a session to render the ordinary chat
    * against, and without one it had to carry a second composer for the
    * not-yet-started case. Creates the global thread on demand for the same
-   * reason `listThreads` does — a user who has never sent a message still has a
+   * reason the server creates it for every member (POD-6675) — a user who has never sent a message still has a
    * global thread, they just have not used it. The session commits through the
    * command's `writer` (POD-6606).
    */
@@ -1100,7 +1087,7 @@ export class SuperagentService {
     // That fall-through used to be silent AND unconditional, so Settings could
     // show one model while every turn ran another with no way to tell. It is now
     // reachable only when nobody has said otherwise, and the resolved pair rides
-    // back to the client on `listThreads` so the pills state what actually ran.
+    // back to the client on the thread's record so the pills state what actually ran.
     const backend = resolveRole(settings, 'superagent')
     const roleBackend =
       backend.execution === 'harness' && backend.harness === agent
@@ -1154,7 +1141,7 @@ export class SuperagentService {
     for (const pending of await this.store.superagent.listPendingTurns()) {
       const session = await this.sessionById(pending.podiumSessionId)
       if (!session || (machineId !== undefined && session.machineId !== machineId)) continue
-      this.turnInFlight.add(pending.threadId)
+      await this.holdTurn(pending.threadId, { newTurn: false })
       await this.dispatchPendingTurn(pending)
     }
     const threads = new Set((await this.store.superagent.listQueuedInputs()).map((q) => q.threadId))
@@ -1391,7 +1378,7 @@ export class SuperagentService {
           result.accountId,
         )
       }
-      this.turnInFlight.delete(pending.threadId)
+      await this.releaseTurn(pending.threadId)
       this.dispatchedTurnIds.delete(pending.turnId)
       this.dispatchAttempts.delete(pending.turnId)
       const fallback = this.interruptFallbacks.get(pending.turnId)
@@ -1535,7 +1522,7 @@ export class SuperagentService {
           error: 'stopped',
         })
       }
-      this.turnInFlight.delete(threadId)
+      await this.releaseTurn(threadId)
     }, 'superagent-abandon')
   }
 
@@ -1784,7 +1771,8 @@ export class SuperagentService {
    * The harness transcript cannot carry a turn that never reached one, and the
    * ephemeral turn-end error is gone after a reload. Both rows share the
    * failed input's id (`tool_call_id`); the failure row carries the
-   * `TURN_FAILURE_TOOL` marker, which is how `latestTurnFailure` finds it.
+   * `TURN_FAILURE_TOOL` marker. The thread's record carries the failure as
+   * `lastTurnFailure` (POD-6675).
    * Best-effort: a persistence miss must not mask the original error.
    *
    * `includeUser` is decided by state the caller holds, never by guessing
@@ -1807,8 +1795,9 @@ export class SuperagentService {
     // is what the reload panel showed. Strip it so the durable line reads as
     // the plain refusal.
     const message = rawError instanceof TRPCError ? rawError.message : describeError(rawError)
+    const keptUser = includeUser && userText.length > 0
     try {
-      if (includeUser && userText.length > 0) {
+      if (keptUser) {
         await this.store.superagent.appendSuperagentMessage(threadId, {
           ownerUserId,
           role: 'user',
@@ -1816,12 +1805,19 @@ export class SuperagentService {
           toolCallId: inputId,
         })
       }
-      await this.store.superagent.appendSuperagentMessage(threadId, {
+      const failure = await this.store.superagent.appendSuperagentMessage(threadId, {
         ownerUserId,
         role: 'assistant',
         content: `${TURN_FAILED_MARKER}: ${message}`,
         toolCallId: inputId,
         toolName: TURN_FAILURE_TOOL,
+      })
+      // THE THREAD'S LAST TURN FAILED (POD-6675): status on its record, so a
+      // reload and every other device show it until the next turn starts.
+      await this.store.superagent.setTurnFailure(threadId, {
+        at: failure.createdAt,
+        message: failure.content,
+        userText: keptUser ? userText : null,
       })
     } catch {
       // The caller's throw below still reports the failure.

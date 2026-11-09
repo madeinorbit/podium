@@ -4,6 +4,7 @@ import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
 import { loadedPaneSession, paneMachines } from '@podium/client-graph/session-pane'
+import { superagentThread } from '@podium/client-graph/superagent'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -174,11 +175,8 @@ export function useChatThreads() {
  * session has no thread demand; a selected backend asks for its one row. */
 export function useChatThread(id: string | undefined) {
   const read = useCallback(
-    (pool: MobxPool) => {
-      if (!id) return undefined
-      const row = omitGone(pool.row('superThread', id))
-      return row && !pending(row) ? row : undefined
-    },
+    // My threads are synced records in the pool (POD-6675).
+    (pool: MobxPool) => (id ? superagentThread(pool, id).thread : undefined),
     [id],
   )
   return useWorklistPoolProjection(read, undefined)

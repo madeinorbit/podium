@@ -6,9 +6,14 @@ import { hostname, homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
-import type { SuperThreadView } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
-import { FEED_EVENT_KINDS, issueEventRowId, type IssueEventWire } from '@podium/model'
+import {
+  FEED_EVENT_KINDS,
+  issueEventRowId,
+  type IssueEventWire,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
+} from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { MobxPool } from '@podium/client-graph'
 import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
@@ -44,11 +49,18 @@ try {
     })
     phase = 3
     for (const principal of principals) {
-      const threads = db.query(`SELECT id, kind, origin_session_id AS originSessionId, title, repo_path AS repoPath,
-        podium_session_id AS podiumSessionId, harness_session_id AS harnessSessionId, agent_kind AS agentKind, model, effort
-        FROM superagent_threads WHERE owner_user_id = ? AND archived = 0 ORDER BY updated_at DESC`).all(principal.id).map(value =>
-        Object.fromEntries(Object.entries(value as object).filter(([, entry]) => entry !== null))) as SuperThreadView[]
-      const ids = new Set(threads.flatMap(row => row.podiumSessionId ? [row.podiumSessionId] : []))
+      // The principal's thread records as the feed delivers them (POD-6675). A
+      // copy taken before the status columns existed reads them as idle.
+      const threads = db.query(`SELECT id AS threadId, owner_user_id AS ownerUserId, kind, origin_session_id AS originSessionId,
+        title, repo_path AS repoPath, podium_session_id AS podiumSessionId, harness_session_id AS harnessSessionId,
+        agent_kind AS agentKind, model, effort, created_at AS createdAt, updated_at AS updatedAt
+        FROM superagent_threads WHERE owner_user_id = ? AND archived = 0 ORDER BY updated_at DESC`).all(principal.id).map(value => {
+        const { harnessSessionId, ...row } = Object.fromEntries(
+          Object.entries(value as object).filter(([, entry]) => entry !== null)) as Record<string, unknown>
+        return { ...row, archived: false, resumable: harnessSessionId !== undefined, turnRunning: false,
+          lastTurnFailure: null } as unknown as SuperagentThreadWire
+      })
+      const ids = new Set<string>(threads.flatMap(row => row.podiumSessionId ? [row.podiumSessionId] : []))
       const interactions = db.query(`SELECT id, session_id AS sessionId, kind, payload_json AS payloadJson,
         source, answerable, fingerprint, status, asked_at AS askedAt FROM pending_interactions
         WHERE status = 'asked' ORDER BY rowid`).all().map(value => {
@@ -57,7 +69,7 @@ try {
       }).filter(row => ids.has(row.sessionId))
       const cursor = db.query('SELECT last_event_id AS lastEventId, seen_at AS seenAt FROM user_read_position WHERE user_id = ? AND stream_id = ?').all(principal.id, 'issueEvents')[0]
         ?? { lastEventId: 0, seenAt: null }
-      const state = { superThreads: threads, superThreadId: threads.find(row => row.kind === 'global')?.id ?? 'global',
+      const state = { superagentThreads: threads, superThreadId: threads.find(row => row.kind === 'global')?.threadId ?? 'global',
         sessions, issueEvents: events, pendingInteractions: interactions, repos: [], paneA: null, selectedWorktree: null,
         readPosition: { get: () => cursor, subscribe: () => () => {} } } as unknown as Store
       const owner = withKeyedInputs({ getSnapshot: () => state, readPosition: state.readPosition, subscribe: () => () => {},
@@ -67,7 +79,11 @@ try {
       const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined,
         { summaries: SUPERAGENT_SUMMARIES, load: (_entity, id) => sessions.find(row => row.sessionId === id) as never })
       try {
-        pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
+        pool.apply({ type: 'replace', rows: [...sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
+          ...threads.map(row => {
+            const id = superagentThreadRowId(row.ownerUserId, row.threadId)
+            return { kind: 'superagentThread' as const, id, value: { ...row, id } as never }
+          })] })
         await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(owner))
         await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(owner))
         checkSuperagent(pool, state); await Promise.resolve()

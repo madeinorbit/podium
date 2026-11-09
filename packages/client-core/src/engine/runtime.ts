@@ -773,13 +773,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         // These enrichments are network-derived, not the source of truth for the
         // principal slice. A cold offline boot must keep serving the persisted
         // replica instead of replacing it with a fatal connection screen.
-        void Promise.all([
-          this.boot.refreshRepos(),
-          // The superagent column is the desktop shell's centre and its thread
-          // list used to be fetched by the view itself. It is store state now, so
-          // it loads with the rest of the boot fan-out.
-          this.boot.refreshSuperThreads(),
-        ]).catch(() => {})
+        // Superagent threads are synced records (POD-6675): the replica holds
+        // them, so nothing is fetched for them here.
+        void this.boot.refreshRepos().catch(() => {})
       }
     }
 
@@ -1663,7 +1659,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         discard: (id) => this.outbox.discard(id),
       },
       refreshRepos: () => this.boot.refreshRepos(),
-      refreshSuperThreads: () => this.boot.refreshSuperThreads(),
       ...actions,
     } as EngineStatics<TApi>
   }

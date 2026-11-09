@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "2f70b1bf90adb0ad0a86a9924ab256d3de8f4f5ce3452b901322e1f47b495a57",
+      "tokens": "e99926df706254345a6e2f2f4085e9b38215c102cfe8cf00ca1448c231a43c83",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "a36148fb06c631d19fbfb23557426ca228e6906de084094c6fa3ab9c0bec19f1",
+      "fingerprint": "25ad2f726209164a71ae12c77e176873c44a0e899bbe784e81552c6687219c81",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -52,14 +52,14 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "38a0a59cccd657153ac039b1b8cd7ad332c46da7be0f878a4b5f2d278fc492ac",
+      "tokens": "0b9f5a4ba14697e050eebbc1196dc3d387543f3383c2cc3ea4f013c7997625df",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
       "origin": [
         "01ed545e82ce89ee20c4cf35e0f3ccb95db01ad9e0e7117571472ac7ed4938aa"
       ],
-      "fingerprint": "83bbdb0284c3ce3bbd0902b198151284f2d6c7337b74f923f17be8690bbc6e70",
+      "fingerprint": "155756d1b30803fb4c0b66e1b596140e5db8528c4f62cb2555cf7e09bc2766d6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -932,14 +932,14 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "dc5c5af452498d5c94768c50b8caf22b21166101a0faf3d58517c1484ef2b8c7",
+      "tokens": "364d286bebc27c2fcdad2d9c39f6adf43a57277c142a91e7c4fdb914cae24f22",
       "gate": [],
       "origin": [
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d",
         "f916189f23c60cdc94e4c4d0d59c05245ef18d38d7c66d809aa41229eb15d818"
       ],
-      "fingerprint": "2c64fb46fb27891e251d0dd40671dbfc1cc0c39039ac322ef4c2361f6d074214",
+      "fingerprint": "61e21696ad47f1a253a2e80773066023bb5673776de33c24576565da02fad086",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3718,14 +3718,14 @@
       "gate": [
         "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:474385ed25264869a03398af3fd22f943857b87c165e3b72321d522092f92a9d",
-        "exit:then:c4da6035f9f1ebd6a6a8ef46218df737d38cc947e77637f1e188186ae7f13a7d",
+        "exit:then:653ffe3935e96c1bc14348cafa1bbf2ed9158a5fadb954d50e2db733f0bab21c",
+        "exit:then:cb5a82ba2e20565cf7856c1bec10e28ded4c57c827bdc271847bf2de3b73f325",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "87c1e6d49846283c72cffa12c74894921b9f1cb35b3a10449a4f92bdc281283f"
+        "a0927c5a24ed5466d2d16fded8758d800e482d18ec353b8fd25a5e676f360761"
       ],
-      "fingerprint": "c86338451dc41dbd7f731a25727ecccb03a8ef27105a32af4a920af0bc83e7d7",
+      "fingerprint": "1f04d95d86abd35653c9eff9507c9c4204ac65172f4068ed3b1db427611975ab",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3738,15 +3738,15 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "34f8feee327d574cc5ee1af3d78042d218dbfc6df25e4868c301513242e59dad",
+      "tokens": "1ad0703f4e951a9f8920a2ed44210b1e7af406cfb4e080cad34a984025bf17f3",
       "gate": [
-        "exit:then:c4da6035f9f1ebd6a6a8ef46218df737d38cc947e77637f1e188186ae7f13a7d"
+        "exit:then:cb5a82ba2e20565cf7856c1bec10e28ded4c57c827bdc271847bf2de3b73f325"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
         "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
       ],
-      "fingerprint": "453a9ca5bf515b12dcc13d92156d787007efff47139bed4099c2ad5f512fc230",
+      "fingerprint": "00fa3660afb76e2890fe580bed8bfa009987044b7086ebed330d6ed1b89b28c1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3762,12 +3762,12 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:807b2321d12ff23fa000347939ef08e0b650b6e74e5190ecf0f494ce434bd0bc"
+        "??:c74f82fbb4b6bcaff4ad01e6e8e055582db0d22d8e61c34ceedba95aaf8c91d1"
       ],
       "origin": [
         "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
       ],
-      "fingerprint": "362fec5d58d96df17a4a87810f2179becbad9f5bdbe2ab2b97e1497f31f348b1",
+      "fingerprint": "0fb240dde3c3718dc34313216e48f8862debd2e036f08eb61d0558cf969799ae",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -3780,14 +3780,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "2bad42c639b48a58c1386ad269e61140bdabc90ddc055a99047bd8047e1528df",
+      "tokens": "6d6d9552c7a455b690446c74b6827fc92fb95aabbadce52f2b23818eee8ca60b",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
       ],
-      "fingerprint": "a38370feb0dc4e3b262f5759216c72e6fcc800b04bc7eeeecdfa56763f49a81d",
+      "fingerprint": "83cd44937bd79363fc54ed860ffc38875324afba142e65ba668e04918956d386",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -3818,13 +3818,13 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "3d15f5a7f495496c3ed1eb044b7c8e6de6db685ad6c1fdcd216634dfa0c0bd58",
+      "tokens": "44a818be0fd8cd39f8d6e4914e872fba2f2a6d2d942a57e0424b267d22781449",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
         "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
       ],
-      "fingerprint": "c5b45fc8ad541d4c241879a0c76a7502cd7f7e8d34c1c8f79b56ca1fa323271e",
+      "fingerprint": "c039db572ea6db6178586457ee46d116cf840ee31f53b107de0023e561029339",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9406,14 +9406,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "505ab2c3562fce34961dd76fc1390b0fe564f703f3f16e980016924bbeed893b",
+      "tokens": "94353e5bbbb3c09d3ed61ad1942e7829ebdd5e4f3c028435ae329c2c768dfc6d",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "96b4a09c2a3bd944d9f334d66146616282179340cfd7c0ca2f2b5a23f7b34995",
+      "fingerprint": "dd4dc01eb6b4e6107916e601af98f3ccd877610ea1928b6a048d30626659b842",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12847,12 +12847,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "f34facf3af829da85013abbcd47bb87af76073d327b1b342615af9d07d1acc53",
+      "tokens": "d0d32dc139739bfe0affd92bf70a60bf046a24d661f45d8ec465b02f3b2dbad0",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "3095d20250eec80fb2f672f4395e58b4d907939a133df7d9164fd86d28b19d16",
+      "fingerprint": "9b7fc69ab04865da23615b271df1ee329bb6433d10753d6d48241437e91d5b42",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -34434,7 +34434,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "42fd297c49a289055705133970d83af36e6b37ffb9016534df643076b430f1e5",
+      "tokens": "c979f3dac024f30821ae409ed3dd8f5f8bab1ce0fb2f8f64336fb502e48d91b2",
       "gate": [],
       "origin": [
         "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
@@ -34467,7 +34467,7 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "e8720c15e9864d89da2a6b5077ff5af597f7546fe2e9d1342fd8c95c351fdfcd",
+      "fingerprint": "0cd5df596c723396c561dc728cb8daeef30984f4400ea548afbc528324a3342c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36876,6 +36876,43 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/superagent.ts",
+      "holder": "myRows",
+      "rule": "loop:for-of",
+      "tokens": "202cebafb6c24c03b5e106c89407497c2b19539c06bc38374d100e577e96204e",
+      "gate": [],
+      "origin": [
+        "679f2b966bb5fb40a0f0b79f484e735cfe85591cfaac1d2f426f799cecdc75ca",
+        "8672c2aff8f775c306a897ec011e773aadb8b5e05618e7fe4dbce0f53828c239"
+      ],
+      "fingerprint": "664f40dac866f85904776bd140d9e53f13587ef3dfe9636004f4d398bce5e640",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6675",
+      "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
+      "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+    },
+    {
+      "file": "packages/client-graph/src/superagent.ts",
+      "holder": "myRows",
+      "rule": "enumerate:values",
+      "tokens": "38246c9d97b3058f4656c922680798e84d9215f5f52de532cdc886647de63cf4",
+      "gate": [],
+      "origin": [
+        "679f2b966bb5fb40a0f0b79f484e735cfe85591cfaac1d2f426f799cecdc75ca"
+      ],
+      "fingerprint": "9b48538969d40b83aba35c38ac40289af22bd59addc4ceaa755868a47b8e33b4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6675",
+      "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
+      "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
     }
   ]
 }

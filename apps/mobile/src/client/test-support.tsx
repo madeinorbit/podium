@@ -36,6 +36,7 @@ import {
   type RepoProjection,
   type SessionMeta,
   type SessionUserStateWire,
+  type SuperagentThreadWire,
 } from '@podium/model'
 import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -66,6 +67,8 @@ export interface MobileStoreFixture {
   issueDeps?: IssueDepProjection[]
   /** Synced chat message records (POD-4764), as the feed would carry them. */
   messageRecords?: MessageRecordWire[]
+  /** My synced superagent thread records (POD-6675), as the feed would carry them. */
+  superagentThreads?: SuperagentThreadWire[]
   repos?: GitRepositoryWire[]
   machines?: MachineWire[]
   principal?: string
@@ -136,7 +139,6 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
     tabs: { listOrders: { query: async () => ({}) } },
     settings: { get: { query: async () => ({ sidebar: {} }) }, updatePersonal: { mutate: noop } },
     layout: { get: { query: async () => [] } },
-    superagent: { listThreads: { query: async () => [] } },
     sessions: {
       transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
       answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
@@ -180,6 +182,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
     if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
     replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
+    if (fixture.superagentThreads)
+      replica.applySnapshot('superagentThreads', fixture.superagentThreads)
     // This fixture supplies a complete offline bootstrap, including known
     // absence of personal markers. Custom replicas control their own posture.
     seededReplica.finishBootstrap()

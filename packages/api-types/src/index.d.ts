@@ -1,9 +1,9 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, SessionId, IssueJoinVia, ArtifactId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
-import { ConvergenceState, ModelChoiceWire, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
+import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
 declare const MachineFailureReason: z.ZodObject<{
@@ -100,42 +100,6 @@ interface SuperagentMessageRow {
     toolCallId?: string;
     toolName?: string;
     createdAt: string;
-}
-/** A superagent conversation: the always-there 'global' thread, a per-session 'btw'
- *  thread, or a per-repo 'concierge' intake thread. */
-interface SuperagentThreadRow {
-    id: string;
-    ownerUserId: UserId;
-    kind: 'global' | 'btw' | 'concierge';
-    originSessionId?: SessionId;
-    /** The repo this thread fronts (concierge threads only). */
-    repoPath?: string;
-    title?: string;
-    /** High-water mark into the origin session's transcript (btw threads), or the
-     *  issue event-log id already digested (concierge threads, stringified). */
-    watermarkItemId?: string;
-    watermarkTs?: string;
-    /** Harness last run on the thread. Settings is the default; a prompt-box
-     *  pick from another connector switches this (and starts a fresh session). */
-    agentKind?: string;
-    /** The Podium headless session rendering this thread (concierge unification). */
-    podiumSessionId?: SessionId;
-    /** The harness's own session id — the resume value for every later turn. */
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    harnessSessionId?: string;
-    /** PTY session holding the "open in terminal" one-writer lock; sendTurn
-     *  rejects while this session is live (lazily checked, lazily cleared). */
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    terminalSessionId?: string;
-    /** The thread's own model / effort (POD-782). Undefined = follow the
-     *  `superagent` settings role; a value OVERRIDES it, including the role's
-     *  fall-through to the `coding` backend. Unlike `agentKind` these are not
-     *  frozen — the operator may change them between turns on one conversation. */
-    model?: string;
-    effort?: string;
-    createdAt: string;
-    updatedAt: string;
-    archived: boolean;
 }
 
 /**
@@ -960,6 +924,53 @@ interface TelemetryState {
     endpoint: string;
 }
 
+interface SpecComponentMeta {
+    id: string;
+    title: string;
+    /** Parent component id; empty for the root. */
+    parent: string;
+    /** Sort position among siblings. */
+    order: number;
+    status: 'active' | 'superseded' | 'draft';
+    updatedAt: number;
+}
+interface SpecComponent extends SpecComponentMeta {
+    /** Inner HTML of the component's <section> — the editable body. */
+    body: string;
+}
+interface SpecSearchHit {
+    id: string;
+    title: string;
+    /** Plain-text snippet around the first match. */
+    snippet: string;
+}
+
+/**
+ * Live per-agent model lists for ONE machine.
+ *
+ * KEYED BY `machineId`, deliberately: which models a harness offers is a fact
+ * about a specific machine (ADR 1 Amendment 1 D13.5 — visibility class
+ * `owned-compute`, owner inherits Machine). An instance-global singleton cannot
+ * express that — with two machines whose installed harnesses differ, an unkeyed
+ * cache reports whichever host probed last to every user. Carrying the id on the
+ * value makes "which machine is this about?" unanswerable-by-accident, matching
+ * `MachineHarnessInventory` in `@podium/harness`.
+ *
+ * This type carries no principal: no owner, no user id, no grant. Authorization
+ * is applied at the server projection boundary (POD-1079).
+ */
+interface ModelCatalogSnapshot {
+    /** The machine this fact is ABOUT — the scoping key, not decoration. */
+    machineId: MachineId;
+    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
+     *  list; a reported empty list replaces it. */
+    byAgent: Record<string, ModelChoiceWire[]>;
+    /** Epoch ms of the last successful probe; 0 = never fetched yet. */
+    fetchedAt: number;
+    /** Shape version — a persisted snapshot with a different version is discarded. */
+    version?: number;
+}
+
 interface WaveMachine {
     id: string;
     name?: string;
@@ -1117,30 +1128,19 @@ interface TranscriptSlice {
     };
 }
 
-/**
- * Live per-agent model lists for ONE machine.
- *
- * KEYED BY `machineId`, deliberately: which models a harness offers is a fact
- * about a specific machine (ADR 1 Amendment 1 D13.5 — visibility class
- * `owned-compute`, owner inherits Machine). An instance-global singleton cannot
- * express that — with two machines whose installed harnesses differ, an unkeyed
- * cache reports whichever host probed last to every user. Carrying the id on the
- * value makes "which machine is this about?" unanswerable-by-accident, matching
- * `MachineHarnessInventory` in `@podium/harness`.
- *
- * This type carries no principal: no owner, no user id, no grant. Authorization
- * is applied at the server projection boundary (POD-1079).
- */
-interface ModelCatalogSnapshot {
-    /** The machine this fact is ABOUT — the scoping key, not decoration. */
+interface SessionSpawnResult {
+    sessionId: SessionId;
+    agentId: string;
+    harness: AgentKind;
+    model: string | null;
+    effort: string | null;
+    machine: string;
     machineId: MachineId;
-    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
-     *  list; a reported empty list replaces it. */
-    byAgent: Record<string, ModelChoiceWire[]>;
-    /** Epoch ms of the last successful probe; 0 = never fetched yet. */
-    fetchedAt: number;
-    /** Shape version — a persisted snapshot with a different version is discarded. */
-    version?: number;
+    accountId: AccountId | null;
+    /** The task prompt as its spawner's message, when a session spawned this one
+     *  and the prompt is queued rather than launched with the process (POD-4778):
+     *  the id the spawner checks with `podium mail status`. */
+    promptMessageId?: string;
 }
 
 /**
@@ -1182,21 +1182,6 @@ interface AgentConcurrencyHistoryResult {
     bucketMs: number;
     peak: number;
     buckets: AgentConcurrencyBucket[];
-}
-
-interface SessionSpawnResult {
-    sessionId: SessionId;
-    agentId: string;
-    harness: AgentKind;
-    model: string | null;
-    effort: string | null;
-    machine: string;
-    machineId: MachineId;
-    accountId: AccountId | null;
-    /** The task prompt as its spawner's message, when a session spawned this one
-     *  and the prompt is queued rather than launched with the process (POD-4778):
-     *  the id the spawner checks with `podium mail status`. */
-    promptMessageId?: string;
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
@@ -1489,27 +1474,6 @@ interface TelegramSetupStartResult {
     expiresAt: string;
 }
 
-interface SpecComponentMeta {
-    id: string;
-    title: string;
-    /** Parent component id; empty for the root. */
-    parent: string;
-    /** Sort position among siblings. */
-    order: number;
-    status: 'active' | 'superseded' | 'draft';
-    updatedAt: number;
-}
-interface SpecComponent extends SpecComponentMeta {
-    /** Inner HTML of the component's <section> — the editable body. */
-    body: string;
-}
-interface SpecSearchHit {
-    id: string;
-    title: string;
-    /** Plain-text snippet around the first match. */
-    snippet: string;
-}
-
 interface UpdateFleetMachine {
     id: MachineId;
     name?: string;
@@ -1636,16 +1600,6 @@ type DiscoveredRepo = {
     /** Names of other machines that carry the same repo (origin match). */
     alsoOn: string[];
 };
-
-/** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
- *  null when the turn reached a harness (the transcript carries the prompt);
- *  the user row is persisted only for turns that provably never dispatched. */
-interface SuperagentTurnFailure {
-    inputId: string;
-    userText: string | null;
-    error: string;
-    at: string;
-}
 
 /**
  * THE DOCK SHELL'S WRITE ON THE SYNC WRITE ENTRY POINT (POD-6419).
@@ -8838,22 +8792,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 threadId: string;
             };
             output: void;
-            meta: unknown;
-        }>;
-        "latestTurnFailure": TRPC.TRPCQueryProcedure<{
-            input: {
-                threadId?: string | undefined;
-            };
-            output: (SuperagentTurnFailure) | (null);
-            meta: unknown;
-        }>;
-        "listThreads": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<SuperagentThreadRow & {
-                turnRunning: boolean;
-            }>;
             meta: unknown;
         }>;
         "openInTerminal": TRPC.TRPCMutationProcedure<{

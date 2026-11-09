@@ -28,6 +28,7 @@ import type {
   ReadPositionWire,
   SessionMeta,
   SessionUserStateWire,
+  SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
   WorkState,
@@ -64,12 +65,18 @@ export type OverlayTarget =
   | 'effects'
 
 /** The per-user record kinds that are pool rows of their own (POD-6673). */
-export type PerUserRecordTarget = 'pins' | 'tabOrders' | 'userPreferences' | 'userReadPositions'
+export type PerUserRecordTarget =
+  | 'pins'
+  | 'tabOrders'
+  | 'userPreferences'
+  | 'userReadPositions'
+  | 'superagentThreads'
 export const PER_USER_RECORD_TARGETS: readonly PerUserRecordTarget[] = [
   'pins',
   'tabOrders',
   'userPreferences',
   'userReadPositions',
+  'superagentThreads',
 ]
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
@@ -114,6 +121,7 @@ export type PendingOverlay =
         | TabOrderWire
         | UserPreferencesWire
         | ReadPositionWire
+        | SuperagentThreadWire
     }
   | {
       /**

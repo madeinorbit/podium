@@ -1,4 +1,3 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -8,6 +7,7 @@ import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createSuperagentFixture } from '../../../web/test/superagent/fixture'
 import type { MobilePool } from '../client/mobile-pool'
 
@@ -121,7 +121,6 @@ async function mount() {
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
         const stop = state.host!.host.attach(owner, (error) => errors.push(error.message))
-        void referenceState(owner).refreshSuperThreads()
         return stop
       }}
     >
@@ -162,7 +161,7 @@ it('has zero legacy thread, session, boot and question selectors before and afte
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
   await act(async () => {
     enabled.data.activity(1)
-    await enabled.data.updateThread(enabled.runtime, true)
+    await enabled.data.updateThread(true)
   })
   expect(
     Object.entries(readRuntimeStoreStats(enabled.runtime)?.slices ?? {}).filter(

@@ -48,7 +48,6 @@ import type {
   WorkspaceKey,
   WorkspaceMap,
 } from '../values'
-import type { SuperThreadView } from '../values/compose/superagent'
 import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from './chat-send'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
@@ -171,13 +170,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockTab: DockTab
   setDockTab: (tab: DockTab) => void
   setSuperOpen: (open: boolean) => void
-  /** The signed-in user's superagent threads (POD-330, audit item zero). The
-   *  view reads these instead of holding its own mirror; anything that changes
-   *  them calls {@link Store.refreshSuperThreads} rather than bumping a key. */
-  superThreads: SuperThreadView[]
-  /** Re-read the thread list. Named for what it does, unlike the refresh COUNTER
-   *  it replaces: a counter can only say "something, somewhere, changed". */
-  refreshSuperThreads: () => Promise<void>
   /** "Ask superagent (BTW)": open the dock and attach this session's transcript
    *  to the next turn (POD-1069). See {@link attachedSessionId}. */
   startBtw: (sessionId: SessionId) => Promise<void>

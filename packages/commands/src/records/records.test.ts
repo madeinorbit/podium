@@ -118,6 +118,7 @@ describe('the generated commands', () => {
       'records.session.remove',
       'records.sessionUserState.edit',
       'records.sessionUserState.remove',
+      'records.superagentThread.edit',
       'records.tabOrder.edit',
       'records.tabOrder.remove',
       'records.userLayout.edit',

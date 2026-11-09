@@ -3,7 +3,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import type { IssueEventWire } from '@podium/model'
-import { issueEventRowId } from '@podium/model'
+import { issueEventRowId, type SuperagentThreadWire, superagentThreadRowId } from '@podium/model'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -16,9 +16,22 @@ import { checkSuperagent } from '../../../tests/worklist/diagnostics/superagent-
 
 const dispose: (() => void)[] = []
 afterEach(() => { for (const stop of dispose.splice(0)) stop() })
+const ME = 'u-me'
+/** One of my synced thread records (POD-6675), as the feed delivers it. */
+const thread = (threadId: string, patch: Partial<SuperagentThreadWire> = {}): SuperagentThreadWire => ({
+  threadId, ownerUserId: ME, kind: 'btw', archived: false, resumable: false, turnRunning: false, lastTurnFailure: null,
+  createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', ...patch,
+} as SuperagentThreadWire)
+const poolThread = (row: SuperagentThreadWire) => {
+  const id = superagentThreadRowId(ME as never, row.threadId)
+  return { kind: 'superagentThread' as const, id, value: { ...row, id } as never }
+}
 const event = (id: number): IssueEventWire => ({ id: issueEventRowId(id, 'synthetic'), eventId: id, ts: '2026-10-03T00:00:00Z', kind: 'issue.closed', subject: 'synthetic', repoPath: null, payload: null })
 async function fixture() {
-  let state = { superThreads: [{ id: 'global', kind: 'global', podiumSessionId: 's-a', originSessionId: 's-origin', turnRunning: false }, { id: 'btw-private', kind: 'btw', podiumSessionId: 's-b' }], superThreadId: 'btw-private',
+  let state = { superagentThreads: [
+    thread('global', { kind: 'global', podiumSessionId: 's-a' as never, updatedAt: '2026-10-02T00:00:00Z' }),
+    thread('btw-private', { podiumSessionId: 's-b' as never, originSessionId: 's-origin' as never }),
+  ], superThreadId: 'btw-private',
     sessions: [{ sessionId: 's-a', cwd: '/synthetic', machineId: 'm' }, { sessionId: 's-b', cwd: '/synthetic/b', machineId: 'm' }], repos: [], paneA: null, selectedWorktree: null,
     issueEvents: [event(100), event(9), event(99)], pendingInteractions: [
       { id: 'z-first', sessionId: 's-a', kind: 'question', status: 'asked', payload: { questions: [] } },
@@ -37,13 +50,20 @@ async function fixture() {
   const load = vi.fn((_entity: string, id: string) => state.sessions.find(row => row.sessionId === id) as never)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') }, undefined,
     { summaries: SUPERAGENT_SUMMARIES, load, schedule: () => () => {} })
-  pool.apply({ type: 'replace', rows: state.sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
+  pool.apply({ type: 'replace', rows: [...state.sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
+    ...state.superagentThreads.map(poolThread)] })
   const source = await createSuperagentSource(owner)
   await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => source)
   await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(owner))
   dispose.push(() => pool.dispose())
   return { pool, source, rows, load, get state() { return state }, owner,
     publish(patch: Partial<Store>) { state = { ...state, ...patch }; for (const wake of wakes) wake() },
+    /** My thread records as the feed moves them: the replica and the pool. */
+    threads(next: SuperagentThreadWire[]) {
+      const gone = state.superagentThreads.filter(row => !next.some(other => other.threadId === row.threadId))
+      state = { ...state, superagentThreads: next }
+      pool.apply({ type: 'update', rows: [...next.map(poolThread), ...gone.map(row => ({ ...poolThread(row), value: undefined as never }))] })
+    },
     batch(kind: 'issueEvents' | 'pendingInteractions' | 'sessions', id: string) { for (const wake of batches) wake({ type: 'update', rows: [{ kind, id }] } as ReplicaAddressedBatch) },
     cursor(next: typeof cursor) { cursor = next; for (const wake of positions) wake() },
     replace() { for (const wake of batches) wake({ type: 'replace' } as ReplicaAddressedBatch) },
@@ -58,33 +78,49 @@ async function settle(f: Awaited<ReturnType<typeof fixture>>) {
   f.pool.hydrate()
 }
 
-it('declares private threads, active selection, session relations and an exact differential', async () => {
+it('reads my thread records, the active selection and an exact differential', async () => {
   const f = await fixture()
-  expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toBe(LOADING)
   expect(superagentState(f.pool).loading).toBe(true)
   await settle(f)
   expect(checkSuperagent(f.pool, f.state)).toMatchObject({ differences: 0, pending: 0, positions: 5 })
   expect(superagentState(f.pool).activeSessionId).toBe('s-b')
   expect(superagentThread(f.pool, 'global').thread?.podiumSessionId).toBe('s-a')
-  expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual(['global'])
-  expect(f.source.related?.('session', 's-origin', 'originSuperThreads')).toEqual(['global'])
+  // Newest write first, as the old list read answered.
+  expect(superagentState(f.pool).threads.map(row => row.id)).toEqual(['global', 'btw-private'])
 })
-it('never addresses an unlisted private id and removes private rows and edges on refresh', async () => {
+it('never addresses an id it does not hold, and follows my records when they go', async () => {
   const f = await fixture(); await settle(f)
-  const read = vi.spyOn(f.pool, 'row')
   expect(superagentThread(f.pool, 'someone-elses-private')).toEqual({ thread: undefined, loading: false })
-  expect(read.mock.calls.some(([entity, id]) => String(entity) === 'superThread' && id === 'someone-elses-private')).toBe(false)
-  f.publish({ superThreads: [] }); await Promise.resolve()
-  expect(omitGone(f.pool.row('superThread', 'global'))).toBeUndefined()
-  expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual([])
+  f.threads([]); await Promise.resolve()
+  expect(superagentThread(f.pool, 'global').thread).toBeUndefined()
   expect(superagentState(f.pool).threads).toEqual([])
+})
+it('a thread made, renamed or archived on my other device moves the readers with no request (POD-6675)', async () => {
+  const f = await fixture(); await settle(f)
+  const [global, btw] = f.state.superagentThreads
+  f.threads([global!, btw!, thread('concierge-new', { kind: 'concierge', repoPath: '/r', updatedAt: '2026-10-03T00:00:00Z' })])
+  expect(superagentState(f.pool).threads.map(row => row.id)).toEqual(['concierge-new', 'global', 'btw-private'])
+  f.threads([{ ...global!, title: 'renamed' }, { ...btw!, archived: true }])
+  expect(superagentThread(f.pool, 'global').thread?.title).toBe('renamed')
+  expect(superagentState(f.pool).threads.map(row => row.id)).toEqual(['global'])
+  expect(checkSuperagent(f.pool, f.state)).toMatchObject({ differences: 0 })
+})
+it('names my global thread by `global` under the server rule, and carries turn status', async () => {
+  const f = await fixture(); await settle(f)
+  const failure = { at: '2026-10-03T00:00:00Z', message: 'the headless harness turn failed: offline', userText: 'hi' }
+  // An old install can hold a stray `global`-kind row named for somebody else;
+  // `global` is never that one.
+  const stray = thread('global:u-other', { kind: 'global', updatedAt: '2026-10-09T00:00:00Z' })
+  f.threads([stray, thread('global:u-me', { kind: 'global', podiumSessionId: 's-a' as never, turnRunning: true, lastTurnFailure: failure })])
+  expect(superagentThread(f.pool, 'global').thread).toMatchObject({ id: 'global:u-me', turnRunning: true, lastTurnFailure: failure })
+  f.threads([stray, thread('global', { kind: 'global' }), thread('global:u-me', { kind: 'global' })])
+  expect(superagentThread(f.pool, 'global').thread?.id).toBe('global')
 })
 it('keeps unrelated publications out of thread derivation and honors active-thread changes', async () => {
   const f = await fixture(); await settle(f)
-  const lists = f.source.counts.threadLists, previous = omitGone(f.pool.row('superThread', 'global'))
+  const previous = superagentThread(f.pool, 'global').thread
   f.publish({ paletteOpen: true }); await Promise.resolve()
-  expect(f.source.counts.threadLists).toBe(lists)
-  expect(omitGone(f.pool.row('superThread', 'global'))).toBe(previous)
+  expect(superagentThread(f.pool, 'global').thread).toEqual(previous)
   f.publish({ superThreadId: 'global' as Store['superThreadId'] }); await Promise.resolve()
   expect(superagentState(f.pool).activeSessionId).toBe('s-a')
 })
@@ -168,13 +204,12 @@ it('batches addressed cold session loads without indexing cold session payloads'
   f.rows.mockClear()
   const cold = { sessionId: 'cold-private-session', cwd: '/synthetic', machineId: 'm', status: 'exited', archived: true, stoppedAt: '2025-01-01T00:00:00Z',
     createdAt: '2025-01-01T00:00:00Z', lastActiveAt: '2025-01-01T00:00:00Z' } as Store['sessions'][number]
-  f.publish({ sessions: [...f.state.sessions, cold], superThreads: [{ id: 'global', kind: 'global', podiumSessionId: cold.sessionId }] }); await Promise.resolve()
+  f.publish({ sessions: [...f.state.sessions, cold] }); await Promise.resolve()
   f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: cold.sessionId, value: cold as never }] })
   f.load.mockClear()
   expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
   expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
   expect(f.pool.tables.session.has(cold.sessionId)).toBe(false)
-  expect(f.source.related?.('session', cold.sessionId, 'superThreads')).toEqual(['global'])
   expect(f.rows.mock.calls.some(([kind]) => kind === 'sessions')).toBe(false)
   expect(f.load).not.toHaveBeenCalled()
   expect(f.pool.hydrate()).toBe(1)
@@ -186,14 +221,13 @@ it('releases all scoped state and subscriptions, including an already queued dem
   const f = await fixture(); superagentState(f.pool)
   f.pool.dispose(); await Promise.resolve()
   expect(f.source.counts.batches).toBe(0)
-  expect(f.source.read('superThread', 'global')).toBe(LOADING)
-  expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual([])
+  expect(f.source.read('superagentLocal', 'local')).toBe(LOADING)
   expect(f.listeners()).toBe(0)
 })
 it('reports planted errors in every settled differential section without hiding them behind pending', async () => {
   const f = await fixture(); await settle(f)
   const wrong = [
-    { superThreads: [{ ...f.state.superThreads[0]!, turnRunning: true }, ...f.state.superThreads.slice(1)] },
+    { superagentThreads: [{ ...f.state.superagentThreads[0]!, turnRunning: true }, ...f.state.superagentThreads.slice(1)] },
     { superThreadId: 'global' },
     { issueEvents: [event(101)] },
     { readPosition: { get: () => ({ lastEventId: 0, seenAt: null }) } },
@@ -201,37 +235,4 @@ it('reports planted errors in every settled differential section without hiding 
     { pendingInteractions: [] },
   ]
   for (const patch of wrong) expect(checkSuperagent(f.pool, { ...f.state, ...patch } as Store).differences).toBeGreaterThan(0)
-})
-
-it('answers selected private backends through one owned row, with no catalog at 1x/4x', async () => {
-  for (const size of [64, 256]) {
-    const f = await fixture()
-    f.publish({ superThreads: [...f.state.superThreads, ...Array.from({ length: size }, (_, i) => ({
-      id: `other-${i}`, kind: 'global' as const, podiumSessionId: `other-seat-${i}`,
-    }))] as Store['superThreads'] })
-    const ids = vi.spyOn(f.owner, 'listIds'), rows = vi.spyOn(f.owner, 'listRow')
-    expect(f.source.counts.threadLists).toBe(0)
-    expect(omitGone(f.pool.row('superThread', 'global'))).toBe(LOADING)
-    await Promise.resolve()
-    expect(omitGone(f.pool.row('superThread', 'global'))).toMatchObject({ id: 'global' })
-    expect(ids.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([])
-    expect(rows.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([['superThreads', 'global']])
-    expect(f.source.counts.threadLists).toBe(0)
-    expect(f.source.related?.('superThread', 'global', 'session')).toEqual(['s-a'])
-    expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual(['global'])
-    // A principal-foreign ID cannot cause a lookup RPC or acquire an owned row.
-    expect(omitGone(f.pool.row('superThread', 'foreign'))).toBe(LOADING)
-    await Promise.resolve()
-    expect(omitGone(f.pool.row('superThread', 'foreign'))).toBeUndefined()
-    const own = f.state.superThreads[0]!
-    f.publish({ superThreads: [{ ...own, model: 'updated-backend' }, ...f.state.superThreads.slice(1)] })
-    await Promise.resolve()
-    expect(omitGone(f.pool.row('superThread', 'global'))).toMatchObject({ model: 'updated-backend' })
-    expect(f.source.counts.threadLists).toBe(0)
-    // Demand for a visible thread picker can still build its licensed catalog.
-    expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toBe(LOADING)
-    await Promise.resolve()
-    expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toMatchObject({ ids: expect.arrayContaining(['global', 'btw-private']) })
-    ids.mockRestore(); rows.mockRestore()
-  }
 })

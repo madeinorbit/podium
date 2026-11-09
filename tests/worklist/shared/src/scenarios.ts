@@ -334,7 +334,6 @@ function scenarioApi(
         query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }),
       },
     },
-    superagent: { listThreads: { query: async () => [] } },
     sessions: {
       markRead: { mutate: async () => ({}) },
       create: {

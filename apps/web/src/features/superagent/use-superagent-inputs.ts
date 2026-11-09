@@ -1,7 +1,7 @@
-import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { superagentFocus, superagentThread } from '@podium/client-graph/superagent'
 import type { SessionId } from '@podium/model'
 import { useCallback } from 'react'
@@ -12,7 +12,6 @@ type SuperagentAccess = Pick<
   Store,
   | 'hub'
   | 'trpc'
-  | 'refreshSuperThreads'
   | 'readPosition'
   | 'setPane'
   | 'setSelectedWorktree'
@@ -25,7 +24,6 @@ function access(s: Store): SuperagentAccess {
   return {
     hub: s.hub,
     trpc: s.trpc,
-    refreshSuperThreads: s.refreshSuperThreads,
     readPosition: s.readPosition,
     setPane: s.setPane,
     setSelectedWorktree: s.setSelectedWorktree,

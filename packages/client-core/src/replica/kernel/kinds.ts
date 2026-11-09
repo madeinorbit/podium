@@ -23,6 +23,7 @@ import {
   pinRowId,
   readPositionRowId,
   sessionUserStateRowId,
+  superagentThreadRowId,
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
@@ -72,6 +73,8 @@ const ENTITY_TO_KIND = {
   tabOrder: 'tabOrders',
   userPreferences: 'userPreferences',
   userReadPosition: 'userReadPositions',
+  // POD-6675: my superagent threads.
+  superagentThread: 'superagentThreads',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -137,6 +140,10 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   if (kind === 'userReadPositions') {
     const position = row as ReplicaRows['userReadPositions']
     return readPositionRowId(position.userId, position.streamId)
+  }
+  if (kind === 'superagentThreads') {
+    const thread = row as ReplicaRows['superagentThreads']
+    return superagentThreadRowId(thread.ownerUserId, thread.threadId)
   }
   return (row as ReplicaRows['issueProjections']).id
 }

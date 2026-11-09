@@ -1,10 +1,12 @@
-import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import {
   asSessionId,
   asThreadId,
+  asUserId,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
+  type SuperagentThreadWire,
+  type SuperagentTurnFailureWire,
   type TranscriptItem,
 } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewMessage } from '@podium/protocol'
@@ -56,14 +58,38 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
-const latestTurnFailure = vi.fn(async (): Promise<SuperagentTurnFailure | null> => null)
-const offlineFailure: SuperagentTurnFailure = {
-  inputId: 'input-old',
+/** The last failure on each thread's synced record (POD-6675), as the server set it. */
+const failures = new Map<string, SuperagentTurnFailureWire | null>()
+const setFailure = (failure: SuperagentTurnFailureWire | null, threadId = 'global') =>
+  failures.set(threadId, failure)
+const offlineFailure: SuperagentTurnFailureWire = {
   userText: 'Recover this thread',
-  error:
+  message:
     "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
   at: '2026-09-29T01:31:27.000Z',
 }
+/** My thread records, as the replica holds them. */
+const threadRecords = (): SuperagentThreadWire[] =>
+  (
+    [
+      ['global', 'global', undefined],
+      ['c1', 'concierge', '/repo'],
+      ['another-thread', 'global', undefined],
+    ] as const
+  ).map(([threadId, kind, repoPath], index) => ({
+    threadId: asThreadId(threadId),
+    ownerUserId: asUserId('operator'),
+    // Two `global` rows: `global` names the first, so it is the newest.
+    kind: kind === 'global' && threadId !== 'global' ? 'btw' : kind,
+    ...(repoPath ? { repoPath } : {}),
+    podiumSessionId: asSessionId('h1'),
+    archived: false,
+    resumable: false,
+    turnRunning: false,
+    lastTurnFailure: failures.get(threadId) ?? null,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: `2026-09-0${3 - index}T00:00:00.000Z`,
+  }))
 
 const fakeTrpc = {
   sessions: {
@@ -78,7 +104,6 @@ const fakeTrpc = {
     sendTurn: { mutate: sendTurn },
     concierge: { mutate: concierge },
     interruptTurn: { mutate: interruptTurn },
-    latestTurnFailure: { query: latestTurnFailure },
   },
 }
 
@@ -103,11 +128,7 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
-    superThreads: [
-      { id: 'global', kind: 'global', podiumSessionId: 'h1' },
-      { id: 'c1', kind: 'concierge', repoPath: '/repo', podiumSessionId: 'h1' },
-      { id: 'another-thread', kind: 'global', podiumSessionId: 'h1' },
-    ],
+    superagentThreads: threadRecords(),
     drafts,
     setSessionDraft: (id: string, text: string) => {
       drafts = { ...drafts, [id]: text }
@@ -170,6 +191,7 @@ beforeEach(() => {
   fakeHub.previewSubs.length = 0
   drafts = {}
   attachedSessionId = null
+  failures.clear()
   storeSessions = [meta({})]
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -560,10 +582,9 @@ describe('ChatView headless mode', () => {
    * that bubble on the new feed is open.)
    */
   it('restores the offline failure and the user message after reload', async () => {
-    latestTurnFailure.mockResolvedValueOnce({
-      inputId: 'input-1',
+    setFailure({
       userText: 'Reply with exactly the word PONG-SUPER.',
-      error:
+      message:
         "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
       at: '2026-09-29T01:31:27.000Z',
     })
@@ -580,7 +601,7 @@ describe('ChatView headless mode', () => {
     offlineFailure.userText,
     null,
   ])('does not restore Not sent on reopen when a newer transcript item exists (userText: %s)', async (userText) => {
-    latestTurnFailure.mockResolvedValueOnce({ ...offlineFailure, userText })
+    setFailure({ ...offlineFailure, userText })
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [
         {
@@ -600,7 +621,7 @@ describe('ChatView headless mode', () => {
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it.each([
@@ -609,7 +630,7 @@ describe('ChatView headless mode', () => {
     undefined,
     'unknown timestamp',
   ])('keeps the last failure when transcript recency does not supersede it (%s)', async (ts) => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [{ id: 'earlier-prompt', cursor: '1', role: 'user', text: 'An earlier prompt', ts }],
       hasMore: false,
@@ -618,11 +639,11 @@ describe('ChatView headless mode', () => {
     await flush()
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
   })
 
   it('uses newer raw tool results even when presentation folds them into an older call', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [
         {
@@ -652,11 +673,11 @@ describe('ChatView headless mode', () => {
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it('drops a restored notice when newer history arrives and preserves a subsequent live error', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     mount()
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
@@ -681,25 +702,20 @@ describe('ChatView headless mode', () => {
       'Not sent',
     )
     // Equal words do not make this current failure the restored one.
-    await push({ kind: 'turn-end', error: offlineFailure.error })
+    await push({ kind: 'turn-end', error: offlineFailure.message })
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
   })
 
   it.each([
     'send',
     'remote turn',
-  ])('ignores a late restoration response after %s activity', async (activity) => {
-    let resolveFailure!: (failure: SuperagentTurnFailure) => void
-    latestTurnFailure.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveFailure = resolve
-        }),
-    )
+  ])('hides the record\'s failure at once on %s activity, before the server clears it', async (activity) => {
+    setFailure(offlineFailure)
     drafts = { h1: 'A new turn' }
     mount()
     await flush()
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
     if (activity === 'send') {
       await act(async () => {
         ;(container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement).click()
@@ -709,26 +725,25 @@ describe('ChatView headless mode', () => {
       await push({ kind: 'turn-start' })
       await push({ kind: 'turn-end' })
     }
-    await act(async () => resolveFailure(offlineFailure))
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    // A new prop object naming the same thread must not re-read an old failure.
+    // The next turn started on the server, which cleared the failure: a new
+    // prop object naming the same thread has none to show.
+    setFailure(null)
     mount()
     await flush()
-    expect(latestTurnFailure).toHaveBeenCalledTimes(1)
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it('does not carry a restored failure into another thread', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     mount()
     await flush()
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
     mount({ threadId: asThreadId('another-thread'), kind: 'global' })
     await flush()
-    expect(latestTurnFailure).toHaveBeenLastCalledWith({ threadId: 'another-thread' })
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
@@ -740,10 +755,9 @@ describe('ChatView headless mode', () => {
    * carries the prompt — so there is no second bubble after a reload.
    */
   it('restores a harness failure reason without duplicating the user turn', async () => {
-    latestTurnFailure.mockResolvedValueOnce({
-      inputId: 'turn-9',
+    setFailure({
       userText: null,
-      error: 'the headless harness turn failed: (codex): the CLI could not be launched',
+      message: 'the headless harness turn failed: (codex): the CLI could not be launched',
       at: '2026-09-29T01:31:27.000Z',
     })
     mount()

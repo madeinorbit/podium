@@ -19,6 +19,7 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  SuperagentTurnFailureWire,
   ThreadId,
   TranscriptItemRef,
   UpdateChannel,
@@ -785,6 +786,10 @@ export interface SuperagentThreadRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  /** A turn is running (POD-6675): set at turn start, cleared at its end. */
+  turnRunning: boolean
+  /** The last turn failed (POD-6675); cleared when the next turn starts. */
+  lastTurnFailure: SuperagentTurnFailureWire | null
 }
 
 /** One accepted-but-not-yet-finished superagent turn. The JSON payload mirrors

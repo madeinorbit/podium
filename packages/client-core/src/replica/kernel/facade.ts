@@ -119,6 +119,7 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'tabOrders',
   'userPreferences',
   'userReadPositions',
+  'superagentThreads',
 ]
 
 /** Shared identity for an empty kind so engine snapshots do not churn
@@ -499,6 +500,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         tabOrders: project('tabOrders'),
         userPreferences: project('userPreferences'),
         userReadPositions: project('userReadPositions'),
+        superagentThreads: project('superagentThreads'),
         cursor: facade.getCursor(),
         feedCursor: facade.getFeedCursor(),
         // ADR 2 D7 rung 6 is the LEGACY blob's version check. This path has no

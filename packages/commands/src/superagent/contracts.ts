@@ -11,10 +11,11 @@
  *
  * L1 DATA ONLY. Every handler lives with the superagent feature in
  * `apps/server/src/modules/superagent` and is joined to its contract at
- * `modules/superagent/registry.ts`. The two READS this surface also serves —
- * `listThreads` and `history` — are not contracts and stay hand-written
- * queries: a `visibility` class describes what a command WRITES, and a read
- * writes nothing (the same line `modules/workflows/queries.ts` draws).
+ * `modules/superagent/registry.ts`. The READ this surface also serves —
+ * `history` — is not a contract and stays a hand-written query: a
+ * `visibility` class describes what a command WRITES, and a read writes
+ * nothing (the same line `modules/workflows/queries.ts` draws). The thread
+ * list is the synced `superagentThread` record (POD-6675).
  *
  * ---------------------------------------------------------------------------
  * `send` IS GONE, AND WHICH NAME SURVIVED WAS DECIDED BY WHAT CALLS IT

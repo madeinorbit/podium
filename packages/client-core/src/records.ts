@@ -33,6 +33,7 @@ import type {
   RecordOp,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
+  SUPERAGENT_THREAD_RECORD,
   SyncedKindDeclaration,
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
@@ -121,6 +122,8 @@ interface RecordKindTable {
   readonly userPreferences: typeof USER_PREFERENCES_RECORD
   // How far I have read one event stream: a queued edit, merged to the max.
   readonly userReadPosition: typeof USER_READ_POSITION_RECORD
+  // My superagent threads (POD-6675): title, archive, model and effort.
+  readonly superagentThread: typeof SUPERAGENT_THREAD_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -144,6 +147,7 @@ export function recordKinds(): RecordKindTable {
     userPreferences: d.USER_PREFERENCES_RECORD,
     userReadPosition: d.USER_READ_POSITION_RECORD,
     effect: d.EFFECT_RECORD,
+    superagentThread: d.SUPERAGENT_THREAD_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -277,6 +281,7 @@ export const RECORD_HOMES: {
       | 'userPreferences'
       | 'userReadPositions'
       | 'effects'
+      | 'superagentThreads'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -297,6 +302,8 @@ export const RECORD_HOMES: {
   tabOrder: { target: 'tabOrders', row: (id) => id },
   userPreferences: { target: 'userPreferences', row: (id) => id },
   userReadPosition: { target: 'userReadPositions', row: (id) => id },
+  // POD-6675: a superagent thread, keyed by its feed id.
+  superagentThread: { target: 'superagentThreads', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

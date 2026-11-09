@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import type { SessionId, SessionOffer } from '@podium/model'
+import type { SessionId, SessionOffer, SuperagentTurnFailureWire } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import {
   action,
@@ -8,7 +8,6 @@ import {
   reaction,
   runInAction,
 } from 'mobx'
-import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
 import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/contracts'
 import { nativeSessionCanInterrupt, type ConversationContext } from './contracts'
@@ -62,7 +61,13 @@ export interface ConversationOptions {
   scheduler?: ConversationFrameSchedulerOptions
   headless?: boolean
   initialTurnRunning?: boolean
-  latestTurnFailure?: () => Promise<SuperagentTurnFailure | null>
+  /**
+   * The thread's last failed turn, read off its synced record (POD-6675):
+   * status the server sets when a turn fails and clears when the next one
+   * starts. Reading this function in a reaction tracks it, so a failure on
+   * another device, or after a reload, shows without a request.
+   */
+  readTurnFailure?: () => SuperagentTurnFailureWire | null | undefined
   /** Platform presentation workers consume the same atomic transcript change. */
   onTranscriptChange?: (change: TranscriptChange) => void
 }
@@ -77,7 +82,8 @@ export class ConversationService {
   @observableRef accessor headless: HeadlessOverlay | null = null
   @observable accessor turnRunning: boolean
   @observable accessor turnError: string | null = null
-  @observableRef accessor restoredFailure: SuperagentTurnFailure | null = null
+  /** The failure this view already dismissed by sending or clearing: its time. */
+  @observable private accessor dismissedFailureAt: string | null = null
   private readonly frames: ConversationFrameScheduler
   private readonly stops: (() => void)[] = []
   private started = false
@@ -86,9 +92,6 @@ export class ConversationService {
   private seenPreview: { turnEpoch: number; seq: number } | null = null
   private previewDoneEpoch = -Infinity
   private previewTimer: ReturnType<typeof setTimeout> | undefined
-  private activityVersion = 0
-  private restoringFailure = false
-  private failureRestored = false
 
   constructor(private readonly options: ConversationOptions) {
     this.sessionId = options.sessionId
@@ -148,7 +151,14 @@ export class ConversationService {
     return this.options.readContext ? this.options.readContext().latestOperatorPrompt : this.transcript.latestOperatorPrompt
   }
 
-  @lazy get visibleFailure(): SuperagentTurnFailure | null {
+  /** The record's failure, unless this view dismissed it since. */
+  @lazy get restoredFailure(): SuperagentTurnFailureWire | null {
+    if (!this.options.headless) return null
+    const failure = this.options.readTurnFailure?.() ?? null
+    return failure === null || failure.at === this.dismissedFailureAt ? null : failure
+  }
+
+  @lazy get visibleFailure(): SuperagentTurnFailureWire | null {
     if (!this.options.headless || this.turnRunning || !this.restoredFailure) return null
     const failureAt = Date.parse(this.restoredFailure.at)
     return Number.isFinite(failureAt) && (this.transcript.latestRecordedAt ?? -Infinity) > failureAt
@@ -233,35 +243,7 @@ export class ConversationService {
       )
     }
     this.startPromise = this.transcript.start()
-    void this.restoreFailure()
     return this.startPromise
-  }
-
-  async restoreFailure(): Promise<void> {
-    if (
-      !this.options.headless ||
-      !this.options.latestTurnFailure ||
-      this.activityVersion > 0 ||
-      this.restoringFailure ||
-      this.failureRestored
-    )
-      return
-    this.restoringFailure = true
-    const version = this.activityVersion
-    try {
-      await this.startPromise
-      if (this.disposed || version !== this.activityVersion || this.turnRunning) return
-      const failure = await this.options.latestTurnFailure()
-      this.failureRestored = true
-      if (!this.disposed && version === this.activityVersion)
-        runInAction(() => {
-          this.restoredFailure = failure ? freezePlain(failure) : null
-        })
-    } catch {
-      /* A failed read leaves the live conversation usable. */
-    } finally {
-      this.restoringFailure = false
-    }
   }
 
   @action clear(): void {
@@ -283,8 +265,10 @@ export class ConversationService {
     if (!this.disposed) this.turnError = message
   }
   @action clearTurnFailure(): void {
-    this.activityVersion++
-    this.restoredFailure = null
+    // The record keeps the failure until the next turn starts on the server;
+    // this view stops showing it at once.
+    const failure = this.options.headless ? (this.options.readTurnFailure?.() ?? null) : null
+    if (failure !== null) this.dismissedFailureAt = failure.at
     this.turnError = null
   }
 

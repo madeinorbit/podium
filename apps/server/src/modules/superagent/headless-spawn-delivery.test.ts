@@ -287,16 +287,18 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     const ack = await call.superagent.sendTurn({ threadId: 'global', text: 'second' })
     expect(ack).toMatchObject({ threadId: 'global', queued: false })
     await vi.waitFor(async () => {
-      const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
-      expect(failure?.error).toContain('is offline')
+      const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+        ?.lastTurnFailure
+      expect(failure?.message).toContain('is offline')
     })
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
     expect(failure?.userText).toBe('second')
     // The PRECONDITION_FAILED refusal's own sentence, never a class name or a
     // server stack.
-    expect(failure?.error).toContain('bring its daemon online, then retry')
-    expect(failure?.error).not.toContain('TRPCError')
-    expect(failure?.error).not.toMatch(/\n\s+at /)
+    expect(failure?.message).toContain('bring its daemon online, then retry')
+    expect(failure?.message).not.toContain('TRPCError')
+    expect(failure?.message).not.toMatch(/\n\s+at /)
   })
 
   it('a daemon re-attach re-establishes a never-bound headless session before its first turn', async () => {

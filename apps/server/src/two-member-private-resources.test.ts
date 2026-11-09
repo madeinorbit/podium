@@ -409,8 +409,8 @@ describe('Bob cannot read Alice’s superagent threads', () => {
     // Control: Alice reads her own thread.
     const own = await alice.superagent.history.query({ threadId: threadId as never })
     expect(own.map((row) => row.content)).toContain('alice’s private thought')
-    expect((await alice.superagent.listThreads.query()).map((row) => row.id)).toContain(threadId)
-    expect((await bob.superagent.listThreads.query()).map((row) => row.id)).not.toContain(threadId)
+    // The thread list is a synced record delivered to its owner alone
+    // (`superagentThread`, per-user-state, POD-6675): thread-records.test.ts.
     await expect(bob.superagent.history.query({ threadId: threadId as never })).rejects.toThrow(
       /unknown thread/,
     )

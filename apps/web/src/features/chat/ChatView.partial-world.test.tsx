@@ -93,7 +93,7 @@ vi.mock('@/app/store', () => {
     httpOrigin: 'http://x',
     getUserFocus: () => ({ view: 'chat' }),
     issues: [],
-    superThreads: [],
+    superagentThreads: [],
   })
   return {
     useStore,

@@ -1,6 +1,6 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { LiveStore } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, TabOrderWire } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -1393,6 +1393,26 @@ export class UserReadPositionModel extends EntityModel {
 }
 export interface UserReadPositionModel extends Readonly<ReadPositionWire> {}
 
+/**
+ * ONE OF MY SUPERAGENT THREADS (POD-6675): a synced per-user record. Screens
+ * read the thread list, its running turn and its last failure here, never a
+ * request; a thread made or renamed on my other device arrives on its own.
+ */
+export class SuperagentThreadModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('superagentThread', id, host)
+  }
+  /** The always-there global thread (one per person). */
+  @lazy get isGlobal(): boolean {
+    return this.kind === 'global'
+  }
+  /** Listed among my open threads. */
+  @lazy get isOpen(): boolean {
+    return !this.archived
+  }
+}
+export interface SuperagentThreadModel extends Readonly<SuperagentThreadWire> {}
+
 export type ModelOf = {
   account: AccountModel
   member: MemberModel
@@ -1418,6 +1438,7 @@ export type ModelOf = {
   tabOrder: TabOrderModel
   userPreferences: UserPreferencesModel
   userReadPosition: UserReadPositionModel
+  superagentThread: SuperagentThreadModel
 }
 
 /** The installed class registry. Deferred kinds join it before their first model
@@ -1428,6 +1449,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   effect: EffectModel,
   pin: PinModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
+  superagentThread: SuperagentThreadModel,
 }
 
 for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, ModelClass][]) {

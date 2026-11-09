@@ -20,6 +20,7 @@ import type {
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
+  SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
 } from '@podium/model'
@@ -117,6 +118,8 @@ export interface ReplicaRows {
   tabOrders: TabOrderWire
   userPreferences: UserPreferencesWire
   userReadPositions: ReadPositionWire
+  /** My superagent threads (POD-6675), keyed `superagentThreadRowId`. */
+  superagentThreads: SuperagentThreadWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -149,6 +152,7 @@ export interface ReplicaHydrateResult {
   tabOrders: TabOrderWire[]
   userPreferences: UserPreferencesWire[]
   userReadPositions: ReadPositionWire[]
+  superagentThreads: SuperagentThreadWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

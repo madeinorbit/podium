@@ -19,17 +19,21 @@ import { machinePathBasename } from '@podium/model'
 
 import {
   asRepoId,
+  asSessionId,
+  asThreadId,
   asUserId,
   IssueProjection,
   issueDepId,
   issueUserStateRowId,
   pinRowId,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
   type UserId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { memoryStorage } from '../replica/contract'
 import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
-import { DEMO_ISSUES, DEMO_SESSIONS } from './demo-data'
+import { DEMO_ISSUES, DEMO_SESSIONS, DEMO_SUPER_SESSION } from './demo-data'
 
 /** The demo principal. Named rather than borrowed from a real id so nothing in
  *  a demo run can land under a person's namespace. */
@@ -111,6 +115,22 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
     }
   }
   for (const repo of repos.values()) put(records, 'repo', repo.id, repo)
+  // The demo's global superagent thread (POD-6675: a synced record). The screen
+  // reads its session transcript, so it names a session DEMO_TRANSCRIPTS has
+  // rows for (POD-344).
+  const demoThread: SuperagentThreadWire = {
+    threadId: asThreadId('global'),
+    ownerUserId: userId,
+    kind: 'global',
+    podiumSessionId: asSessionId(DEMO_SUPER_SESSION),
+    archived: false,
+    resumable: false,
+    turnRunning: false,
+    lastTurnFailure: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+  put(records, 'superagentThread', superagentThreadRowId(userId, 'global'), demoThread)
   return [...records.values()]
 }
 
@@ -163,6 +183,7 @@ const DEMO_SLICE_KINDS = [
   'tabOrders',
   'userPreferences',
   'userReadPositions',
+  'superagentThreads',
 ] as const
 
 /**

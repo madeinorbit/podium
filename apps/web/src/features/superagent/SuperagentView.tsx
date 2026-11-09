@@ -75,9 +75,7 @@ const BAR_ACTION_CLS =
  */
 export function SuperagentView(): JSX.Element {
   const {
-    hub,
     trpc,
-    refreshSuperThreads,
     setPane,
     setSelectedWorktree,
     setSelectedIssueId,
@@ -110,8 +108,6 @@ export function SuperagentView(): JSX.Element {
   // the shell owns it.
   const feed = useIssueEvents(readPosition, true)
 
-  const refreshThreads = () => refreshSuperThreads().catch(() => {})
-
   // MINT THE SESSION SO THE CHAT CAN MOUNT (POD-782). Idempotent server-side and
   // guarded here by the session we already have, so opening the pane repeatedly
   // is one call at most. It creates a row and nothing else — no process, no
@@ -120,31 +116,15 @@ export function SuperagentView(): JSX.Element {
   // A failure is NOT surfaced as an error banner: the pane is simply not usable
   // yet, which the (empty, composer-less) chat already communicates, and a red
   // bar on a pane the user merely opened is noise. A retry rides the next open.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshThreads is re-created each render
+  // The session it mints reaches the thread's synced record (POD-6675), so
+  // nothing is read back here; nor when a turn ends and the thread becomes
+  // resumable.
   useEffect(() => {
     if (podiumSessionId || threadLoading) return
-    let cancelled = false
     void superagentWrites(trpc)
-      .ensureSession
-      .mutate({ threadId: THREAD_ID })
-      .then(() => {
-        if (!cancelled) void refreshThreads()
-      })
+      .ensureSession.mutate({ threadId: THREAD_ID })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [trpc, podiumSessionId, refreshSuperThreads, threadLoading])
-
-  // The thread learns its harnessSessionId when a turn ENDS — that id reveals
-  // the "open in terminal" button, so refetch on turn end.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshThreads is re-created each render
-  useEffect(() => {
-    if (!podiumSessionId) return
-    return hub.subscribeHeadless?.(podiumSessionId, (event) => {
-      if (event.kind === 'turn-end') void refreshThreads()
-    })
-  }, [hub, podiumSessionId, refreshSuperThreads])
+  }, [trpc, podiumSessionId, threadLoading])
 
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).
@@ -169,7 +149,6 @@ export function SuperagentView(): JSX.Element {
     try {
       const r = await superagentWrites(trpc).openInTerminal.mutate({ threadId: THREAD_ID })
       setFocusSessionId(r.sessionId)
-      await refreshThreads()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -187,9 +166,7 @@ export function SuperagentView(): JSX.Element {
       await superagentWrites(trpc).clear.mutate({ threadId: THREAD_ID })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-      return
     }
-    void refreshThreads()
   }
 
   return (
@@ -198,7 +175,7 @@ export function SuperagentView(): JSX.Element {
           (POD-516 item 10): "Superagent" already names this surface, so a
           "Portfolio copilot" heading under it was the same name twice. */}
       <DockHeaderActions>
-        {thread?.harnessSessionId && (
+        {thread?.resumable && (
           <Button
             variant="ghost"
             size="icon-sm"

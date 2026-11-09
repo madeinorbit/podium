@@ -21,6 +21,7 @@ import {
   type CheckSection,
   compareSidebarSnapshots,
 } from '../../../../tests/worklist/diagnostics/sidebar-check'
+import { expectedThreads } from '../../../../tests/worklist/diagnostics/superagent-check'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 
@@ -186,7 +187,7 @@ export function checkChatContext(
   )
   const reader = omitGone(pool.row('chatContextReader', 'reader'))
   const threads = reader && !loading(reader) ? reader.threads() : { threads: [], pending: 1 }
-  compare('threads', state.superThreads ?? [], threads.threads, threads.pending > 0)
+  compare('threads', expectedThreads(state.superagentThreads ?? []), threads.threads, threads.pending > 0)
   const targetIdentity = (target: ReturnType<typeof sessionForIssue>) =>
     target ? { sessionId: target.session.sessionId, via: target.via.id } : null
   for (const issue of issues.slice(0, 8)) {

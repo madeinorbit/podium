@@ -111,6 +111,7 @@ export const ROW = {
   messages: id('messages-substrate'),
   messagingTopics: id('messaging-issue-topics'),
   superagentState: id('superagent-state'),
+  superagentThreadFields: id('superagent-thread-fields'),
 
   handoffBundle: id('handoff-bundle'),
 

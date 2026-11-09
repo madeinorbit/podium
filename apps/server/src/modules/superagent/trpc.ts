@@ -8,9 +8,10 @@
  * `ensureSession`, `clear`) and the desktop app's bundled web (all eight;
  * `startBtw` from v0.1.3's "Ask superagent (BTW)" button).
  *
- * `router.ts` spreads these into the `superagent` router beside its reads
- * (`listThreads`, `history`, `latestTurnFailure`), which carry no contract: a
- * `visibility` class describes what a command WRITES. `superagent.send`, the
+ * `router.ts` spreads these into the `superagent` router beside its read
+ * (`history`; the thread list is the synced `superagentThread` record since
+ * POD-6675), which carries no contract: a `visibility` class describes what a
+ * command WRITES. `superagent.send`, the
  * deleted alias of `sendTurn`, stays deleted (POD-383).
  *
  * OUTPUT TYPES SURVIVE: each route's output is the joined handler's return type

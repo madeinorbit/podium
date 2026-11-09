@@ -235,9 +235,9 @@ test('offline machine refusal names the machine and survives reload with a retry
 
     // The failed message and its error survive a reload with a retry. The
     // live turn-end error is gone after a reload; what renders is the durable
-    // pair POD-4806 persists (user row + TURN_FAILED row via
-    // latestTurnFailure). The hold stays held throughout: the restore reads
-    // server state, which needs no daemon.
+    // pair POD-4806 persists, carried on the thread's record as
+    // `lastTurnFailure` (POD-6675). The hold stays held throughout: the
+    // restore reads server state, which needs no daemon.
     await page.reload()
     await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
       timeout: 45_000,
@@ -253,13 +253,8 @@ test('offline machine refusal names the machine and survives reload with a retry
       timeout: 15_000,
     })
 
-    // The typed read agrees with the screen: the failure is found by column
-    // server-side, never by matching prose client-side.
-    const failure = (await trpc()
-      .superagent.latestTurnFailure.query({ threadId: 'global' } as never)
-      .catch(() => null)) as { userText?: string | null; error?: string } | null
-    expect(failure?.userText ?? '').toContain(marker)
-    expect(failure?.error ?? '').toContain('is offline')
+    // The screen reads the failure off the thread's synced record
+    // (`lastTurnFailure`, POD-6675); no request reads it any more.
   } finally {
     // Release the replacement daemon, wait for its reattach ack, and leave
     // the lane clean for the next suite on the shared harness.

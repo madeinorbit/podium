@@ -20,6 +20,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { chatItemMessage } from '@podium/client-graph/chat-context'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import { superagentThread } from '@podium/client-graph/superagent'
 import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
@@ -90,9 +91,10 @@ export class WebConversation extends ConversationService {
   @lazy get session(): SessionModel | undefined {
     return here(this.pool.model('session', this.sessionId))
   }
+  /** The mounted superagent thread's synced record (POD-6675). */
   @lazy get thread() {
     return this.mount.superThread
-      ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId)))
+      ? superagentThread(this.pool, this.mount.superThread.threadId).thread
       : undefined
   }
   @lazy({ equals: compareShallow }) get records() {
@@ -243,11 +245,9 @@ export function createWebConversation(
         ...(replica?.transcripts ? { cache: replica.transcripts } : {}),
       },
       onTranscriptChange: (change) => conversation?.changed(change),
+      // The last failure is status on the thread's record (POD-6675): read, not asked for.
       ...(mount.superThread
-        ? {
-            latestTurnFailure: () =>
-              trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }),
-          }
+        ? { readTurnFailure: () => conversation.thread?.lastTurnFailure ?? null }
         : {}),
       sends: {
         ...(headless
