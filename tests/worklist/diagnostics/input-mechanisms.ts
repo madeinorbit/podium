@@ -1,4 +1,5 @@
-import { patchFixtureScreen } from '@podium/client-core/test-support/ui'
+import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
+import { observableFixtureKeys, patchFixtureScreen } from '@podium/client-core/test-support/ui'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -71,7 +72,7 @@ export function inputFixture(scale: 1 | 4) {
     hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} },
     headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
   }) as unknown as ClientRuntime
-  f.pool.sources.view('test.inputFixture.ui', () => ({ dispose: () => runtime.ui.dispose() }))
+  f.pool.sources.view('test.inputFixture.ui', () => ({ dispose: () => disposeFixtureUi(runtime) }))
   const change = (patch: Partial<Store>) => {
     state = patchFixtureScreen(state, patch)
     for (const wake of listeners) wake()
@@ -263,8 +264,12 @@ export async function inputMechanisms(scale: 1 | 4) {
       }
     },
   }
-  const preferences = new PreferenceSource(ui)
-  for (const key of keys) preferences.read(key)
+  const observableKeys = observableFixtureKeys(ui)
+  const preferences = new PreferenceSource(observableKeys)
+  const preferenceStops = keys.map(key => autorun(() => {
+    const row = preferences.read(key)
+    if (row && row !== LOADING) row.value
+  }))
   await flush()
   preferenceReads = 0
   ui.set(keys[0]!, '1')
@@ -280,7 +285,9 @@ export async function inputMechanisms(scale: 1 | 4) {
     hiddenProjection: { reads: projectionReads, comparisons },
     preferenceReads,
   }
+  for (const stop of preferenceStops) stop()
   preferences.dispose()
+  observableKeys.dispose()
   stopProjection()
   for (const stop of stops) stop()
   fixture.dispose()

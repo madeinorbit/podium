@@ -1,3 +1,5 @@
+import type { MobxPool } from '@podium/client-graph'
+import { useWorklistPool } from './store-worklist-pool'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
@@ -29,6 +31,7 @@ interface ViewStateCall {
   focused: string | null
 }
 
+let attachedPool: MobxPool | null = null
 let lastHub: FakeHub
 class FakeHub {
   viewStates: ViewStateCall[] = []
@@ -121,6 +124,7 @@ let api: {
 } | null = null
 
 function Consumer(): null {
+  attachedPool = useWorklistPool()
   const s = useRuntimeSelector(s => s)
   api = {
     setPane: s.setPane,
@@ -165,12 +169,17 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function mount(): void {
-  act(() => {
+async function mount(): Promise<void> {
+  attachedPool = null
+  await act(async () => {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createReplicaFixture()}
+        createReplicaFn={() => {
+          const replica = createReplicaFixture()
+          replica.applySnapshot('userLayouts', [{ userId: asUserId('operator'), key: 'panelMode', value: {} }])
+          return replica
+        }}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={() => {}}
       >
@@ -178,6 +187,7 @@ function mount(): void {
       </StoreProvider>,
     )
   })
+  await vi.waitFor(() => expect(attachedPool?.hasLayout).toBe(true))
 }
 
 function last(): ViewStateCall {
@@ -186,14 +196,14 @@ function last(): ViewStateCall {
 }
 
 describe('store reports viewState', () => {
-  it('reports the focused pane as paneA by default when only A is shown', () => {
-    mount()
+  it('reports the focused pane as paneA by default when only A is shown', async () => {
+    await mount()
     act(() => api?.setPane('A', asSessionId('s1')))
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
   })
 
-  it('re-reports a visible session whenever its rendered mode changes', () => {
-    mount()
+  it('re-reports a visible session whenever its rendered mode changes', async () => {
+    await mount()
     act(() => api?.setPane('A', asSessionId('s1')))
     expect(lastHub.viewModeStates.at(-1)).toEqual({ s1: 'native' })
 
@@ -208,8 +218,8 @@ describe('store reports viewState', () => {
     expect(lastHub.viewModeStates.at(-1)).toEqual({ s1: 'native' })
   })
 
-  it('split off: setPane(B) has no pane to write to, so only A is reported', () => {
-    mount()
+  it('split off: setPane(B) has no pane to write to, so only A is reported', async () => {
+    await mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.setPane('B', asSessionId('s2'))
@@ -223,8 +233,8 @@ describe('store reports viewState', () => {
   // pane exists because the layout has one — `toggleSplit` is an adapter over
   // splitting/closing panes, not a scalar flip. These cases drive the real thing
   // and assert the same reported tuple.
-  it('split on: both panes visible; focus follows focusedPane', () => {
-    mount()
+  it('split on: both panes visible; focus follows focusedPane', async () => {
+    await mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row') // the new pane p2 takes focus
@@ -236,8 +246,8 @@ describe('store reports viewState', () => {
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
   })
 
-  it('selecting a pane focuses it (setPane drives focusedPane)', () => {
-    mount()
+  it('selecting a pane focuses it (setPane drives focusedPane)', async () => {
+    await mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row')
@@ -249,8 +259,8 @@ describe('store reports viewState', () => {
     expect(last()).toEqual({ visible: ['s3', 's2'], focused: 's3' })
   })
 
-  it('clamps focus to A when split turns off while focusedPane was B', () => {
-    mount()
+  it('clamps focus to A when split turns off while focusedPane was B', async () => {
+    await mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row')
@@ -263,8 +273,8 @@ describe('store reports viewState', () => {
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
   })
 
-  it('drops nulls from visible (an empty pane is not reported)', () => {
-    mount()
+  it('drops nulls from visible (an empty pane is not reported)', async () => {
+    await mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.toggleSplit() // splits the one-tab pane, so the new pane is empty
@@ -274,8 +284,8 @@ describe('store reports viewState', () => {
     expect(last()).toEqual({ visible: ['s1'], focused: null })
   })
 
-  it('hiding the tab clears view-state via the visibilitychange listener', () => {
-    mount()
+  it('hiding the tab clears view-state via the visibilitychange listener', async () => {
+    await mount()
     act(() => api?.setPane('A', asSessionId('s1')))
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
     // Hide the tab and fire the event — the listener must re-report empty/null.

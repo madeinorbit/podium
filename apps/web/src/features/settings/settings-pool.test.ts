@@ -226,6 +226,7 @@ describe('declared settings readers', () => {
     ])
     const requested = createPoolProjection(f.pool, pool => checkSettings(pool, f.owner as never))
     disposals.push(requested.subscribe(() => {}))
+    requested.getSnapshot()
     f.owner.deviceState.set('podium.sounds.enabled', 'false')
     expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({ key: 'podium.sounds.enabled', value: 'false' })
     expect(

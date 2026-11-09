@@ -93,7 +93,7 @@ describe('declared window input readers', () => {
     const patches: Partial<Store> = {
       view: 'settings',
       paneA: asSessionId('other-pane'),
-      selectedIssueId: null,
+      selectedIssueId: f.issues[0]!.id,
       selectedWorktree: '/other',
       superOpen: false,
       paletteOpen: false,

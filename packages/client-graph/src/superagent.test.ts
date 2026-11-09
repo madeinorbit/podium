@@ -1,3 +1,4 @@
+import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import { omitGone } from './lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -55,7 +56,7 @@ async function fixture() {
   const source = await createSuperagentSource(owner)
   await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => source)
   await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(owner))
-  pool.sources.view('test.superagentFixture.ui', () => ({ dispose: () => owner.ui.dispose() }))
+  pool.sources.view('test.superagentFixture.ui', () => ({ dispose: () => disposeFixtureUi(owner) }))
   dispose.push(() => pool.dispose())
   return { pool, source, rows, load, get state() { return state }, owner,
     publish(patch: Partial<Store>) { state = { ...state, ...patch }; for (const wake of wakes) wake() },

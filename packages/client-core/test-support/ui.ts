@@ -14,6 +14,10 @@ import { fixtureNavigation } from './navigation'
 import { observable, runInAction } from 'mobx'
 
 const refreshers = new WeakMap<object, () => void>()
+const disposers = new WeakMap<object, () => void>()
+export function disposeFixtureUi(owner: object): void {
+  disposers.get(owner)?.()
+}
 /** Publish hand-held render inputs before a provider-free render. Source
  * fixtures instead publish through their owner's ordinary subscription. */
 export function refreshFixtureUi(owner: object): void {
@@ -116,8 +120,9 @@ export function addFixtureUi(
   let stopStore: (() => void) | undefined
   let previous: Partial<ScreenState> | undefined
   let previousWorkspaces: ScreenState['workspaces'] | undefined
+  let previousFileTabs: ScreenState['fileTabs'] | undefined
   const actions = new Set<string>()
-  const sync = () => {
+  const sync = () => runInAction(() => {
     if (syncing || disposed) return
     syncing = true
     try {
@@ -138,7 +143,7 @@ export function addFixtureUi(
     }
     const patch = Object.fromEntries(
       Object.keys(ui.screen)
-        .filter((key) => !['paneA', 'paneB', 'split'].includes(key) && Object.hasOwn(snapshot, key) && (key !== 'workspaces' || snapshot.workspaces !== previousWorkspaces))
+        .filter((key) => !['paneA', 'paneB', 'split'].includes(key) && Object.hasOwn(snapshot, key) && (key !== 'workspaces' || snapshot.workspaces !== previousWorkspaces) && (key !== 'fileTabs' || snapshot.fileTabs !== previousFileTabs))
         .map((key) => [key, Reflect.get(snapshot, key)]),
     )
     ui.patch(patch)
@@ -156,7 +161,8 @@ export function addFixtureUi(
         workspace = openTab(workspace, snapshot.paneB, { permanent: true, paneId: leafPaneIds(workspace.root)[1] })
       const focused = snapshot.focusedPane === 'B' ? leafPaneIds(workspace.root)[1] : leafPaneIds(workspace.root)[0]
       if (focused) workspace = focusPane(workspace, focused)
-      ui.patch({ workspaces: { ...ui.workspaces, [key]: workspace } })
+      if (workspace !== ui.workspaces[key] && (snapshot.paneA || snapshot.paneB || snapshot.workspaces?.[key]))
+        ui.patch({ workspaces: { ...ui.workspaces, [key]: workspace } })
     }
     previous = {
       paneA: snapshot.paneA,
@@ -165,6 +171,7 @@ export function addFixtureUi(
       focusedPane: snapshot.focusedPane,
     }
     previousWorkspaces = snapshot.workspaces
+    previousFileTabs = snapshot.fileTabs
     palette.setOpen(snapshot.paletteOpen ?? false)
     if (snapshot.autoContinuePromptSessionId)
       autoContinueDialog.open(snapshot.autoContinuePromptSessionId)
@@ -172,7 +179,7 @@ export function addFixtureUi(
     } finally {
       syncing = false
     }
-  }
+  })
   // Mock factories are hoisted above the snapshot's declaration. Borrow the
   // owner only on first use, after the suite has initialized its producer.
   let following = false
@@ -194,6 +201,7 @@ export function addFixtureUi(
     stopStore?.()
     dispose()
   } })
+  disposers.set(fake, ui.dispose)
   fake.deviceState = keys
   Object.defineProperties(fake, {
     ui: { configurable: true, enumerable: true, get: () => read(ui) },

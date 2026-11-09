@@ -1,3 +1,4 @@
+import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import { patchFixtureScreen } from '@podium/client-core/test-support/ui'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
@@ -62,7 +63,7 @@ export function shellFixture(count = 40) {
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })), ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] as never })
   state = { ...state, navigation: createPoolNavigationProvider(pool) }
-  pool.sources.view('test.shellFixture.ui', () => ({ dispose: () => runtime.ui.dispose() }))
+  pool.sources.view('test.shellFixture.ui', () => ({ dispose: () => disposeFixtureUi(runtime) }))
   const syncHeader = () => {
     const keepRepos = new Set(state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
     const keepMachines = new Set<string>(state.machines.map(value => value.id))

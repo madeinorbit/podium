@@ -1,3 +1,4 @@
+import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import '@podium/client-graph/synced-models'
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -102,7 +103,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(owner))
   pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(owner))
   const exitSource = await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(owner))
-  pool.sources.view('test.chatFixture.ui', () => ({ dispose: () => owner.ui.dispose() }))
+  pool.sources.view('test.chatFixture.ui', () => ({ dispose: () => disposeFixtureUi(owner) }))
   const source = new ChatContextSource(owner, pool)
   pool.sources.register(CHAT_CONTEXT_ENTITIES, source)
   const check = (override = state, models = issues.filter(row => !row.deletedAt)) => checkChatContext(pool, override, models, sessions.map(row => row.sessionId))
