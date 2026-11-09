@@ -46,8 +46,8 @@
  *    rows; the owners its member rows name (`keeperOf`); the owners of every
  *    lane whose seated subset moved, or whose member's keep changed; the
  *    descendants of an issue whose `canShow` inputs moved; and the `via`
- *    dependents of any row that is not cold by rule. Each warmed row is
- *    checked the same way, until nothing is left.
+ *    dependents of a row whose rule/placement bounds moved and is not cold
+ *    by rule. Each warmed row is checked the same way, until nothing is left.
  * An update to a cold row that leaves it cold is NOT stored: the kernel and
  * the index hold the value, and a later load reads the current one.
  *
@@ -178,7 +178,7 @@ export class Residency {
   private readonly installing = new Set<string>()
   /** Rows to check against the rule once the publication's rows are in. */
   private readonly check = new Map<string, readonly [EntityName, string]>()
-  /** Rows this publication carried or installed (their own verdict may have moved). */
+  /** Rows installed or whose rule/placement bounds may have moved this publication. */
   private readonly moved = new Set<string>()
   /** Ancestors whose `canShow` inputs moved this publication. */
   private readonly ancestors = new Map<string, readonly [EntityName, string]>()
@@ -653,7 +653,15 @@ export class Residency {
   /** What one record may move: itself, the owner it keeps, its lane's owners, its descendants. */
   private marks(entity: EntityName, id: string, previous: Row | undefined, value: Row | undefined): void {
     this.mark(entity, id)
-    this.moved.add(`${entity}:${id}`)
+    const spec = this.schema[entity].cold
+    // A hot owner's cursor or display metadata need not revisit its entire
+    // via history. Propagate only when its rule or placement bounds can move.
+    // Cold/new rows have no previous value here: remain conservative for them.
+    const moved = previous === undefined || value === undefined || spec.kind !== 'unlessShown' ||
+      spec.canShow?.fields.some((field) => previous[field] !== value[field]) === true ||
+      spec.predicate(previous) !== spec.predicate(value) ||
+      spec.shownUntil(previous) !== spec.shownUntil(value) || spec.finishOf(previous) !== spec.finishOf(value)
+    if (moved) this.moved.add(`${entity}:${id}`)
     this.notify(entity, id)
     if (this.keeperKinds.has(entity)) {
       // What a member keeps moved: its owners' cold summaries (`flatUntil`) re-read.
@@ -672,16 +680,7 @@ export class Residency {
         if (at !== null) this.laneOwners(lane, at)
       }
     }
-    // A cursor or timestamp can change without moving any visibility bound;
-    // a row not in memory has no previous value here, so it counts as moved.
-    const spec = this.schema[entity].cold
-    if (spec.kind === 'unlessShown' && spec.canShow !== undefined) {
-      const moved = previous === undefined || value === undefined ||
-        spec.canShow.fields.some((field) => previous[field] !== value[field]) ||
-        spec.predicate(previous) !== spec.predicate(value) ||
-        spec.shownUntil(previous) !== spec.shownUntil(value) || spec.finishOf(previous) !== spec.finishOf(value)
-      if (moved) this.ancestor(entity, id)
-    }
+    if (spec.kind === 'unlessShown' && spec.canShow !== undefined && moved) this.ancestor(entity, id)
     // A removed target leaves its `via` rows bound to nothing known: not cold.
     if (value === undefined) {
       for (const inheritor of this.inheritors.get(entity) ?? []) {
