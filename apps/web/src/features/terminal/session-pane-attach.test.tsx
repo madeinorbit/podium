@@ -122,7 +122,7 @@ function binding(next: ClientRuntime): () => void {
   next.access.setDockShell(shell.cwd, shell.sessionId)
   runInAction(() => {
     for (const row of machines)
-      next.live.applyTopic(
+      next.root.live.applyTopic(
         'machine.condition',
         row.id,
         knownReading({ online: row.online, since: null }, Date.now()),
