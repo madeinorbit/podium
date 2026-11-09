@@ -399,12 +399,8 @@ export class UiStore {
     this.patch({ view: 'issues', openIssueId: id, settingsTab: null })
   }
 
-  @actionBound
-  setSuperThreadId(
-    ...parameters: Parameters<Store['setSuperThreadId']>
-  ): ReturnType<Store['setSuperThreadId']> {
-    const [superThreadId] = parameters
-    return this.patch({ superThreadId: asThreadId(superThreadId) })
+  @actionBound setSuperThreadId(id: string | null): void {
+    this.patch({ superThreadId: id === null ? null : asThreadId(id) })
   }
 
   @actionBound

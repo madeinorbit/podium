@@ -6,7 +6,14 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { issueAbandoned } from '@podium/client-graph/shared/predicates'
 import { compareRank, type RowRank } from '@podium/client-graph/shared/row-view'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { bandOf, closedOf, displayTitleOf, foldAtOf, ownPartOfRow, rankOfPart } from '@podium/client-graph/views'
+import {
+  bandOf,
+  closedOf,
+  displayTitleOf,
+  foldAtOf,
+  ownPartOfRow,
+  rankOfPart,
+} from '@podium/client-graph/views'
 import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { fleetOf, sidebarLifecycle } from '@podium/client-graph/worklist/sidebar-row'
@@ -75,10 +82,18 @@ let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
   read: () => ({}),
   subscribe: none,
 }
-const selectFixture = storeInputs.useRuntimeSelector as unknown as <T>(select: (state: Store) => T, equals?: (a: T, b: T) => boolean) => T
-const useFixtureIssues = () => selectFixture(state => state.replica && state.issueProjections
-  ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
-  : poolFixtureIssues(state), isDeepStrictEqual)
+const selectFixture = storeInputs.useRuntimeSelector as unknown as <T>(
+  select: (state: Store) => T,
+  equals?: (a: T, b: T) => boolean,
+) => T
+const useFixtureIssues = () =>
+  selectFixture(
+    (state) =>
+      state.replica && state.issueProjections
+        ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
+        : poolFixtureIssues(state),
+    isDeepStrictEqual,
+  )
 const selectInputs = (state: Store): Inputs => ({
   openIssueId: (state as Inputs).openIssueId,
   sessions: state.sessions,
@@ -86,7 +101,6 @@ const selectInputs = (state: Store): Inputs => ({
   repos: state.repos,
   drafts: state.drafts,
   attachedSessionId: state.attachedSessionId,
-  transcriptReveal: state.transcriptReveal,
   messageRecords: state.messageRecords,
   pendingInteractions: state.pendingInteractions,
   superagentThreads: (state as Inputs).superagentThreads,
@@ -143,11 +157,7 @@ function fixtureSidebarRow(
     grew = false
     for (const row of allModels) {
       const parent = (row as unknown as Record<string, unknown>)['parentId']
-      if (
-        typeof parent === 'string' &&
-        descended.has(parent) &&
-        !descended.has(row.id as string)
-      ) {
+      if (typeof parent === 'string' && descended.has(parent) && !descended.has(row.id as string)) {
         descended.add(row.id as string)
         grew = true
       }
@@ -204,9 +214,19 @@ function fixtureSidebarRow(
     )
   const bucketOf = (child: IssueViewModel) => {
     const sessions = childSessionsOf(child.id)
-    return missionTaskBucket(child, sessions.length > 0, sessions.some(session => !session.archived && sessionWorkingFact({
-      status: session.status, busy: session.busy, agentState: { phase: session.agentState?.phase },
-    })))
+    return missionTaskBucket(
+      child,
+      sessions.length > 0,
+      sessions.some(
+        (session) =>
+          !session.archived &&
+          sessionWorkingFact({
+            status: session.status,
+            busy: session.busy,
+            agentState: { phase: session.agentState?.phase },
+          }),
+      ),
+    )
   }
   const buckets = descendantModels.map(bucketOf)
   const countBucket = (bucket: string): number => buckets.filter((entry) => entry === bucket).length
@@ -239,8 +259,7 @@ function fixtureSidebarRow(
         }
       : null,
     decision,
-    mergeCommits:
-      decision === 'merge' && typeof gitState?.ahead === 'number' ? gitState.ahead : 0,
+    mergeCommits: decision === 'merge' && typeof gitState?.ahead === 'number' ? gitState.ahead : 0,
     progress: {
       total: descendantModels.length,
       done: countBucket('done'),
@@ -443,9 +462,14 @@ function useFixturePool(): MobxPool {
     const current = () => live.current.state
     // Board and detail readers use the real pool over these same synthetic
     // records, including shared models, relations and source-owned rows.
-    const records = () => syncPoolFixture({
-      ...current(), issues: live.current.issues,
-    } as never, true)
+    const records = () =>
+      syncPoolFixture(
+        {
+          ...current(),
+          issues: live.current.issues,
+        } as never,
+        true,
+      )
     const sessions = () => current().sessions ?? []
     const machines = () => current().machines ?? []
     // Warm conversations keep their first pool. Publish message replacements
@@ -463,12 +487,12 @@ function useFixturePool(): MobxPool {
       notSaved: () => false,
       issueObject: (id: string) => records().issueObject(id),
       sessionObject: (id: string) => records().sessionObject(id),
-      bindSessionDrafts: (drafts: Parameters<MobxPool['bindSessionDrafts']>[0]) => records().bindSessionDrafts(drafts),
+      bindSessionDrafts: (drafts: Parameters<MobxPool['bindSessionDrafts']>[0]) =>
+        records().bindSessionDrafts(drafts),
       // These provider-free fixtures already hand out their record objects.
       // Real-pool observation tests cover shared model identity and field demand.
-      model: (entity: Parameters<MobxPool['row']>[0], id: string) => entity === 'session'
-        ? records().model(entity, id)
-        : omitGone(pool.row(entity, id)),
+      model: (entity: Parameters<MobxPool['row']>[0], id: string) =>
+        entity === 'session' ? records().model(entity, id) : omitGone(pool.row(entity, id)),
       selection: {
         // The selected row the fixture store names (the real pool's
         // selection local): rows read it for their selected weight, and the
@@ -484,7 +508,9 @@ function useFixturePool(): MobxPool {
       },
       clock: {
         current: Date.now(),
-        trackedNow() { return this.current },
+        trackedNow() {
+          return this.current
+        },
         reached: (_at: number) => true,
         passed: (_at: number) => true,
       },
@@ -533,14 +559,12 @@ function useFixturePool(): MobxPool {
           aggregate: {},
           ownFacts: {
             state: 'ready',
-            finished:
-              fields['stage'] === 'done' || fields['closedReason'] != null,
+            finished: fields['stage'] === 'done' || fields['closedReason'] != null,
           },
         }
       },
       row(entity: string, id: string): unknown {
-        if (entity === 'issueBoardWindow')
-          return { openIssueId: current().openIssueId ?? null }
+        if (entity === 'issueBoardWindow') return { openIssueId: current().openIssueId ?? null }
         if ((ISSUE_BOARD_ENTITIES as readonly string[]).includes(entity))
           return records().row(entity as (typeof ISSUE_BOARD_ENTITIES)[number], id)
         switch (entity) {
@@ -581,7 +605,6 @@ function useFixturePool(): MobxPool {
           case 'chatWindow':
             return {
               attachedSessionId: current().attachedSessionId ?? null,
-              transcriptReveal: current().transcriptReveal ?? null,
             }
           case 'chatRecordOrder':
             return { ids: messages().map((row) => row.id) }
@@ -609,12 +632,17 @@ function useFixturePool(): MobxPool {
               deadLetters: [],
             }
           case 'noticeAttention': {
-            const attention = messages().filter(row => isMessageRecordAttention(row.status))
+            const attention = messages()
+              .filter((row) => isMessageRecordAttention(row.status))
               .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
             return { count: attention.length, newest: attention[0]?.id }
           }
           case 'noticeMessageCatalog':
-            return { messages: messages().filter(row => isMessageRecordAttention(row.status)).map(row => row.id) }
+            return {
+              messages: messages()
+                .filter((row) => isMessageRecordAttention(row.status))
+                .map((row) => row.id),
+            }
           case 'noticeRecoveryCatalog':
             return { deadLetters: [] }
           case 'superagentLocal':
@@ -644,10 +672,10 @@ function useFixturePool(): MobxPool {
       queries: {
         setupDefaultAgent: () => resolveDefaultAgent(undefined, sessions()),
         setupSessionCount: () => sessions().length,
-        setupSessionPresent: (id: string) => sessions().some(row => row.sessionId === id),
+        setupSessionPresent: (id: string) => sessions().some((row) => row.sessionId === id),
         activity: (question: Parameters<MobxPool['queries']['activity']>[0]) => {
           const usage = createRepositoryUsageSelector()(sessions())
-          return Math.max(0, ...question.roots.map(path => usage.get(path) ?? 0))
+          return Math.max(0, ...question.roots.map((path) => usage.get(path) ?? 0))
         },
         ids: ({ kind }: { kind: string }) =>
           kind === 'mentionIssues'
@@ -689,10 +717,13 @@ function useFixturePool(): MobxPool {
         },
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
-          if (name === 'chatItemMessages') return {
-            message: (sessionId: string, itemId: string) => messages().find(row =>
-              row.sessionId === sessionId && row.transcriptItem?.id === itemId),
-          }
+          if (name === 'chatItemMessages')
+            return {
+              message: (sessionId: string, itemId: string) =>
+                messages().find(
+                  (row) => row.sessionId === sessionId && row.transcriptItem?.id === itemId,
+                ),
+            }
           if (name === 'issue-activity')
             return records().sources.view(name, _factory as () => object)
           if (name === 'issue-page') return issuePages(records())
@@ -713,7 +744,8 @@ function useFixturePool(): MobxPool {
           if (name === 'header.entities') return fixture.header
           if (name === 'header.views') return fixture.headerViews
           if (name === 'sessionPanes') return fixture.sessionPanes
-          if (name === 'settings.views') return fixture.settingsViews ?? (_factory as () => unknown)()
+          if (name === 'settings.views')
+            return fixture.settingsViews ?? (_factory as () => unknown)()
           if (name === 'web.settings.machines') return (_factory as () => unknown)()
           if (name === 'worklist.view') {
             const cached = fixture['worklistView']
@@ -732,33 +764,45 @@ function useFixturePool(): MobxPool {
                 if (value === undefined) return undefined
                 const model = live.current.issues.find((row) => row.id === id)
                 const fields = (model ?? {}) as unknown as Record<string, unknown>
-                const finished =
-                  fields['stage'] === 'done' || fields['closedReason'] != null
+                const finished = fields['stage'] === 'done' || fields['closedReason'] != null
                 return {
                   id,
                   get selected(): boolean {
                     return live.current.state.selectedIssueId === id
                   },
-                  ready: 'ready', issue: model,
-                  title: value.title, timing: value.timing, visibleWorking: value.working,
-                  visibleAsking: value.asking, origin: value.originTick, decision: value.decision,
-                  mergeCommits: value.mergeCommits, progress: value.progress,
-                  hasChildProgress: value.fromChildren, showsChildProgress: value.statusFromChildren,
-                  visibleUnread: value.unread, errorClass: value.errorClass,
-                  returnedFromDefer: value.unsnoozed, canTuck: value.awaitsTuck,
-                  canBringBack: value.canBringBack, sessionOnlyDraft: value.draftAgentOnly,
-                  firstSessionId: value.firstSessionId, continuation: value.continuation,
-                  visibleFleet: value.fleet, sessions: value.sessions,
-                  visibleSessionIds: value.aggregateSessionIds, awaitingFirstPrompt: value.awaitingFirstPrompt,
-                  foldAt: model
-                    ? foldAtOf(model as unknown as SliceIssue)
-                    : '',
+                  ready: 'ready',
+                  issue: model,
+                  title: value.title,
+                  timing: value.timing,
+                  visibleWorking: value.working,
+                  visibleAsking: value.asking,
+                  origin: value.originTick,
+                  decision: value.decision,
+                  mergeCommits: value.mergeCommits,
+                  progress: value.progress,
+                  hasChildProgress: value.fromChildren,
+                  showsChildProgress: value.statusFromChildren,
+                  visibleUnread: value.unread,
+                  errorClass: value.errorClass,
+                  returnedFromDefer: value.unsnoozed,
+                  canTuck: value.awaitsTuck,
+                  canBringBack: value.canBringBack,
+                  sessionOnlyDraft: value.draftAgentOnly,
+                  firstSessionId: value.firstSessionId,
+                  continuation: value.continuation,
+                  visibleFleet: value.fleet,
+                  sessions: value.sessions,
+                  visibleSessionIds: value.aggregateSessionIds,
+                  awaitingFirstPrompt: value.awaitingFirstPrompt,
+                  foldAt: model ? foldAtOf(model as unknown as SliceIssue) : '',
                   aggregate: {},
                   ownFacts: { state: 'ready', finished },
                 }
               },
               desktop: fixture.sidebar,
-              get selectedId() { return live.current.state.selectedIssueId },
+              get selectedId() {
+                return live.current.state.selectedIssueId
+              },
               get selectionGone(): boolean {
                 return sidebar().selectionGone()
               },
@@ -777,10 +821,9 @@ function useFixturePool(): MobxPool {
             const seen = new Set<string>()
             while (!seen.has(current)) {
               seen.add(current)
-              const parent = (byId.get(current as string) as unknown as Record<
-                string,
-                unknown
-              >)['parentId']
+              const parent = (byId.get(current as string) as unknown as Record<string, unknown>)[
+                'parentId'
+              ]
               if (typeof parent !== 'string' || !byId.has(parent as string)) break
               current = parent
             }
@@ -832,10 +875,7 @@ function useFixturePool(): MobxPool {
         one: (entity: string, id: string, name: string): string | undefined => {
           if (entity === 'issue' && (name === 'parent' || name === 'treeParent')) {
             const parent = (
-              live.current.issues.find((row) => row.id === id) as unknown as Record<
-                string,
-                unknown
-              >
+              live.current.issues.find((row) => row.id === id) as unknown as Record<string, unknown>
             )?.['parentId']
             return typeof parent === 'string' ? parent : undefined
           }
@@ -913,7 +953,10 @@ vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: useFixturePool,
   useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
     const pool = useFixturePool()
-    const selected = useMemo(() => computed(() => read(pool), { equals: isDeepStrictEqual }), [pool, read])
+    const selected = useMemo(
+      () => computed(() => read(pool), { equals: isDeepStrictEqual }),
+      [pool, read],
+    )
     const source = useMemo(() => {
       let current = selected.get()
       return {

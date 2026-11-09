@@ -293,6 +293,7 @@ export const RECORD_HOMES: {
       | 'pins'
       | 'tabOrders'
       | 'userPreferences'
+      | 'userLayouts'
       | 'userReadPositions'
       | 'effects'
       | 'superagentThreads'
@@ -312,7 +313,7 @@ export const RECORD_HOMES: {
   },
   session: { target: 'sessions', row: (id) => id },
   effect: { target: 'effects', row: (id) => id },
-  userLayout: 'userLayouts',
+  userLayout: { target: 'userLayouts', row: (id) => id },
   // Standalone per-user rows (POD-6673): the pool keys each by its feed id.
   pin: { target: 'pins', row: (id) => id },
   tabOrder: { target: 'tabOrders', row: (id) => id },

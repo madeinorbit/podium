@@ -17,7 +17,7 @@
  */
 
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
-import { asUserId } from '@podium/model'
+import { asUserId, layoutRowId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -249,7 +249,11 @@ describe('the outbox takes its connectivity from the injected seams', () => {
     const onlineEvents = fakeOnlineEvents()
     const { engine } = makeEngine({ api, onlineEvents, isOnline: () => false })
     engine.start()
-    engine.access.setDockTab('git')
+    await engine.outbox.enqueue('recordEdit', {
+      kind: 'userLayout',
+      id: layoutRowId(asUserId('operator'), 'dockTab'),
+      patch: { value: 'git' },
+    })
     await settle()
     expect(engine.outbox.pending()).toHaveLength(1)
     expect(layoutSets).toHaveLength(0)
@@ -307,7 +311,11 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    engine.access.setDockTab('git')
+    await engine.outbox.enqueue('recordEdit', {
+      kind: 'userLayout',
+      id: layoutRowId(asUserId('operator'), 'dockTab'),
+      patch: { value: 'git' },
+    })
     await settle()
     // Durably queued and NOT sent. Without the injected probe this driver would
     // have called `platformIsOnline()`, got `true` under happy-dom, and sent it.
@@ -348,7 +356,11 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    engine.access.setDockTab('git')
+    await engine.outbox.enqueue('recordEdit', {
+      kind: 'userLayout',
+      id: layoutRowId(asUserId('operator'), 'dockTab'),
+      patch: { value: 'git' },
+    })
     onlineEvents.fire()
     visibility.set(true)
     await settle()

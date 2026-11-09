@@ -224,17 +224,19 @@ function harness(
     },
     replicated: controller,
   })
+  const revealTranscript = vi.fn()
   const ui = new UiStore({
     api: runtime.api,
     hub: runtime.hub,
     notices: runtime.notices,
     keys,
     router,
+    revealTranscript,
     repos: () => state.repos,
     reposLoaded: () => true,
     isVisible: () => true,
     changed: () => {
-      state = { ...state, ...ui.screen } as typeof state
+      state = { ...state, ...ui.screen } as unknown as typeof state
       publish()
     },
     watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
@@ -249,6 +251,7 @@ function harness(
   }
   return {
     actions,
+    revealTranscript,
     dismissOffer,
     submit,
     enqueue,
@@ -316,26 +319,18 @@ describe('engine action ownership boundary', () => {
     expect(mode()).toBe('chat')
   })
 
-  it('opens one permanent tab with a nonce-guarded transcript reveal', () => {
+  it('opens one permanent tab and delivers transcript reveal actions to the chat view', () => {
     const h = harness()
-
     h.actions.openSessionAtTranscript(sessionId, 'cursor-1', { permanent: true })
-    const first = h.state().transcriptReveal
-    expect(first).toMatchObject({ sessionId, itemKey: 'cursor-1' })
-    expect(first?.nonce).toBeTypeOf('number')
-    expect(h.state().paneA).toBe(sessionId)
-
     h.actions.openSessionAtTranscript(sessionId, 'cursor-2', { permanent: true })
-    const second = h.state().transcriptReveal
-    expect(second?.nonce).toBeGreaterThan(first?.nonce ?? 0)
+    expect(h.revealTranscript.mock.calls).toEqual([
+      [sessionId, 'cursor-1'],
+      [sessionId, 'cursor-2'],
+    ])
+    expect(h.state().paneA).toBe(sessionId)
     expect(allTabIds((h.state().workspaces as Record<string, WorkspaceLayout>).none!)).toEqual([
       sessionId,
     ])
-
-    h.actions.clearTranscriptReveal(first?.nonce ?? 0)
-    expect(h.state().transcriptReveal).toEqual(second)
-    h.actions.clearTranscriptReveal(second?.nonce ?? 0)
-    expect(h.state().transcriptReveal).toBeNull()
   })
 
   it('answers a question as a session.answer record created at once, never queued (POD-6415)', async () => {

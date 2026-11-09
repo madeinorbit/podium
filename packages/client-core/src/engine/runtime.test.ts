@@ -52,7 +52,14 @@ import type { SocketHub } from '../socket-transport'
 import * as notificationAudio from '../sound/cuelume'
 import type { NotificationSession, SessionPhaseChange } from '../sound/notification-sounds'
 import { type Router, type RouterWindow, routeDefaults, SUPERAGENT_MODE_KEY } from '../ui-state'
-import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
+import {
+  allTabIds,
+  emptyWorkspace,
+  leafPaneIds,
+  openTab,
+  shippingPanelModel,
+  splitPane,
+} from '../values'
 import {
   NAVIGATION_LOADING,
   type NavigationProvider,
@@ -504,9 +511,106 @@ describe('engine replica construction (POD-1239)', () => {
   })
 })
 
+describe('saved device screen and cold links', () => {
+  it('paints restored selection, workspaces, files and dock in its first React frame', () => {
+    const storage = memoryStorage()
+    let ws = openTab(emptyWorkspace('wt:/repo'), 'session-1', { permanent: true })
+    ws = splitPane(ws, ws.focusedPaneId, 'row', { tabId: 'session-2' })
+    storage.setItem(
+      'podium.kernel-replica.ui.v1',
+      JSON.stringify({
+        version: 1,
+        view: 'settings',
+        settingsTab: 'appearance',
+        selectedWorktree: '/repo',
+        selectedIssueId: null,
+        openIssueId: null,
+        focusedPane: ws.focusedPaneId,
+        workspaces: { 'wt:/repo': ws },
+        superThreadId: 'thread-2',
+        attachedSessionId: 'session-1',
+        dockVisibleSession: 'session-2',
+        dockShells: { '/repo': 'session-2' },
+        fileTabs: [
+          {
+            id: 'file-1',
+            scope: { kind: 'worktree', root: '/repo' },
+            path: 'readme.md',
+            worktreePath: '/repo',
+          },
+        ],
+      }),
+    )
+    const { engine } = makeEngine({ storage, networkEnabled: false })
+    const frames: unknown[] = []
+    const expected = {
+      view: 'settings',
+      settings: 'appearance',
+      worktree: '/repo',
+      issue: null,
+      paneA: 'session-1',
+      paneB: 'session-2',
+      focus: ws.focusedPaneId,
+      split: true,
+      files: ['file-1'],
+      dockShells: { '/repo': 'session-2' },
+      attached: 'session-1',
+      dock: 'session-2',
+      thread: 'thread-2',
+    }
+    function FirstPaint() {
+      const ui = engine.ui
+      const screen = {
+        view: ui.view,
+        settings: ui.settingsTab,
+        worktree: ui.selectedWorktree,
+        issue: ui.selectedIssueId,
+        paneA: ui.paneA,
+        paneB: ui.paneB,
+        focus: ui.focusedPane,
+        split: ui.split,
+        files: [...ui.fileTabs.keys()],
+        dockShells: ui.dockShells,
+        attached: ui.attachedSessionId,
+        dock: ui.dockVisibleSession,
+        thread: ui.superThreadId,
+      }
+      frames.push(screen)
+      return createElement('output', null, JSON.stringify(screen))
+    }
+    const rendered = render(createElement(FirstPaint))
+    expect(frames).toEqual([expected])
+    expect(rendered.container.textContent).toBe(JSON.stringify(expected))
+    rendered.unmount()
+    engine.destroy()
+  })
+  it.each([
+    '/workspace',
+    '/',
+  ])('opens a cold %s pane link before mirroring the saved layout', (location) => {
+    const pane = '00000000-0000-4000-8000-000000000001'
+    const { engine, rw } = makeEngine({ url: `${location}?pane=${pane}`, networkEnabled: false })
+    expect(engine.ui.paneA).toBe(pane)
+    expect(rw.url()).toContain(`pane=${pane}`)
+    engine.start()
+    expect(engine.ui.paneA).toBe(pane)
+    expect(rw.url()).toContain(`pane=${pane}`)
+    engine.destroy()
+  })
+})
+
 describe('replicated layout routing', () => {
   it('each real legacy setter enqueues exactly one canonical layout command', async () => {
-    const dock = makeEngine()
+    const withWriter = () => {
+      const fixture = makeEngine()
+      fixture.engine.attachPoolWriter({
+        write: async (kind, input) => {
+          await fixture.engine.outbox.enqueue(kind, input)
+        },
+      })
+      return fixture
+    }
+    const dock = withWriter()
     dock.engine.access.setDockTab('git')
     await settle()
     // One key: a record edit of my layout row (POD-6404).
@@ -517,13 +621,13 @@ describe('replicated layout routing', () => {
     expect(dock.engine.outbox.pending()).toMatchObject([layout('dockTab', 'git')])
     dock.engine.dispose()
 
-    const superPanel = makeEngine()
+    const superPanel = withWriter()
     superPanel.engine.access.setSuperOpen(false)
     await settle()
     expect(superPanel.engine.outbox.pending()).toMatchObject([layout('superOpen', '0')])
     superPanel.engine.dispose()
 
-    const panelMode = makeEngine()
+    const panelMode = withWriter()
     panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
     expect(panelMode.engine.outbox.pending()).toMatchObject([

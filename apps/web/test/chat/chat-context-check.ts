@@ -1,11 +1,10 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { headerView } from '@podium/client-graph/header-views'
+import { omitGone } from '@podium/client-graph/lookup'
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
 
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import {
   chatArtifactIssue,
   chatInteractions,
@@ -15,15 +14,18 @@ import {
   chatReferenceMachines,
   chatReferenceSessions,
 } from '@podium/client-graph/chat-context'
+import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState & { drafts?: Record<string, string> }
+
+import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 import {
   type CheckSection,
   compareSidebarSnapshots,
 } from '../../../../tests/worklist/diagnostics/sidebar-check'
 import { expectedThreads } from '../../../../tests/worklist/diagnostics/superagent-check'
-import { issueMentions } from '@/lib/at-mention/mention-sources'
-import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 
 const loading = (row: unknown): row is symbol => typeof row === 'symbol'
 export function checkChatContext(
@@ -56,7 +58,6 @@ export function checkChatContext(
     'window',
     {
       attachedSessionId: state.attachedSessionId ?? null,
-      transcriptReveal: state.transcriptReveal ?? null,
     },
     window,
     loading(window),
@@ -86,13 +87,16 @@ export function checkChatContext(
     compare(
       `pending:${id}`,
       { blocked: mine.length > 0, question: mine.find((row) => row.kind === 'question') },
-      { blocked: asks.blocked, question: (asks.question as PendingInteractionModel | undefined)?.row },
+      {
+        blocked: asks.blocked,
+        question: (asks.question as PendingInteractionModel | undefined)?.row,
+      },
       asks.pending > 0,
     )
     compare(
       `records:${id}`,
       (state.messageRecords ?? []).filter((row) => row.sessionId === id),
-      records.records.map(record => record.row),
+      records.records.map((record) => record.row),
       records.pending > 0,
     )
     const serialSends = (
@@ -187,7 +191,12 @@ export function checkChatContext(
   )
   const reader = omitGone(pool.row('chatContextReader', 'reader'))
   const threads = reader && !loading(reader) ? reader.threads() : { threads: [], pending: 1 }
-  compare('threads', expectedThreads(state.superagentThreads ?? []), threads.threads, threads.pending > 0)
+  compare(
+    'threads',
+    expectedThreads(state.superagentThreads ?? []),
+    threads.threads,
+    threads.pending > 0,
+  )
   const targetIdentity = (target: ReturnType<typeof sessionForIssue>) =>
     target ? { sessionId: target.session.sessionId, via: target.via.id } : null
   for (const issue of issues.slice(0, 8)) {

@@ -1,6 +1,5 @@
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { reaction } from 'mobx'
-import { useCallback } from 'react'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).
@@ -78,6 +77,7 @@ import type { JSX } from 'react'
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,

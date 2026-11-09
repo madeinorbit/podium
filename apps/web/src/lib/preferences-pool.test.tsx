@@ -199,7 +199,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(owner).not.toBe(oldOwner)
   expect(pool).not.toBe(oldPool)
   expect(preferenceSource(oldPool)?.keys() ?? []).toEqual([])
-  await act(async () => oldOwner.ui.set(STICKY, 'old-person'))
+  await act(async () => oldOwner.deviceState.set(STICKY, 'old-person'))
   expect(view.container.textContent).toBe('absent')
   view.rerender(tree(null))
   expect(view.container.textContent).toBe('')

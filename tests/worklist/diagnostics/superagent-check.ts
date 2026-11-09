@@ -69,13 +69,17 @@ export function checkSuperagent(pool: MobxPool, state: State) {
     focus = superagentFocus(pool)
   const threadRows = expectedThreads(state.superagentThreads ?? [])
   // `global` under the server's rule: the bare row, else `global:<owner>`.
-  const owners = new Map((state.superagentThreads ?? []).map((row) => [row.threadId, row.ownerUserId]))
+  const owners = new Map(
+    (state.superagentThreads ?? []).map((row) => [row.threadId, row.ownerUserId]),
+  )
   const named = (id: string) =>
     id !== 'global'
       ? threadRows.find((row) => row.id === id)
       : (threadRows.find((row) => row.kind === 'global' && row.id === 'global') ??
-        threadRows.find((row) => row.kind === 'global' && row.id === `global:${owners.get(row.id)}`))
-  const active = named(state.superThreadId)
+        threadRows.find(
+          (row) => row.kind === 'global' && row.id === `global:${owners.get(row.id)}`,
+        ))
+  const active = state.superThreadId ? named(state.superThreadId) : undefined
   const expected: CheckSection[] = [
     {
       key: 'threads',

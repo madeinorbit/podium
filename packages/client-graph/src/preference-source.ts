@@ -13,7 +13,10 @@ declare module './source-registry' {
 /** A read port, never a second row of preference values. Synced values are
  * read from the pool's userLayout model; local values from device storage. */
 export class PreferenceSource {
-  private readonly source = defineSource({ readById: this.readById.bind(this) })
+  private readonly source = defineSource({
+    readById: (key) => this.readById(String(key)),
+    release: () => {},
+  })
   private readonly requested = new Set<string>()
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
   constructor(private readonly ui: RoutedUiState) {}

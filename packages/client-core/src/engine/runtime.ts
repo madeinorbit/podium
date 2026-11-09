@@ -485,16 +485,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const localUi = openLegacyDeviceKeys(device)
     this.state = initialEngineState() as EngineState & ScreenState
     this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
-    // ORDER IS LOAD-BEARING HERE. `createActions()` builds the replicated-layout
-    // controller and seeds its base from the persisted rows (`layoutSeed`), and
-    // that has to happen before the two readers below: `routerUi.hydrate()` a few
-    // lines down reads persisted UI state THROUGH this controller, and every
-    // replicated layout consumer (`usePersistedUiValue`) reads it on its first
-    // render. A base seeded after either one arrived too late to decide what the
-    // shell mounts, which is the whole of POD-571.
+    // Synced layout is a pool handle. Device state loads below, independently.
     this.replicatedLayout = new LayoutAccess(
       this.principal.userId,
       createRecordsApi((kind, input) => this.requirePoolWriter().write(kind, input)),
+      (error) => this.notices.error(this.formatError(error, 'Could not save view options')),
     )
     // An advance is a queued edit of my `userReadPosition` record (POD-6673):
     // painted at once, kept offline, retired by its receipt.
@@ -569,7 +564,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const emptyPath = !init.routerWindow
       ? typeof window === 'undefined' || /^\/(?:w\/[^/]+\/?)?$/.test(window.location.pathname)
       : /^\/(?:w\/[^/]+\/?)?$/.test(init.routerWindow.location.pathname)
-    if (emptyPath)
+    if (emptyPath && !parsed.pane && !parsed.worktree)
       this.router.replace({
         ...parsed,
         view: this.ui.view,
@@ -586,8 +581,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         ...(parsed.worktree ? { selectedWorktree: parsed.worktree } : {}),
       })
     this.urlMirror = new UrlMirror(this.ui, this.router, (route) => this.onRouteChanged(route))
-    const route = this.router.current()
-    this.prevRoute = route
     this.reactions = new Reactions({
       state: () => this.state,
       publish: (patch) => this.apply(patch),
@@ -642,6 +635,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         issueVisitBaseline: { enumerable: true, get: () => this.reactions.issueVisitBaseline },
       },
     ) as Store<TApi>
+    this.urlMirror.adoptCurrent()
   }
 
   /** The provider supplies addressed pool ports once, for this principal. */
@@ -792,7 +786,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.sounds ??= createNotificationSounds({
       ui: this.deviceState,
       phases: () => this.sessionPhases?.() ?? [],
-      visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
+      visibleSessionIds: () => this.ui.getUserFocus().visibleSessionIds ?? [],
     })
     // The provider starts the runtime before attaching the pool. Wait for its
     // observable source; attachSessionPhases starts sounds when it arrives.
@@ -858,13 +852,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         void this.boot.refreshRepos().catch(() => {})
       }
     }
-
-    // Normalize the URL through the same owner that hydrates and flushes state.
-    this.urlMirror.mirror()
-    // A cold `?pane=` link: onRouteChanged never saw it (the route was read at
-    // construction), and hydration only seeded the pane scalar from it — the
-    // restored layout still has its own tab active. Open the link here.
-    this.followPaneLink(this.router.current())
   }
 
   /** The outbox's counts, as a LiveStore condition (applied with the next frame). */
@@ -1000,6 +987,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       !this.state.selectedIssueId &&
       !this.state.openIssueId &&
       !this.pendingSessionNavigation &&
+      !this.paneLink &&
       !this.pendingNavigation &&
       this.pendingWorktreeMoves.size === 0 &&
       !this.pendingWorktreeFallback &&
@@ -1073,6 +1061,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           session.issueId
             ? resolvedWorkspaceKey(overlayState(st, { selectedIssueId: session.issueId }))
             : undefined,
+          this.paneLink ? provider.session(this.paneLink.sessionId) : undefined,
           this.pendingSessionNavigation
             ? provider.session(this.pendingSessionNavigation)
             : undefined,
@@ -1508,6 +1497,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.worktreeFallback()
     }, this.paneLinkGraceMs)
     this.paneLink = { sessionId: pane, worktree: route.worktree ?? null, timer }
+    this.watchNavigation()
   }
 
   /** Open a linked session this replica holds; false when it holds none. */
@@ -1597,15 +1587,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     await this.uiPersistence.flush()
   }
 
-  private getUserFocus(): UserFocus {
-    return userFocus(this.state)
-  }
-
-  // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
-  // navigateToSession: opening a tab from a non-workspace view (the issues page,
-  // the dock's task panel) must switch to the workspace through the router.
-  // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
-  // the tab and bouncing the pane.
   private requirePoolWriter(): PoolWriter {
     if (!this.poolWriter || this.destroyed) throw new Error('Pool transactions are not attached')
     return this.poolWriter

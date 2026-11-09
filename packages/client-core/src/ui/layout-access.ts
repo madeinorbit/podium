@@ -9,6 +9,7 @@ export class LayoutAccess {
   constructor(
     private readonly userId: UserId,
     private readonly records: RecordsApi,
+    private readonly onError: (error: unknown) => void = () => {},
   ) {}
   @actionBound attach(read: (key: string) => unknown): () => void {
     this.read = read
@@ -25,16 +26,17 @@ export class LayoutAccess {
     this.keys.add(key)
   }
   set(key: string, value: unknown): void {
-    void this.records.edit(
-      { kind: 'userLayout', id: layoutRowId(this.userId, this.canonical(key)) },
-      { value },
-    )
+    void this.records
+      .edit({ kind: 'userLayout', id: layoutRowId(this.userId, this.canonical(key)) }, { value })
+      .catch(this.onError)
   }
   clear(key: string): void {
-    void this.records.remove({
-      kind: 'userLayout',
-      id: layoutRowId(this.userId, this.canonical(key)),
-    })
+    void this.records
+      .remove({
+        kind: 'userLayout',
+        id: layoutRowId(this.userId, this.canonical(key)),
+      })
+      .catch(this.onError)
   }
   subscribe(notify: (keys: ReadonlySet<string>) => void): () => void {
     return reaction(

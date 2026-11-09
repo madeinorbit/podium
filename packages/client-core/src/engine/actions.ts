@@ -253,7 +253,7 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
   | 'gitCommitFiles'
   | 'gitCommitDiffFile'
 > & {
-  readonly replicatedLayout: import('../ui/layout-access').LayoutAccess
+  readonly replicatedLayout: import('../ui-state').ReplicatedUiStatePort
   /**
    * S5 gesture batch: run navigation + its optimistic paints synchronously
    * inside one store publication. No write of its own; revert = remove the
@@ -264,7 +264,7 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
 }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
-  readonly layout: ReplicatedLayoutController | import('../ui/layout-access').LayoutAccess
+  readonly layout: import('../ui-state').ReplicatedUiStatePort
   readonly ui: import('../ui/ui-store').UiStore
   readonly palette: import('../ui/view-models').PaletteViewModel
   readonly autoContinueDialog: import('../ui/view-models').AutoContinueDialogModel

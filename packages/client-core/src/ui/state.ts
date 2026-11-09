@@ -254,7 +254,8 @@ export function workspaceFor(
 export function currentWorkspace(
   st: WorkspaceSelection & Pick<ScreenState, 'workspaces'>,
 ): WorkspaceLayout {
-  return workspaceFor(st, workspaceKeyForState(st))
+  const key = resolvedWorkspaceKey(st)
+  return key === NAVIGATION_LOADING ? emptyWorkspace('none') : workspaceFor(st, key)
 }
 
 /**

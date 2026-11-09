@@ -91,7 +91,11 @@ export function withKeyedInputs<
 >(
   fake: T,
 ): Omit<T, 'ui'> &
-  KeyedInputs & { readonly ui: UiStore; readonly access: ReturnType<T['getSnapshot']> } {
+  KeyedInputs & {
+    readonly ui: UiStore
+    readonly deviceState: import('../src/ui-state').RoutedUiState
+    readonly access: ReturnType<T['getSnapshot']>
+  } {
   addFixtureUi(fake as T & Record<string, unknown>)
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
   const fixture = fake as T & {
@@ -115,6 +119,10 @@ export function withKeyedInputs<
     fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
   return Object.defineProperty(Object.assign(fake, inputs), 'access', {
     get: () => fake.getSnapshot(),
-  }) as Omit<T, 'ui'> &
-    KeyedInputs & { readonly ui: UiStore; readonly access: ReturnType<T['getSnapshot']> }
+  }) as unknown as Omit<T, 'ui'> &
+    KeyedInputs & {
+      readonly ui: UiStore
+      readonly deviceState: import('../src/ui-state').RoutedUiState
+      readonly access: ReturnType<T['getSnapshot']>
+    }
 }

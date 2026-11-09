@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { VisibilitySource } from '../engine/visibility'
 import { createAsyncStorageReplicaStorage } from '../replica/async-storage'
-import { memoryStorage } from '../replica/contract'
+import { memoryStorage, type StorageApi } from '../replica/contract'
 import type { SocketHub } from '../socket-transport'
 import { createMemoryRouterWindow, createRouter, UI_STATE_KEYS } from '../ui-state'
 import { allTabIds, emptyWorkspace, focusPane, openTab, splitPane } from '../values'
@@ -23,7 +23,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 function setup(
-  storage = memoryStorage(),
+  storage: StorageApi = memoryStorage(),
   options: { device?: DeviceStorage; win?: ReturnType<typeof createMemoryRouterWindow> } = {},
 ) {
   const device = options.device ?? { storage, keyPrefix: prefix }
@@ -108,6 +108,41 @@ function savedScreen() {
 }
 
 describe('device UiStore', () => {
+  it('keeps panes empty while the selected issue is unresolved, without borrowing the none workspace', () => {
+    const { ui } = setup()
+    ui.patch({
+      selectedIssueId: asIssueId('child'),
+      workspaces: {
+        none: openTab(emptyWorkspace('none'), s1, { permanent: true }),
+      },
+    })
+    expect(ui.workspaceLoading).toBe(true)
+    expect(ui.paneA).toBeNull()
+    expect(ui.paneB).toBeNull()
+    expect(ui.focusedSessionId).toBeNull()
+  })
+  it('saves keyed device preferences in the screen document and migrates no drafts or synced rows', async () => {
+    const storage = memoryStorage()
+    storage.setItem(
+      `${prefix}.uistate.v1`,
+      JSON.stringify({
+        'podium.shell.density': 'compact',
+        [UI_STATE_KEYS.panelMode]: '{"s":"native"}',
+        'podium.drafts.v1': '{"s":"keep my writing"}',
+      }),
+    )
+    const { ui, legacy, persistence } = setup(storage)
+    expect(ui.getDevicePref('podium.shell.density')).toBe('compact')
+    expect(legacy.get('podium.shell.density')).toBeNull()
+    expect(legacy.get('podium.drafts.v1')).toContain('keep my writing')
+    persistence.start()
+    ui.setDevicePref('podium.shell.density', 'comfortable')
+    await persistence.flush()
+    const doc = JSON.parse(storage.getItem(`${prefix}.ui.v1`)!)
+    expect(doc.devicePrefs).toEqual({ 'podium.shell.density': 'comfortable' })
+    expect(JSON.stringify(doc)).not.toContain('keep my writing')
+    expect(doc).not.toHaveProperty('panelMode')
+  })
   it('restores every saved field before the first reader can paint', () => {
     const storage = memoryStorage()
     storage.setItem(`${prefix}.ui.v1`, JSON.stringify(savedScreen()))

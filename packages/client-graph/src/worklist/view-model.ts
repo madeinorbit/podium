@@ -91,7 +91,7 @@ export class Worklist {
   )
   @observable private accessor fixtureSelection: string | null = null
   @lazy get selectedId(): string | null {
-    return this.pool.ui?.selectedIssueId ?? this.fixtureSelection
+    return this.pool.ui ? this.pool.ui.selectedIssueId : this.fixtureSelection
   }
   set selectedId(id: string | null) {
     if (this.pool.ui) this.pool.ui.setSelectedIssueId(id as import('@podium/model').IssueId | null)

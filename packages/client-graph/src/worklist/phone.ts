@@ -1,5 +1,6 @@
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import type { MobxPool } from '../pool'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
 import type { MobileWorkRef } from './mobile'

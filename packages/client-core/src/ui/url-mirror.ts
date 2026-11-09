@@ -15,15 +15,7 @@ export class UrlMirror {
   start(): void {
     if (this.stop) return
     this.router.attach()
-    this.offRoute = this.router.subscribe((route) => {
-      if (this.applying) return
-      this.applying = true
-      try {
-        this.adopt(route)
-      } finally {
-        this.applying = false
-      }
-    })
+    this.offRoute = this.router.subscribe((route) => this.receive(route))
     this.stop = reaction(
       () =>
         [
@@ -32,13 +24,27 @@ export class UrlMirror {
           this.ui.openIssueId,
           this.ui.selectedWorktree,
           this.ui.paneA,
+          this.ui.workspaceLoading,
         ] as const,
       () => this.mirror(),
     )
     this.mirror()
   }
-  mirror(): void {
+  /** Called after saved state is loaded, before the first consumer renders. */
+  adoptCurrent(): void {
+    this.receive(this.router.current())
+  }
+  private receive(route: RouteState): void {
     if (this.applying) return
+    this.applying = true
+    try {
+      this.adopt(route)
+    } finally {
+      this.applying = false
+    }
+  }
+  mirror(): void {
+    if (this.applying || this.ui.workspaceLoading) return
     const ui = this.ui,
       current = this.router.current()
     this.applying = true

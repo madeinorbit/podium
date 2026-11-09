@@ -35,7 +35,7 @@ import type {
   StartIssueSession,
   TaskSpawnOutcome,
 } from '../spawn-agent'
-import type { MainView, RoutedUiState } from '../ui-state'
+import type { MainView, ReplicatedUiStatePort, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
   FileScope,
@@ -49,7 +49,6 @@ import type {
   WorkspaceMap,
 } from '../values'
 import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from './chat-send'
-import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {
@@ -634,18 +633,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  `roles.coding.model`): an edit of my `userPreferences` record (POD-6673),
    *  shown at once and on every device of mine. `undefined` resets a leaf. */
   setPreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
-  /** Change the instance settings, by leaf path (`hibernation.memoryPct`,
-   *  `experimental`): an edit of the one `instancePreferences` record
-   *  (POD-6677), admins only, shown at once and on every member's devices.
-   *  `undefined` resets a leaf to its default. */
+  /** Change instance settings by leaf path, through its synced admin-owned record. */
   setInstancePreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
-  /** ONE UI persistence mechanism: the replica's versioned ui-state collection
-   *  (see replica.uiState()) — components persist prefs through this, never
-   *  through ad-hoc localStorage keys. */
+  /** Keyed access routes device preferences to UiStore and synced layout to the pool. */
   uiState: RoutedUiState
   /** Command-owned replicated layout writer consumed by POD-403's routing,
    * hydration, and migration module. Device-local keys fail closed here. */
-  replicatedLayout: ReplicatedLayoutPort
+  replicatedLayout: ReplicatedUiStatePort
   /** This person's event-stream read positions (POD-1380). Its own port, not a
    * ui-state key: the position follows the user and merges monotonically. */
   readPosition: ReadPositionPort

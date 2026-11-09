@@ -1,21 +1,21 @@
+import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
-import { referenceState } from './reference-state'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { checkPreferences } from './preference-check'
 /** Fixture and private-replay comparison using the sidebar contract. Expected
  * values exist only in this process; reports retain counts and positions. */
 import type { ReferenceState as Store } from './reference-state'
-import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { checkPreferences } from './preference-check'
+import { referenceState } from './reference-state'
 import { type CheckRow, type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 export interface SettingsCheckOwner {
   readonly access: import('@podium/client-core/engine').Store
   readonly replica?: import('@podium/client-core/replica').Replica
-  readonly ui: RoutedUiState
+  readonly deviceState: RoutedUiState
 }
 
 export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
@@ -37,9 +37,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     {
       key: 'setup',
       fields: {
-        usage: [...expectedUsage].sort(([a], [b]) =>
-          a.localeCompare(b),
-        ),
+        usage: [...expectedUsage].sort(([a], [b]) => a.localeCompare(b)),
         defaultAgent: resolveDefaultAgent(undefined, state.sessions),
       },
       rows: state.sessions.map((row) => ({ id: row.sessionId, fields: {} })),
@@ -93,7 +91,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     { sections: expected, pending: 0 },
     { sections: actual, pending },
   )
-  const preferences = checkPreferences(pool, owner.ui)
+  const preferences = checkPreferences(pool, owner.deviceState)
   return {
     differences: result.differences + preferences.differences,
     pending: result.pending + preferences.pending,

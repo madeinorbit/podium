@@ -433,22 +433,7 @@ async function measureScreenCells(
     const navigation = createPoolNavigationProvider(pool)
     ctx.engine.setNavigationProvider(navigation)
     if (scene === 'workspace') referenceState(ctx.engine).setView('workspace')
-    const locals = () => {
-      const state = referenceState(ctx.engine)
-      return {
-        selectedIssueId: state.selectedIssueId,
-        paneA: state.paneA,
-        paneB: state.paneB,
-        split: state.split,
-      }
-    }
-    const window = observable.box(locals(), { deep: false })
-    stops.push(
-      ctx.engine.onLocals(['selectedIssueId', 'paneA', 'paneB', 'split'], () => {
-        const next = locals()
-        if (!compareStructural(window.get(), next)) runInAction(() => window.set(next))
-      }),
-    )
+    const window = { get: () => ctx.engine.ui }
     worklistView(pool).setLayout(layout)
     const selected = () => window.get().selectedIssueId ?? ROOT
     const readers: ScreenReader[] = []

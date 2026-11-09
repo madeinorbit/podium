@@ -74,6 +74,17 @@ function fixture(initial = '/workspace') {
 }
 
 describe('UiStore URL mirror', () => {
+  it('adopts the incoming route before starting selection mirroring', () => {
+    const f = fixture('/settings/appearance?demo=1')
+    f.ui.patch({ view: 'workspace' })
+    f.mirror.adoptCurrent()
+    expect(f.ui.view).toBe('settings')
+    expect(f.ui.settingsTab).toBe('appearance')
+    f.mirror.start()
+    expect(f.address.pathname).toBe('/settings/appearance')
+    expect(f.address.searchParams.get('demo')).toBe('1')
+    f.mirror.stopMirroring()
+  })
   it('mirrors screen changes once, keeps unrelated query parameters, and stops on disposal', () => {
     const f = fixture('/workspace?demo=1')
     f.mirror.start()
