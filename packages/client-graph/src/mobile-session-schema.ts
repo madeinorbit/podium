@@ -54,7 +54,6 @@ export const MOBILE_SESSION_SCHEMA = {
       ...chatIssueFields,
       'priority',
       'linearIdentifier',
-      'pinned',
       'childCount',
       'childDoneCount',
       'dependents',

@@ -23,6 +23,7 @@ import {
   IssueProjection,
   issueDepId,
   issueUserStateRowId,
+  pinRowId,
   type UserId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -80,8 +81,16 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
       entityId: issue.id,
       readAt: issue.readAt ?? null,
       tuckedAt: issue.tuckedAt ?? null,
-      pinned: issue.pinned ?? false,
     })
+    // My pin is a pin record (POD-6692), never a field of the issue state.
+    if (issue.pinned) {
+      put(records, 'pin', pinRowId(userId, 'issue', issue.id), {
+        userId,
+        kind: 'issue',
+        entityId: issue.id,
+        pinnedAt: issue.createdAt,
+      })
+    }
     if (issue.gitState) put(records, 'issueGitState', issue.id, { ...issue.gitState, id: issue.id })
     const prefix =
       issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1]

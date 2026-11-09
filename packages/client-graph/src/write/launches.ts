@@ -826,7 +826,6 @@ export class PoolLaunches {
         entityId: launch.issueId,
         readAt: issue.readAt ?? null,
         tuckedAt: issue.tuckedAt ?? null,
-        pinned: issue.pinned === true,
       }),
     )
     return overlays

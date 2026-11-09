@@ -94,7 +94,7 @@ export function parseSessionUserStateRowId(
 }
 
 /** What a pin can point at: a panel (session), a worktree or repo path, or an
- *  issue (POD-6673: the old `issues.pinned`, one pin mechanism since). */
+ *  issue (POD-6692: the old `issue_user_state.pinned_at`, one pin mechanism since). */
 export const PinKind = z.enum(['panel', 'worktree', 'repo', 'issue'])
 export type PinKind = z.infer<typeof PinKind>
 

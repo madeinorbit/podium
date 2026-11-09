@@ -24,6 +24,7 @@ import {
   machinePathRelativeToRoot,
   machinePathSegments,
   normalizeClosedPatch,
+  pinRowId,
   type RepoId,
   type SessionId,
   SORT_KEY_COMPACT_LEN,
@@ -61,7 +62,7 @@ function issueTexts(row: IssueRow): Record<IssueTextField, string> {
   return { description: row.description ?? '', brief: row.brief ?? '' }
 }
 
-const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['pinned', 'sortKey'])
+const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['sortKey'])
 
 function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
   const keys = Object.keys(patch) as (keyof IssuePatch)[]
@@ -1726,9 +1727,6 @@ export class IssueCrudModule {
       cascadeArchive?: boolean
       repoPath?: string
       clearSuggestion?: boolean
-      /** Whose pin a `pinned` patch sets (POD-6288): the calling member.
-       *  Absent = the task's assignee, for the server's own updates (POD-6291). */
-      viewer?: UserId
       /**
        * The human this write acts for, when a person or their agent made it
        * (POD-6287). A close stops this person's sessions on the task and
@@ -1807,43 +1805,38 @@ export class IssueCrudModule {
         ...(!('defaultEffort' in patch) ? { defaultEffort: 'auto' } : {}),
       } // [spec:SP-7ff1]
     }
-    // Attention-state before-values (issue #124): every pin/defer/archive path funnels
+    // Attention-state before-values (issue #124): every defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    // WHOSE pin (POD-6291): the calling member's, else the assignee's.
-    const pinner = opts?.viewer ?? row.ownerUserId
-    const prevPinned = (await this.store.issueOverlay(row.id, pinner)).pinned
+    // A pin is not among them: it is a pin record of one member (POD-6692), and
+    // its event is the pin write's own (`user-records/records.ts`).
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     const prevParentBranch = row.parentBranch
     // Naming a draft promotes it to a real issue (issue-as-workspace).
     if (row.draft && typeof patch.title === 'string' && patch.title.trim()) row.draft = false
-    // `pinned` is PER-USER (POD-1076) and must never reach `Object.assign` — that
-    // is exactly how one person's pin became the issue's. It is split out first so
-    // both branches below are assigning shared-row fields only.
-    const { pinned: pinnedPatch, ...rowPatch } = patch
     // HOMING AN ISSUE IS A MACHINE CHOICE (POD-2700 §2.5). The issue's machine
     // is where its worktree lives and where its agents run, so a machine that
     // runs no daemon can never be its home — refuse the property rather than
     // letting the pin sit there and dead-end every later action on it. Only when
     // the patch actually MOVES the pin: clearing it (`null`) and updates that do
     // not mention it are untouched.
-    if (rowPatch.machineId != null && rowPatch.machineId !== row.machineId) {
-      await this.store.d.requireIssueHomeMachine?.(rowPatch.machineId)
+    if (patch.machineId != null && patch.machineId !== row.machineId) {
+      await this.store.d.requireIssueHomeMachine?.(patch.machineId)
     }
     if (
-      rowPatch.worktreePath &&
+      patch.worktreePath &&
       (
-        await this.store.d.store.repos.listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
-      ).some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
+        await this.store.d.store.repos.listRepos(patch.machineId ?? row.machineId ?? undefined)
+      ).some((repo) => sameWorktreePath(repo.path, patch.worktreePath as string))
     ) {
       throw new IssueRefusal(
-        `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
+        `refusing worktree path ${patch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
       )
     }
     // POD-2178: a phase takes no blocked-by edge (addDep refuses it), so a
     // retype must not smuggle one in on a task that already has one.
-    if (rowPatch.type === 'phase' && row.type !== 'phase') {
+    if (patch.type === 'phase' && row.type !== 'phase') {
       const issues = this.store.deps.store.issues
       const edged =
         (await issues.listIssueDeps(row.id)).some((d) => d.type === 'blocked-by') ||
@@ -1856,26 +1849,15 @@ export class IssueCrudModule {
 
     // The texts before this patch, for the revision history (POD-6289).
     const textBefore = issueTexts(row)
-    if (pinnedPatch !== undefined) {
-      // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      if (pinner === undefined) throw new IssueRefusal(`issue ${id} has no member to pin it for`)
-      const prevPinnedAt = (await this.store.issueUserState(row.id, pinner))?.pinnedAt ?? null
-      await this.store.writeIssueUserState(
-        writer,
-        row.id,
-        { pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null },
-        pinner,
-      )
-    }
-    if ('parentId' in rowPatch) {
+    if ('parentId' in patch) {
       await this.hierarchy().setParentForUpdate(
         row,
-        rowPatch.parentId == null ? null : await this.store.resolveRef(rowPatch.parentId),
+        patch.parentId == null ? null : await this.store.resolveRef(patch.parentId),
       )
-      const { parentId: _ignored, ...rest } = rowPatch
+      const { parentId: _ignored, ...rest } = patch
       Object.assign(row, rest)
     } else {
-      Object.assign(row, rowPatch)
+      Object.assign(row, patch)
     }
     const previousOwner = row.ownerUserId
     const reassigned = opts?.owner !== undefined && opts.owner !== previousOwner
@@ -1883,7 +1865,7 @@ export class IssueCrudModule {
     // `update` is also an adoption seam for worktrees reported by a harness or
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
-    if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
+    if ('worktreePath' in patch && row.worktreePath !== null && row.machineId === null) {
       row.machineId = await this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
@@ -2037,17 +2019,7 @@ export class IssueCrudModule {
       await this.archiveClosedSubtree(writer, row.id, opts?.caller)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
-    // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    // A pin is a transition of ONE member's marker (POD-6291): the event names
-    // that member, and the task's shared activity shows it to nobody else.
-    const nowPinned = (await this.store.issueOverlay(row.id, pinner)).pinned
-    if (nowPinned !== prevPinned && pinner !== undefined) {
-      await this.store.emitEvent('issue.pinned', row.id, {
-        seq: row.seq,
-        pinned: nowPinned,
-        userId: pinner,
-      })
-    }
+    // change so a re-archive / re-defer-to-same-time never duplicates.
     if (row.archived !== prevArchived && row.archived) {
       await this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
       // Stops the member sessions AND gives the checkout back (POD-567); the
@@ -2340,6 +2312,8 @@ export class IssueCrudModule {
         // one's remove reaches its member's feed in the same commit.
         const personal = await this.store.deps.store.issues.listIssueUserStateRows(id)
         await this.store.deps.store.issues.purgeIssueUserState(id)
+        // And every member's pin of it (POD-6692: an issue pin is a `pins` row).
+        const pinners = await this.store.deps.store.sessions.removePinsOf('issue', id)
         // Explicit draft rehome detaches every session it can SEE before calling
         // this, but it sees them through `loadSessions()`
         // — `deleted_at IS NULL` — so a TOMBSTONED session keeps pointing at the
@@ -2349,13 +2323,18 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(scope, id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
-        return personal.map((state) => state.userId)
+        return { owners: personal.map((state) => state.userId), pinners }
       },
-      changes: (owners) => [
+      changes: ({ owners, pinners }) => [
         { entity: 'issueProjection', id, op: 'remove' },
         ...owners.map((userId) => ({
           entity: 'issueUserState' as const,
           id: issueUserStateRowId(userId, id),
+          op: 'remove' as const,
+        })),
+        ...pinners.map((userId) => ({
+          entity: 'pin' as const,
+          id: pinRowId(userId, 'issue', id),
           op: 'remove' as const,
         })),
       ],

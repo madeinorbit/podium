@@ -102,6 +102,8 @@ export type IssueCommands = ReturnType<typeof issueCommands>
 
 export interface IssueWriteActions {
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  /** My pin of it: a `pin` record (POD-6692). */
+  setPinned: (kind: 'issue', id: string, pinned: boolean) => Promise<unknown>
   deleteIssue: (id: string) => Promise<unknown>
   closeIssue: (id: string, reason?: string) => Promise<unknown>
   deferIssue: (id: string, until: string | null) => Promise<unknown>
@@ -288,7 +290,7 @@ export function issueCommands({
       void run(() => api.setNeedsHuman.mutate(question ? { id, question } : { id }))
     },
     togglePinned: (): void => {
-      update({ pinned: !issue.pinned })
+      void run(() => actions.setPinned('issue', id, !issue.pinned))
     },
     toggleArchived: (): void => {
       update({ archived: !issue.archived })

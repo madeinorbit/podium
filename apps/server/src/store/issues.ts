@@ -452,7 +452,6 @@ const legacyIssueRefsAtSeq = prepared((db: StoreDrizzle) =>
 const NO_STORED_USER_STATE: Required<StoredIssueUserState> = {
   readAt: null,
   tuckedAt: null,
-  pinnedAt: null,
   joinedAt: null,
   joinedVia: null,
   assignedAt: null,
@@ -463,7 +462,6 @@ const NO_STORED_USER_STATE: Required<StoredIssueUserState> = {
 const storedUserStateOf = (r: {
   readAt: string | null
   tuckedAt: string | null
-  pinnedAt: string | null
   joinedAt: string | null
   joinedVia: 'start' | 'agent' | 'join' | null
   assignedAt: string | null
@@ -471,7 +469,6 @@ const storedUserStateOf = (r: {
 }): Required<StoredIssueUserState> => ({
   readAt: r.readAt,
   tuckedAt: r.tuckedAt,
-  pinnedAt: r.pinnedAt,
   joinedAt: r.joinedAt,
   joinedVia: r.joinedVia,
   assignedAt: r.assignedAt,
@@ -485,7 +482,6 @@ const issueUserStatesOf = preparedFamily((db: StoreDrizzle, size: number) =>
       issueId: issueUserState.issueId,
       readAt: issueUserState.readAt,
       tuckedAt: issueUserState.tuckedAt,
-      pinnedAt: issueUserState.pinnedAt,
       joinedAt: issueUserState.joinedAt,
       joinedVia: issueUserState.joinedVia,
       assignedAt: issueUserState.assignedAt,
@@ -972,7 +968,6 @@ const issueUserStateFeedColumns = {
   entityId: issueUserState.issueId,
   readAt: issueUserState.readAt,
   tuckedAt: issueUserState.tuckedAt,
-  pinnedAt: issueUserState.pinnedAt,
   joinedAt: issueUserState.joinedAt,
   joinedVia: issueUserState.joinedVia,
   assignedAt: issueUserState.assignedAt,
@@ -996,7 +991,6 @@ const issueUserStateOne = prepared((db: StoreDrizzle) =>
     .select({
       readAt: issueUserState.readAt,
       tuckedAt: issueUserState.tuckedAt,
-      pinnedAt: issueUserState.pinnedAt,
       joinedAt: issueUserState.joinedAt,
       joinedVia: issueUserState.joinedVia,
       assignedAt: issueUserState.assignedAt,
@@ -1032,7 +1026,6 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
       issueId: sql.placeholder('issueId'),
       readAt: sql.placeholder('readAt'),
       tuckedAt: sql.placeholder('tuckedAt'),
-      pinnedAt: sql.placeholder('pinnedAt'),
       joinedAt: sql.placeholder('joinedAt'),
       joinedVia: sql.placeholder('joinedVia'),
       assignedAt: sql.placeholder('assignedAt'),
@@ -1043,8 +1036,7 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
       set: {
         readAt: sql.placeholder('readAt'),
         tuckedAt: sql.placeholder('tuckedAt'),
-        pinnedAt: sql.placeholder('pinnedAt'),
-        joinedAt: sql.placeholder('joinedAt'),
+          joinedAt: sql.placeholder('joinedAt'),
         joinedVia: sql.placeholder('joinedVia'),
         assignedAt: sql.placeholder('assignedAt'),
         assignedBy: sql.placeholder('assignedBy'),
@@ -2939,7 +2931,6 @@ export class IssuesRepository {
     const next = {
       readAt: pick('readAt'),
       tuckedAt: pick('tuckedAt'),
-      pinnedAt: pick('pinnedAt'),
       joinedAt: pick('joinedAt'),
       joinedVia: pick('joinedVia'),
       assignedAt: pick('assignedAt'),

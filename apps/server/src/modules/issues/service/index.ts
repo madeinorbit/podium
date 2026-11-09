@@ -101,6 +101,7 @@ export type IssueAttentionCapability = Pick<
   | 'markIssueRead'
   | 'markIssueUnread'
   | 'setIssueTucked'
+  | 'recordIssuePin'
   | 'recordParticipation'
   | 'joinIssue'
   | 'dismissAssignment'

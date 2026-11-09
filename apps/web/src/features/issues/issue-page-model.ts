@@ -23,6 +23,7 @@ export interface IssuePageModel {
   issueWrites: Pick<
     Store,
     | 'updateIssue'
+    | 'setPinned'
     | 'deleteIssue'
     | 'closeIssue'
     | 'deferIssue'
@@ -47,6 +48,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,
+      setPinned: s.setPinned,
       deleteIssue: s.deleteIssue,
       closeIssue: s.closeIssue,
       deferIssue: s.deferIssue,

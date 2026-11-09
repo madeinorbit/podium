@@ -117,6 +117,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get formalParent() { return issue.formalParent },
       get replicaActivityMs() { return parseMs(issue.lastActivityAt) },
       get headlessStaffed() { return issue.headlessStaffed },
+      get pinned() { return issue.pinned },
     })
   }
 
@@ -588,7 +589,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get replicaActivityMs() { return model.lastSessionActivity },
       get headlessStaffed() { return (model.issue.headlessStaffed) },
       get deleted() { return (model.issue.deletedAt != null) },
-      get pinned() { return (model.issue.pinned === true) },
+      get pinned() { return model.issue.pinned },
       get formalParent() { return (model.issue.formalParent) },
     }
   }

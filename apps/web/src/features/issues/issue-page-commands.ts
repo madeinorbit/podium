@@ -34,6 +34,8 @@ export interface IssuePageDeps {
   issue: IssueViewModel
   run: RunMutation
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  /** My pin of it: a `pin` record (POD-6692). */
+  setPinned: (kind: 'issue', id: string, pinned: boolean) => Promise<unknown>
   deleteIssue: (id: string) => Promise<unknown>
   closeIssue: (id: string, reason?: string) => Promise<unknown>
   deferIssue: (id: string, until: string | null) => Promise<unknown>
@@ -54,6 +56,7 @@ export function issuePageCommands({
   issue,
   run,
   updateIssue,
+  setPinned,
   deleteIssue,
   closeIssue,
   deferIssue,
@@ -181,7 +184,7 @@ export function issuePageCommands({
       void run(() => issueWrites(trpc).setNeedsHuman.mutate({ id, question }))
     },
     togglePinned: (): void => {
-      update({ pinned: !issue.pinned })
+      void run(() => setPinned('issue', id, !issue.pinned))
     },
     toggleArchived: (): void => {
       update({ archived: !issue.archived })

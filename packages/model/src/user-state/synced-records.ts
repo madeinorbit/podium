@@ -11,9 +11,9 @@
  * on the change log and back-fills them at boot.
  *
  *  - `pin`: the record's existence IS the pin. Pin = create, unpin = remove.
- *    Kinds: a panel (session), a worktree, a repo, and since POD-6673 an issue
- *    (the old `issues.pinned` / `issue_user_state.pinned_at`, folded in so there
- *    is one pin mechanism).
+ *    Kinds: a panel (session), a worktree, a repo, and an issue (the old
+ *    `issue_user_state.pinned_at`, moved here by POD-6692 so there is one pin
+ *    mechanism).
  *  - `tabOrder`: the manual session order of one worktree, whole-list
  *    last-writer-wins. An empty order is no record.
  *  - `userPreferences`: ONE record per person. Its fields are the leaf PATHS of

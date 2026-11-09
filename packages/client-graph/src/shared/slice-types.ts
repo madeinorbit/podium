@@ -46,8 +46,6 @@ export interface SliceIssue {
   landedSha?: string | null
   audience?: 'human' | 'agent'
   isDraftVessel?: boolean
-  /** Pinned issues move out of their group into the PINNED section (spec §3 R-GROUP). */
-  pinned?: boolean
   /** Persisted manual key, meaningful only against siblings (spec §3 R-ORDER). */
   sortKey?: string | null
   deferUntil?: string | null

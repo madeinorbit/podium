@@ -360,7 +360,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
         truth('issueProjections', id) !== undefined ||
         spawns.some((o) => o.entity === 'issueProjections' && o.id === id)
       return known
-        ? { userId: ports.userId, entityId: id, readAt: null, tuckedAt: null, pinned: false }
+        ? { userId: ports.userId, entityId: id, readAt: null, tuckedAt: null }
         : undefined
     }
     if (entity === 'sessionUserStates') {

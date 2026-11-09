@@ -262,7 +262,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
                   label: rowMenu.issue.pinned ? 'Unpin' : 'Pin',
                   onPress: () =>
                     runAction(
-                      store.updateIssue(rowMenu.issue.id, { pinned: !rowMenu.issue.pinned }),
+                      store.setPinned('issue', rowMenu.issue.id, !rowMenu.issue.pinned),
                     ),
                 },
                 {

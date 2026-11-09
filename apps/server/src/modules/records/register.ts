@@ -37,6 +37,9 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
     settings: () => deps.modules().settings,
     readPositions: () => deps.modules().readPosition,
     roleOf: async (user) => await deps.store().users.roleOf(user),
+    issueExists: async (issueId) => await deps.modules().issues.reports.has(issueId),
+    issuePinChanged: async (userId, issueId, pinned) =>
+      await deps.modules().issues.attention.recordIssuePin(issueId, userId, pinned),
     canReadSession: async (principal: CommandPrincipal, sessionId: string) =>
       principal.kind !== 'system' &&
       (await deps

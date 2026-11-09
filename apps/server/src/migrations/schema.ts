@@ -624,10 +624,11 @@ export const sessionUserState = sqliteTable(
   ],
 )
 
-// One row, three markers: they share a key, a writer and a reader (the issue
-// projection), so three tables would be three joins per issue list for no invariant
-// gained. `pinned_at` is a TIMESTAMP where `issues.pinned` was a 0/1 flag — see
-// packages/model/src/user-state/issue-state.ts for why; the wire keeps its boolean.
+// One row, the markers: they share a key, a writer and a reader (the issue
+// projection), so separate tables would be joins per issue list for no invariant
+// gained. An issue's PIN is not here: since POD-6692 it is a `pins` row of kind
+// 'issue', the one pin mechanism (the `pinned_at` column was copied there and
+// dropped).
 export const issueUserState = sqliteTable(
   'issue_user_state',
   {
@@ -635,7 +636,6 @@ export const issueUserState = sqliteTable(
     issueId: text('issue_id').$type<IssueId>().notNull(),
     readAt: text('read_at'),
     tuckedAt: text('tucked_at'),
-    pinnedAt: text('pinned_at'),
     // PERSONAL RECORDS (POD-6290): when and how this member first started or
     // joined the task ('start' | 'agent' | 'join'), and the removable
     // "assigned to you by X" row. They feed the member's sidebar and define the

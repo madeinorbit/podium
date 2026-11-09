@@ -39,8 +39,8 @@ import {
   issueDeps,
   issueLabels,
   issues,
-  issueUserState,
   labels,
+  pins,
 } from '../migrations/schema'
 import {
   inListOf,
@@ -333,7 +333,8 @@ export const deferralsOf = preparedFamily((db: StoreDrizzle, key: string) => {
 /**
  * One sort-key scope, narrow: a parent's live children (`parent`), or a
  * repository's live top-level issues (`top`), optionally without the ones the
- * named member pinned (`top-unpinned`), which have their own section.
+ * named member pinned (`top-unpinned`), which have their own section. A pin is
+ * the member's `pins` row of kind 'issue' (POD-6692), read by its primary key.
  */
 export const sortScopeOf = preparedFamily(
   (db: StoreDrizzle, key: 'parent' | 'top' | 'top-unpinned') =>
@@ -353,7 +354,7 @@ export const sortScopeOf = preparedFamily(
             : [isNull(issues.parentId), eq(issues.repoId, param(issues.repoId, 'repoId'))]),
           ...(key === 'top-unpinned'
             ? [
-                sql`NOT EXISTS (SELECT 1 FROM ${issueUserState} WHERE ${issueUserState.userId} = ${sql.placeholder('viewer')} AND ${issueUserState.issueId} = ${issues.id} AND ${issueUserState.pinnedAt} IS NOT NULL)`,
+                sql`NOT EXISTS (SELECT 1 FROM ${pins} WHERE ${pins.userId} = ${sql.placeholder('viewer')} AND ${pins.kind} = 'issue' AND ${pins.id} = ${issues.id})`,
               ]
             : []),
         ),

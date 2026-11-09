@@ -122,6 +122,18 @@ export class IssueAttentionModule {
   }
 
   /**
+   * A member pinned or unpinned the task (POD-6692): the pin itself is their
+   * `pin` record, written by the generic edit, which calls this only when the
+   * pin changed. It records `issue.pinned` on the task's activity, naming the
+   * member, so the shared activity shows it to nobody else (POD-6291).
+   */
+  async recordIssuePin(issueId: string, member: UserId, pinned: boolean): Promise<void> {
+    const row = await this.store.row(issueId)
+    if (!row) return
+    await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned, userId: member })
+  }
+
+  /**
    * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). `member` started work on
    * the task, their agent did, or they joined it: the task enters their
    * personal set. The first record is kept. Takes a resolved id: its callers

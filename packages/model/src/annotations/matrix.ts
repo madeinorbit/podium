@@ -1372,7 +1372,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     section: 'issues-and-tracker',
     title: 'Issue message / issue `readAt` (moved by Amendment 1 D10)',
     sites: [
-      '`issue_user_state` — keyed `(user_id, issue_id)`, carrying `read_at` / `tucked_at` / `pinned_at`',
+      '`issue_user_state` — keyed `(user_id, issue_id)`, carrying `read_at` / `tucked_at` (an issue pin is a `pins` row since POD-6692)',
       '`issue_message_user_state` — keyed `(user_id, issue_message_id)`',
       '(both POD-1076; the markers were `issues.read_at` and `issue_messages.read_at` columns until then)',
     ],

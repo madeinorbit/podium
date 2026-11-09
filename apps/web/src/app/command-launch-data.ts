@@ -33,6 +33,7 @@ const ACTION_KEYS = [
   'markIssueRead',
   'markIssueUnread',
   'updateIssue',
+  'setPinned',
   'deleteIssue',
   'deferIssue',
   'undeferIssue',

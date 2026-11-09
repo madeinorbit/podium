@@ -65,7 +65,7 @@ import { newMessageId, repeatUntilAnswered } from './send-once.js'
  * PRESENTATION, DELIBERATELY NOT SHARED: the `args` schemas below. They are not a
  * second declaration of a command's input — they are a different schema doing a
  * different job. They parse ARGV: `idArg` accepts a bare number so `show 10` works,
- * `cliBool` accepts `--pinned`, `--pinned true` and `--pinned=false`, `label` takes a
+ * `cliBool` accepts `--claim`, `--claim true` and `--claim=false`, `label` takes a
  * comma string it splits before calling `setLabels` with an array. Deriving these from the wire input would either lose those
  * affordances or push argv coercion into the contract, where it does not belong. The
  * contract decides WHAT MAY BE CALLED; this table decides HOW A HUMAN TYPES IT.
@@ -107,8 +107,8 @@ const ASSIGNEE_HELP =
  *  as a number. Resolution happens server-side (IssueService.resolveRef). */
 const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 
-/** Boolean flag that also accepts an explicit value: `--pinned`, `--pinned true`,
- *  `--pinned=false` (a bare flag parses to `true`; values arrive as strings). */
+/** Boolean flag that also accepts an explicit value: `--claim`, `--claim true`,
+ *  `--claim=false` (a bare flag parses to `true`; values arrive as strings). */
 const cliBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
 
 /**
@@ -880,7 +880,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       dueAt: z.string().optional(),
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
-      pinned: cliBool.optional(),
+      // No `--pinned` (POD-6692): a pin is the person's own `pin` record, made
+      // in the app, never a field of the task.
       // Manual sidebar order (POD-168): fractional key, ascending = top of the
       // row's sibling scope. Normally written by the sidebar drag; exposed here
       // so agents/scripts can reorder too.
@@ -910,7 +911,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'dueAt',
         'deferUntil',
         'closedReason',
-        'pinned',
         'sortKey',
         'estimateMin',
       ]

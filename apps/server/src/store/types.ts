@@ -364,7 +364,8 @@ export interface MachineRecord {
  *
  * WHAT THIS ROW STILL IS THAT R1 IS NOT, and who owns closing it:
  *   - `readAt` / `tuckedAt` / `pinned` are GONE (POD-1076). They are per-user
- *     state and now live in `issue_user_state` keyed `(userId, issueId)`, read
+ *     state and now live in `issue_user_state` keyed `(userId, issueId)` (the
+ *     pin in `pins` since POD-6692), read
  *     back as {@link StoredIssueUserState}. The aggregate's `registry.test.ts`
  *     fails if one reappears on R1, and `per-user-singletons` counts it if one
  *     reappears here.
@@ -544,17 +545,15 @@ export interface IssueTextRevisionRow {
  * One user's per-issue markers, as stored (POD-1076).
  *
  * The storage twin of `@podium/model`'s `IssueUserState` minus the key, because
- * the repository already has the key in hand. `pinnedAt` is a TIMESTAMP where
- * `issues.pinned` was a 0/1 flag — the wire keeps its boolean, derived once by
- * the model's `issueOverlayOf`.
+ * the repository already has the key in hand. The pin is not here: an issue pin
+ * is a `pins` row of kind 'issue' (POD-6692).
  *
- * All three null is not a representable STORED state: such a row is deleted, so
+ * All null is not a representable STORED state: such a row is deleted, so
  * "absent" is the only spelling of "this person has done nothing here".
  */
 export interface StoredIssueUserState {
   readAt: string | null
   tuckedAt: string | null
-  pinnedAt: string | null
   /** Personal records (POD-6290). Absent reads as null: no record. */
   joinedAt?: string | null
   joinedVia?: IssueJoinVia | null

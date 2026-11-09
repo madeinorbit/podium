@@ -1216,7 +1216,7 @@ const defs = {
           const viewer = ctx.markerUser()
           return await ctx.crud.update(input.id, patch, {
             actorSessionId: ctx.caller.capability.actorSessionId,
-            ...(viewer ? { viewer, caller: viewer } : {}),
+            ...(viewer ? { caller: viewer } : {}),
             ...(owner ? { owner } : {}),
             ...textAttribution(ctx),
           })

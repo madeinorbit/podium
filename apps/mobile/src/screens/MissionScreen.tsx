@@ -149,7 +149,7 @@ export const MissionScreen = observer(function MissionScreen() {
         label: headerIssue?.pinned ? 'Unpin' : 'Pin',
         onPress: () => {
           if (!headerIssue) return
-          void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
+          void store.setPinned('issue', headerIssue.id, !headerIssue.pinned)
         },
       },
       { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },

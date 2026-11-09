@@ -9,7 +9,9 @@
  * commit together, and a replay is the entry point's dedup.
  *
  *  - `records.pin.create` / `.remove`: the record's existence is the pin. A
- *    create of a pin that exists keeps it (`recreate: 'keep'`).
+ *    create of a pin that exists keeps it (`recreate: 'keep'`). An issue pin
+ *    (POD-6692) names a task that exists, and a pin or unpin that changed
+ *    something records `issue.pinned` on the task's activity, for its pinner.
  *  - `records.tabOrder.edit` / `.remove`: the whole list, last writer wins; an
  *    empty list removes the record.
  *  - `records.userPreferences.edit`: the leaves the patch names, through the
@@ -55,6 +57,11 @@ export interface UserRecordDeps {
   readonly readPositions: () => Pick<ReadPositionService, 'advance'>
   /** May this caller read this session? A panel pin names one. */
   readonly canReadSession: (principal: CommandPrincipal, sessionId: string) => Promise<boolean>
+  /** Does this task exist? An issue pin names one (every member reads every
+   *  task, design §2.2). */
+  readonly issueExists: (issueId: string) => Promise<boolean>
+  /** Record that a member pinned or unpinned a task (`issue.pinned`). */
+  readonly issuePinChanged: (userId: UserId, issueId: string, pinned: boolean) => Promise<void>
   /** The account's live role, or undefined (disabled, or no account). */
   readonly roleOf: (user: UserId) => Promise<UserRole | undefined>
   readonly now?: () => string
@@ -98,11 +105,16 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
   const pinOrGone = (id: string, principal: CommandPrincipal) => ownPin(id, principal) ?? gone()
 
   registerRecordKind(registry, PIN_RECORD, {
-    target: async (_op, id, { principal }) => {
+    target: async (op, id, { principal }) => {
       const key = ownPin(id, principal)
       if (key === undefined) return undefined
       // A panel pin names a session: one the caller may not read is unknown.
       if (key.kind === 'panel' && !(await deps.canReadSession(principal, key.entityId))) {
+        return undefined
+      }
+      // An issue pin names a task: pinning one that does not exist is unknown.
+      // Unpinning is always mine to do, the task gone or not.
+      if (key.kind === 'issue' && op === 'create' && !(await deps.issueExists(key.entityId))) {
         return undefined
       }
       return await own(key.userId)
@@ -124,20 +136,24 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
         throw new SyncWriteRefused({ kind: 'invalid', details: ['fields'] })
       }
       const at = now()
-      await ctx.ledger.commit({
+      const { result } = await ctx.ledger.commit({
         write: async () =>
           await deps.sessions().addPin(key.userId, key.kind as PinKind, key.entityId, at),
-        changes: (pin) => [pinUpsert(pin)],
+        changes: ({ pin }) => [pinUpsert(pin)],
       })
+      if (key.kind === 'issue' && result.created) {
+        await deps.issuePinChanged(key.userId, key.entityId, true)
+      }
       return { ok: true }
     },
     remove: async (ctx, id) => {
       const key = pinOrGone(id, ctx.principal)
-      await ctx.ledger.commit({
+      const { result: removed } = await ctx.ledger.commit({
         write: async () => await deps.sessions().removePin(key.userId, key.kind, key.entityId),
         // Unpinning what is not pinned changes nothing.
         changes: (removed) => (removed ? [pinRemove(key.userId, key.kind, key.entityId)] : []),
       })
+      if (key.kind === 'issue' && removed) await deps.issuePinChanged(key.userId, key.entityId, false)
       return { ok: true }
     },
   })

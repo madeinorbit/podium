@@ -201,7 +201,8 @@ export function createIssueBoardSource(
         ...value,
         readAt,
         tuckedAt: value.tuckedAt ?? null,
-        pinned: value.pinned ?? false,
+        // My pin record (POD-6692), never a field of the row.
+        pinned: pool.isPinned('issue', id),
         childIds: childIds.map(asIssueId),
         childCount: childIds.length,
         childDoneCount,

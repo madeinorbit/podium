@@ -153,6 +153,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     markIssueRead,
     markIssueUnread,
     updateIssue,
+    setPinned,
     deleteIssue,
     closeIssue,
     deferIssue,
@@ -465,7 +466,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         run(() => markIssueRead(first.id))
         return
       case 'pin':
-        run(() => updateIssue(first.id, { pinned: !first.pinned }))
+        run(() => setPinned('issue', first.id, !first.pinned))
         return
       case 'archive':
         // The archive/unarchive TOGGLE — `issues.update`, not the one-way

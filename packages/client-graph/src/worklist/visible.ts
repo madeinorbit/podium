@@ -149,6 +149,8 @@ export interface VisibleInputs {
    * row it holds.
    */
   issueRead(id: string): string | null | undefined
+  /** Did I pin issue `id`? My `pin` record (POD-6692), never a row field. */
+  issuePinned(id: string): boolean
   /** `coarseNow > t`. */
   passed(t: number): boolean
   /** `coarseNow >= t`. */
@@ -262,7 +264,8 @@ export function hiddenPresenceOf(
 
 export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent' |
-  'replicaActivityMs' | 'headlessStaffed'>, sessionFact?: IssueSessionFactReader): Standing {
+  'replicaActivityMs' | 'headlessStaffed' | 'pinned'>, sessionFact?: IssueSessionFactReader,
+  pinnedOf?: (id: string) => boolean): Standing {
   // These are plain rule answers. A scalar caller reads only its question;
   // the WorklistIssue/IssueModel @lazy getter owns caching and observation.
   // Eagerly filling this object would observe every supplied shared fact,
@@ -289,7 +292,7 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
     get replicaActivityMs() { return facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')) },
     get headlessStaffed() { return facts ? facts.headlessStaffed : sessionFact?.(issue.id, 'headlessStaffed') === true },
     get deleted() { return issue.deletedAt != null },
-    get pinned() { return issue.pinned === true },
+    get pinned() { return facts ? facts.pinned : pinnedOf?.(issue.id) === true },
     get formalParent() { return facts ? facts.formalParent : refs.issue.parent(issue) },
   }
 }
@@ -306,11 +309,11 @@ export interface IssueFacts {
 /** The facts group of `issue` (the fold verdict and the band are computed once, here). */
 function issueFactsOf(
   issue: SliceIssue,
-  input: Pick<VisibleInputs, 'passed' | 'reached' | 'issueSessionFact'>,
+  input: Pick<VisibleInputs, 'passed' | 'reached' | 'issueSessionFact' | 'issuePinned'>,
 ): IssueFacts {
   const part = ownPartOfRow(issue, input)
   return {
-    standing: standingOf(issue, undefined, input.issueSessionFact),
+    standing: standingOf(issue, undefined, input.issueSessionFact, input.issuePinned),
     part,
     placement: placementOfPart(part, issue.repoPath, issue.repoName),
   }
@@ -1202,7 +1205,9 @@ export function directVisibility(
     get standing() {
       return once('standing', () => {
         const issue = input.issueRow(id)
-        return issue === undefined ? undefined : standingOf(issue, undefined, input.issueSessionFact)
+        return issue === undefined
+          ? undefined
+          : standingOf(issue, undefined, input.issueSessionFact, input.issuePinned)
       })
     },
     get parentRef() {

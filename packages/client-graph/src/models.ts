@@ -1,6 +1,6 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { LiveStore } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinWire, ReadPositionWire, TabOrderWire } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -52,7 +52,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
-  'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
+  'title', 'audience', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
   'landedAt', 'landedSha',
   'updatedAt', 'closedAt', 'tuckedAt',
@@ -72,6 +72,8 @@ export interface ModelHost {
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): Lookup<object>
+  /** Did I pin this thing? My `pin` record of that kind (POD-6692). */
+  isPinned(kind: PinKind, entityId: string): boolean
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
@@ -362,6 +364,12 @@ export class IssueModel extends EntityModel {
 
   @lazy get authoredTitle(): string {
     return String(this.storedField('title') ?? '')
+  }
+
+  // My pin (POD-6692): my `pin` record of kind 'issue' for this task, never a
+  // field of its row. Pinning on my other device moves it without a request.
+  @lazy get pinned(): boolean {
+    return this.host.isPinned('issue', this.id)
   }
 
   // The viewer's personal set (POD-6290; design §2.2): the tasks they started

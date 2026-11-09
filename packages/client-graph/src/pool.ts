@@ -1,6 +1,6 @@
 import type { LiveStore } from '@podium/client-core/live'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
+import type { AccountView, GitRepositoryWire, MemberView, PinKind } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 
 type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
@@ -10,6 +10,7 @@ import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import { asSessionId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { MessagePoolRow } from './message-models'
+import { isPinned } from './per-user-records'
 import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
 import { readSetupSession } from './settings-views'
 import {
@@ -586,6 +587,7 @@ export class MobxPool {
       // yielded here. Closure-held, ids only.
       seatList: (id) => this.seatList(id),
       selected: (id) => worklistView(this).row(this.issueObject(id)).selected,
+      issuePinned: (id) => this.issueObject(id).pinned,
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
     }
@@ -620,6 +622,7 @@ export class MobxPool {
       openInteractions: (id) => this.sessionOpenInteractions(id),
       interactionSessions: () => this.sessionsWithOpenInteractions(),
       issueRead: (id) => this.readCursor(id),
+      issuePinned: (id) => this.issueObject(id).pinned,
       nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
       // The maintained SORTED list itself, returned without iterating it — a
@@ -835,6 +838,11 @@ export class MobxPool {
     if (entity === 'issue' && this.worklist.tracks(id)) return
     if (entity === 'session' && this.residency?.isCold('session', id) === true) return
     this.models[entity].delete(id)
+  }
+
+  /** Did I pin this thing? My `pin` record of that kind (POD-6692). */
+  isPinned(kind: PinKind, entityId: string): boolean {
+    return isPinned(this, kind, entityId)
   }
 
   /** The one object of issue `id`, built on first request (untracked: an identity memo). */

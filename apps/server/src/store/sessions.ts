@@ -897,6 +897,20 @@ const deletePin = prepared((db: StoreDrizzle) =>
   db.delete(pinsTable).where(onePin()).prepare(),
 )
 
+// Every person's pin of one thing, removed with it (POD-6692: a purged issue).
+const deletePinsOfTarget = prepared((db: StoreDrizzle) =>
+  db
+    .delete(pinsTable)
+    .where(
+      and(
+        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
+        eq(pinsTable.id, param(pinsTable.id, 'id')),
+      ),
+    )
+    .returning({ userId: pinsTable.userId })
+    .prepare(),
+)
+
 const pinOf = prepared((db: StoreDrizzle) =>
   db.select({ pinnedAt: pinsTable.pinnedAt }).from(pinsTable).where(onePin()).prepare(),
 )
@@ -1802,18 +1816,31 @@ export class SessionsRepository {
 
   /**
    * Pin one thing for one person; pinning what is pinned keeps the first pin.
-   * Answers the stored row, for the `pin` change it publishes (POD-6673).
+   * Answers the stored row, for the `pin` change it publishes (POD-6673), and
+   * whether this call made it (an issue pin's event, POD-6692).
    */
-  async addPin(userId: UserId, kind: PinKind, id: string, at: string): Promise<PinWire> {
+  async addPin(
+    userId: UserId,
+    kind: PinKind,
+    id: string,
+    at: string,
+  ): Promise<{ pin: PinWire; created: boolean }> {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
     requireUserId(userId)
     if (!id.trim()) throw new Error('pin id is empty')
     // `onConflictDoNothing` is `INSERT OR IGNORE` here: the four columns are
     // NOT NULL and each is refused above when blank; the table has no CHECK
     // (POD-3403, spec rule 31).
-    await insertPin(this.db).run({ userId, kind, id, pinnedAt: at })
+    const inserted = await insertPin(this.db).run({ userId, kind, id, pinnedAt: at })
     const pinnedAt = (await this.pinnedAt(userId, kind, id)) ?? at
-    return { userId, kind, entityId: id, pinnedAt }
+    return { pin: { userId, kind, entityId: id, pinnedAt }, created: Number(inserted.changes) > 0 }
+  }
+
+  /** Remove every person's pin of one thing; answers whose pins went, for the
+   *  `pin` removes the caller publishes. */
+  async removePinsOf(kind: PinKind, id: string): Promise<UserId[]> {
+    const rows = await deletePinsOfTarget(this.db).all({ kind, id })
+    return rows.map((row) => row.userId)
   }
 
   /** Unpin it. Answers whether there was a pin to remove. */

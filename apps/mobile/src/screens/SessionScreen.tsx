@@ -287,7 +287,7 @@ const SessionActionMenu = observer(function SessionActionMenu({ session, issue, 
         ? [
             {
               label: issue.pinned ? 'Unpin' : 'Pin',
-              onPress: () => void store.updateIssue(issue.id, { pinned: !issue.pinned }),
+              onPress: () => void store.setPinned('issue', issue.id, !issue.pinned),
             },
           ]
         : []),

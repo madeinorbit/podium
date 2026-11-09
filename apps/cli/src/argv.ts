@@ -76,7 +76,7 @@ export interface FlagDeclaration {
   readonly known: ReadonlySet<string>
   /** The subset of {@link known} that takes no value. */
   readonly booleans: ReadonlySet<string>
-  /** Flags accepting both a bare boolean and a value, such as `--pinned [false]`. */
+  /** Flags accepting both a bare boolean and a value, such as `--claim [false]`. */
   readonly optionalValues?: ReadonlySet<string>
   /** Short aliases: `f` → the long key `-f` means. */
   readonly shorts: ReadonlyMap<string, string>
@@ -282,9 +282,9 @@ const VALUE_PROBES = ['a-value', 'true', 'false', '1'] as const
  * wrong. `z.union([z.string(), z.number()])` (lock's `--ttl`) refuses `true` and
  * so stays a value flag — the case the hand-maintained sets kept getting wrong.
  * But the issue registry's `cliBool` accepts `true` AND the strings `'true'` and
- * `'false'`, precisely so `--pinned`, `--pinned true` and `--pinned=false` all
- * work. Calling that value-less would make `--pinned false` parse as
- * `pinned: true` and leave `false` on the floor as a positional: the flag would
+ * `'false'`, precisely so `--claim`, `--claim true` and `--claim=false` all
+ * work. Calling that value-less would make `--claim false` parse as
+ * `claim: true` and leave `false` on the floor as a positional: the flag would
  * set exactly what its author asked it to clear. So a field that accepts any
  * string is a value flag, whatever else it also accepts.
  */

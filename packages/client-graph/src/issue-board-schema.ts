@@ -131,7 +131,6 @@ export const ISSUE_BOARD_SUMMARIES = mergePoolSummaries(ISSUE_PAGE_SUMMARIES, {
     'intentOrigin',
     'closedAt',
     'branch',
-    'pinned',
     'tuckedAt',
     'defaultAgent',
   ],

@@ -376,7 +376,8 @@ export const updateInput = z.object({
     dueAt: z.string().optional(),
     deferUntil: z.string().optional(),
     closedReason: z.string().optional(),
-    pinned: z.boolean().optional(),
+    // No `pinned`: an issue's pin is a pin record of mine (`records.pin`,
+    // POD-6692), never a field of the issue.
     // Manual order (POD-168): fractional key, validated so a malformed key
     // can never poison a sibling scope's ordering.
     //

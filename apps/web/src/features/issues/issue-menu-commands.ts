@@ -27,6 +27,8 @@ export interface IssueMenuCommandDeps {
    *  toggle sends: the stage, priority and colour entries below are the same
    *  command and now ride this action too. */
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  /** Pin or unpin it for me: my `pin` record (POD-6692), queued and painted at once. */
+  setPinned: (kind: 'issue', id: string, pinned: boolean) => Promise<unknown>
   /** Optimistic + outboxed (POD-781): tombstones the issue AND its sessions. */
   deleteIssue: (id: string) => Promise<unknown>
   /** The four curation commands that are NOT `issues.update`, each optimistic +
@@ -85,7 +87,7 @@ export function runIssueMenuCommand(
       case 'markRead':
         return deps.markIssueRead(id)
       case 'pin':
-        return deps.updateIssue(id, { pinned: !data.first.pinned })
+        return deps.setPinned('issue', id, !data.first.pinned)
       case 'archive': {
         // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
         // the menu's archive/unarchive pair has always gone through the patch —

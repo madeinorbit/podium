@@ -570,7 +570,6 @@ const DECLARED = defineSchema({
       landedSha: { type: 'string', optional: true, nullable: true, source: projection() },
       audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
       isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
-      pinned: { type: 'boolean', optional: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
       sortKey: { type: 'string', optional: true, nullable: true, source: projection() },
       deferUntil: { type: 'isoDate', optional: true, nullable: true, source: projection() },
       tuckedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },

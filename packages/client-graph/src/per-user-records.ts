@@ -56,6 +56,33 @@ export function pinnedIds(
   return pinReads(pool)[kind].get()
 }
 
+type PinSets = Readonly<Record<PinKind, IComputedValue<ReadonlySet<string>>>>
+
+const NO_PINS: ReadonlySet<string> = Object.freeze(new Set<string>())
+
+/** One set per pin kind, rebuilt only when that kind's pins change. */
+function pinSets(pool: Pick<MobxPool, 'tables' | 'sources'>): PinSets {
+  return pool.sources.view('per-user.pin-sets', () => {
+    const of = (kind: PinKind) =>
+      computed((): ReadonlySet<string> => {
+        const ids = pinnedIds(pool, kind)
+        return ids.length === 0 ? NO_PINS : new Set(ids)
+      })
+    return { panel: of('panel'), issue: of('issue'), worktree: of('worktree'), repo: of('repo') }
+  })
+}
+
+/** Did I pin this thing? A keyed lookup on my pins of that kind (POD-6692:
+ *  what `IssueModel.pinned` reads). Tracked: a pin on my other device moves it. */
+export function isPinned(
+  pool: Pick<MobxPool, 'tables' | 'sources'>,
+  kind: PinKind,
+  entityId: string,
+): boolean {
+  if (pool.sources === undefined) return false
+  return pinSets(pool)[kind].get().has(entityId)
+}
+
 /** My personal settings, resolved with defaults; undefined until the pool
  *  has its first publication. */
 export function myPreferences(

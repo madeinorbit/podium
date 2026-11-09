@@ -40,6 +40,8 @@ const pickActions = (s: MobileStore) => ({
   setIssueTucked: s.setIssueTucked,
   setIssuePlacement: s.setIssuePlacement,
   updateIssue: s.updateIssue,
+  // My pin of a task is my `pin` record (POD-6692).
+  setPinned: s.setPinned,
   closeIssue: s.closeIssue,
   deleteIssue: s.deleteIssue,
   restoreIssue: s.restoreIssue,

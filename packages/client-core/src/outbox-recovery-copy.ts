@@ -255,7 +255,6 @@ const PATCH_FIELD_NOUNS: Record<string, string> = {
   dueAt: 'due date',
   deferUntil: 'snooze',
   closedReason: 'close reason',
-  pinned: 'pin',
   sortKey: 'order',
   estimateMin: 'estimate',
 }
@@ -577,8 +576,6 @@ function describeSinglePatchField(key: string, value: unknown): QueuedChangeView
       }
     case 'archived':
       return { label: value === true ? 'Issue archived' : 'Issue unarchived', summary: null }
-    case 'pinned':
-      return { label: value === true ? 'Issue pinned' : 'Issue unpinned', summary: null }
     case 'dueAt':
       return { label: 'Issue due date', summary: formatWhen(value) }
     case 'deferUntil':

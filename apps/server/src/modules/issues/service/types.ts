@@ -597,17 +597,6 @@ export type IssuePatch = Partial<
   >
 > & {
   /**
-   * PER-USER, and therefore NOT a `Pick` of the row (POD-1076).
-   *
-   * `pinned` is still what the API accepts — pinning is a verb the caller uses —
-   * but it is no longer a column on `IssueRow`, so `update()` intercepts it and
-   * writes the actor's `(userId, issueId)` row instead of `Object.assign`-ing it
-   * onto the shared issue. Listing it in the `Pick` would not compile, which is
-   * the point: the type refuses the shape that silently made one person's pin
-   * everybody's.
-   */
-  pinned?: boolean
-  /**
    * An agent profile by NAME or id (POD-6107), as the CLI and the router take it;
    * `null` clears it. `update()` resolves it to `agentProfileId` before anything
    * else, so it never reaches the row.

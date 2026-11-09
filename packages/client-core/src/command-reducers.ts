@@ -49,7 +49,7 @@ export type OverlayEntity = 'sessions' | 'issueProjections'
 
 /**
  * Every entity an overlay can paint (POD-4969). The per-user issue state —
- * `readAt`, `tuckedAt`, `pinned`, one row per (user, issue) — is a target of its
+ * `readAt`, `tuckedAt`, one row per (user, issue) — is a target of its
  * own: the normalized issue row deliberately carries no per-user cell. So is
  * the per-user session state (POD-4974 S3): `readAt` and `snoozedUntil`, one
  * row per (user, session), joined into the session view by the reader.
@@ -293,7 +293,7 @@ function overlayOf(
     case 'issueUpdate': {
       // THE PATCH IS THE OVERLAY (POD-781), ROUTED BY HOME (POD-4969). Every key
       // `issues.update` accepts is either a field of the normalized issue row or
-      // one of the per-user markers (`pinned`), so the patch splits into at most
+      // one of the per-user markers, so the patch splits into at most
       // two overlays, one per row it lands on, both keyed by this mutation. The
       // routing is read off the two schemas (`issueUpdateRoute`), not listed.
       //

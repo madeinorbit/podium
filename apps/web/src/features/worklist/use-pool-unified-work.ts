@@ -273,8 +273,15 @@ export function createPoolWorkActions(
         ),
       ),
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
+    // A drag across the Pinned edge also pins or unpins: my pin record
+    // (POD-6692), beside the issue's own order key.
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
-      Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
+      Promise.all(
+        patches.flatMap(({ id, sortKey, pinned }) => [
+          runtime.access.updateIssue(id, { sortKey }),
+          ...(pinned === undefined ? [] : [runtime.access.setPinned('issue', id, pinned)]),
+        ]),
+      ),
     undeferIssue: (id: string) => runtime.access.undeferIssue(id),
     setIssueTucked: (id: string, tucked: boolean) => runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData =>
