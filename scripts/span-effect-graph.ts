@@ -358,6 +358,16 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     body: 'arg0',
     label: 'MessageFeedDeps.transact',
   },
+  {
+    // The machine records' write [POD-6644]: composition binds it to
+    // `SessionStore.transact`, and the body captures the access rows and records
+    // each appended member's checkout reach in one unit of work, so the feed's
+    // anchor never reads a reach the rows did not commit with.
+    file: 'apps/server/src/modules/machines/records.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'MachineRecordsDeps.reach.transact',
+  },
 ]
 
 /**
@@ -628,6 +638,34 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
     why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.facts': {
+    kind: 'contained',
+    why: "The machine records' read of the machines' record facts [POD-6644]: composition binds it to the machines service's store reads, which join the records write's transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.grants': {
+    kind: 'contained',
+    why: "The machine records' one grouped read of the machines' grant edges [POD-6644], on the store inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.members': {
+    kind: 'contained',
+    why: "The machine records' read of the enabled members and their roles [POD-6644], on the store inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.of': {
+    kind: 'contained',
+    why: "The recorded checkout reach of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_reach inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.apply': {
+    kind: 'contained',
+    why: "The appended members' new checkout reach and lost reach, written to the server-only checkout_reach table [POD-6644] in the same transaction as the access rows' capture. Nothing outside the process reads it until commit, and a rollback takes it with the rows.",
+  },
+  'apps/server/src/machine-access.ts#MachineOwnershipIndex.rowFor': {
+    kind: 'contained',
+    why: "A lookup in the ownership index the machine records built from rows they already read [POD-6644]; pure over that map.",
+  },
+  'apps/server/src/machine-access.ts#MachineOwnershipIndex.delegatedMachines': {
+    kind: 'contained',
+    why: "A lookup in the same in-memory ownership index [POD-6644]; pure over rows already read, no I/O.",
   },
   'apps/server/src/modules/checkouts/service.ts#CheckoutsDeps.writer': {
     kind: 'contained',

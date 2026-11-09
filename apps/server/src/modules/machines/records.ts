@@ -26,9 +26,18 @@ import {
   type MachineAccessWire,
   type MachineId,
   machineAccessRowId,
+  parseMachineAccessRowId,
   type UserId,
   type UserRole,
 } from '@podium/model'
+import {
+  type CheckoutReach,
+  type CheckoutReaders,
+  checkoutReaders,
+  type LostCheckoutReach,
+  lostReach,
+  reachOf,
+} from '../../checkout-reach'
 import { userCommandPrincipal } from '../../command-principal'
 import {
   canManageMachineCustody,
@@ -57,6 +66,27 @@ export interface MachineRecordsDeps {
   ): Promise<ReadonlyMap<string, readonly { grantee: string; verb: string; custody?: boolean }[]>>
   /** Every member who can act (enabled), with their role. */
   members(): Promise<readonly RecordMember[]>
+  /**
+   * Each member's recorded checkout reach (POD-6644), and the transaction the
+   * records and the reach are written in together. Absent: no reach is
+   * recorded (tests of the records alone).
+   */
+  readonly reach?: {
+    of(
+      ids: readonly MachineId[],
+    ): Promise<ReadonlyMap<MachineId, ReadonlyMap<string, { reach: CheckoutReach }>>>
+    apply(
+      rows: readonly {
+        userId: string
+        machineId: MachineId
+        reach: CheckoutReach
+        lost: LostCheckoutReach | null
+      }[],
+      at: string,
+    ): Promise<void>
+    transact<T>(fn: () => Promise<T>): Promise<T>
+    now(): string
+  }
 }
 
 type Spec = Parameters<MachineRecordWriter['capture']>[0][number]
@@ -94,6 +124,7 @@ export function accessRowFor(
   member: RecordMember,
   fact: MachineRecordFacts,
   ownership: MachineOwnershipIndex,
+  readers?: CheckoutReaders,
 ): MachineAccessWire | undefined {
   const principal = userCommandPrincipal(member.id, member.role)
   const id = fact.machine.id
@@ -111,6 +142,7 @@ export function accessRowFor(
     unowned,
     adoptable: unowned && admin && verbs.has('manage'),
     supersedable: !fact.supersededBy && admin && verbs.has('manage'),
+    ...(readers ? { checkoutReach: reachOf(member.id, readers) } : {}),
     ...fact.see,
     ...(use === 'granted' ? fact.use : {}),
   }
@@ -131,12 +163,17 @@ export async function machineRecordSpecs(
     deps.members(),
   ])
   const ownership = ownershipOf(facts, grants)
+  // The admins who MANAGE every machine: the same set the feed reads.
+  const admins = new Set(
+    members.filter((member) => member.role === 'admin').map((member) => member.id),
+  )
   const specs: Spec[] = []
   for (const fact of facts) {
     const id = fact.machine.id
     specs.push({ entity: 'machine', id, op: 'upsert', value: fact.machine })
+    const readers = checkoutReaders(grants.get(id) ?? [], admins)
     for (const member of members) {
-      const row = accessRowFor(member, fact, ownership)
+      const row = accessRowFor(member, fact, ownership, readers)
       const accessId = machineAccessRowId(member.id, id)
       specs.push(
         row === undefined
@@ -152,12 +189,63 @@ export async function machineRecordSpecs(
   return specs
 }
 
-/** Write the records on `writer`. Unchanged rows append nothing. */
+/**
+ * Write the records on `writer`. Unchanged rows append nothing.
+ *
+ * With `deps.reach`, each member whose access row this write appended has
+ * their checkout reach recorded in the same transaction: the new reach, and
+ * what the write took away from the old one (cleared by their next appended
+ * row). The feed's machineAccess anchor reads it to evict exactly the
+ * checkouts the member lost (POD-6644). A run that appends no access row
+ * reads and writes no reach.
+ */
 export async function writeMachineRecords(
   deps: MachineRecordsDeps,
   writer: MachineRecordWriter,
   scope: { readonly ids?: readonly MachineId[]; readonly formerMembers?: readonly UserId[] } = {},
 ): Promise<void> {
-  const specs = await machineRecordSpecs(deps, scope)
-  if (specs.length > 0) await writer.capture(specs)
+  const reach = deps.reach
+  const run = async () => {
+    const specs = await machineRecordSpecs(deps, scope)
+    if (specs.length === 0) return
+    const appended = await writer.capture(specs)
+    if (reach) await recordReach(reach, specs, appended)
+  }
+  await (reach ? reach.transact(run) : run())
+}
+
+async function recordReach(
+  reach: NonNullable<MachineRecordsDeps['reach']>,
+  specs: readonly Spec[],
+  appended: readonly { entity: string; entityId?: string; id?: string }[],
+): Promise<void> {
+  const written = new Map<string, CheckoutReach>()
+  for (const spec of specs) {
+    if (spec.entity !== 'machineAccess') continue
+    const value = spec.op === 'upsert' ? (spec.value as MachineAccessWire | undefined) : undefined
+    written.set(spec.id, value?.checkoutReach ?? 'none')
+  }
+  const moved = appended.flatMap((change) => {
+    const id = change.entityId ?? change.id
+    if (change.entity !== 'machineAccess' || id === undefined || !written.has(id)) return []
+    try {
+      return [{ ...parseMachineAccessRowId(id), next: written.get(id)! }]
+    } catch {
+      return []
+    }
+  })
+  if (moved.length === 0) return
+  const stored = await reach.of([...new Set(moved.map((row) => row.machineId))])
+  await reach.apply(
+    moved.map((row) => {
+      const before = stored.get(row.machineId)?.get(row.userId)?.reach ?? 'none'
+      return {
+        userId: row.userId,
+        machineId: row.machineId,
+        reach: row.next,
+        lost: lostReach(before, row.next),
+      }
+    }),
+    reach.now(),
+  )
 }

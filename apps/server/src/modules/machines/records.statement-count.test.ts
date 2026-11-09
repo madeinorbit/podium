@@ -139,7 +139,7 @@ describe('statement counts of the machine record writes', () => {
   })
 
   it('the server rewriting one machine’s records does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(republish, 12)
+    await expectConstantStatements(republish, 10)
   })
 
   it('a scan that finds nothing new writes nothing, whatever the machine holds', async () => {

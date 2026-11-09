@@ -986,10 +986,44 @@ export const checkouts = sqliteTable(
     locked: integer({ mode: 'boolean' }).notNull().default(false),
     prunable: integer({ mode: 'boolean' }).notNull().default(false),
     updatedAt: text('updated_at').notNull(),
+    /** Set when a registered root is unregistered: the root's tombstone, kept
+     *  so the feed still knows the removal was a root's and sends it to the
+     *  members who could read the root (MANAGE as well as USE). Cleared when
+     *  the path is registered again. A worktree's row is deleted instead: its
+     *  removal goes to the USE holders, who are the only readers it had. */
+    removedAt: text('removed_at'),
   },
   (table) => [
     primaryKey({ columns: [table.machineId, table.path], name: 'checkouts_pk' }),
     index('idx_checkouts_root').on(table.machineId, table.root),
+  ],
+)
+
+/**
+ * WHAT EACH MEMBER MAY READ OF EACH MACHINE'S CHECKOUTS (POD-6644): the reach
+ * the server last wrote with the member's access row, and what that write took
+ * away. Server-only: never on the wire.
+ *
+ * `reach` is `all` for a member holding USE (roots and worktrees), `roots` for
+ * MANAGE alone, `none` otherwise. `lost` is what the last access-row write
+ * removed (`worktrees`, `roots` or `all`), and is cleared by the next one. The
+ * feed's machineAccess anchor reads it to evict exactly the checkouts the
+ * member could read before and no longer may, and to send no checkout id to a
+ * member who could never read it. A table, not a field on the access row,
+ * because losing SEE removes that row and the removal still needs its evicts.
+ */
+export const checkoutReach = sqliteTable(
+  'checkout_reach',
+  {
+    userId: text('user_id').$type<UserId>().notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    reach: text({ enum: ['all', 'roots', 'none'] }).notNull(),
+    lost: text({ enum: ['worktrees', 'roots', 'all'] }),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.machineId], name: 'checkout_reach_pk' }),
+    index('idx_checkout_reach_machine').on(table.machineId),
   ],
 )
 

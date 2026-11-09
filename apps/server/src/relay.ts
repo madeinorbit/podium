@@ -1044,6 +1044,14 @@ export class SessionRegistry {
         (await this.store.users.list())
           .filter((member) => member.disabledAt === null)
           .map((member) => ({ id: asUserId(member.id), role: member.role })),
+      // Each member's checkout reach, recorded with their access row in one
+      // transaction: the feed evicts exactly what a member lost (POD-6644).
+      reach: {
+        of: async (ids) => await this.store.checkouts.reachOfMachines(ids),
+        apply: async (rows, at) => await this.store.checkouts.applyReach(rows, at),
+        transact: async (fn) => await this.store.transact(fn),
+        now: () => new Date(this.now()).toISOString(),
+      },
     })
     // AGENT PROFILES (POD-6107). Composed right after machines because the launch
     // resolver asks the machine service which candidate harness can run where.

@@ -129,6 +129,14 @@ export const MachineAccessWire = z.object({
   adoptable: z.boolean(),
   /** This member may mark it replaced by another machine. */
   supersedable: z.boolean(),
+  /**
+   * Which of the machine's checkouts this member may read: `all` with USE
+   * (roots and worktrees), `roots` with MANAGE alone, `none` otherwise
+   * (POD-6644). Server-written. On the row so that a change of reach is a
+   * change of the row, which is what moves the feed's checkout edge for this
+   * member. Absent from rows an older server wrote.
+   */
+  checkoutReach: z.enum(['all', 'roots', 'none']).optional(),
   // Identity and lifecycle (SEE)
   hostname: z.string(),
   /** Retained audit identity; a revoked machine runs nothing. */

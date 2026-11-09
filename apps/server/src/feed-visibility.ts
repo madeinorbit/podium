@@ -67,6 +67,12 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
+import {
+  type CheckoutReach,
+  checkoutReaders,
+  type LostCheckoutReach,
+  reachCovers,
+} from './checkout-reach'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
@@ -933,27 +939,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
       if (custodian) machineCustodians.set(machineId, custodian)
-      // `use` and `manage` are explicit edges, and retained shares are inert
-      // once nobody holds custody (`machine-access.ts`); a revocation removes
-      // the edges. Administration grants MANAGE, never USE (D19.4b).
-      if (custodian && checkoutMachineIds.has(machineId)) {
-        machineUsers.set(
-          machineId,
-          new Set(edges.filter((edge) => edge.verb === 'use').map((edge) => edge.grantee)),
-        )
-        machineManagers.set(
-          machineId,
-          new Set([
-            ...edges.filter((edge) => edge.verb === 'manage').map((edge) => edge.grantee),
-            ...checkoutAdmins,
-          ]),
-        )
-      }
     }
-    // A machine nobody holds custody of: only the admins manage it.
-    for (const machineId of checkoutMachineIds)
-      if (!machineManagers.has(machineId) && checkoutAdmins.size > 0)
-        machineManagers.set(machineId, new Set(checkoutAdmins))
+    // Who reads each machine's checkouts: the one rule the access-row writer
+    // records each member's reach by (`checkout-reach.ts`).
+    for (const machineId of checkoutMachineIds) {
+      const readers = checkoutReaders(found.get('machine')?.get(machineId) ?? [], checkoutAdmins)
+      machineUsers.set(machineId, new Set(readers.users))
+      machineManagers.set(machineId, new Set(readers.managers))
+    }
     return makeVisibilityState({
       issueIds,
       issues,
@@ -1243,7 +1236,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         ...new Set(refs.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
       ]
       // A member's access row moving is the edge for that machine's checkouts
-      // (POD-6644): gaining `use` hands them over, losing it takes them away.
+      // (POD-6644). Its subjects are what the member's recorded reach covers
+      // now (re-admitted) and what the write took away (evicted): never a
+      // checkout the member could not read before or after, whose id alone
+      // would tell them its path.
       const accessMachines = [
         ...new Set(
           refs.flatMap((ref) => {
@@ -1256,15 +1252,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }),
         ),
       ]
-      const [audiences, departures, custody, checkoutPaths] = await Promise.all([
+      const [audiences, departures, custody, checkoutPaths, checkoutReach] = await Promise.all([
         issueIds.length === 0
           ? new Map<string, readonly string[]>()
           : deps.audiencesFor('issue', issueIds),
         laneDepartureEdges(orderIds),
         custodyEdges(machineIds),
         accessMachines.length === 0
-          ? new Map<string, string[]>()
-          : store.checkouts.pathsOfMachines(accessMachines),
+          ? new Map<string, { path: string; root: boolean }[]>()
+          : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
+        accessMachines.length === 0
+          ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>()
+          : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
       ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
@@ -1279,13 +1278,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           } catch {
             return null
           }
-          const paths = checkoutPaths.get(key.machineId) ?? []
+          const recorded = checkoutReach.get(key.machineId)?.get(key.userId)
+          if (recorded === undefined) return null
+          const covers = reachCovers(recorded.reach, recorded.lost)
+          const paths = (checkoutPaths.get(key.machineId) ?? []).filter((checkout) =>
+            checkout.root ? covers.roots : covers.worktrees,
+          )
           if (paths.length === 0) return null
           return {
             audience: [key.userId],
-            subjects: paths.map((path) => ({
+            subjects: paths.map((checkout) => ({
               entity: 'checkout' as const,
-              entityId: checkoutRowId(key.machineId, path),
+              entityId: checkoutRowId(key.machineId, checkout.path),
             })),
           }
         }

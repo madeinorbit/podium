@@ -11,10 +11,18 @@
  */
 
 import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { checkouts } from '../migrations/schema'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import type { CheckoutReach, LostCheckoutReach } from '../checkout-reach'
+import { checkoutReach, checkouts } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 /** One stored checkout. */
 export interface CheckoutRow {
@@ -47,33 +55,92 @@ const checkoutsOfMachine = prepared((db: StoreDrizzle) =>
   db
     .select(COLUMNS)
     .from(checkouts)
-    .where(eq(checkouts.machineId, param(checkouts.machineId, 'machineId')))
+    .where(
+      and(
+        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
+        isNull(checkouts.removedAt),
+      ),
+    )
     .orderBy(asc(checkouts.path))
     .prepare(),
 )
 
 /** Every row: the `checkout` kind's full truth for the boot reconcile. */
 const allCheckouts = prepared((db: StoreDrizzle) =>
-  db.select(COLUMNS).from(checkouts).orderBy(asc(checkouts.machineId), asc(checkouts.path)).prepare(),
+  db
+    .select(COLUMNS)
+    .from(checkouts)
+    .where(isNull(checkouts.removedAt))
+    .orderBy(asc(checkouts.machineId), asc(checkouts.path))
+    .prepare(),
 )
 
-/** The checkout paths of several machines: the feed's re-send when a member's
- *  `use` on a machine moves. */
+/** The live checkout paths of several machines, each marked root or not: the
+ *  feed's re-send when a member's reach on a machine moves. */
 const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .select({ machineId: checkouts.machineId, path: checkouts.path })
+    .select({ machineId: checkouts.machineId, path: checkouts.path, root: checkouts.root })
     .from(checkouts)
-    .where(inListOf(checkouts.machineId, size))
+    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
     .prepare(),
 )
 
 /** The registered roots of several machines (a root's row has `root = path`):
- *  how the feed tells a root, which managers may read, from a worktree. */
+ *  how the feed tells a root, which managers may read, from a worktree.
+ *  Removed roots too, through their tombstones: a root's removal goes to the
+ *  same readers the root had. */
 const rootPathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({ machineId: checkouts.machineId, path: checkouts.path })
     .from(checkouts)
     .where(and(inListOf(checkouts.machineId, size), eq(checkouts.root, checkouts.path)))
+    .prepare(),
+)
+
+/** The recorded checkout reach of every member on several machines. */
+const reachOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      userId: checkoutReach.userId,
+      machineId: checkoutReach.machineId,
+      reach: checkoutReach.reach,
+      lost: checkoutReach.lost,
+    })
+    .from(checkoutReach)
+    .where(inListOf(checkoutReach.machineId, size))
+    .prepare(),
+)
+
+const upsertReach = prepared((db: StoreDrizzle) =>
+  db
+    .insert(checkoutReach)
+    .values({
+      userId: sql.placeholder('userId'),
+      machineId: sql.placeholder('machineId'),
+      reach: sql.placeholder('reach'),
+      lost: sql.placeholder('lost'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: [checkoutReach.userId, checkoutReach.machineId],
+      set: {
+        reach: sql.placeholder('reach'),
+        lost: sql.placeholder('lost'),
+        updatedAt: sql.placeholder('updatedAt'),
+      },
+    })
+    .prepare(),
+)
+
+const deleteReach = prepared((db: StoreDrizzle) =>
+  db
+    .delete(checkoutReach)
+    .where(
+      and(
+        eq(checkoutReach.userId, param(checkoutReach.userId, 'userId')),
+        eq(checkoutReach.machineId, param(checkoutReach.machineId, 'machineId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -105,8 +172,24 @@ const upsertCheckout = prepared((db: StoreDrizzle) =>
         locked: sql.placeholder('locked'),
         prunable: sql.placeholder('prunable'),
         updatedAt: sql.placeholder('updatedAt'),
+        // A path registered again is live again.
+        removedAt: null,
       },
     })
+    .prepare(),
+)
+
+/** A removed root keeps its row as a tombstone (see `checkouts.removedAt`). */
+const tombstoneRoot = prepared((db: StoreDrizzle) =>
+  db
+    .update(checkouts)
+    .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
+    .where(
+      and(
+        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
+        eq(checkouts.path, param(checkouts.path, 'path')),
+      ),
+    )
     .prepare(),
 )
 
@@ -150,28 +233,71 @@ export class CheckoutsRepository {
     return this.rootDb
   }
 
-  /** One machine's checkouts, by path. */
+  /** One machine's live checkouts, by path. */
   async ofMachine(machineId: MachineId): Promise<CheckoutRow[]> {
     return (await checkoutsOfMachine(this.db).all({ machineId })) as CheckoutRow[]
   }
 
-  /** The checkout paths of each of these machines, one statement per 500. */
-  async pathsOfMachines(machineIds: readonly MachineId[]): Promise<Map<MachineId, string[]>> {
-    const out = new Map<MachineId, string[]>()
+  /** The live checkout paths of each of these machines, each marked root or
+   *  not, one statement per 500. */
+  async pathsOfMachines(
+    machineIds: readonly MachineId[],
+  ): Promise<Map<MachineId, { path: string; root: boolean }[]>> {
+    const out = new Map<MachineId, { path: string; root: boolean }[]>()
     for (let at = 0; at < machineIds.length; at += 500) {
       const chunk = machineIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
       for (const row of await pathsOfMachines(this.db, size).all(inListValues(chunk, size))) {
         const paths = out.get(row.machineId) ?? []
-        paths.push(row.path)
+        paths.push({ path: row.path, root: row.root === row.path })
         out.set(row.machineId, paths)
       }
     }
     return out
   }
 
+  /** Each member's recorded reach on each of these machines (see
+   *  `checkout_reach`), keyed machine then member, one statement per 500. */
+  async reachOfMachines(
+    machineIds: readonly MachineId[],
+  ): Promise<Map<MachineId, Map<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>> {
+    const out = new Map<MachineId, Map<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>()
+    for (let at = 0; at < machineIds.length; at += 500) {
+      const chunk = machineIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await reachOfMachines(this.db, size).all(inListValues(chunk, size))) {
+        const members = out.get(row.machineId) ?? new Map()
+        members.set(row.userId, { reach: row.reach, lost: row.lost })
+        out.set(row.machineId, members)
+      }
+    }
+    return out
+  }
+
+  /** Record these reaches. A member with no reach and nothing lost has no row. */
+  async applyReach(
+    rows: readonly {
+      userId: string
+      machineId: MachineId
+      reach: CheckoutReach
+      lost: LostCheckoutReach | null
+    }[],
+    at: string,
+  ): Promise<void> {
+    if (rows.length === 0) return
+    await this.createOrJoinTransaction(async () => {
+      for (const row of rows) {
+        const key = { userId: row.userId, machineId: row.machineId }
+        if (row.reach === 'none' && row.lost === null) await deleteReach(this.db).run(key)
+        else await upsertReach(this.db).run({ ...key, reach: row.reach, lost: row.lost, updatedAt: at })
+      }
+    })
+  }
+
   /** The registered root paths of each of these machines, one statement per 500. */
-  async rootPathsOfMachines(machineIds: readonly MachineId[]): Promise<Map<MachineId, Set<string>>> {
+  async rootPathsOfMachines(
+    machineIds: readonly MachineId[],
+  ): Promise<Map<MachineId, Set<string>>> {
     const out = new Map<MachineId, Set<string>>()
     for (let at = 0; at < machineIds.length; at += 500) {
       const chunk = machineIds.slice(at, at + 500)
@@ -185,15 +311,16 @@ export class CheckoutsRepository {
     return out
   }
 
-  /** Every checkout: the boot reconcile's full truth. */
+  /** Every live checkout: the boot reconcile's full truth. */
   async all(): Promise<CheckoutRow[]> {
     return (await allCheckouts(this.db).all()) as CheckoutRow[]
   }
 
-  /** Write these rows and remove these paths, in one transaction. */
+  /** Write these rows and remove these, in one transaction. A removed root
+   *  keeps a tombstone; a removed worktree's row is deleted. */
   async apply(
     upserts: readonly CheckoutRow[],
-    removes: readonly { machineId: MachineId; path: string }[],
+    removes: readonly Pick<CheckoutRow, 'machineId' | 'path' | 'root'>[],
     at: string,
   ): Promise<void> {
     if (upserts.length === 0 && removes.length === 0) return
@@ -207,7 +334,11 @@ export class CheckoutsRepository {
           updatedAt: at,
         })
       }
-      for (const key of removes) await deleteCheckout(this.db).run(key)
+      for (const row of removes) {
+        const key = { machineId: row.machineId, path: row.path }
+        if (row.root === row.path) await tombstoneRoot(this.db).run({ ...key, removedAt: at })
+        else await deleteCheckout(this.db).run(key)
+      }
     })
   }
 }

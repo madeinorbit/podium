@@ -43,9 +43,13 @@ export interface FeedVisibilityStore {
     'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
   >
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
-  /** A machine's checkouts, re-sent when a member's access on it moves, and
-   *  its registered roots, which managers may read too (POD-6644). */
-  readonly checkouts: Pick<SessionStore['checkouts'], 'pathsOfMachines' | 'rootPathsOfMachines'>
+  /** A machine's checkouts, re-sent when a member's access on it moves, its
+   *  registered roots, which managers may read too, and each member's recorded
+   *  reach on it (POD-6644). */
+  readonly checkouts: Pick<
+    SessionStore['checkouts'],
+    'pathsOfMachines' | 'rootPathsOfMachines' | 'reachOfMachines'
+  >
 }
 export type DeliveryMessages = Pick<
   SessionStore['messages'],

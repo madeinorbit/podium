@@ -689,7 +689,7 @@ describe('machine access and checkout rows', () => {
     expect(state.mayRead(reader, checkout)).toBe(false)
   })
 
-  it('a member whose access row moved is re-sent that machine’s checkouts', async () => {
+  it('a member whose access row moved is re-sent the checkouts their reach covers', async () => {
     const { store, policy } = await fixture()
     await store.machines.upsertMachine({
       id: 'm1',
@@ -713,6 +713,17 @@ describe('machine access and checkout rows', () => {
         },
       ],
       [],
+      '2026-11-09T00:00:00Z',
+    )
+    // No recorded reach (SEE only, or never written): no checkout id goes out.
+    expect(
+      await edgeOf(policy.anchors, {
+        entity: 'machineAccess',
+        entityId: machineAccessRowId(reader, asMachineId('m1')),
+      }),
+    ).toBeNull()
+    await store.checkouts.applyReach(
+      [{ userId: reader, machineId: asMachineId('m1'), reach: 'all', lost: null }],
       '2026-11-09T00:00:00Z',
     )
     const edge = await edgeOf(policy.anchors, {
