@@ -80,18 +80,15 @@ import { type Commands, createCommands } from '../commands'
 import type { ConversationCache, ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
 import { createChatSends } from '../conversation/sends'
-import type { LiveStore } from '../live/live-store'
 import { createNotices } from '../notices'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import { createRecordsApi } from '../records'
-import type { Replica } from '../replica/kernel/facade'
 import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { OutboxOutcome } from '../runtime-root/outbox/outbox-service'
-import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
+import type { OutboxKinds } from '../runtime-root/outbox/wiring'
 import { createRuntimeRoot, type RuntimeRoot, type RuntimeRootInit } from '../runtime-root/root'
-import type { SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
 import { openLegacyDeviceKeys } from '../ui/draft-storage'
 import { createUiKeys } from '../ui/keys'
@@ -197,22 +194,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * forwards its plumbing members to it until POD-5803 deletes the store.
    */
   readonly root: RuntimeRoot<TApi>
-  /** The root's replica. */
-  get replica(): Replica {
-    return this.root.replica
-  }
-  /** The root's socket (its connection service). */
-  get hub(): SocketHub {
-    return this.root.services.connection.hub
-  }
-  /** The root's queue of unsent writes (its outbox service). */
-  get outbox(): EngineOutbox {
-    return this.root.services.outbox.queue
-  }
-  /** The root's LiveStore (POD-5798). */
-  get live(): LiveStore {
-    return this.root.live
-  }
   readonly router: Router
   readonly ui: UiStore
   readonly deviceState: RoutedUiState
@@ -310,8 +291,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.onFatalError = init.onFatalError
     this.formatError = init.formatError ?? defaultFormatError
     this.networkEnabled = init.networkEnabled ?? true
-    bindStoreStatsOwner(this.replica, this)
-    const device = this.replica.deviceStorage()
+    bindStoreStatsOwner(this.root.replica, this)
+    const device = this.root.replica.deviceStorage()
     const localUi = openLegacyDeviceKeys(device)
     this.state = initialEngineState() as EngineState & ScreenState
     this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
@@ -340,7 +321,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.deviceState = createUiKeys(() => this.ui, localUi, this.layout)
     this.ui = new UiStore({
       api: this.api,
-      hub: this.hub,
+      hub: this.root.services.connection.hub,
       notices: this.notices,
       keys: this.deviceState,
       router: this.router,
@@ -414,7 +395,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.reactions = new Reactions({
       state: () => this.state,
       publish: (patch) => this.apply(patch),
-      hub: this.hub,
+      hub: this.root.services.connection.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
       markSessionRead: (sessionId, readAt) =>
@@ -440,7 +421,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // server there is nothing else that would ever fill it in.
     this.drafts = new DraftStore({
       storage: this.deviceState,
-      hub: this.hub,
+      hub: this.root.services.connection.hub,
       onStorageError: (err) => log.warn('could not cache this device drafts', { err }),
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
@@ -532,7 +513,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // and the connection service arms its listeners and dials on the next
     // macrotask.
     this.root.start()
-    void this.replica.hydrate().catch((error) => {
+    void this.root.replica.hydrate().catch((error) => {
       if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
     })
     // My read positions are synced records the replica keeps (POD-6673): a
@@ -540,22 +521,25 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // stored one before the network answers. No request reads them.
     const installReadPositions = (): void =>
       this.readPosition.replace(
-        readPositionSnapshotFromRows(this.replica.rows('userReadPositions'), this.principal.userId),
+        readPositionSnapshotFromRows(
+          this.root.replica.rows('userReadPositions'),
+          this.principal.userId,
+        ),
       )
     installReadPositions()
-    offs.push(this.replica.subscribeRows('userReadPositions', installReadPositions))
+    offs.push(this.root.replica.subscribeRows('userReadPositions', installReadPositions))
 
     // Machines, their access and their checkouts are replica records
     // (POD-6644): a moved checkout re-checks the selected worktree.
-    const offCheckouts = this.replica.subscribeAddressedBatch?.((batch) => {
+    const offCheckouts = this.root.replica.subscribeAddressedBatch?.((batch) => {
       if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) {
-        this.heldRepositories = repositoriesFromCheckouts(this.replica.rows('checkouts'))
+        this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
         if (!this.pendingNavigationTopology) this.worktreeFallback()
       }
     })
     // Held repositories are valid only while this subscription follows them:
     // derived here once, and again by each batch that moves a checkout.
-    this.heldRepositories = repositoriesFromCheckouts(this.replica.rows('checkouts'))
+    this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
     offs.push(() => {
       offCheckouts?.()
       this.heldRepositories = undefined
@@ -563,7 +547,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Attention → web notification, but only while this page can't be seen —
     // a visible Podium window IS the notification.
     offs.push(
-      this.hub.on('attention', (e) => {
+      this.root.services.connection.hub.on('attention', (e) => {
         if (this.visibility.isVisible()) return
         if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
         try {
@@ -938,7 +922,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Explicit batches defer reactions until all writes land, then publish the
    * changed local keys once. Finally restores the boundary if a reaction throws. */
-  @action private batch(fn: () => void): void {
+  @action batch(fn: () => void): void {
     if (this.destroyed) return
     this.batchDepth++
     try {
@@ -1277,13 +1261,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     await this.reactions.flushReadAcknowledgements()
     this.drafts.persist(true)
     await this.uiPersistence.flush()
-    await this.outbox.flushLocalWrites?.()
+    await this.root.services.outbox.queue.flushLocalWrites?.()
     // Typing can continue while an IndexedDB enqueue commits.
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
     this.drafts.persist(true)
     await this.uiPersistence.flush()
-    await this.replica.flush()
-    await this.outbox.flushLocalWrites?.()
+    await this.root.replica.flush()
+    await this.root.services.outbox.queue.flushLocalWrites?.()
     this.drafts.persist(true)
     await this.uiPersistence.flush()
   }
@@ -1316,8 +1300,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       palette: this.palette,
       autoContinueDialog: this.autoContinueDialog,
       api: this.api,
-      hub: this.hub,
-      outbox: this.outbox,
+      hub: this.root.services.connection.hub,
+      outbox: this.root.services.outbox.queue,
       userId: this.principal.userId,
       outboxSettlements: this.root.services.outbox.settlements,
       router: this.router,
@@ -1351,12 +1335,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
       // One row by id; a replica without the by-id read answers "unknown" (1),
       // and the outbox's own queued edits still raise it.
-      sessionRevision: (sessionId) => this.replica.row?.('sessions', sessionId)?.revision,
+      sessionRevision: (sessionId) => this.root.replica.row?.('sessions', sessionId)?.revision,
       // My settings as the replica holds them (POD-6673): a record never
       // written resolves to the defaults.
       preferences: () =>
         resolveUserPreferences(
-          this.replica.row?.('userPreferences', userPreferencesRowId(this.principal.userId)),
+          this.root.replica.row?.('userPreferences', userPreferencesRowId(this.principal.userId)),
           this.principal.userId,
         ),
       dismissLaunch: (sessionId) => this.poolWriter?.dismissLaunch?.(sessionId) ?? false,
@@ -1367,14 +1351,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private buildStatics(): EngineStatics<TApi> {
     return {
       // Plumbing forwarded to the runtime root (POD-6681) until POD-6682.
-      hub: this.hub,
-      trpc: this.root.api,
-      replica: this.replica,
       uiState: this.deviceState,
       readPosition: this.readPosition,
-      httpOrigin: this.root.httpOrigin,
-      // The ONE key resolver, published so no view re-derives it (POD-710).
-      recoverOutbox: this.root.services.outbox.recovery,
       batchGesture: (fn: () => void) => this.batch(fn),
       setPaletteOpen: this.palette.setOpen,
       closeAutoContinuePrompt: this.autoContinueDialog.close,

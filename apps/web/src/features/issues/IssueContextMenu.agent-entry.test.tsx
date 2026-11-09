@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +17,7 @@ const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  useClientRuntime: () =>
+  ...fixtureRuntimeHooks(() =>
     withKeyedInputs({
       subscribe: () => () => {},
       getSnapshot: () => ({
@@ -37,6 +38,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
         },
       }),
     }),
+  ),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {

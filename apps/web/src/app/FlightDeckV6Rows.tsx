@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
@@ -34,7 +36,6 @@ import {
   useFlightDeckWindow,
 } from './flight-deck-window'
 import { useSessionHovered } from './session-hover'
-import { useRuntimeSelector } from './store'
 import { TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
 
 const STRIP_HEIGHT = 32
@@ -459,7 +460,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   measure?: (node: HTMLElement | null) => void
   onOpen: (permanent: boolean) => void
 }) {
-  const renameSession = useRuntimeSelector((store) => store.renameSession)
+  const renameSession = useCommands<Trpc>().sessions.rename
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const [nativeOpen, setNativeOpen] = useState(false)

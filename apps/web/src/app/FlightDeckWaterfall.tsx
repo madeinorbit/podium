@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { useRequestClient } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -86,7 +87,6 @@ import {
   zoomWaterfallViewport,
 } from './flight-deck-waterfall'
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
-import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
 import { WaterfallLiveEdge } from './waterfall-live-edge'
 import {
@@ -544,7 +544,7 @@ const WaterfallSessionBar = observer(function WaterfallSessionBar({
     lane?.dispatchEvent(new CustomEvent('waterfall-geometry', { bubbles: true, detail: lane }))
   })
   const intent = useClickIntent()
-  const renameSession = useRuntimeSelector((store) => store.renameSession)
+  const renameSession = useCommands<Trpc>().sessions.rename
   const startMs = fact.startMs
   const endMs = fact.historyEndMs
   const phase = fact.phase

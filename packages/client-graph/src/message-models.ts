@@ -302,7 +302,7 @@ export function ingestLedgerMessages(
  * use the message ID. Identity fields already in the table provide that join. */
 export function currentMessageRecord(
   pool: MobxPool,
-  replica: ClientRuntime['replica'],
+  replica: ClientRuntime['root']['replica'],
   id: string,
 ): MessageRecordWire | undefined {
   const row = pool.tables.messageRecord.get(id) as MessagePoolRow | undefined

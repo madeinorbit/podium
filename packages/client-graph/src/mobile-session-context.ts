@@ -63,9 +63,14 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (id === undefined) return 0
       // Preserve the maintained roster, without borrowing a detail opening.
       const seats = pool.queries.relatedRows<SessionView>(
-        'issue', id, 'missionSessions', `mobile.issueAgentCount:${id}`,
-        (sid) => pool.queries.collapsed(sid) ? undefined :
-          omitGone(pool.row('session', sid)) as Loaded<SessionView>,
+        'issue',
+        id,
+        'missionSessions',
+        `mobile.issueAgentCount:${id}`,
+        (sid) =>
+          pool.queries.collapsed(sid)
+            ? undefined
+            : (omitGone(pool.row('session', sid)) as Loaded<SessionView>),
         { order: (sid) => pool.queries.orderKey(sid) },
       )
       return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
@@ -194,7 +199,7 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       pending.clear()
       runInAction(() => {
         for (const key of keys) {
-          if (key === cursorKey) inputs.set(key, owner.replica.getCursor())
+          if (key === cursorKey) inputs.set(key, owner.root.replica.getCursor())
         }
         if (window.get() === undefined) window.set(inputs.row)
       })
@@ -206,9 +211,9 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
     },
   })
   // The cursor keeps its addressed field; spawn prompts belong to the pool log.
-  if (!owner.replica.subscribeCursor)
+  if (!owner.root.replica.subscribeCursor)
     throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.replica.subscribeCursor(() => schedule(cursorKey))]
+  const stops = [owner.root.replica.subscribeCursor(() => schedule(cursorKey))]
   return source
 }
 
@@ -224,7 +229,16 @@ export async function attachMobileSessionContext(owner: ClientRuntime, pool: Mob
   await pool.sources.ensure(
     'chat-context',
     CHAT_CONTEXT_ENTITIES,
-    () => new ChatContextSource(owner, pool),
+    () =>
+      new ChatContextSource(
+        {
+          ui: owner.ui,
+          drafts: owner.drafts,
+          replica: owner.root.replica,
+          outbox: owner.root.services.outbox.queue,
+        },
+        pool,
+      ),
   )
   return pool.sources.ensure(MOBILE_SESSION_SOURCE_KEY, MOBILE_SESSION_ENTITIES, () =>
     createMobileSessionSource(owner, pool),

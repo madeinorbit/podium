@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 /**
  * ANSWERING AN AGENT'S QUESTION FROM THIS DEVICE (POD-6415).
  *
@@ -12,7 +14,6 @@ import type { SessionAnswer } from '@podium/client-core/spawn-agent'
 import { awaitAnswer } from '@podium/client-graph/write/await-effect'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 
 export type AnswerSessionReply = { ok: boolean; reason?: string }
@@ -22,7 +23,7 @@ export function useAnswerSession(): (
   sessionId: SessionId,
   answer: SessionAnswer,
 ) => Promise<AnswerSessionReply> {
-  const answerSession = useRuntimeSelector((s) => s.answerSession)
+  const answerSession = useCommands<Trpc>().sessions.answer
   const pool = useWorklistPool()
   return useCallback(
     async (sessionId, answer) => {

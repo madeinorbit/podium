@@ -1,4 +1,5 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { vi } from 'vitest'
 import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'

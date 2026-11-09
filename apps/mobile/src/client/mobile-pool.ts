@@ -39,7 +39,7 @@ export function createMobilePool(dev: boolean): MobilePool {
             import('@podium/client-graph/issue-page-source'),
           ])
           await attachMobileScreens(pool, runtime)
-          attachIssuePageSource(pool, runtime)
+          attachIssuePageSource(pool, { replica: runtime.root.replica })
         },
       },
       {
@@ -93,7 +93,11 @@ export function createMobilePool(dev: boolean): MobilePool {
             createMobileSettingsSource(runtime),
           )
           await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>
-            createSuperagentSource(runtime),
+            createSuperagentSource({
+              ui: runtime.ui,
+              readPosition: runtime.readPosition,
+              replica: runtime.root.replica,
+            }),
           )
           const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
             import('@podium/client-graph/notice-source'),
@@ -102,7 +106,11 @@ export function createMobilePool(dev: boolean): MobilePool {
           await pool.sources.ensure(
             NOTICE_SOURCE_KEY,
             NOTICE_ENTITIES,
-            () => new NoticeSource(runtime),
+            () =>
+              new NoticeSource({
+                replica: runtime.root.replica,
+                outbox: runtime.root.services.outbox.queue,
+              }),
           )
           const [{ MobileInboxSource }, { createMobileInboxViews }] = await Promise.all([
             import('@podium/client-graph/mobile-inbox-source'),
@@ -110,7 +118,7 @@ export function createMobilePool(dev: boolean): MobilePool {
           ])
           await pool.sources.ensure(MOBILE_INBOX_SOURCE_KEY, MOBILE_INBOX_ENTITIES, () => {
             pool.sources.view(MOBILE_INBOX_VIEW_KEY, () => createMobileInboxViews(pool))
-            return new MobileInboxSource(runtime, pool)
+            return new MobileInboxSource({ replica: runtime.root.replica }, pool)
           })
           const { attachMobileSessionContext } = await import(
             '@podium/client-graph/mobile-session-context'

@@ -1,3 +1,4 @@
+import type { MobileTrpc } from '../client/trpc'
 import { AUTO, issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { useCommands } from '@podium/client-core/react'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'

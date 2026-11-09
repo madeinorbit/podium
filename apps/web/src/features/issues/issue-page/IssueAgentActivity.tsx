@@ -1,3 +1,4 @@
+import { useHttpOrigin } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import { resolveMachinePath } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
@@ -47,7 +48,7 @@ import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -60,7 +61,7 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
   issue: IssueViewModel
 }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = {
-    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    httpOrigin: useHttpOrigin(),
     openFileInWorktree: useUiValue('openFileInWorktree'),
     openArtifact: useUiValue('openArtifact'),
   }

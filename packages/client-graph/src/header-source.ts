@@ -83,7 +83,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   function shipping(): void {
     replace(
       'shipOrder',
-      runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
+      runtime.root.replica.rows('shipOrders').map((order) => [order.id, order]),
     )
   }
   runInAction(() => {
@@ -102,10 +102,10 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   repositories()
   replace('window', [['window', window]])
   shipping()
-  attachHeaderRequests(pool, runtime.access.trpc as unknown as HeaderRequestsApi)
+  attachHeaderRequests(pool, runtime.root.api as unknown as HeaderRequestsApi)
   const stops = [
     offSessions,
-    runtime.replica.subscribeAddressedBatch!((batch) => {
+    runtime.root.replica.subscribeAddressedBatch!((batch) => {
       if (batch.type === 'replace') {
         shipping()
         repositories()
@@ -116,7 +116,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       const ids = known.get('shipOrder')!
       for (const record of batch.rows) {
         if (record.kind !== 'shipOrders') continue
-        const value = runtime.replica.row!('shipOrders', record.id)
+        const value = runtime.root.replica.row!('shipOrders', record.id)
         if (value) ids.add(record.id)
         else ids.delete(record.id)
         records.push({ kind: 'shipOrder', id: record.id, value })

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
@@ -52,8 +53,8 @@ vi.mock('./operator-focus', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useHarnessDescriptors: () => ({ served: [] }),
+  ...fixtureRuntimeHooks(() => fixtureOwner()),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => fixtureOwner()),
-  useClientRuntime: () => fixtureOwner(),
 }))
 
 vi.mock('@/lib/use-feature', () => ({

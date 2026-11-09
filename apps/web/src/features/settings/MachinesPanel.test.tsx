@@ -15,9 +15,13 @@ import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 // [spec:SP-3701] Hosting affordances in the machines panel: standalone card for
 // never-paired devices, "this machine" badge + inline Enable for paired ones.
 
-const storeState: { machines: MachineWire[]; trpc: Store['trpc']; setSettingsTab: () => void } = {
+const storeState: {
+  machines: MachineWire[]
+  trpc: import('@/app/trpc').Trpc
+  setSettingsTab: () => void
+} = {
   machines: [],
-  trpc: {} as Store['trpc'],
+  trpc: {} as import('@/app/trpc').Trpc,
   setSettingsTab: () => {},
 }
 
@@ -103,7 +107,7 @@ function setTrpc(mutate: () => Promise<{ code: string; joinCommand: string | nul
   storeState.trpc = {
     machines: { pairingCode: { mutate } },
     setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 }
 
 describe('MachinesPanel supervisor fleet states', () => {
@@ -299,7 +303,7 @@ describe('MachinesPanel version skew', () => {
     storeState.trpc = {
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion }) } },
       updates: { fleet: { query: vi.fn().mockResolvedValue({ machines: [], allMachines }) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
   }
 
   /**
@@ -456,7 +460,7 @@ describe('MachinesPanel update rows', () => {
     storeState.trpc = {
       machines: { pairingCode: { mutate: vi.fn() }, applyUpdate: { mutate: vi.fn() } },
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
   }
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to/i })
@@ -544,7 +548,7 @@ function setTransferTrpc(transferMutate: () => Promise<unknown>) {
       transferOwnership: { mutate: transferMutate },
     },
     setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 }
 
 const transferButton = () => screen.queryByRole('button', { name: 'Transfer' })
@@ -682,7 +686,7 @@ describe('MachinesPanel update action', () => {
         },
       },
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
   }
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to ludovico/i })
@@ -783,7 +787,7 @@ describe('MachinesPanel per-machine update source', () => {
         info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion: '0.5.0' }) },
       },
       machines: { setUpdateChannel: { mutate: vi.fn().mockResolvedValue([]) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
   }
 
   it('hides the selector without the flag but still states where the machine is', async () => {
@@ -861,7 +865,9 @@ describe('MachinesPanel adoption', () => {
     const mutate = vi.fn().mockResolvedValue([])
     storeState.machines = [machine({ unowned: true, adoptable: true, use: 'denied' })]
     setTrpc(vi.fn())
-    storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+    storeState.trpc.machines.adopt = {
+      mutate,
+    } as unknown as import('@/app/trpc').Trpc['machines']['adopt']
     render(<MachinesPanel />)
     expect(screen.getByText('Unowned')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
@@ -878,7 +884,9 @@ describe('MachinesPanel adoption', () => {
     const mutate = vi.fn().mockRejectedValue(new Error('machine already has an owner'))
     storeState.machines = [machine({ unowned: true, adoptable: true })]
     setTrpc(vi.fn())
-    storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+    storeState.trpc.machines.adopt = {
+      mutate,
+    } as unknown as import('@/app/trpc').Trpc['machines']['adopt']
     render(<MachinesPanel />)
     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
     expect(await screen.findByRole('alert')).toHaveProperty(
@@ -913,7 +921,9 @@ describe('daemon recovery status', () => {
 describe('MachinesPanel revoke result', () => {
   function setRevoke(mutate: () => Promise<unknown>) {
     setTrpc(vi.fn())
-    storeState.trpc.machines.revoke = { mutate } as unknown as Store['trpc']['machines']['revoke']
+    storeState.trpc.machines.revoke = {
+      mutate,
+    } as unknown as import('@/app/trpc').Trpc['machines']['revoke']
     storeState.machines = [machine({ name: 'builder' })]
   }
 

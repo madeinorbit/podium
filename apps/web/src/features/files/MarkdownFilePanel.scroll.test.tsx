@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import type { EditorView } from '@codemirror/view'
 import { MD_MODE_MAP_KEY } from '@podium/client-core/ui-state'
@@ -30,12 +31,12 @@ const fixture = vi.hoisted(() => {
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useClientRuntime: () => ({ access: fixture.access }),
+  ...fixtureRuntimeHooks(() => ({ access: fixture.access })),
 }))
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/lib/use-persisted-ui-state', () => ({
   usePersistedUiValue: (key: string, parse: (raw: string | null) => unknown) =>
-    parse(fixture.access.uiState.get(key)),
+    parse(fixture.deviceState.get(key)),
 }))
 vi.mock('./useFileDocument', () => ({
   useFileDocument: () => ({

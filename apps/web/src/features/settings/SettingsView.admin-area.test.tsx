@@ -15,7 +15,7 @@ type Store = ReferenceState<import('@/app/trpc').Trpc>
  * preferences, his own password and his own machines.
  */
 const storeState = {
-  trpc: {} as Store['trpc'],
+  trpc: {} as import('@/app/trpc').Trpc,
   settingsTab: 'sessions',
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
@@ -61,7 +61,7 @@ beforeEach(() => {
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
     },
     accounts: { list: { query: vi.fn().mockResolvedValue([]) } },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 })
 afterEach(() => {
   cleanup()

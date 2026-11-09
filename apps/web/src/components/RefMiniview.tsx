@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient, useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -31,7 +33,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
@@ -166,9 +168,9 @@ function RefMiniviewContents({
 }): JSX.Element | null {
   const machines = useChatReferenceMachines()
   const { trpc, navigateToSession, startIssueSession } = {
-    trpc: useRuntimeSelector((s) => s.trpc),
+    trpc: useRequestClient<Trpc>(),
     navigateToSession: useUiValue('navigateToSession'),
-    startIssueSession: useRuntimeSelector((s) => s.startIssueSession),
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
   }
   const { show } = useDockIssue()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])

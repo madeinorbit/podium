@@ -34,7 +34,15 @@ export const chatContextPoolScreen: PoolScreen = {
       import('@podium/client-graph/session-exit-source'),
       import('@podium/client-graph/session-exit-schema'),
     ])
-    await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+    await pool.sources.ensure(
+      NOTICE_SOURCE_KEY,
+      NOTICE_ENTITIES,
+      () =>
+        new NoticeSource({
+          replica: runtime.root.replica,
+          outbox: runtime.root.services.outbox.queue,
+        }),
+    )
     await pool.sources.ensure(
       superagent.SUPERAGENT_SOURCE_KEY,
       superagent.SUPERAGENT_ENTITIES,
@@ -43,6 +51,17 @@ export const chatContextPoolScreen: PoolScreen = {
     await pool.sources.ensure(exits.SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
       exits.createSessionExitSource(runtime),
     )
-    pool.sources.register(CHAT_CONTEXT_ENTITIES, new ChatContextSource(runtime, pool))
+    pool.sources.register(
+      CHAT_CONTEXT_ENTITIES,
+      new ChatContextSource(
+        {
+          ui: runtime.ui,
+          drafts: runtime.drafts,
+          replica: runtime.root.replica,
+          outbox: runtime.root.services.outbox.queue,
+        },
+        pool,
+      ),
+    )
   },
 }

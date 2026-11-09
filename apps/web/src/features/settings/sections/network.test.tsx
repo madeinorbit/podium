@@ -6,7 +6,7 @@ import type { ReferenceState } from '../../../../../../tests/worklist/diagnostic
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const storeState = {
-  trpc: {} as Store['trpc'],
+  trpc: {} as import('@/app/trpc').Trpc,
 }
 
 vi.mock('@/app/store', () => ({
@@ -24,7 +24,7 @@ describe('NetworkSection', () => {
   it('does not show host controls while the machine mode is loading', () => {
     storeState.trpc = {
       setup: { info: { query: vi.fn(() => new Promise(() => {})) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
 
     render(<NetworkSection />)
 
@@ -35,7 +35,7 @@ describe('NetworkSection', () => {
   it('shows a retryable error instead of host controls when mode cannot be loaded', async () => {
     storeState.trpc = {
       setup: { info: { query: vi.fn().mockRejectedValue(new Error('offline')) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
 
     render(<NetworkSection />)
 
@@ -55,7 +55,7 @@ describe('NetworkSection', () => {
           }),
         },
       },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
 
     render(<NetworkSection />)
 
@@ -94,7 +94,7 @@ describe('NetworkSection', () => {
       auth: {
         status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) },
       },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
 
     render(<NetworkSection />)
 
@@ -137,7 +137,7 @@ describe('NetworkSection', () => {
           complete: { mutate: vi.fn() },
         },
         auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
-      }) as unknown as Store['trpc']
+      }) as unknown as import('@/app/trpc').Trpc
     storeState.trpc = trpc(info)
     render(<NetworkSection />)
     const link = (await screen.findByText(info.stableLink)) as HTMLAnchorElement
@@ -181,7 +181,7 @@ describe('NetworkSection', () => {
         commandFor: { query: vi.fn().mockResolvedValue({ command: '', hint: '' }) },
       },
       auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
-    } as unknown as Store['trpc']
+    } as unknown as import('@/app/trpc').Trpc
     render(<NetworkSection />)
     expect(await screen.findByText((content) => content.startsWith(text))).toBeTruthy()
     expect(screen.getByText('Tunnel')).toBeTruthy()

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 /**
  * POD-563 — the Reclaim tab is a PROPOSAL, not a queue.
@@ -87,7 +88,7 @@ let processTopic = processesTopicFixture(async () => ({
 }))
 // My access rows (POD-6644): none here, so no machine hosts the server.
 const noAccessRows = { rows: () => [], subscribeAddressedBatch: () => () => {} }
-vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => ({ hub: processTopic.hub, replica: noAccessRows }) }))
+vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => ({ hub: processTopic.hub, replica: noAccessRows })) }))
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({

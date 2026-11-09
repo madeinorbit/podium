@@ -1,10 +1,12 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient } from '@podium/client-core/react'
 import {
   ISSUE_HISTORY_PAGE,
   IssueHistoryView,
   issueActivity,
 } from '@podium/client-graph/issue-activity'
 import { useEffect, useMemo, useState } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import {
   type IssuePageCommands,
@@ -19,7 +21,7 @@ import { issueObserver as observer } from './issue-observer'
  *  the `window` event lines it shows (0 for mail alone). */
 export function useIssueHistory(issue: IssueViewModel, window: number) {
   const pool = useWorklistPool()
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const trpc = useRequestClient<Trpc>()
   const view = useMemo(
     () =>
       pool

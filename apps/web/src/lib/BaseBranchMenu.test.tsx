@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -23,13 +24,13 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  useClientRuntime: () => ({
+  ...fixtureRuntimeHooks(() => ({
     access: {
       trpc: {
         repos: { setDefaultParentBranch: { mutate: f.setBase } },
       },
     },
-  }),
+  })),
 }))
 
 afterEach(cleanup)

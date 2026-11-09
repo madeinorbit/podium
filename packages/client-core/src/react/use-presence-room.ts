@@ -21,7 +21,7 @@ import {
   presenceRoomsFor,
   UNKNOWN_PRESENCE,
 } from '../presence/room-presence'
-import { useClientRuntime } from './provider'
+import { useSocketHub } from './commands'
 
 export type { PresenceRoomView } from '../presence/room-presence'
 
@@ -33,7 +33,7 @@ export type { PresenceRoomView } from '../presence/room-presence'
  * payload; it is sent at join and republished whenever it changes.
  */
 export function usePresenceRoom(room: RoomRef | null, payload?: PresencePayload): PresenceRoomView {
-  const hub = useClientRuntime().access.hub
+  const hub = useSocketHub()
   const rooms = useMemo<PresenceRooms | null>(() => (hub ? presenceRoomsFor(hub) : null), [hub])
 
   // Rooms are compared by VALUE, not object identity: `{kind, id}` is rebuilt

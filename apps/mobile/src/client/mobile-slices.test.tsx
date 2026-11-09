@@ -1,3 +1,6 @@
+import { useCommands } from '@podium/client-core/react'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { headerView } from '@podium/client-graph/header-views'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { headerView } from '@podium/client-graph/header-views'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
@@ -14,7 +17,7 @@ import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useClock } from '../lib/clock-hooks'
-import { useConnected, useIssues, useSessions, useStoreActions } from './hooks'
+import { useConnected, useIssues, useSessions } from './hooks'
 import { useMobilePoolProjection } from './mobile-pool'
 import { renderWithMobileStore } from './test-support'
 import { useLaunchInputs } from './use-launch-inputs'
@@ -190,7 +193,7 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
 it('updates pool host metrics without waking stable action owners', async () => {
   let broadRenders = 0
   function BroadReader() {
-    useStoreActions()
+    useCommands()
     broadRenders++
     return null
   }

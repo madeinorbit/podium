@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 /**
  * THE CALM SIDEBAR'S FOLDERS (POD-2074, design 4a / 7a / 7b).
  *
@@ -14,7 +16,6 @@ import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import {
   DropdownMenu,
@@ -401,7 +402,7 @@ export interface OrderedProject {
  * setting, merged so projects not on screen keep their saved slots.
  */
 export function useProjectOrderWriter(): (projects: readonly OrderedProject[]) => Promise<void> {
-  const setPreferences = useRuntimeSelector((state) => state.setPreferences)
+  const setPreferences = useCommands<Trpc>().preferences.setPreferences
   const pool = useWorklistPool()
   return useCallback(
     async (projects) => {

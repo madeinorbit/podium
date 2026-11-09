@@ -1,5 +1,6 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -12,7 +13,6 @@ import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { usePoolHeaderMetrics, usePoolPanelMetric } from '@/app/header-data'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -433,7 +433,7 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
-  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
   const stopIssue = useIssueActionOutcome()
   const lifecycle = useHostLifecycleSettings()
   const { inventory, error: inventoryError } = useReclaimInventory(trpc, machineId)

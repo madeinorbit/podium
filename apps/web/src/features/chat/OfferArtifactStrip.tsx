@@ -1,3 +1,4 @@
+import { useHttpOrigin } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
@@ -5,7 +6,6 @@ import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { Code, FileText, Play } from 'lucide-react'
 import { type JSX, useCallback, useLayoutEffect, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { openArtifactsTab } from '@/features/files/artifacts-tab'
 import { useFirstArtifactAnchor } from '@/features/issues/first-artifact-tip'
@@ -83,7 +83,7 @@ export function OfferArtifactStrip({
   session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element | null {
   const { httpOrigin, openArtifact, openFileInWorktree } = {
-    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    httpOrigin: useHttpOrigin(),
     openArtifact: useUiValue('openArtifact'),
     openFileInWorktree: useUiValue('openFileInWorktree'),
   }

@@ -8,7 +8,7 @@ export function createThreadsCommands<TApi extends PodiumClientApi>(
   rt: CommandDeps<TApi>,
   shared: CommandWrites,
 ): ThreadsCommands<TApi> {
-  const { records, editRecord } = shared
+  const { editRecord } = shared
   return {
     // The prompt box's model and effort are spec fields of my thread's record
     // (POD-6675, ADR 12 D2): one writer, this edit; `auto` clears the field so

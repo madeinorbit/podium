@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerReloadPreparation, withReloadPreparation } from '@/lib/reload-preparation'
@@ -5,7 +6,7 @@ import { useFileDocument } from './useFileDocument'
 
 const { read, write } = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }))
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => ({ access: { readFileScoped: read, writeFileScoped: write } }),
+  ...fixtureRuntimeHooks(() => ({ access: { readFileScoped: read, writeFileScoped: write } })),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 

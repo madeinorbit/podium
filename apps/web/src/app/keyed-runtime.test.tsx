@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { reaction } from 'mobx'
 // @vitest-environment happy-dom
@@ -24,7 +25,7 @@ import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => f.owner,
+  ...fixtureRuntimeHooks(() => f.owner),
   useUiValue: (key: string) => {
     const ui = (f.owner as { ui: object }).ui
     const read = () => Reflect.get(ui, key)

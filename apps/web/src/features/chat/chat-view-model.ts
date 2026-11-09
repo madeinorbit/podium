@@ -63,10 +63,10 @@ export class ChatViewModel {
     this.reply = new MailReply(
       conversation.pool,
       {
-        show: (id) => conversation.runtime.access.trpc.messages.show.query({ id }),
-        reply: (id, body) => conversation.runtime.access.trpc.messages.reply.mutate({ id, body }),
+        show: (id) => conversation.runtime.root.api.messages.show.query({ id }),
+        reply: (id, body) => conversation.runtime.root.api.messages.reply.mutate({ id, body }),
       },
-      (id) => currentMessageRecord(conversation.pool, conversation.runtime.access.replica, id),
+      (id) => currentMessageRecord(conversation.pool, conversation.runtime.root.replica, id),
     )
   }
 

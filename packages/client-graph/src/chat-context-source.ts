@@ -47,7 +47,12 @@ export class ChatContextSource {
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0, orderIds: 0 }
 
   constructor(
-    private readonly owner: Pick<ClientRuntime, 'ui' | 'drafts' | 'outbox' | 'replica'>,
+    private readonly owner: {
+      readonly ui: ClientRuntime['ui']
+      readonly drafts: ClientRuntime['drafts']
+      readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+      readonly replica: ClientRuntime['root']['replica']
+    },
     pool: MobxPool,
   ) {
     pool.bindSessionDrafts(owner.drafts)
@@ -175,7 +180,10 @@ export class ChatContextSource {
         } else if (key.startsWith('chatHeld:') && pending && parked)
           this.set(key, {
             sends: outboxChatSends(
-              { pending: () => pending, deadLetters: () => parked } as ClientRuntime['outbox'],
+              {
+                pending: () => pending,
+                deadLetters: () => parked,
+              } as ClientRuntime['root']['services']['outbox']['queue'],
               asSessionId(key.slice(9)),
             ),
           })

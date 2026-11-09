@@ -1,4 +1,3 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 
@@ -14,7 +13,7 @@ import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
 import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 
 export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: BoardOptions) {
-  const issues = allIssueViewModels(runtime.replica),
+  const issues = allIssueViewModels(runtime.root.replica),
     sessions = referenceState(runtime).sessions
   const expected = deriveIssuesViewModel({
     ...options,
@@ -32,7 +31,12 @@ export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: Boar
   return !actual || typeof actual === 'symbol'
     ? { differences: 0, pending: 1, first: null }
     : compareBoardValues(
-        boardSnapshot({ issues, sessions, projectPaths: paths, view: expected } as BoardSnapshotData),
+        boardSnapshot({
+          issues,
+          sessions,
+          projectPaths: paths,
+          view: expected,
+        } as BoardSnapshotData),
         actual,
       )
 }

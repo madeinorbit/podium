@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient, useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import {
   activeFilterCount,
@@ -24,7 +26,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -85,14 +87,14 @@ export function IssuesView(): JSX.Element {
   const base = useBoardBase()
   const { openIssueId } = base
   const setOpenIssueId = useUiValue('setOpenIssueId')
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const trpc = useRequestClient<Trpc>()
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
   // store actions the right-click menu uses, so a stage move made from a card
   // and one made from the menu paint identically.
-  const updateIssue = useRuntimeSelector((store) => store.updateIssue)
-  const setIssueLabels = useRuntimeSelector((store) => store.setIssueLabels)
-  const deleteIssue = useRuntimeSelector((store) => store.deleteIssue)
-  const closeIssue = useRuntimeSelector((store) => store.closeIssue)
+  const updateIssue = useCommands<Trpc>().issues.update
+  const setIssueLabels = useCommands<Trpc>().issues.setLabels
+  const deleteIssue = useCommands<Trpc>().issues.delete
+  const closeIssue = useCommands<Trpc>().issues.close
   const isMobile = useIsMobile()
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the

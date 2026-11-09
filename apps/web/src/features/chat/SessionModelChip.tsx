@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import { effortLabel, issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { EffectModel } from '@podium/client-graph/models'
@@ -6,7 +8,6 @@ import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { IssueAgentKind } from '@/lib/issue-agents'
@@ -127,7 +128,7 @@ const ConfigurableChip = observer(function ConfigurableChip({
   session: ModelChipSession
   agentKind: IssueAgentKind
 }): JSX.Element {
-  const configureSession = useRuntimeSelector((s) => s.configureSession)
+  const configureSession = useCommands<Trpc>().sessions.configure
   const sessionId = session.sessionId
   const { pool, change } = useConfigureChange(sessionId)
   // A change this device is still writing, or whose record has not reached

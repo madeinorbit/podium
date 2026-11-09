@@ -1,7 +1,8 @@
+import { useRequestClient } from '@podium/client-core/react'
 import { type IssueSharedDetail, issueSharedDetail } from '@podium/client-graph/issue-shared-detail'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { useEffect } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 
@@ -16,7 +17,7 @@ const SUMMARY_REFRESH_MS = 30_000
  */
 export function useIssueSharedDetail(issue: IssueViewModel): IssueSharedDetail | undefined {
   const pool = useWorklistPool()
-  const trpc = useRuntimeSelector((store) => store.trpc) as Trpc | undefined
+  const trpc = useRequestClient<Trpc>() as Trpc | undefined
   const detail = pool ? issueSharedDetail(pool, issue.id) : undefined
   useEffect(() => {
     if (!detail || !trpc) return

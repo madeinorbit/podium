@@ -14,7 +14,7 @@ type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { useAttachments } from './use-attachments'
 
 const mutate = vi.fn()
-const trpc = { sessions: { uploadImage: { mutate } } } as unknown as Store['trpc']
+const trpc = { sessions: { uploadImage: { mutate } } } as unknown as import('@/app/trpc').Trpc
 const sessionId = asSessionId('scope-1')
 
 beforeEach(() => {

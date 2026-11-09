@@ -46,7 +46,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
         import('@podium/client-graph/automation-source'),
         import('@podium/client-graph/automation-schema'),
       ])
-      pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(runtime.replica))
+      pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(runtime.root.replica))
     },
   },
 ]

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
@@ -12,7 +13,7 @@ const access = vi.hoisted(() => ({
 
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useClientRuntime: () => ({ access }),
+  ...fixtureRuntimeHooks(() => ({ access })),
 }))
 
 const { MarkdownPreview } = await import('./MarkdownPreview')

@@ -1,3 +1,4 @@
+import { useSocketHub } from '@podium/client-core/react'
 import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
@@ -81,7 +82,7 @@ import {
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { type MainView, StoreProvider, useLive, useRuntimeSelector } from './store'
+import { type MainView, StoreProvider, useLive } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { makeTrpc, serverConfig } from './trpc'
@@ -191,7 +192,7 @@ function SheetFallback({
 
 /** Observe socket build skew; HTTP bootstrap has no hub attachment cycle. */
 function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
-  const hub = useRuntimeSelector((s) => s.hub)
+  const hub = useSocketHub()
   useEffect(
     () =>
       observeLiveConnection(hub, {
@@ -214,7 +215,7 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
  * holds the installation key; a transfer frame moves at once.
  */
 function ServerFollowObserver(): null {
-  const hub = useRuntimeSelector((s) => s.hub)
+  const hub = useSocketHub()
   useEffect(() => {
     let stop: (() => void) | undefined
     let cancelled = false

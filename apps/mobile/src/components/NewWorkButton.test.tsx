@@ -577,14 +577,14 @@ describe('phone picker parity', () => {
       api: launchApi(create),
     })
     act(() => {
-      runtime.access.uiState.set(NEW_WORK_MODEL_KEY, 'claude-code:retired')
-      runtime.access.uiState.set(NEW_WORK_EFFORT_KEY, 'high')
+      runtime.deviceState.set(NEW_WORK_MODEL_KEY, 'claude-code:retired')
+      runtime.deviceState.set(NEW_WORK_EFFORT_KEY, 'high')
     })
     fireEvent.click(screen.getByLabelText('New work'))
     expect(await screen.findByLabelText('Model, Auto')).toBeTruthy()
     expect(screen.getByLabelText('Effort, Auto').getAttribute('role')).not.toBe('button')
-    expect(runtime.access.uiState.get(NEW_WORK_MODEL_KEY)).toBe('auto')
-    expect(runtime.access.uiState.get(NEW_WORK_EFFORT_KEY)).toBe('auto')
+    expect(runtime.deviceState.get(NEW_WORK_MODEL_KEY)).toBe('auto')
+    expect(runtime.deviceState.get(NEW_WORK_EFFORT_KEY)).toBe('auto')
     await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('model')
@@ -695,7 +695,7 @@ describe('phone last launched pair', () => {
 
   it('restores all four machine/harness pairs and Auto when a combination is absent', async () => {
     const { runtime } = await setup()
-    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Model', 'Codex Reported GPT')
@@ -712,9 +712,7 @@ describe('phone last launched pair', () => {
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Machine', 'Remote')
     await expectPair('Claude Code · Reported Sonnet', 'Low')
-    act(() =>
-      runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })),
-    )
+    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })))
     await choose('Machine', 'Studio')
     await choose('Machine', 'Remote')
     await expectPair('Auto', 'Auto')
@@ -722,7 +720,7 @@ describe('phone last launched pair', () => {
 
   it('choosing menus writes no preference, while Start writes the launched pair including Auto', async () => {
     const { runtime, create } = await setup()
-    const writes = vi.spyOn(runtime.access.uiState, 'set')
+    const writes = vi.spyOn(runtime.deviceState, 'set')
     const pairWrites = () => writes.mock.calls.filter(([key]) => key === LAST_LAUNCH_PICK_KEY)
     fireEvent.click(screen.getByLabelText('New work'))
     await choose('Model', 'Claude Code Reported Opus')
@@ -737,7 +735,7 @@ describe('phone last launched pair', () => {
       model: 'reported-opus',
       effort: 'high',
     })
-    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
+    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
       mine: { 'claude-code': picks.mine['claude-code'] },
     })
     fireEvent.click(screen.getByLabelText('New work'))
@@ -745,7 +743,7 @@ describe('phone last launched pair', () => {
     expect(pairWrites()).toHaveLength(1)
     await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
+    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
       mine: { 'claude-code': { model: 'auto', effort: 'auto' } },
     })
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('model')
@@ -755,9 +753,9 @@ describe('phone last launched pair', () => {
   it('keeps a saved draft with different model and effort across reload, including explicit Auto', async () => {
     const { runtime } = await setup()
     act(() => {
-      runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks))
-      runtime.access.uiState.set(NEW_WORK_MODEL_KEY, 'codex:reported-gpt')
-      runtime.access.uiState.set(NEW_WORK_EFFORT_KEY, 'high')
+      runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks))
+      runtime.deviceState.set(NEW_WORK_MODEL_KEY, 'codex:reported-gpt')
+      runtime.deviceState.set(NEW_WORK_EFFORT_KEY, 'high')
     })
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Codex · Reported GPT', 'High')
@@ -773,15 +771,15 @@ describe('phone last launched pair', () => {
   it('resets a restored stale model after the selected machine list arrives', async () => {
     const { runtime } = await setup()
     catalogFixture.byMachine.mine = {}
-    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · reported-opus', 'High')
     catalogFixture.byMachine.mine = {
       'claude-code': [{ value: 'replacement', label: 'Replacement', efforts: ['high'] }],
     }
-    act(() => runtime.access.uiState.set(NEW_WORK_REPO_KEY, '/home/dev/podium'))
+    act(() => runtime.deviceState.set(NEW_WORK_REPO_KEY, '/home/dev/podium'))
     await expectPair('Auto', 'Auto')
-    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
+    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
   })
 
   it('changing model always resets effort, even when the new model supports the old level', async () => {
@@ -791,11 +789,11 @@ describe('phone last launched pair', () => {
       label: 'Second',
       efforts: ['high'],
     })
-    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Model', 'Claude Code Second')
     await expectPair('Claude Code · Second', 'Auto')
-    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
+    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
   })
 })

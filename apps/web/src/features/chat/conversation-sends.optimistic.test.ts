@@ -83,7 +83,7 @@ function opts(
     trpc: {
       sessions: { sendText: { mutate: sendText } },
       messages: { cancel: { mutate: vi.fn() }, dismissNotice: { mutate: vi.fn() } },
-    } as unknown as Store['trpc'],
+    } as unknown as import('@/app/trpc').Trpc,
     sendChat: chatSend.sendChat,
     chatSendsFor: chatSend.chatSendsFor,
     discardChat: chatSend.discardChat,

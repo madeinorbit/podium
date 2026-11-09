@@ -221,8 +221,8 @@ export function SessionConversation(
             set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
           readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-          hub: owner.hub,
-          connection: hubConnection(owner.hub),
+          hub: owner.root.services.connection.hub,
+          connection: hubConnection(owner.root.services.connection.hub),
           scheduler: {
             visible: () =>
               AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
@@ -245,7 +245,9 @@ export function SessionConversation(
                   () => recognized.get(),
                   (ready) => {
                     off()
-                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+                    off = ready
+                      ? owner.root.services.connection.hub.subscribeTranscript(id, since, listener)
+                      : () => {}
                   },
                   { fireImmediately: true },
                 )
@@ -255,7 +257,7 @@ export function SessionConversation(
                 }
               },
             },
-            ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
+            ...(owner.root.replica.transcripts ? { cache: owner.root.replica.transcripts } : {}),
           },
           sends: {
             records: ports.records,
@@ -264,7 +266,7 @@ export function SessionConversation(
               ingest: (records) => {
                 if (pool)
                   ingestMessageRecords(pool, records, (id) =>
-                    currentMessageRecord(pool, owner.replica, id),
+                    currentMessageRecord(pool, owner.root.replica, id),
                   )
               },
             },
@@ -352,7 +354,7 @@ export function SessionConversation(
             optimisticDismissOffer: false,
             interrupt: (id) =>
               interruptSession(
-                owner.access,
+                { interruptTurn: commandModules.sessions.interrupt },
                 pool ? here(pool.model('session', sessionId)) : undefined,
                 sessionId,
                 id,
@@ -754,13 +756,13 @@ const SessionConversationBody = observer(function SessionConversationBody({
       {conversation.session ? (
         <MobileInterruptStuck
           session={conversation.session}
-          onKill={(id) => void store.endSession(id, true)}
+          onKill={(id) => void store.endSession(id, { force: true })}
           onDismiss={(id) => void store.dismissEffect(id)}
         />
       ) : null}
       <MobileLifecycleTransition
         session={session}
-        onEndAnyway={(id) => void store.endSession(id, true)}
+        onEndAnyway={(id) => void store.endSession(id, { force: true })}
         onResume={(id) => void store.resurrectSession(id)}
         onHibernate={(id) => void store.hibernateSession(id)}
       />

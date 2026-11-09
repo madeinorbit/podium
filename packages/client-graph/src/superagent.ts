@@ -62,7 +62,11 @@ export const SUPERAGENT_SCHEMA = {
 } as const
 export const SUPERAGENT_SUMMARIES = { session: SUPERAGENT_SCHEMA.session.summary }
 
-type SuperagentOwner = Pick<ClientRuntime, 'ui' | 'replica' | 'readPosition'>
+type SuperagentOwner = {
+  readonly ui: ClientRuntime['ui']
+  readonly replica: ClientRuntime['root']['replica']
+  readonly readPosition: ClientRuntime['readPosition']
+}
 
 /** MobX and the loading sentinel arrive only after the app-load switch has
  * latched ON. Initial demands coalesce; incremental events use addressed rows. */

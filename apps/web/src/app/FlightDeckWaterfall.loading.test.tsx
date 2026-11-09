@@ -1,4 +1,7 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
+// @vitest-environment happy-dom
+
 import { LOADING } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
@@ -25,8 +28,8 @@ const owner = withKeyedInputs({
 })
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...fixtureRuntimeHooks(() => owner),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useClientRuntime: () => owner,
 }))
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (store: typeof owner.access) => unknown) => read(owner.access),

@@ -18,16 +18,19 @@ export class MobileInboxSource {
     refresh: this.refresh.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   private readonly stop: () => void
   readonly counts = { batches: 0 }
 
   constructor(
-    private readonly runtime: Pick<ClientRuntime, 'replica'>,
+    private readonly runtime: { readonly replica: ClientRuntime['root']['replica'] },
     _pool: MobxPool,
   ) {
     // Keyed (POD-5433): only a cursor move can change `hasCursor`.
-    if (!runtime.replica.subscribeCursor) throw new Error('Mobile inbox requires the replica cursor signal')
+    if (!runtime.replica.subscribeCursor)
+      throw new Error('Mobile inbox requires the replica cursor signal')
     this.stop = runtime.replica.subscribeCursor(() => {
       if (this.demanded) this.schedule()
     })
@@ -37,7 +40,10 @@ export class MobileInboxSource {
     return this.source.read(_entity, _id) as Loaded<MobileInboxRows[E]>
   }
 
-  private readById<E extends keyof MobileInboxRows>(_entity: E, _id: string): Loaded<MobileInboxRows[E]> {
+  private readById<E extends keyof MobileInboxRows>(
+    _entity: E,
+    _id: string,
+  ): Loaded<MobileInboxRows[E]> {
     this.demanded = true
     if (this.state.get() === LOADING) this.schedule()
     return this.state.get() as Loaded<MobileInboxRows[E]>

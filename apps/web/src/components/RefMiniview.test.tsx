@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionMeta } from '@podium/model'
 import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
@@ -48,8 +49,8 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   })
   return {
     ...actual,
+    ...fixtureRuntimeHooks(() => owner),
     ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-    useClientRuntime: () => owner,
     useHarnessDescriptors: () => ({ served: [] }),
   }
 })

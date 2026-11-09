@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
@@ -9,7 +11,6 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useOperatorFocus } from './operator-focus'
-import { useRuntimeSelector } from './store'
 
 /**
  * THE TWO WAYS OUT OF A VACATED TASK, shared by the flight deck and the pane
@@ -37,10 +38,10 @@ export function useMissionEndings(screen: MissionScreen): {
     setSelectedIssueId: useUiValue('setSelectedIssueId'),
     openSessionTab: useUiValue('openSessionTab'),
     setView: useUiValue('setView'),
-    markIssueRead: useRuntimeSelector((store) => store.markIssueRead),
-    markSessionRead: useRuntimeSelector((store) => store.markSessionRead),
-    setIssueTucked: useRuntimeSelector((store) => store.setIssueTucked),
-    closeIssue: useRuntimeSelector((store) => store.closeIssue),
+    markIssueRead: useCommands<Trpc>().issues.markRead,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
+    setIssueTucked: useCommands<Trpc>().issues.setTucked,
+    closeIssue: useCommands<Trpc>().issues.close,
   }
   const { setFocusedIssueId } = useOperatorFocus()
   const rootId = screen.rootId

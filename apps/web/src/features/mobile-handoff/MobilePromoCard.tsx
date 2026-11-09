@@ -1,6 +1,7 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient, useHttpOrigin } from '@podium/client-core/react'
 import { X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import {
   useFocusedHandoffSessionId,
@@ -26,8 +27,8 @@ import {
  * Settings → Connected devices, which is where a paired phone is managed anyway.
  */
 export function MobilePromoCard(): JSX.Element | null {
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const httpOrigin = useRuntimeSelector((s) => s.httpOrigin)
+  const trpc = useRequestClient<Trpc>()
+  const httpOrigin = useHttpOrigin()
   const sessionId = useFocusedHandoffSessionId()
   const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()

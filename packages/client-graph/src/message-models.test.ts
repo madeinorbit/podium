@@ -122,7 +122,10 @@ function fixture(initial = [record()]) {
       },
     },
     outbox: { deadLetters: () => [], subscribe: () => () => {} },
-  } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>
+  } as unknown as {
+    readonly replica: ClientRuntime['root']['replica']
+    readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+  }
   const source = new NoticeSource(runtime)
   pool.sources.register(NOTICE_ENTITIES, source)
   const update = (row: MessageRecordWire) => {
@@ -473,7 +476,10 @@ it('an authority message update crosses the real replica boundary and reaches ev
     new NoticeSource({
       replica: facade,
       outbox: { deadLetters: () => [], subscribe: () => () => {} },
-    } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>),
+    } as unknown as {
+      readonly replica: ClientRuntime['root']['replica']
+      readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+    }),
   )
   const transcript = new TranscriptLog({
     sessionId: asSessionId('seat'),

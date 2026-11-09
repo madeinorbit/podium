@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
@@ -68,7 +69,7 @@ const markIssueUnread = vi.fn(async () => {})
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useClientRuntime: () => ({
+  ...fixtureRuntimeHooks(() => ({
     access: {
       handoffSession,
       markIssueRead,
@@ -83,7 +84,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
         throw new Error('Task menu read legacy machines')
       },
     },
-  }),
+  })),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {

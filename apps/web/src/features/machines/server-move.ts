@@ -2,7 +2,6 @@ import type { MachineId } from '@podium/model'
 import type { Operation } from '@podium/protocol'
 import { parseOperation } from '@podium/protocol'
 import { useCallback, useEffect, useState } from 'react'
-import type { Store } from '@/app/store'
 import { errorMessage, isMissingProcedure } from '@/features/updates/operations-client'
 import { updateStatus } from '@/lib/update-status'
 
@@ -60,7 +59,9 @@ export interface ServerMoveOperationsState {
  * a request answer: read on open, again whenever the active operation changes
  * (a move that ends joins the history), and on `refresh()`.
  */
-export function useServerMoveOperations(trpc: Store['trpc']): ServerMoveOperationsState {
+export function useServerMoveOperations(
+  trpc: import('@/app/trpc').Trpc,
+): ServerMoveOperationsState {
   const status = updateStatus()
   useEffect(() => status.watch(), [status])
   const operation = status.operation
@@ -102,7 +103,7 @@ export function useServerMoveOperations(trpc: Store['trpc']): ServerMoveOperatio
 }
 
 export async function startServerMove(
-  trpc: Store['trpc'],
+  trpc: import('@/app/trpc').Trpc,
   input: {
     targetMachineId: MachineId
     publicUrl: string
@@ -121,7 +122,7 @@ export async function startServerMove(
 }
 
 export async function settleServerMoveRecovery(
-  trpc: Store['trpc'],
+  trpc: import('@/app/trpc').Trpc,
   operationId: string,
 ): Promise<void> {
   await trpc.operations.settleAsk.mutate({

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { vi } from 'vitest'
 import './pool-fixture'
 
@@ -7,10 +8,10 @@ import './pool-fixture'
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   ...(await import('./fake-store-handle').then(async ({ fakeStoreHandle }) => ({
+    ...fixtureRuntimeHooks(() => fakeStoreHandle),
     ...(
       await import('@podium/client-core/test-support/react')
     ).fixtureUiHooks(() => fakeStoreHandle),
-    useClientRuntime: () => fakeStoreHandle,
   }))),
   useModelCatalog: () => ({}),
   // Served harness descriptors (POD-4475): provider-free suites render
@@ -24,9 +25,9 @@ vi.mock('../../../../../../packages/client-core/src/react/provider', async (impo
     typeof import('../../../../../../packages/client-core/src/react/provider')
   >()),
   ...(await import('./fake-store-handle').then(async ({ fakeStoreHandle }) => ({
+    ...fixtureRuntimeHooks(() => fakeStoreHandle),
     ...(
       await import('@podium/client-core/test-support/react')
     ).fixtureUiHooks(() => fakeStoreHandle),
-    useClientRuntime: () => fakeStoreHandle,
   }))),
 }))

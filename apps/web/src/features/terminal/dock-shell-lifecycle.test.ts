@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
@@ -14,7 +15,7 @@ vi.mock('@/app/store', () => ({
   },
 }))
 const owner = withKeyedInputs({ getSnapshot: () => store.value, subscribe: () => () => {} })
-vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => owner }))
+vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => owner) }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T) =>
     read({

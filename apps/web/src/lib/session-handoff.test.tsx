@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { asMachineId, asSessionId } from '@podium/model/browser'
 import { renderHook, waitFor } from '@testing-library/react'
 import { runInAction } from 'mobx'
@@ -17,7 +18,7 @@ const held = vi.hoisted(() => {
   return observable.map<string, Record<string, unknown>>({}, { deep: false })
 })
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => ({ access: { handoffSession } }),
+  ...fixtureRuntimeHooks(() => ({ access: { handoffSession } })),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => ({

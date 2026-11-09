@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@/test-support/mock-request-pool.test.fixture'
 import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
@@ -85,11 +86,11 @@ function publishUnchangedSelection(): void {
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useClientRuntime: () => ({
+  ...fixtureRuntimeHooks(() => ({
     get access() {
       return storeSnapshot
     },
-  }),
+  })),
 }))
 
 vi.mock('@/app/store', () => {

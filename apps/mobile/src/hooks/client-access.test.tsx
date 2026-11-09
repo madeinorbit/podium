@@ -1,3 +1,5 @@
+import { useCommands } from '@podium/client-core/react'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { renderHook } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 
@@ -6,7 +8,7 @@ const current = vi.hoisted(() => ({
   legacy: vi.fn(),
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => current.owner,
+  ...fixtureRuntimeHooks(() => current.owner),
   useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => {
     current.legacy()
     return select(current.owner.access)
@@ -14,14 +16,7 @@ vi.mock('@podium/client-core/react', () => ({
 }))
 vi.mock('../client/demoData', () => ({ demoEnabled: () => false }))
 
-import {
-  useHttpOrigin,
-  useHub,
-  useReplica,
-  useStoreActions,
-  useTrpc,
-  useUiState,
-} from '../client/hooks'
+import { useHttpOrigin, useHub, useReplica, useTrpc, useUiState } from '../client/hooks'
 
 it('acquires stable mobile actions and handles once per owner without legacy subscriptions', () => {
   const make = (name: string) => {
@@ -44,7 +39,7 @@ it('acquires stable mobile actions and handles once per owner without legacy sub
     hub: useHub(),
     replica: useReplica(),
     ui: useUiState(),
-    actions: useStoreActions(),
+    actions: useCommands(),
   }))
   const actions = result.current.actions
   rerender()
@@ -66,7 +61,7 @@ it('acquires stable mobile actions and handles once per owner without legacy sub
     replica: second.snapshot.replica,
     ui: second.snapshot.uiState,
   })
-  result.current.actions.markIssueRead('synthetic' as never)
+  result.current.actions.issues.markRead('synthetic' as never)
   expect(second.snapshot.markIssueRead).toHaveBeenCalledOnce()
   expect(first.snapshot.markIssueRead).not.toHaveBeenCalled()
   expect(current.legacy).not.toHaveBeenCalled()

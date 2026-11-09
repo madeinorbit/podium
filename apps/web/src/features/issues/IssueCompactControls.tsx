@@ -1,5 +1,6 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands, useRequestClient } from '@podium/client-core/react'
 import type { SessionView, SessionViewWithLink } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   discoveredPlacement,
   issueNeedsHuman,
@@ -10,7 +11,6 @@ import {
 import type { SessionModel } from '@podium/client-graph/models'
 import {
   asIssueId,
-  type IssueId,
   type IssueStage,
   isFinished,
   issueStatusControlLabel,
@@ -32,7 +32,6 @@ import { type JSX, lazy, type ReactNode, Suspense, useMemo, useState } from 'rea
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
-import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -271,7 +270,7 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   session: SessionView
   onOpen: () => void
 }): JSX.Element {
-  const renameSession = useRuntimeSelector((s) => s.renameSession)
+  const renameSession = useCommands<Trpc>().sessions.rename
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const retired =
@@ -377,7 +376,7 @@ export const IssueDecisionBand = observer(function IssueDecisionBand({
 }: {
   issue: IssueViewModel
 }): JSX.Element | null {
-  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
   const sessions = useIssuePageSessions()
   const page = useIssuePageContext()
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
@@ -545,14 +544,11 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue, startIssueSession } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-      startIssueSession: s.startIssueSession,
-    }),
-    shallowEqual,
-  )
+  const { trpc, updateIssue, startIssueSession } = {
+    trpc: useRequestClient<Trpc>(),
+    updateIssue: useCommands<Trpc>().issues.update,
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+  }
   const machines = usePoolMachines()
   const resolve = useIssueEdgeResolver()
   const sessions = useIssuePageSessions()

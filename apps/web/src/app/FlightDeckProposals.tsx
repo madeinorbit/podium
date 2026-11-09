@@ -1,3 +1,4 @@
+import { useRequestClient, useCommands } from '@podium/client-core/react'
 import { issueWrites } from '@podium/commands/issues-synced'
 import { discoveredPlacement } from '@podium/client-core/values'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
@@ -12,7 +13,6 @@ import { type JSX, type MouseEvent, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { openMiniview } from '@/lib/ref-activation'
-import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
 
 type ProposalAction = 'backlog' | 'start' | 'dismiss'
@@ -119,8 +119,8 @@ async function startProposal(
 }
 
 function useProposalPorts(): ProposalPorts {
-  const trpc = useRuntimeSelector((store) => store.trpc)
-  const startIssueSession = useRuntimeSelector((store) => store.startIssueSession)
+  const trpc = useRequestClient<Trpc>()
+  const startIssueSession = useCommands<Trpc>().sessions.startIssueSession
   return { trpc, startIssueSession }
 }
 

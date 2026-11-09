@@ -1,4 +1,3 @@
-import type { LiveStore } from '@podium/client-core/live'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -15,7 +14,7 @@ import { sessionPaneView } from './session-pane-view'
 import type { SettingsOwner } from './settings-source'
 import { attachSettingsSource } from './settings-source'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
-import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
+import { createRowSource, type RowSourceRuntime } from './shared/row-source'
 import { shellViews } from './shell-views'
 import type { PoolSummaryFields } from './source-registry'
 import { draftSortKey } from './write/launch-rows'
@@ -228,11 +227,10 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & {
     /** Historical corpus harness only; production supplies no manual clock. */
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
-    readonly replica: RowSourceReplica
+    readonly root: import('@podium/client-core/runtime-root').RuntimeRoot
     readonly deviceState?: RoutedUiState
     readonly layout?: import('@podium/client-core/ui').LayoutAccess
     /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
-    readonly live?: LiveStore
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
 
@@ -262,9 +260,6 @@ function detachPool(runtime: object, pool: MobxPool | undefined): void {
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
-  readonly outbox: PoolTransactionsPorts['outbox'] & {
-    enqueue: import('@podium/client-core/runtime-root').EngineOutbox['enqueue']
-  }
   /** Routes the runtime's queued actions through the log (POD-5432). */
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
@@ -272,10 +267,13 @@ type TransactionsRuntime = WorklistRuntime & {
 /** The transaction log over the app's runtime; fixtures reuse this wiring. */
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
-  const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
+  const outbox = rt.root?.services.outbox.queue
+  const subscribeAddressed = runtime.root.replica.subscribeAddressedBatch?.bind(
+    runtime.root.replica,
+  )
   if (
     !rt.principal ||
-    !rt.outbox ||
+    !outbox ||
     !rt.subscribeOutboxOutcomes ||
     !rt.attachPoolWriter ||
     !subscribeAddressed
@@ -294,10 +292,10 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       return pool === undefined ? undefined : startEffects(pool)
     },
     userId: rt.principal.userId,
-    outbox: rt.outbox,
+    outbox,
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => {
-      await rt.outbox!.enqueue(kind, input, opts)
+      await outbox.enqueue(kind, input, opts)
     },
     addressed: subscribeAddressed,
     // A new record's placement guess (POD-6400): the held repos whose field
@@ -362,7 +360,7 @@ export function createRuntimeWorklistPool(
   const transactions = createRuntimeTransactions(runtime)
   let rows: ReturnType<typeof createRowSource>
   try {
-    rows = createRowSource(runtime, runtime.replica, { pending: transactions.pending })
+    rows = createRowSource(runtime, runtime.root.replica, { pending: transactions.pending })
   } catch (error) {
     transactions.dispose()
     throw error
@@ -397,7 +395,7 @@ export function createRuntimeWorklistPool(
       },
       'worklist',
     )
-    if (runtime.live) handle.pool.bindLive(runtime.live)
+    if (runtime.root.live) handle.pool.bindLive(runtime.root.live)
     const pool = handle.pool
     const principal = runtime.principal
     let stopLayout: () => void = () => {}

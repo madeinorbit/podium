@@ -294,6 +294,16 @@
       "@podium/source": "./src/notices.ts",
       "types": "./src/notices.ts",
       "import": "./src/notices.ts"
+    },
+    "./test-support/command-hooks": {
+      "@podium/source": "./test-support/command-hooks.ts",
+      "types": "./test-support/command-hooks.ts",
+      "import": "./test-support/command-hooks.ts"
+    },
+    "./test-support/reference-commands": {
+      "@podium/source": "./test-support/reference-commands.ts",
+      "types": "./test-support/reference-commands.ts",
+      "import": "./test-support/reference-commands.ts"
     }
   },
   "scripts": {

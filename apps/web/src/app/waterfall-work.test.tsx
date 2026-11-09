@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -27,7 +28,7 @@ const owner = {
 }
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useClientRuntime: () => owner,
+  ...fixtureRuntimeHooks(() => owner),
 }))
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {

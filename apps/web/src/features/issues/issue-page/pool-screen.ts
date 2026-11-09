@@ -6,6 +6,6 @@ export const issuePagePoolScreen: PoolScreen = {
   options: () => ({ summaries: ISSUE_PAGE_SUMMARIES }),
   async attach(runtime, pool) {
     const { attachIssuePageSource } = await import('@podium/client-graph/issue-page-source')
-    return attachIssuePageSource(pool, runtime)
+    return attachIssuePageSource(pool, { replica: runtime.root.replica })
   },
 }

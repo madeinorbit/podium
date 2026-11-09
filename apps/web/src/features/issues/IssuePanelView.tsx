@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient, useHttpOrigin, useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename, operationalState } from '@podium/client-core/values'
 import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
@@ -20,7 +22,7 @@ import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -295,7 +297,7 @@ const CommentsPart = observer(function CommentsPart({
 }: {
   issue: IssueViewModel
 }): JSX.Element {
-  const trpc = useRuntimeSelector((s) => s.trpc)
+  const trpc = useRequestClient<Trpc>()
   const history = useIssueHistory(issue, 0)
   const activity = history?.activity
   void activity?.revision
@@ -502,7 +504,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
   onViewAll?: () => void
 }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = {
-    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    httpOrigin: useHttpOrigin(),
     openFileInWorktree: useUiValue('openFileInWorktree'),
     openArtifact: useUiValue('openArtifact'),
   }
@@ -816,13 +818,13 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     markIssueRead,
     markSessionRead,
   } = {
-    updateIssue: useRuntimeSelector((s) => s.updateIssue),
+    updateIssue: useCommands<Trpc>().issues.update,
     setPane: useUiValue('setPane'),
     setView: useUiValue('setView'),
     setSelectedIssueId: useUiValue('setSelectedIssueId'),
     setOpenIssueId: useUiValue('setOpenIssueId'),
-    markIssueRead: useRuntimeSelector((s) => s.markIssueRead),
-    markSessionRead: useRuntimeSelector((s) => s.markSessionRead),
+    markIssueRead: useCommands<Trpc>().issues.markRead,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
   }
   const resolve = useIssueEdgeResolver()
   const openArtifactsTab = useOpenArtifactsTab()

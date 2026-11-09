@@ -1,3 +1,4 @@
+import { useHttpOrigin } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { type IssuePanelArtifact, resolveMachinePath } from '@podium/model/browser'
@@ -13,7 +14,6 @@ import {
   Table2,
 } from 'lucide-react'
 import { type JSX, useDeferredValue, useMemo, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import {
   type ArtifactFilter,
@@ -53,7 +53,7 @@ const EMPTY: readonly IssuePanelArtifact[] = []
 export function ArtifactsTab({ issueId }: { issueId: string }): JSX.Element {
   const issue = usePageIssue(issueId)
   const { httpOrigin, openArtifact, openFileInWorktree } = {
-    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    httpOrigin: useHttpOrigin(),
     openArtifact: useUiValue('openArtifact'),
     openFileInWorktree: useUiValue('openFileInWorktree'),
   }

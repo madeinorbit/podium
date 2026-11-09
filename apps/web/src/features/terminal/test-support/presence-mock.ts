@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureUiHooks } from '@podium/client-core/test-support/react'
 import { vi } from 'vitest'
@@ -40,7 +41,7 @@ vi.mock('../../../../../../packages/client-core/src/react/provider', async (impo
   ...(await importOriginal<
     typeof import('../../../../../../packages/client-core/src/react/provider')
   >()),
-  useClientRuntime: () => fixtureOwner ?? paneOwner,
+  ...fixtureRuntimeHooks(() => fixtureOwner ?? paneOwner),
 }))
 
 export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unknown> {
@@ -50,7 +51,7 @@ export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unkno
     useConversation,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
-    useClientRuntime: () => fixtureOwner ?? paneOwner,
+    ...fixtureRuntimeHooks(() => fixtureOwner ?? paneOwner),
     useModelCatalog: () => ({}),
     useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' as const }),
     // Served harness descriptors (POD-4475): provider-free suites render

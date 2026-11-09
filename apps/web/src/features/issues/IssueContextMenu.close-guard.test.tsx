@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { MobxPool } from '@podium/client-graph'
@@ -31,7 +32,7 @@ vi.mock('@/app/store-worklist-pool', async () => {
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  useClientRuntime: () =>
+  ...fixtureRuntimeHooks(() =>
     withKeyedInputs({
       subscribe: () => () => {},
       getSnapshot: () => ({
@@ -50,6 +51,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
         },
       }),
     }),
+  ),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {

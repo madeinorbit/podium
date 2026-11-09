@@ -1,3 +1,7 @@
+import {
+  referenceCommandAccess,
+  type ReferenceCommandAccess,
+} from '@podium/client-core/test-support/reference-commands'
 import type { ClientRuntime, OverlayTarget, Store } from '@podium/client-core/engine'
 import { foldRowOverlays } from '@podium/client-core/engine'
 import type { ReplicaRows } from '@podium/client-core/replica'
@@ -16,6 +20,7 @@ export type ReferenceState<
   T extends
     import('@podium/client-core/api').PodiumClientApi = import('@podium/client-core/api').PodiumClientApi,
 > = Store<T> &
+  ReferenceCommandAccess<T> &
   Omit<{ [K in keyof ReplicaRows]: ReplicaRows[K][] }, 'sessions' | 'repos' | 'machines'> & {
     coarseNow: number
     sessions: SessionView[]
@@ -35,14 +40,16 @@ export function setReferenceClock(runtime: object, read: () => number): void {
 export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(
   runtime: {
     readonly access: Store<T>
-    readonly replica?: ClientRuntime['replica']
+    readonly root?: import('@podium/client-core/runtime-root').RuntimeRoot<T>
+    readonly replica?: ClientRuntime['root']['replica']
     readonly principal?: { userId: string }
   },
   options: { screen?: boolean } = {},
 ): ReferenceState<T> {
   return runInAction(() => {
     const access = runtime.access
-    const replica = runtime.replica ?? access.replica
+    const replica: ClientRuntime['root']['replica'] | undefined =
+      runtime.root?.replica ?? runtime.replica ?? Reflect.get(access, 'replica')
     // Plain component fixtures already supply their reference records.
     if (!replica?.rows) return access as unknown as ReferenceState<T>
     const userId = runtime.principal?.userId ?? 'operator'
@@ -155,6 +162,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
     return {
       ...(options.screen === false ? {} : access),
+      ...(runtime.root ? referenceCommandAccess(runtime.root) : {}),
       coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(),
       ...records,
       repos,

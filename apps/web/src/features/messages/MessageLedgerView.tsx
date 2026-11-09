@@ -1,4 +1,5 @@
-import { useRequestClient, useUi } from '@podium/client-core/react'
+import { useReplica } from '@podium/client-core/react'
+import { useRequestClient } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { isGone, LOADING } from '@podium/client-graph'
 import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
@@ -111,7 +112,7 @@ export const MessageLedgerView = observer(function MessageLedgerView({
   sessionId?: SessionId
 }): JSX.Element {
   const trpc = useRequestClient<Trpc>(),
-    { replica } = useUi()
+    replica = useReplica()
   const pool = useWorklistPool()
   const createLedger = useCallback(
     (pool: MobxPool) =>

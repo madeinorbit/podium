@@ -69,15 +69,15 @@ export class ShellSource implements PoolSource<ShellEntity> {
       this.counts.laneCollections++
       this.replace(
         'shellShipLane',
-        runtime.replica.rows('shipLanes').map((row) => [row.id, row]),
+        runtime.root.replica.rows('shipLanes').map((row) => [row.id, row]),
       )
       this.catalog()
     }
     runInAction(lanes)
-    if (!runtime.replica.row || !runtime.replica.subscribeAddressedBatch)
+    if (!runtime.root.replica.row || !runtime.root.replica.subscribeAddressedBatch)
       throw new Error('Shell controls require the existing addressed replica')
     this.stops = [
-      runtime.replica.subscribeAddressedBatch((batch) => {
+      runtime.root.replica.subscribeAddressedBatch((batch) => {
         if (this.disposed) return
         runInAction(() => {
           if (batch.type === 'replace') {
@@ -89,7 +89,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
               this.change(
                 'shellShipLane',
                 address.id,
-                runtime.replica.row!('shipLanes', address.id),
+                runtime.root.replica.row!('shipLanes', address.id),
               )
               this.counts.laneRows++
             }

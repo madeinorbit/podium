@@ -32,7 +32,6 @@ import {
   podiumTargetPath,
 } from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
@@ -96,12 +95,12 @@ export function mobileHandoffUrl(
  * fallback. A session change invalidates the old code before the next query.
  */
 export function useMobileHandoffUrl(
-  trpc: Store['trpc'] | undefined,
+  trpc: import('@/app/trpc').Trpc | undefined,
   httpOrigin: string | undefined,
   sessionId: string | null,
 ): string | null {
   const [published, setPublished] = useState<{
-    trpc: Store['trpc']
+    trpc: import('@/app/trpc').Trpc
     httpOrigin: string
     sessionId: string
     url: string

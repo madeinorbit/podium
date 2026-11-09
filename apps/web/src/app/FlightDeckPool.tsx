@@ -74,7 +74,7 @@ const MissionOpening = observer(function MissionOpening({
       new MissionScreen(pool, rootId, {
         fullOnly: true,
         setPreference: (key, raw) =>
-          (handleRef.current.access.uiState as RoutedUiState | undefined)?.set(key, raw),
+          (handleRef.current.deviceState as RoutedUiState | undefined)?.set(key, raw),
         sessionName: sessionDisplayName,
       }),
     [pool, rootId],

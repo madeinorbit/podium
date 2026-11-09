@@ -6,7 +6,12 @@ import type { RowRecord } from './shared/source'
 import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import { isMessageRecordAttention, parseMessageRecordRowId, parseInteractionRowId, type MessageRecordWire } from '@podium/model'
+import {
+  isMessageRecordAttention,
+  parseMessageRecordRowId,
+  parseInteractionRowId,
+  type MessageRecordWire,
+} from '@podium/model'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
@@ -14,24 +19,39 @@ import { createKeyedAnswer } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export const NOTICE_SOURCE_KEY = 'notices'
-type NoticeRuntime = Pick<ClientRuntime, 'replica' | 'outbox'>
+type NoticeRuntime = {
+  readonly replica: ClientRuntime['root']['replica']
+  readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+}
 type RecordEntity = 'messageRecord' | 'pendingInteraction'
 type IdAnswer = ReturnType<typeof createKeyedAnswer<string>>
 type SessionMembers = { messages: IdAnswer; interactions: IdAnswer }
-interface Identity { sessionId: string | undefined; order: string; attentionAt: string | undefined }
-interface Recovery { ids: readonly string[]; rows: Map<string, OutboxDeadLetterEntry> }
+interface Identity {
+  sessionId: string | undefined
+  order: string
+  attentionAt: string | undefined
+}
+interface Recovery {
+  ids: readonly string[]
+  rows: Map<string, OutboxDeadLetterEntry>
+}
 function recordId(entity: RecordEntity, address: string): string {
   if (!address.includes('\n')) return address
-  return entity === 'messageRecord' ? parseMessageRecordRowId(address).messageId : parseInteractionRowId(address).interactionId
+  return entity === 'messageRecord'
+    ? parseMessageRecordRowId(address).messageId
+    : parseInteractionRowId(address).interactionId
 }
-const CATALOG = 'noticeCatalog:catalog', ATTENTION = 'noticeAttention:attention'
-const MESSAGES = 'noticeMessageCatalog:catalog', RECOVERY = 'noticeRecoveryCatalog:catalog'
+const CATALOG = 'noticeCatalog:catalog',
+  ATTENTION = 'noticeAttention:attention'
+const MESSAGES = 'noticeMessageCatalog:catalog',
+  RECOVERY = 'noticeRecoveryCatalog:catalog'
 
 // Reverse the timestamp key for the existing ascending identity tree. The end
 // marker reverses prefix order too. Equal timestamps retain ID order.
 function newestOrder(value: string): string {
   let key = ''
-  for (let index = 0; index < value.length; index++) key += String.fromCharCode(0xffff - value.charCodeAt(index))
+  for (let index = 0; index < value.length; index++)
+    key += String.fromCharCode(0xffff - value.charCodeAt(index))
   return `${key}\uffff`
 }
 
@@ -40,7 +60,10 @@ function newestOrder(value: string): string {
  * its addresses. Payloads are borrowed by ID. Atoms and aggregate identity
  * answers release with their last observer. */
 export class NoticeSource {
-  private readonly identities = { messageRecord: new Map<string, Identity>(), pendingInteraction: new Map<string, Identity>() }
+  private readonly identities = {
+    messageRecord: new Map<string, Identity>(),
+    pendingInteraction: new Map<string, Identity>(),
+  }
   private readonly positions = { messageRecord: 0, pendingInteraction: 0 }
   private readonly sessions = new Map<string, SessionMembers>()
   private readonly watched = createDemandAtoms<string>((key) => key, {
@@ -66,48 +89,68 @@ export class NoticeSource {
     refresh: this.refresh.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   private readonly stops: (() => void)[]
-  readonly counts = { batches: 0, collectionReads: 0, addressedRows: 0, payloadReads: 0,
-    outboxReads: 0, catalogBuilds: 0, catalogUpdates: 0, attentionBuilds: 0, attentionUpdates: 0 }
+  readonly counts = {
+    batches: 0,
+    collectionReads: 0,
+    addressedRows: 0,
+    payloadReads: 0,
+    outboxReads: 0,
+    catalogBuilds: 0,
+    catalogUpdates: 0,
+    attentionBuilds: 0,
+    attentionUpdates: 0,
+  }
 
   constructor(private readonly runtime: NoticeRuntime) {
     const { replica, outbox } = runtime
-    if (!replica.row || !replica.subscribeAddressedBatch) throw new Error('Notices require the existing addressed replica')
+    if (!replica.row || !replica.subscribeAddressedBatch)
+      throw new Error('Notices require the existing addressed replica')
     this.seed()
-    this.stops = [replica.subscribeAddressedBatch(batch => {
-      if (this.disposed) return
-      runInAction(() => {
-        if (batch.type === 'replace') {
-          this.seed()
-          this.loaded = false
-          for (const atom of this.watched.values()) atom.reportChanged()
-          if (this.watched.size) this.schedule()
-          return
-        }
-        for (const address of batch.rows) {
-          if (address.kind !== 'messageRecords' && address.kind !== 'pendingInteractions') continue
-          const entity = address.kind === 'messageRecords' ? 'messageRecord' : 'pendingInteraction'
-          const row = replica.row!(address.kind, address.id)
-          // Kernel message/interaction changes use composite visibility addresses.
-          // The shared table and every reader are keyed by the record's own ID.
-          const id = row?.id ?? recordId(entity, address.id)
-          this.change(entity, id, row)
-          this.counts.addressedRows++
-          this.wake(`${entity}:${id}`)
-        }
-      })
-    }), outbox.subscribe(() => {
-      if (this.disposed || !this.recoveryAnswer) return
-      this.outboxDirty = true
-      this.schedule()
-    })]
+    this.stops = [
+      replica.subscribeAddressedBatch((batch) => {
+        if (this.disposed) return
+        runInAction(() => {
+          if (batch.type === 'replace') {
+            this.seed()
+            this.loaded = false
+            for (const atom of this.watched.values()) atom.reportChanged()
+            if (this.watched.size) this.schedule()
+            return
+          }
+          for (const address of batch.rows) {
+            if (address.kind !== 'messageRecords' && address.kind !== 'pendingInteractions')
+              continue
+            const entity =
+              address.kind === 'messageRecords' ? 'messageRecord' : 'pendingInteraction'
+            const row = replica.row!(address.kind, address.id)
+            // Kernel message/interaction changes use composite visibility addresses.
+            // The shared table and every reader are keyed by the record's own ID.
+            const id = row?.id ?? recordId(entity, address.id)
+            this.change(entity, id, row)
+            this.counts.addressedRows++
+            this.wake(`${entity}:${id}`)
+          }
+        })
+      }),
+      outbox.subscribe(() => {
+        if (this.disposed || !this.recoveryAnswer) return
+        this.outboxDirty = true
+        this.schedule()
+      }),
+    ]
   }
 
   attach(pool: MobxPool): void {
     if (pool === this.pool) return
     const rows: RowRecord[] = []
-    for (const [entity, kind] of [['messageRecord', 'messageRecord'], ['pendingInteraction', 'pendingInteraction']] as const)
+    for (const [entity, kind] of [
+      ['messageRecord', 'messageRecord'],
+      ['pendingInteraction', 'pendingInteraction'],
+    ] as const)
       for (const id of this.identities[entity].keys())
         rows.push({ kind, id, value: omitGone(this.pool.row(kind, id)) as RowRecord['value'] })
     pool.apply({ type: 'update', rows })
@@ -118,8 +161,12 @@ export class NoticeSource {
 
   /** Display demand, independent of the ingestion identity index. */
   get demand() {
-    return { keys: this.watched.size, catalog: !!this.catalogAnswer,
-      attention: !!this.attentionAnswer, recovery: !!this.recoveryAnswer }
+    return {
+      keys: this.watched.size,
+      catalog: !!this.catalogAnswer,
+      attention: !!this.attentionAnswer,
+      recovery: !!this.recoveryAnswer,
+    }
   }
 
   read(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
@@ -127,8 +174,14 @@ export class NoticeSource {
   }
 
   private readById(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
-    if ((entity === 'noticeAttention' && id !== 'attention') ||
-      ((entity === 'noticeCatalog' || entity === 'noticeMessageCatalog' || entity === 'noticeRecoveryCatalog') && id !== 'catalog')) return undefined
+    if (
+      (entity === 'noticeAttention' && id !== 'attention') ||
+      ((entity === 'noticeCatalog' ||
+        entity === 'noticeMessageCatalog' ||
+        entity === 'noticeRecoveryCatalog') &&
+        id !== 'catalog')
+    )
+      return undefined
     const tracked = this.watch(entity, id)
     if (!this.loaded) {
       if (!tracked) this.imperativeLoad = true
@@ -141,7 +194,9 @@ export class NoticeSource {
     }
     if (entity === 'noticeSession') {
       const members = this.sessions.get(id)
-      return members ? { messages: members.messages.snapshot(), interactions: members.interactions.snapshot() } : undefined
+      return members
+        ? { messages: members.messages.snapshot(), interactions: members.interactions.snapshot() }
+        : undefined
     }
     if (entity === 'noticeAttention') {
       const ids = this.attention().snapshot()
@@ -151,7 +206,11 @@ export class NoticeSource {
     if (entity === 'noticeRecoveryCatalog') return { deadLetters: this.recovery().ids }
     if (entity === 'outboxDeadLetter') return this.recovery().rows.get(id)
     const catalog = this.catalog()
-    return { messages: catalog.messages.snapshot(), interactions: catalog.interactions.snapshot(), deadLetters: this.recovery().ids }
+    return {
+      messages: catalog.messages.snapshot(),
+      interactions: catalog.interactions.snapshot(),
+      deadLetters: this.recovery().ids,
+    }
   }
 
   private watch(entity: NoticeEntity, id: string): boolean {
@@ -160,10 +219,14 @@ export class NoticeSource {
 
   private releaseAnswers(): void {
     if (!this.watched.has(CATALOG)) this.catalogAnswer = undefined
-    if (!this.watched.has(ATTENTION) && !this.watched.has(MESSAGES)) this.attentionAnswer = undefined
-    if (!this.watched.has(CATALOG) && !this.watched.has(RECOVERY) && !this.recoveryReaders) this.recoveryAnswer = undefined
+    if (!this.watched.has(ATTENTION) && !this.watched.has(MESSAGES))
+      this.attentionAnswer = undefined
+    if (!this.watched.has(CATALOG) && !this.watched.has(RECOVERY) && !this.recoveryReaders)
+      this.recoveryAnswer = undefined
   }
-  private wake(key: string): void { this.watched.get(key)?.reportChanged() }
+  private wake(key: string): void {
+    this.watched.get(key)?.reportChanged()
+  }
 
   private seed(): void {
     // A replacement publishes new facts without replacing retained identities.
@@ -174,43 +237,66 @@ export class NoticeSource {
     const replacement = { messageRecord: messages, pendingInteraction: interactions }
     const removed: RowRecord[] = []
     for (const entity of ['messageRecord', 'pendingInteraction'] as const) {
-      const retained = new Set(replacement[entity].map(row => row.id))
+      const retained = new Set(replacement[entity].map((row) => row.id))
       for (const id of this.identities[entity].keys())
         if (!retained.has(id)) removed.push({ kind: entity, id, value: undefined })
     }
     this.pool.apply({ type: 'update', rows: removed })
-    this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear(); this.sessions.clear()
-    this.positions.messageRecord = 0; this.positions.pendingInteraction = 0
-    this.catalogAnswer = undefined; this.attentionAnswer = undefined
+    this.identities.messageRecord.clear()
+    this.identities.pendingInteraction.clear()
+    this.sessions.clear()
+    this.positions.messageRecord = 0
+    this.positions.pendingInteraction = 0
+    this.catalogAnswer = undefined
+    this.attentionAnswer = undefined
     for (const entity of ['messageRecord', 'pendingInteraction'] as const)
       for (const row of replacement[entity]) this.change(entity, row.id, row)
   }
 
   private change(entity: RecordEntity, id: string, next: object | undefined): void {
-    if (entity === 'messageRecord' && next) ingestMessageRecords(this.pool, [next as MessageRecordWire])
-    else this.pool.apply({ type: 'update', rows: [{ kind: entity, id, value: next as RowRecord['value'] }] })
-    const identities = this.identities[entity], previous = identities.get(id)
+    if (entity === 'messageRecord' && next)
+      ingestMessageRecords(this.pool, [next as MessageRecordWire])
+    else
+      this.pool.apply({
+        type: 'update',
+        rows: [{ kind: entity, id, value: next as RowRecord['value'] }],
+      })
+    const identities = this.identities[entity],
+      previous = identities.get(id)
     if (!next && !previous) return
-    const relation = NOTICE_RELATIONS.find(relation => relation.from === entity)!
+    const relation = NOTICE_RELATIONS.find((relation) => relation.from === entity)!
     const target = next && Reflect.get(next, relation.key)
     const sessionId = typeof target === 'string' && target ? target : undefined
-    const attentionAt = entity === 'messageRecord' && next && isMessageRecordAttention((next as MessageRecordWire).status)
-      ? (next as MessageRecordWire).createdAt : undefined
-    const current: Identity | undefined = next ? { sessionId, attentionAt,
-      order: previous?.order ?? String(this.positions[entity]++).padStart(16, '0') } : undefined
+    const attentionAt =
+      entity === 'messageRecord' &&
+      next &&
+      isMessageRecordAttention((next as MessageRecordWire).status)
+        ? (next as MessageRecordWire).createdAt
+        : undefined
+    const current: Identity | undefined = next
+      ? {
+          sessionId,
+          attentionAt,
+          order: previous?.order ?? String(this.positions[entity]++).padStart(16, '0'),
+        }
+      : undefined
     if (current) identities.set(id, current)
     else identities.delete(id)
     if (previous?.sessionId !== sessionId) {
       if (previous?.sessionId) {
         const members = this.sessions.get(previous.sessionId)!
         members[relation.inverse].delete(id)
-        if (!members.messages.snapshot().length && !members.interactions.snapshot().length) this.sessions.delete(previous.sessionId)
+        if (!members.messages.snapshot().length && !members.interactions.snapshot().length)
+          this.sessions.delete(previous.sessionId)
         this.wake(`noticeSession:${previous.sessionId}`)
       }
       if (current?.sessionId) {
         let members = this.sessions.get(current.sessionId)
         if (!members) {
-          members = { messages: createKeyedAnswer<string>(), interactions: createKeyedAnswer<string>() }
+          members = {
+            messages: createKeyedAnswer<string>(),
+            interactions: createKeyedAnswer<string>(),
+          }
           this.sessions.set(current.sessionId, members)
         }
         members[relation.inverse].set(id, current.order, id)
@@ -225,7 +311,9 @@ export class NoticeSource {
       this.wake(CATALOG)
     }
     if (previous?.attentionAt !== attentionAt && this.attentionAnswer) {
-      const before = this.attentionAnswer.snapshot(), count = before.length, newest = before[0]
+      const before = this.attentionAnswer.snapshot(),
+        count = before.length,
+        newest = before[0]
       if (attentionAt !== undefined) this.attentionAnswer.set(id, newestOrder(attentionAt), id)
       else this.attentionAnswer.delete(id)
       this.counts.attentionUpdates++
@@ -237,8 +325,13 @@ export class NoticeSource {
 
   private catalog(): SessionMembers {
     if (this.catalogAnswer) return this.catalogAnswer
-    const answer = { messages: createKeyedAnswer<string>(), interactions: createKeyedAnswer<string>() }
-    for (const relation of NOTICE_RELATIONS) for (const id of this.identities[relation.from].keys()) answer[relation.inverse].set(id, id, id)
+    const answer = {
+      messages: createKeyedAnswer<string>(),
+      interactions: createKeyedAnswer<string>(),
+    }
+    for (const relation of NOTICE_RELATIONS)
+      for (const id of this.identities[relation.from].keys())
+        answer[relation.inverse].set(id, id, id)
     this.counts.catalogBuilds++
     if (this.watched.has(CATALOG)) this.catalogAnswer = answer
     return answer
@@ -247,7 +340,8 @@ export class NoticeSource {
   private attention(): IdAnswer {
     if (this.attentionAnswer) return this.attentionAnswer
     const answer = createKeyedAnswer<string>()
-    for (const [id, row] of this.identities.messageRecord) if (row.attentionAt !== undefined) answer.set(id, newestOrder(row.attentionAt), id)
+    for (const [id, row] of this.identities.messageRecord)
+      if (row.attentionAt !== undefined) answer.set(id, newestOrder(row.attentionAt), id)
     this.counts.attentionBuilds++
     if (this.watched.has(ATTENTION) || this.watched.has(MESSAGES)) this.attentionAnswer = answer
     return answer
@@ -257,8 +351,12 @@ export class NoticeSource {
     if (this.recoveryAnswer) return this.recoveryAnswer
     const parked = this.runtime.outbox.deadLetters()
     this.counts.outboxReads++
-    const answer = { ids: parked.map(row => row.entry.mutationId), rows: new Map(parked.map(row => [row.entry.mutationId, row])) }
-    if (this.watched.has(CATALOG) || this.watched.has(RECOVERY) || this.recoveryReaders) this.recoveryAnswer = answer
+    const answer = {
+      ids: parked.map((row) => row.entry.mutationId),
+      rows: new Map(parked.map((row) => [row.entry.mutationId, row])),
+    }
+    if (this.watched.has(CATALOG) || this.watched.has(RECOVERY) || this.recoveryReaders)
+      this.recoveryAnswer = answer
     return answer
   }
 
@@ -274,9 +372,13 @@ export class NoticeSource {
         const previous = this.recoveryAnswer
         this.recoveryAnswer = undefined
         const next = this.recovery()
-        if (!compareStructural(previous.ids, next.ids)) { this.wake(RECOVERY); this.wake(CATALOG) }
+        if (!compareStructural(previous.ids, next.ids)) {
+          this.wake(RECOVERY)
+          this.wake(CATALOG)
+        }
         for (const id of new Set([...previous.ids, ...next.ids])) {
-          if (!compareStructural(previous.rows.get(id), next.rows.get(id))) this.wake(`outboxDeadLetter:${id}`)
+          if (!compareStructural(previous.rows.get(id), next.rows.get(id)))
+            this.wake(`outboxDeadLetter:${id}`)
         }
       }
       this.outboxDirty = false
@@ -295,7 +397,12 @@ export class NoticeSource {
   private release(): void {
     for (const stop of this.stops) stop()
     if (this.ownsPool) this.pool.dispose()
-    this.watched.clear(); this.sessions.clear(); this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear()
-    this.catalogAnswer = undefined; this.attentionAnswer = undefined; this.recoveryAnswer = undefined
+    this.watched.clear()
+    this.sessions.clear()
+    this.identities.messageRecord.clear()
+    this.identities.pendingInteraction.clear()
+    this.catalogAnswer = undefined
+    this.attentionAnswer = undefined
+    this.recoveryAnswer = undefined
   }
 }

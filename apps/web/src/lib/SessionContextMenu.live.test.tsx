@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { asSessionId } from '@podium/model'
@@ -21,7 +22,7 @@ const state: {
 const handoffSession = vi.fn(async () => 'eff_handoff')
 
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => ({
+  ...fixtureRuntimeHooks(() => ({
     access: {
       setPinned: vi.fn(),
       setSnooze: vi.fn(),
@@ -42,7 +43,7 @@ vi.mock('@podium/client-core/react', () => ({
         throw new Error('Menu read legacy issues')
       },
     },
-  }),
+  })),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {

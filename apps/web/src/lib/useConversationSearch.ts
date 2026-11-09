@@ -1,5 +1,6 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient } from '@podium/client-core/react'
 import { useEffect, useMemo } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { ConversationSearchView } from './conversation-search-view'
 export type { ConversationHit } from './conversation-search-view'
 
@@ -12,7 +13,7 @@ export function useConversationSearch(opts: {
   enabled?: boolean
   debounceMs?: number
 }): ConversationSearchView {
-  const trpc = useRuntimeSelector((s) => s.trpc)
+  const trpc = useRequestClient<Trpc>()
   const view = useMemo(
     () => new ConversationSearchView((input) => trpc.conversations.search.query(input)),
     [trpc],

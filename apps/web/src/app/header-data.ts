@@ -15,8 +15,8 @@ import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-poo
 /** Stable actions and transport handles stay on the existing mutation owner.
  * No snapshot subscription and no legacy data derivation in the pool branch. */
 export function useHeaderActions() {
-  const owner = useClientRuntime<Store['trpc']>()
-  const requestClient = useRequestClient<Store['trpc']>()
+  const owner = useClientRuntime<import('@/app/trpc').Trpc>()
+  const requestClient = useRequestClient<import('@/app/trpc').Trpc>()
   const screenUi = useUi()
 
   return useMemo(() => {

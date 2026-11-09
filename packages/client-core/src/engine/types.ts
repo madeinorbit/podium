@@ -15,11 +15,8 @@ import type {
   SessionId,
   ThreadId,
 } from '@podium/model'
-import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { ReadPositionPort } from '../read-position'
-import type { Replica } from '../replica/kernel/facade'
-import type { SocketHub } from '../socket-transport'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -110,13 +107,6 @@ export interface UserFocus {
  */
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   navigation: import('./state').NavigationProvider
-  hub: SocketHub
-  trpc: TApi
-  /** Local replica (docs/spec/thin-client-replica.md): the ONE entity read
-   *  path (sessions/issues/conversations) + offline transcript windows. When
-   *  durable storage is unusable (private mode) the same collections run in
-   *  memory — `replica.persistent` is false and a reload cold-starts. */
-  replica: Replica
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
   setView: (view: MainView) => void
@@ -303,16 +293,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** This person's event-stream read positions (POD-1380). Its own port, not a
    * ui-state key: the position follows the user and merges monotonically. */
   readPosition: ReadPositionPort
-  /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
-  httpOrigin: string
-  /** Recover a parked write. `retry` refuses a satisfaction that does not meet
-   *  the reason's precondition, so a surface cannot offer a button that would
-   *  reproduce the same refusal. */
-  recoverOutbox: {
-    retry: (mutationId: MutationId, satisfaction: RetrySatisfaction) => void
-    edit: (mutationId: MutationId, input: unknown) => void
-    discard: (mutationId: MutationId) => void
-  }
   /** What the user is LOOKING AT right now (#225): the screen, selected issue/
    *  worktree, session(s) on screen. Ids only — the server resolves them to
    *  titles/names. Computed on call from live engine state, so this stays a

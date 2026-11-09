@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
@@ -172,13 +173,13 @@ const owner = withKeyedInputs({
 // paths must borrow the same fixture principal.
 vi.mock('../../../../packages/client-core/src/react/provider', async (original) => ({
   ...(await original<typeof import('../../../../packages/client-core/src/react/provider')>()),
+  ...fixtureRuntimeHooks(() => owner),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useClientRuntime: () => owner,
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...fixtureRuntimeHooks(() => owner),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useClientRuntime: () => owner,
 }))
 
 vi.mock('./store', () => ({

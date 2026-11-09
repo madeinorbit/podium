@@ -13,10 +13,10 @@ import { useChatConversationPorts } from './conversation-ports'
 
 export interface ModelSendOptions {
   sessionId: SessionId
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   /** The socket hub, when the surface has one: back online is when the chat
    *  catches up on its own messages by id (POD-4811). */
-  hub?: Store['hub']
+  hub?: import('@podium/client-core/socket-transport').SocketHub
   sendChat: import('@podium/client-core/conversation').ChatCommands['sendChat']
   chatSendsFor?: import('@podium/client-core/conversation').ChatCommands['chatSendsFor']
   discardChat: import('@podium/client-core/conversation').ChatCommands['discardChat']

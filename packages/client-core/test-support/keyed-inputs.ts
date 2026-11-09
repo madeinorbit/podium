@@ -1,3 +1,4 @@
+import { fixtureRoot } from './command-hooks'
 import { createKeyedInputs, type KeyedInputs, type LocalKey } from '../src/engine/keyed-inputs'
 import type { RuntimeState } from '../src/engine/state'
 import type { UiStore } from '../src/ui/ui-store'
@@ -78,6 +79,8 @@ export function withKeyedInputs<
   fake: T,
 ): Omit<T, 'ui'> &
   KeyedInputs & {
+    readonly root: import('../src/runtime-root/root').RuntimeRoot
+    batch(fn: () => void): void
     readonly ui: UiStore
     readonly deviceState: import('../src/ui-state').RoutedUiState
     readonly access: ReturnType<T['getSnapshot']>
@@ -103,10 +106,14 @@ export function withKeyedInputs<
   }
   if (fixture.replica && !fixture.replica.rowCount)
     fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
-  return Object.defineProperty(Object.assign(fake, inputs), 'access', {
-    get: () => fake.getSnapshot(),
-  }) as unknown as Omit<T, 'ui'> &
+  return fixtureRoot(
+    Object.defineProperty(Object.assign(fake, inputs), 'access', {
+      get: () => fake.getSnapshot(),
+    }),
+  ) as unknown as Omit<T, 'ui'> &
     KeyedInputs & {
+      readonly root: import('../src/runtime-root/root').RuntimeRoot
+      batch(fn: () => void): void
       readonly ui: UiStore
       readonly deviceState: import('../src/ui-state').RoutedUiState
       readonly access: ReturnType<T['getSnapshot']>

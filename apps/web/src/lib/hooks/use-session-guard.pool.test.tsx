@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 
 import type { SessionView } from '@podium/client-core/session-values'
@@ -33,7 +34,7 @@ vi.mock('@podium/client-core/react', () => {
       return f.actions
     },
   }
-  return { useClientRuntime: () => owner }
+  return { ...fixtureRuntimeHooks(() => owner) }
 })
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/client-core/values', async (importOriginal) => {

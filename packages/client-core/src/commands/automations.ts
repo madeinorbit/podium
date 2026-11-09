@@ -7,7 +7,7 @@ export function createAutomationsCommands<TApi extends PodiumClientApi>(
   _rt: CommandDeps<TApi>,
   shared: CommandWrites,
 ): AutomationsCommands<TApi> {
-  const { records, editRecord } = shared
+  const { records } = shared
   return {
     // An agent's request, decided (POD-6674): a generic edit of its effect
     // record, made against the revision the person was shown. Queued and

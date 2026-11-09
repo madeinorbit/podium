@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-issue-controls'
@@ -26,8 +27,8 @@ const owner = withKeyedInputs({
 })
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...fixtureRuntimeHooks(() => owner),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useClientRuntime: () => owner,
 }))
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))

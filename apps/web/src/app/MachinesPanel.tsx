@@ -11,7 +11,6 @@ import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Store } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -504,7 +503,7 @@ interface EnableHosting {
  * this hub, hand it to the shell (which flips the local config to daemon mode), restart.
  * Returns null outside a client-mode desktop shell — the only place hosting can be enabled.
  */
-function useEnableHosting(trpc: Store['trpc']): EnableHosting | null {
+function useEnableHosting(trpc: import('@/app/trpc').Trpc): EnableHosting | null {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const bridge = nativeDesktopBridge()
@@ -762,7 +761,7 @@ const ServerMoveDialog = observer(function ServerMoveDialog({
   sourceName: string
   operation: Operation | null
   offlineMachines: MachineFacts[]
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   onChanged: () => void
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -1004,7 +1003,7 @@ const MachineRow = observer(function MachineRow({
 }: {
   machine: MachineFacts
   replacementMachines?: readonly MachineFacts[]
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   /** [spec:SP-3701] True when this row is the device the app is running on. */
   isThisMachine?: boolean
   /** [spec:SP-3701] Set only when this offline row can be enabled as a host from here. */
@@ -1886,7 +1885,7 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
   onApplied,
 }: {
   machine: MachineFacts
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   /** This machine's server-side convergence, or null when it is not converging. */
   convergence: MachineConvergence | null
   /** Ask the panel to poll now, so the row shows progress without a delay. */

@@ -62,7 +62,9 @@ let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let open: ((value: boolean) => void) | undefined
 const failures: string[] = []
-const transcriptListeners = new Set<Parameters<ClientRuntime['hub']['subscribeTranscript']>[2]>()
+const transcriptListeners = new Set<
+  Parameters<ClientRuntime['root']['services']['connection']['hub']['subscribeTranscript']>[2]
+>()
 
 function Fixture() {
   const owner = useClientRuntime() as ClientRuntime

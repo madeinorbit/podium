@@ -1,3 +1,4 @@
+import { useRequestClient, useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import { issueRepoName } from '@podium/client-core/values'
 /**
@@ -9,8 +10,7 @@ import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import type { Store } from '@/app/store'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
@@ -20,19 +20,18 @@ import type { RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
   trpc: Trpc
-  issueWrites: Pick<
-    Store,
-    | 'updateIssue'
-    | 'setPinned'
-    | 'deleteIssue'
-    | 'closeIssue'
-    | 'deferIssue'
-    | 'undeferIssue'
-    | 'setIssueLabels'
-    | 'restoreIssue'
-    | 'startIssueSession'
-    | 'issueAction'
-  >
+  issueWrites: {
+    updateIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['update']
+    setPinned: import('@podium/client-core/commands').Commands<Trpc>['preferences']['setPinned']
+    deleteIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['delete']
+    closeIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['close']
+    deferIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['defer']
+    undeferIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['undefer']
+    setIssueLabels: import('@podium/client-core/commands').Commands<Trpc>['issues']['setLabels']
+    restoreIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['restore']
+    startIssueSession: import('@podium/client-core/commands').Commands<Trpc>['sessions']['startIssueSession']
+    issueAction: import('@podium/client-core/commands').Commands<Trpc>['sessions']['issueAction']
+  }
   busy: boolean
   run: RunMutation
   prev?: IssueId
@@ -45,17 +44,17 @@ export interface IssuePageModel {
  * the section that uses it, so typing and clock ticks never rebuild the page. */
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
   const ports = {
-    trpc: useRuntimeSelector((s) => s.trpc),
-    updateIssue: useRuntimeSelector((s) => s.updateIssue),
-    setPinned: useRuntimeSelector((s) => s.setPinned),
-    deleteIssue: useRuntimeSelector((s) => s.deleteIssue),
-    closeIssue: useRuntimeSelector((s) => s.closeIssue),
-    deferIssue: useRuntimeSelector((s) => s.deferIssue),
-    undeferIssue: useRuntimeSelector((s) => s.undeferIssue),
-    setIssueLabels: useRuntimeSelector((s) => s.setIssueLabels),
-    restoreIssue: useRuntimeSelector((s) => s.restoreIssue),
-    startIssueSession: useRuntimeSelector((s) => s.startIssueSession),
-    issueAction: useRuntimeSelector((s) => s.issueAction),
+    trpc: useRequestClient<Trpc>(),
+    updateIssue: useCommands<Trpc>().issues.update,
+    setPinned: useCommands<Trpc>().preferences.setPinned,
+    deleteIssue: useCommands<Trpc>().issues.delete,
+    closeIssue: useCommands<Trpc>().issues.close,
+    deferIssue: useCommands<Trpc>().issues.defer,
+    undeferIssue: useCommands<Trpc>().issues.undefer,
+    setIssueLabels: useCommands<Trpc>().issues.setLabels,
+    restoreIssue: useCommands<Trpc>().issues.restore,
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+    issueAction: useCommands<Trpc>().sessions.issueAction,
     navigateToSession: useUiValue('navigateToSession'),
   }
   const pool = useWorklistPool()

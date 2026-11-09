@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { MobxPool } from '@podium/client-graph'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -17,7 +18,9 @@ const trpc = {
   files: { search: { query: f.files } },
 }
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => ({ access: { readFileScoped: f.read, writeFileScoped: f.write, trpc } }),
+  ...fixtureRuntimeHooks(() => ({
+    access: { readFileScoped: f.read, writeFileScoped: f.write, trpc },
+  })),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (s: unknown) => unknown) => read({ trpc }),

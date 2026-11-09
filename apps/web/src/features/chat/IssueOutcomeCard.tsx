@@ -1,10 +1,10 @@
-import { shallowEqual } from '@podium/client-core/shallow-equal'
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import { Archive, ArrowDownToLine, Check, Minus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -70,13 +70,10 @@ function IssueOutcomeActions({
   /** Read from the issue, optimistic tuck included: a refused tuck clears it. */
   tucked: boolean
 }): JSX.Element {
-  const { setIssueTucked, updateIssue } = useRuntimeSelector(
-    (store) => ({
-      setIssueTucked: store.setIssueTucked,
-      updateIssue: store.updateIssue,
-    }),
-    shallowEqual,
-  )
+  const { setIssueTucked, updateIssue } = {
+    setIssueTucked: useCommands<Trpc>().issues.setTucked,
+    updateIssue: useCommands<Trpc>().issues.update,
+  }
   const fail = (error: unknown): void => {
     toast.error(error instanceof Error ? error.message : String(error))
   }

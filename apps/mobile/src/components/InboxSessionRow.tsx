@@ -1,3 +1,4 @@
+import type { MobileTrpc } from '../client/trpc'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'

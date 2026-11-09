@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -69,7 +71,6 @@ import { MissionGauge } from './MissionGauge'
 import { useMissionEndings } from './mission-endings'
 import { useOperatorFocus } from './operator-focus'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
-import { useRuntimeSelector } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 /**
@@ -1104,14 +1105,14 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setSelectedIssueId: useUiValue('setSelectedIssueId'),
     openSessionTab: useUiValue('openSessionTab'),
     focusIssueSession: useUiValue('focusIssueSession'),
-    startIssueSession: useRuntimeSelector((store) => store.startIssueSession),
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
     preferPanelMode: useUiValue('preferPanelMode'),
     setView: useUiValue('setView'),
-    markIssueRead: useRuntimeSelector((store) => store.markIssueRead),
-    markSessionRead: useRuntimeSelector((store) => store.markSessionRead),
-    setIssueTucked: useRuntimeSelector((store) => store.setIssueTucked),
-    closeIssue: useRuntimeSelector((store) => store.closeIssue),
-    updateIssue: useRuntimeSelector((store) => store.updateIssue),
+    markIssueRead: useCommands<Trpc>().issues.markRead,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
+    setIssueTucked: useCommands<Trpc>().issues.setTucked,
+    closeIssue: useCommands<Trpc>().issues.close,
+    updateIssue: useCommands<Trpc>().issues.update,
   }
   const { setFocusedIssueId } = useOperatorFocus()
   const { show: showInDock } = useDockIssue()

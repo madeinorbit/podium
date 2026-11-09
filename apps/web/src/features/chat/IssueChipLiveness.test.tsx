@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import '@/test-support/mock-pool-fixture'
 import { act, type JSX, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -24,7 +25,7 @@ vi.mock('@/app/store', () => ({
     select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
 }))
 
-vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => fixture }))
+vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => fixture) }))
 
 function LivenessBeforeHost(): JSX.Element {
   const [host, setHost] = useState<HTMLDivElement | null>(null)

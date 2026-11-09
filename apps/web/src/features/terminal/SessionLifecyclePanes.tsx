@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
@@ -14,17 +16,15 @@ import type { SessionView } from '@podium/client-core/session-values'
  * every one of these says what happened and offers the way back.
  */
 
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   exitedRecovery,
   type SessionIssueOutcome,
   sessionTransition,
   sessionTransitionLabel,
 } from '@podium/client-core/values'
-import type { SessionId} from '@podium/model/browser'
+import type { SessionId } from '@podium/model/browser'
 import { AlertTriangle, Check, Loader2, Minus, Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { type LifecycleAction, recoveryAction } from './lifecycle-actions'
 
@@ -77,10 +77,10 @@ function LifecycleButton({
    *  than a 28px button filling the bar edge to edge. */
   size?: 'sm' | 'xs'
 }): JSX.Element {
-  const { resurrectSession, killSession } = useRuntimeSelector(
-    (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
-    shallowEqual,
-  )
+  const { resurrectSession, killSession } = {
+    resurrectSession: useCommands<Trpc>().sessions.resume,
+    killSession: useCommands<Trpc>().sessions.killSession,
+  }
   const { busy, run } = useLifecycleRunner()
   const label = compact ? action.compactLabel : action.label
   return (
@@ -396,14 +396,11 @@ export function LifecycleTransitionBar({
     'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
   >
 }): JSX.Element | null {
-  const { endSession, resurrectSession, hibernateSession } = useRuntimeSelector(
-    (s) => ({
-      endSession: s.endSession,
-      resurrectSession: s.resurrectSession,
-      hibernateSession: s.hibernateSession,
-    }),
-    shallowEqual,
-  )
+  const { endSession, resurrectSession, hibernateSession } = {
+    endSession: useCommands<Trpc>().sessions.stop,
+    resurrectSession: useCommands<Trpc>().sessions.resume,
+    hibernateSession: useCommands<Trpc>().sessions.hibernate,
+  }
   const transition = sessionTransition(session)
   if (transition === undefined) return null
   const label = sessionTransitionLabel(transition)
@@ -427,17 +424,12 @@ export function LifecycleTransitionBar({
   }
   const retry =
     transition.desired === 'stopped'
-      ? { label: 'End anyway', run: () => endSession(session.sessionId, true) }
+      ? { label: 'End anyway', run: () => endSession(session.sessionId, { force: true }) }
       : transition.desired === 'running'
         ? { label: 'Try again', run: () => resurrectSession(session.sessionId) }
         : { label: 'Try again', run: () => hibernateSession(session.sessionId) }
   return (
-    <div
-      className="pane-state-bar"
-      data-tone="fault"
-      role="status"
-      data-testid="lifecycle-refused"
-    >
+    <div className="pane-state-bar" data-tone="fault" role="status" data-testid="lifecycle-refused">
       <span className="pane-state-bar-mark" aria-hidden="true">
         <AlertTriangle size={13} strokeWidth={1.7} />
       </span>

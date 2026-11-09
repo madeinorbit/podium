@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 
@@ -82,10 +83,10 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@podium/client-core/react', async () => ({
+  ...fixtureRuntimeHooks(() => handle),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
     () => f.fixture!.owner,
   ),
-  useClientRuntime: () => handle,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () =>

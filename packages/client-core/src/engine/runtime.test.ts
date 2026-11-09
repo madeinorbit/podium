@@ -1204,7 +1204,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     const before = hub.draftEdits.length
 
-    const actions = engine.access
+    const actions = engine.root.commands.sessions
     actions.setSessionDraft(SID, 'h')
     actions.setSessionDraft(SID, 'he')
     actions.setSessionDraft(SID, 'hel')
@@ -1224,7 +1224,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    const actions = engine.access
+    const actions = engine.root.commands.sessions
     actions.setSessionDraft(SID, 'about to send')
     actions.setSessionDraft(SID, '')
 
@@ -1363,7 +1363,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
     first.hub.connected = false
-    const actions = first.engine.access
+    const actions = first.engine.root.commands.sessions
     actions.setSessionDraft(SID, 'temporary')
     await settle(40)
     actions.setSessionDraft(SID, '')

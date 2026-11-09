@@ -9,6 +9,14 @@ export const noticePoolScreen: PoolScreen = {
       import('@podium/client-graph/notice-source'),
       import('@podium/client-graph/notice-schema'),
     ])
-    await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+    await pool.sources.ensure(
+      NOTICE_SOURCE_KEY,
+      NOTICE_ENTITIES,
+      () =>
+        new NoticeSource({
+          replica: runtime.root.replica,
+          outbox: runtime.root.services.outbox.queue,
+        }),
+    )
   },
 }

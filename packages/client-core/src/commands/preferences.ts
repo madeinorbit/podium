@@ -15,7 +15,7 @@ export function createPreferencesCommands<TApi extends PodiumClientApi>(
   rt: CommandDeps<TApi>,
   shared: CommandWrites,
 ): PreferencesCommands<TApi> {
-  const { records, editRecord } = shared
+  const { records } = shared
   return {
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const pin = pinRowId(rt.userId, kind, id)

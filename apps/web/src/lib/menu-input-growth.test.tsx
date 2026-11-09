@@ -1,6 +1,7 @@
 import '@podium/client-graph/synced-models'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { omitGone, requireHere } from '@podium/client-graph/lookup'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING, MobxPool, type MobxPool as Pool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -29,7 +30,7 @@ const f = vi.hoisted(() => ({
 }))
 vi.mock('@podium/client-core/react', () => {
   const owner = { access: { handoffSession: f.handoff } }
-  return { useClientRuntime: () => owner }
+  return { ...fixtureRuntimeHooks(() => owner) }
 })
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({ useSessionGuard: () => ({}) }))

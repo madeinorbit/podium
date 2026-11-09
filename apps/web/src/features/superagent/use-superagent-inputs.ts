@@ -1,3 +1,4 @@
+import { useUi, useSocketHub, useRequestClient } from '@podium/client-core/react'
 import { useClientRuntime } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
@@ -5,36 +6,22 @@ import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { superagentFocus, superagentThread } from '@podium/client-graph/superagent'
 import type { SessionId } from '@podium/model'
 import { useCallback } from 'react'
-import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
-type SuperagentAccess = Pick<
-  Store,
-  | 'hub'
-  | 'trpc'
-  | 'readPosition'
-  | 'setPane'
-  | 'setSelectedWorktree'
-  | 'setSelectedIssueId'
-  | 'setView'
-  | 'setSuperThreadId'
-  | 'setSuperOpen'
->
-function access(s: Store): SuperagentAccess {
-  return {
-    hub: s.hub,
-    trpc: s.trpc,
-    readPosition: s.readPosition,
-    setPane: s.setPane,
-    setSelectedWorktree: s.setSelectedWorktree,
-    setSelectedIssueId: s.setSelectedIssueId,
-    setView: s.setView,
-    setSuperThreadId: s.setSuperThreadId,
-    setSuperOpen: s.setSuperOpen,
-  }
-}
 export function useSuperagentAccess() {
-  return access(useClientRuntime().access as Store)
+  const ui = useUi()
+  const owner = useClientRuntime()
+  return {
+    hub: useSocketHub(),
+    trpc: useRequestClient<import('@/app/trpc').Trpc>(),
+    readPosition: owner.readPosition,
+    setPane: ui.setPane,
+    setSelectedWorktree: ui.setSelectedWorktree,
+    setSelectedIssueId: ui.setSelectedIssueId,
+    setView: ui.setView,
+    setSuperThreadId: ui.setSuperThreadId,
+    setSuperOpen: ui.setSuperOpen,
+  }
 }
 export function useSuperagentThread(id: string) {
   const read = useCallback((pool: MobxPool) => superagentThread(pool, id), [id])

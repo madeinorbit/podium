@@ -20,7 +20,7 @@ type Store = ReferenceState<import('@/app/trpc').Trpc>
  * severs. Hence a test at the seam rather than on the boolean.
  */
 const storeState = {
-  trpc: {} as Store['trpc'],
+  trpc: {} as import('@/app/trpc').Trpc,
   setInstancePreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
   settingsTab: 'sessions',
   setSettingsTab: vi.fn(),
@@ -115,7 +115,7 @@ beforeEach(() => {
     auth: {
       status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) },
     },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 })
 afterEach(() => {
   cleanup()
@@ -182,7 +182,10 @@ describe('Settings sheet — closing with unsaved edits', () => {
     // on the record at once, as this stand-in does.
     const update = vi.fn(async (values: Record<string, unknown>) => {
       seedInstancePreferences(useWorklistPool()!, {
-        hibernation: { ...remote.hibernation, memoryPct: values['hibernation.memoryPct'] as number },
+        hibernation: {
+          ...remote.hibernation,
+          memoryPct: values['hibernation.memoryPct'] as number,
+        },
       })
     })
     storeState.setInstancePreferences = update
@@ -197,7 +200,9 @@ describe('Settings sheet — closing with unsaved edits', () => {
     expect(memory.value).toBe('90')
     fireEvent.change(memory, { target: { value: '85' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ 'hibernation.memoryPct': 85 }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledExactlyOnceWith({ 'hibernation.memoryPct': 85 }),
+    )
     expect(await screen.findByText('Saved ✓')).toBeTruthy()
   })
 

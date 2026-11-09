@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import type { JSX } from 'react'
 import { act } from 'react'
@@ -30,7 +31,7 @@ vi.mock('@podium/client-core/react', () => ({
     store.legacyReads()
     return select({ uiState: store.available.value ? store.uiState : undefined })
   },
-  useClientRuntime: () => ({ deviceState: store.uiState }),
+  ...fixtureRuntimeHooks(() => ({ deviceState: store.uiState })),
 }))
 
 vi.mock('@/app/store-worklist-pool', async () => {

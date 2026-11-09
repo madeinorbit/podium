@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import { listReclaimableWorktreesClient } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -102,8 +103,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  // My access rows (POD-6644): none here, so no machine hosts the server.
-  useClientRuntime: () => ({ access: store, hub: processTopic.hub, replica: noAccessRows }),
+  ...fixtureRuntimeHooks(() => ({ access: store, hub: processTopic.hub, replica: noAccessRows })),
 }))
 vi.mock('@/app/store', () => ({
   useStore: () => store,

@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 /**
  * HOW AN ISSUE ACTION ENDED, TOLD ON THE DEVICE THAT ASKED (POD-6526).
  *
@@ -14,7 +16,6 @@ import { awaitEffect, effectShortfall } from '@podium/client-graph/write/await-e
 import type { IssueId } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 
 const WHAT: Readonly<Record<IssueWorkAction, string>> = {
@@ -47,7 +48,7 @@ export function useIssueActionOutcome(): (
   action: IssueWorkAction,
   opts?: { force?: boolean },
 ) => Promise<unknown> {
-  const issueAction = useRuntimeSelector((s) => s.issueAction)
+  const issueAction = useCommands<Trpc>().sessions.issueAction
   const pool = useWorklistPool()
   return useCallback(
     async (issueId, action, opts) => {

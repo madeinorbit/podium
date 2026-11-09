@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asIssueId,
@@ -14,8 +15,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import type { StoreActions } from '../client/hooks'
-import { useBooting, useIssue, useIssues, useStoreActions } from '../client/hooks'
+import { useBooting, useIssue, useIssues } from '../client/hooks'
 
 afterEach(cleanup)
 
@@ -203,10 +203,10 @@ const fixture = {
   repoProjections: [repo],
 }
 let latest: IssueViewModel | undefined
-let actions: StoreActions
+let actions: import('@podium/client-core/commands').Commands
 function Probe() {
   latest = useIssue('root')
-  actions = useStoreActions()
+  actions = useCommands()
   const issues = useIssues()
   const booting = useBooting()
   return <div data-testid="model">{JSON.stringify({ list: issues, detail: latest, booting })}</div>
@@ -310,8 +310,8 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     })
     let completion: Promise<unknown> | undefined
     await act(async () => {
-      completion = actions
-        .updateIssue(projection.id, { title: 'Optimistic normalized title' })
+      completion = actions.issues
+        .update(projection.id, { title: 'Optimistic normalized title' })
         .catch(() => {})
     })
     expect(latest?.title).toBe('Optimistic normalized title')

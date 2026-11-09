@@ -19,11 +19,11 @@ function machine(id: string, online = true): MachineWire {
 function trpcWithPairing(
   pairingCode = vi.fn().mockResolvedValue({ code: 'PAIR-CODE', joinCommand: 'podium join' }),
   setupInfo = vi.fn().mockResolvedValue({ publicUrl: 'https://podium.example.com' }),
-): Store['trpc'] {
+): import('@/app/trpc').Trpc {
   return {
     machines: { pairingCode: { mutate: pairingCode } },
     setup: { info: { query: setupInfo } },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 }
 
 describe('machine pairing controller', () => {

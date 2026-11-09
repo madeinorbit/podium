@@ -1,3 +1,5 @@
+import type { Trpc } from '@/app/trpc'
+import { useSocketHub, useRequestClient } from '@podium/client-core/react'
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { observer } from '@podium/client-graph/react'
@@ -8,7 +10,6 @@ import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -50,8 +51,8 @@ export const DockShellPanel = observer(function DockShellPanel({
   machineId?: MachineId
 }): JSX.Element {
   const { hub, trpc, setDockShell, setDockVisibleSession } = {
-    hub: useRuntimeSelector((s) => s.hub),
-    trpc: useRuntimeSelector((s) => s.trpc),
+    hub: useSocketHub(),
+    trpc: useRequestClient<Trpc>(),
     setDockShell: useUiValue('setDockShell'),
     setDockVisibleSession: useUiValue('setDockVisibleSession'),
   }

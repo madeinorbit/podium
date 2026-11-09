@@ -1,10 +1,10 @@
-import { shallowEqual } from '@podium/client-core/shallow-equal'
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionModel } from '@podium/client-graph/models'
 import { asSessionId } from '@podium/model/browser'
 import { LoaderCircle } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 
 /**
  * A STOP, AS ITS RECORD SAYS (POD-6397). Pressing Stop writes a
@@ -22,10 +22,10 @@ export const InterruptNotice = observer(function InterruptNotice({
 }: {
   session: SessionModel
 }): JSX.Element | null {
-  const { endSession, dismissEffect } = useRuntimeSelector(
-    (s) => ({ endSession: s.endSession, dismissEffect: s.dismissEffect }),
-    shallowEqual,
-  )
+  const { endSession, dismissEffect } = {
+    endSession: useCommands<Trpc>().sessions.stop,
+    dismissEffect: useCommands<Trpc>().sessions.dismissEffect,
+  }
   if (session.interrupting) {
     return (
       <div className="composer-notices">
@@ -55,7 +55,7 @@ export const InterruptNotice = observer(function InterruptNotice({
           data-pressable
           className="ml-auto rounded-[4px] px-1.5 font-semibold text-destructive hover:bg-chip"
           title="End the session now, discarding unsaved work"
-          onClick={() => void endSession(asSessionId(session.id), true)}
+          onClick={() => void endSession(asSessionId(session.id), { force: true })}
         >
           Kill
         </button>

@@ -28,7 +28,7 @@ async function fixture() {
       },
     )
   let state = { issueProjections: inventory(100_000), conversations: inventory(5) }
-  let cursor: ReturnType<ClientRuntime['replica']['getCursor']> = null
+  let cursor: ReturnType<ClientRuntime['root']['replica']['getCursor']> = null
   const read = vi.fn(
     (key: 'issueProjections' | 'conversations') =>
       (state as unknown as Pick<Store, 'issueProjections' | 'conversations'>)[key],
@@ -45,7 +45,7 @@ async function fixture() {
       subscribeRows: (_kind: string, wake: () => void) => listen(runtimeListeners)(wake),
       getCursor: () => cursor,
       subscribeCursor: listen(cursorListeners),
-    } as unknown as ClientRuntime['replica'],
+    } as unknown as ClientRuntime['root']['replica'],
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.sources.register(['mobileSettingsDiagnostics'], source)

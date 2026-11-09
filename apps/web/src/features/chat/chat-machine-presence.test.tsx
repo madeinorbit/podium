@@ -2,6 +2,7 @@ import '@podium/client-graph/synced-models'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerView } from '@podium/client-graph/header-views'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import type { SessionView } from '@podium/client-core/session-values'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -24,7 +25,9 @@ const transports = vi.hoisted(() => ({ trpc: {}, hub: {}, httpOrigin: 'http://of
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: typeof transports) => unknown) => read(transports),
 }))
-vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => ({ access: transports }) }))
+vi.mock('@podium/client-core/react', () => ({
+  ...fixtureRuntimeHooks(() => ({ access: transports })),
+}))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const view = useMemo(() => createPoolProjection(f.pool!, read), [read])

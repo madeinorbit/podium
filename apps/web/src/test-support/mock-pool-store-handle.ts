@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { workspaceKeyForState } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { vi } from 'vitest'
@@ -38,8 +39,8 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   })
   return {
     ...actual,
+    ...fixtureRuntimeHooks(() => owner),
     ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-    useClientRuntime: () => owner,
     useHarnessDescriptors: () => ({ served: [] }),
   }
 })

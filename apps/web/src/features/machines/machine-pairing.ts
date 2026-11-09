@@ -1,8 +1,9 @@
 import type { MachineFacts } from '@podium/model'
 import { useCallback, useRef, useState } from 'react'
-import type { Store } from '@/app/store'
 
-export type MachinePairingSetupInfo = Awaited<ReturnType<Store['trpc']['setup']['info']['query']>>
+export type MachinePairingSetupInfo = Awaited<
+  ReturnType<import('@/app/trpc').Trpc['setup']['info']['query']>
+>
 
 export interface MintMachinePairingOptions {
   copyAgentCredentials?: boolean
@@ -47,7 +48,7 @@ export function useMachinePairing({
   isNewMachineEligible,
   initialPodiumManaged = true,
 }: {
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   machines: readonly MachineFacts[]
   isNewMachineEligible?: (machine: MachineFacts) => boolean
   initialPodiumManaged?: boolean

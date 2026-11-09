@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -38,11 +39,11 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useClientRuntime: () => ({
+  ...fixtureRuntimeHooks(() => ({
     get access() {
       return {}
     },
-  }),
+  })),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => null,

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -21,7 +22,7 @@ vi.mock('@podium/client-core/react', () => {
       throw new Error('Menu reader reached the old store')
     },
   }
-  return { useClientRuntime: () => owner }
+  return { ...fixtureRuntimeHooks(() => owner) }
 })
 vi.mock('./SessionContextMenu', () => ({
   SessionContextMenu: (props: SessionContextMenuProps) => {

@@ -1,3 +1,4 @@
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { IssueReferenceSource } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { parseAnyRef } from '@podium/protocol'
@@ -13,7 +14,7 @@ const fixture = vi.hoisted(() => ({
   owner: {},
   issues: [] as IssueReferenceSource[],
 }))
-vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => fixture.owner }))
+vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => fixture.owner) }))
 vi.mock('@/app/store', () => ({}))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => fixture.pool }))
 
