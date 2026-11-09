@@ -420,3 +420,28 @@ describe('workspace preflight routing', () => {
     expect(second.get('Podium-Workspace-Id')).toBe('ws_blue')
   })
 })
+
+describe('pairing claims', () => {
+  it('claims a pairing code once however often the link is processed', async () => {
+    const { claimMobilePairing, forgetMobilePairingClaim } = await import('./pairing')
+    let claims = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        claims += 1
+        return new Response(
+          JSON.stringify({ claimToken: `claim-${claims}`, phrase: ['a', 'b', 'c'] }),
+        )
+      }),
+    )
+    const envelope = { ...pairEnvelope, pairCode: 'fedcba9876543210fedcba9876543210' }
+    const first = claimMobilePairing(envelope, 'device', 'My phone', 'ios')
+    const second = claimMobilePairing(envelope, 'device', 'My phone', 'ios')
+    expect(second).toBe(first)
+    await first.catch(() => {})
+    expect(claims).toBe(1)
+    forgetMobilePairingClaim(envelope.pairCode)
+    await claimMobilePairing(envelope, 'device', 'My phone', 'ios').catch(() => {})
+    expect(claims).toBe(2)
+  })
+})

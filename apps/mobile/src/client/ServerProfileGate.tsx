@@ -85,6 +85,7 @@ import {
 import { clearLocalCredentialSurfaces, preflightNativeOverride } from './override-lifecycle'
 import {
   claimMobilePairing,
+  forgetMobilePairingClaim,
   type MobilePairingEnvelope,
   normalizeManualServer,
   type PairingClaim,
@@ -1800,8 +1801,13 @@ function PairingSetup({
     }
   }, [])
 
+  // Once per delivered envelope: StrictMode's dev double-effect and a repeated
+  // render must not re-run the server check for the same link (POD-2364).
+  const checkedIncoming = useRef<MobilePairingEnvelope | null>(null)
   useEffect(() => {
-    if (incoming) void check(incoming.serverUrl, incoming)
+    if (!incoming || checkedIncoming.current === incoming) return
+    checkedIncoming.current = incoming
+    void check(incoming.serverUrl, incoming)
   }, [check, incoming])
 
   useEffect(() => {
@@ -1823,6 +1829,7 @@ function PairingSetup({
         if (result.status === 'pending') {
           timer = setTimeout(() => void poll(), 1_500)
         } else if (result.status === 'denied') {
+          if (envelope?.mode === 'pair') forgetMobilePairingClaim(envelope.pairCode)
           setError(result.reason)
           setStep('confirm')
         } else {
@@ -1840,7 +1847,7 @@ function PairingSetup({
       alive = false
       if (timer) clearTimeout(timer)
     }
-  }, [claim, onComplete, preflight, step])
+  }, [claim, envelope, onComplete, preflight, step])
 
   const scan = (raw: string, failedStep: 'welcome' | 'manual' = 'welcome') => {
     try {

@@ -22,14 +22,36 @@ export function preflightServer(httpOrigin: string, workspaceId?: string) {
   )
 }
 
+/**
+ * ONE CLAIM PER PAIRING CODE (POD-2364). The server deletes a code on its first
+ * successful claim and answers any later claim with 400 "Pairing is
+ * unavailable". A link processed twice, or a setup screen that remounted, made
+ * a second claim and failed a pairing that had already succeeded. Every caller
+ * for the same code shares the first claim; a failed claim is forgotten so a
+ * retry asks again.
+ */
+const claims = new Map<string, Promise<Awaited<ReturnType<typeof claim>>>>()
+
 export function claimMobilePairing(
   envelope: Extract<MobilePairingEnvelope, { mode: 'pair' }>,
   deviceId: string,
   deviceName: string,
   platform: string,
 ) {
-  return claim(envelope, deviceId, deviceName, platform, {
+  const held = claims.get(envelope.pairCode)
+  if (held) return held
+  const pending = claim(envelope, deviceId, deviceName, platform, {
     randomBytes: (length) => Crypto.getRandomBytes(length),
     sha256: (bytes) => Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes),
   })
+  claims.set(envelope.pairCode, pending)
+  pending.catch(() => {
+    if (claims.get(envelope.pairCode) === pending) claims.delete(envelope.pairCode)
+  })
+  return pending
+}
+
+/** A denied claim is spent: the next attempt with this code must ask the server again. */
+export function forgetMobilePairingClaim(pairCode: string): void {
+  claims.delete(pairCode)
 }

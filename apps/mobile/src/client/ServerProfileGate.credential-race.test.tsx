@@ -103,6 +103,7 @@ vi.mock('./launch-ready', () => ({
 }))
 vi.mock('./pairing', () => ({
   claimMobilePairing: seams.claimPairing,
+  forgetMobilePairingClaim: vi.fn(),
   normalizeManualServer: (origin: string) => origin,
   parsePairingLink: seams.parsePairing,
   pollMobilePairing: seams.pollPairing,
