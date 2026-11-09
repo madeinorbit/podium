@@ -1,3 +1,4 @@
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -247,6 +248,7 @@ beforeEach(() => {
   uiListeners.clear()
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
+    navigation: fixtureNavigation({ issues: () => replicaIssues as never, sessions: () => state.sessions as never }),
     selectedWorktree: '/repo/wt',
     selectedIssueId: task.id,
     paneA: 's2',

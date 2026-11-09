@@ -1,3 +1,4 @@
+import { patchFixtureScreen } from '@podium/client-core/test-support/ui'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -70,8 +71,9 @@ export function inputFixture(scale: 1 | 4) {
     hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} },
     headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
   }) as unknown as ClientRuntime
+  f.pool.sources.view('test.inputFixture.ui', () => ({ dispose: () => runtime.ui.dispose() }))
   const change = (patch: Partial<Store>) => {
-    state = { ...state, ...patch }
+    state = patchFixtureScreen(state, patch)
     for (const wake of listeners) wake()
   }
   const command = new CommandLaunchSource(f.pool, runtime)

@@ -1,6 +1,6 @@
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { asIssueId, type TaskCostWire } from '@podium/model/browser'
+import { asIssueId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 // @vitest-environment happy-dom
@@ -174,6 +174,7 @@ vi.mock('./store', () => ({
   useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({
       issues: harness.issues,
+      userPreferences: [{ userId: asUserId('fixture-user'), 'roles.coding.accountId': nativeAccountId(harness.codingHarness) }],
       sessions: harness.sessions,
       repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,

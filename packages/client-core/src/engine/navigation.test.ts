@@ -1,10 +1,11 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
 import { type RuntimeState, workspaceMirrorPatch } from './state'
+import { Reactions } from './reactions'
 
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
 const issue = { id: asIssueId('issue'), archived: false } as IssueProjection
@@ -32,6 +33,11 @@ function state(): RuntimeState {
 }
 
 describe('pure navigation plan', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(context.now)
+  })
+  afterEach(() => vi.useRealTimers())
   it('computes selection, layout, canonical URL and pre-read baseline without mutating the input', () => {
     const before = state()
     const { navigation, ...data } = before
@@ -52,11 +58,27 @@ describe('pure navigation plan', () => {
       selectedIssueId: issue.id,
       paneA: 'session',
       split: false,
-      issueVisitBaseline: { issueId: issue.id, readAt: null, openedAt: context.now },
     })
     expect(plan.route).toMatchObject({ view: 'workspace', worktree: '/repo', pane: 'session' })
     expect(plan.replace).toBe(false)
     const final = { ...before, ...plan.patch }
+    // The visit belongs to Reactions after the UiStore landing. Check the same
+    // cursor and timestamp after applying the real planner's result.
+    const visits = new Reactions({
+      state: () => final,
+      publish: (patch) => Object.assign(final, patch),
+      hub: {} as never,
+      notices: {} as never,
+      isVisible: () => true,
+      markSessionRead: vi.fn(),
+      markIssueRead: vi.fn(),
+    })
+    try {
+      visits.updateIssueVisitBaseline()
+      expect(visits.issueVisitBaseline).toEqual({ issueId: issue.id, readAt: null, openedAt: context.now })
+    } finally {
+      visits.dispose()
+    }
     const repeat = planNavigation(
       final,
       plan.route,
@@ -112,7 +134,7 @@ describe('pure navigation plan', () => {
     expect(plan.patch).toMatchObject({
       paneA: 'left',
       paneB: 'right',
-      focusedPane: 'B',
+      focusedPane: second,
       split: true,
     })
     expect(plan.route.pane).toBe('left')
@@ -126,22 +148,34 @@ describe('pure navigation plan', () => {
     const before = state()
     before.selectedIssueId = issue.id
     before.issueVisitBaseline = { issueId: issue.id, readAt: null, openedAt: context.now }
-    expect(
-      planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, context).patch
-        .issueVisitBaseline,
-    ).toBe(before.issueVisitBaseline)
-    expect(
-      planNavigation(before, routeDefaults('workspace'), { view: 'settings' }, context).patch
-        .issueVisitBaseline,
-    ).toBeNull()
-    expect(
-      planNavigation(
-        before,
-        routeDefaults('workspace'),
-        { view: 'workspace' },
-        { ...context, visible: false },
-      ).patch.issueVisitBaseline,
-    ).toBeNull()
+    before.view = 'workspace'
+    let visible = true
+    const visits = new Reactions({
+      state: () => before,
+      publish: (patch) => Object.assign(before, patch),
+      hub: {} as never,
+      notices: {} as never,
+      isVisible: () => visible,
+      markSessionRead: vi.fn(),
+      markIssueRead: vi.fn(),
+    })
+    try {
+      visits.setIssueVisitBaseline(before.issueVisitBaseline)
+      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, context).patch)
+      visits.updateIssueVisitBaseline()
+      expect(visits.issueVisitBaseline).toBe(before.issueVisitBaseline)
+      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'settings' }, context).patch)
+      visits.updateIssueVisitBaseline()
+      expect(visits.issueVisitBaseline).toBeNull()
+      before.view = 'workspace'
+      visits.setIssueVisitBaseline(before.issueVisitBaseline)
+      visible = false
+      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, { ...context, visible }).patch)
+      visits.updateIssueVisitBaseline()
+      expect(visits.issueVisitBaseline).toBeNull()
+    } finally {
+      visits.dispose()
+    }
   })
 
   it('plans a preview replacement and file retirement together', () => {

@@ -1,3 +1,4 @@
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 // Machines are read as machine models (POD-6644): their classes load with the fixture.
 import '@podium/client-graph/synced-models'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -8,7 +9,7 @@ import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixt
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { observable, runInAction } from 'mobx'
-import { pinRowId } from '@podium/model'
+import { asUserId, pinRowId, resolveUserPreferences } from '@podium/model'
 
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
@@ -109,13 +110,21 @@ export function syncPoolFixture(
     state.selectedIssueWasFolded,
     state.coarseNow,
     state.hostMetrics,
+    state.userPreferences,
   ])
   if (!pool) {
     pool = new MobxPool({
       selectedIssueId: state.selectedIssueId ?? null,
       coarseNow: state.coarseNow ?? Date.now(),
     })
-    if (state.uiState) attachPreferenceSource(pool, state.uiState as RoutedUiState)
+    seedInstancePreferences(pool)
+    const userId = asUserId('fixture-user')
+    pool.apply({ type: 'update', rows: [{ kind: 'userPreferences', id: userId, value: { ...resolveUserPreferences(undefined, userId), id: userId } as never }] })
+    if (state.uiState) {
+      const keys = observableFixtureKeys(state.uiState as RoutedUiState)
+      attachPreferenceSource(pool, keys)
+      pool.sources.view('test.fixture.preferences', () => keys)
+    }
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
     // POD-3911: the fixture authority supplies the same exit evidence as the live source.
     pool.sources.register(['issueExit'], {
@@ -160,7 +169,10 @@ export function syncPoolFixture(
         projectRoot: true,
       },
     }))
+    const personal = state.userPreferences?.[0]
+    const personalId = personal?.userId ?? asUserId('fixture-user')
     const rows: RowSourceEvent['rows'] = [
+      { kind: 'userPreferences', id: personalId, value: { ...resolveUserPreferences(personal, personalId), id: personalId } as never },
       ...normalized.replica.rows('pins').map(value => ({ kind: 'pin' as const, id: pinRowId(value.userId, value.kind, value.entityId), value: { ...value, id: pinRowId(value.userId, value.kind, value.entityId) } })),
       ...repoWorktrees,
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),

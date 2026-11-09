@@ -38,6 +38,7 @@ function fixture(attachLog = true) {
   // Machine records, online on the LiveStore (POD-6644).
   headerEntities(pool).apply(seedFixtureMachines(pool, machines) as never)
   headerEntities(pool).order('machine', machines.map(row => row.id))
+  pool.sources.view('test.paneFixture.ui', () => ({ dispose: () => runtime.ui.dispose() }))
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
   return { sessions, machines, pool, load, listeners, spawnPrompts,
     state: () => state, change(patch: Partial<Store>) { state = { ...state, ...patch }; for (const f of listeners) f() },

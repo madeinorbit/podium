@@ -1,6 +1,8 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
+import { fixtureUi } from '../../test-support/ui'
+import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { SessionView } from '../session-values'
 import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
@@ -399,7 +401,7 @@ describe('navigation with an injected pool provider', () => {
     expect(actual.patch).toMatchObject({
       paneA: 'left',
       paneB: next.id,
-      focusedPane: 'B',
+      focusedPane: ws.focusedPaneId,
       split: true,
       fileTabs: [next],
     })
@@ -497,12 +499,17 @@ describe('navigation with an injected pool provider', () => {
     })
     try {
       const plan = planNavigation(st, routeDefaults('workspace'), { view: 'workspace' }, context)
-      expect(plan.patch.issueVisitBaseline?.readAt).toBe(cursor)
+      Object.assign(st, plan.patch)
       reactions.updateIssueVisitBaseline()
-      expect(st.issueVisitBaseline?.readAt).toBe(cursor)
+      expect(reactions.issueVisitBaseline?.readAt).toBe(cursor)
+      // Applying the planner leaves the visit with its new owner; its cursor
+      // remains unchanged when activity later becomes available.
+      expect(reactions.issueVisitBaseline?.issueId).toBe(child.id)
       reactions.updateIssueMarkReadTimer()
       expect(markIssueRead).not.toHaveBeenCalled()
       ready = true
+      reactions.updateIssueVisitBaseline()
+      expect(reactions.issueVisitBaseline?.readAt).toBe(cursor)
       reactions.updateIssueMarkReadTimer()
       expect(markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id, stamp)
     } finally {
@@ -564,7 +571,16 @@ describe('navigation with an injected pool provider', () => {
     const navigate = vi.fn(),
       waitForSessionNavigation = vi.fn()
     const resolve = vi.fn().mockResolvedValue({ kind: 'session', sessionId: seat.sessionId })
+    const ui = fixtureUi(undefined, {
+      api: { sessions: { resolve: { query: resolve } } } as never,
+      navigate: (intent) => { navigate(intent); return true },
+      waitForSessionNavigation,
+    })
+    ui.patch(st)
     const actions = createEngineActions({
+      ui,
+      palette: new PaletteViewModel(),
+      autoContinueDialog: new AutoContinueDialogModel(),
       state: () => st,
       outbox: { awaiting: () => [], pending: () => [] },
       navigate,

@@ -1,9 +1,11 @@
+import { patchFixtureScreen } from '@podium/client-core/test-support/ui'
+import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { emptyWorkspace, missionRootFor, openTab, workspaceKeyFor } from '@podium/client-core/values'
+import { activateTab, emptyWorkspace, missionRootFor, openTab, workspaceKeyFor } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -34,7 +36,7 @@ export function shellFixture(count = 40) {
   })) as unknown as SessionView[]
   const fileTabs: Store['fileTabs'] = [{ id: 'shell-file', scope: { kind: 'worktree', root: '/synthetic/project/w1', machineId },
     path: 'readme.md', worktreePath: '/synthetic/project/w1', issueId: issues[1]!.id }]
-  const workspace = openTab(openTab(emptyWorkspace(`mission:${issues[0]!.id}`), sessions[0]!.sessionId, { permanent: true }), fileTabs[0]!.id, { permanent: true })
+  const workspace = activateTab(openTab(openTab(emptyWorkspace(`mission:${issues[0]!.id}`), sessions[0]!.sessionId, { permanent: true }), fileTabs[0]!.id, { permanent: true }), sessions[0]!.sessionId)
   const shipOrders = ['waiting', 'needs_you', 'in_progress', 'shipped'].map((humanState, index) => ({ id: `shell-order-${index}`, issueId: issues[index]!.id,
     repoId, targetBranch: `issue/synthetic-${index}`, destination: 'main', humanState, state: humanState === 'waiting' ? 'queued' : humanState === 'shipped' ? 'completed' : 'held',
     activity: humanState === 'waiting' ? 'waiting' : humanState === 'shipped' ? 'shipped' : 'held', queuedAt: stamp, stateChangedAt: stamp,
@@ -59,6 +61,8 @@ export function shellFixture(count = 40) {
     { kind: 'repo', id: repoId, value: { id: repoId, prefix: 'SYN', repoPath: '/synthetic/project' } },
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })), ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] as never })
+  state = { ...state, navigation: createPoolNavigationProvider(pool) }
+  pool.sources.view('test.shellFixture.ui', () => ({ dispose: () => runtime.ui.dispose() }))
   const syncHeader = () => {
     const keepRepos = new Set(state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
     const keepMachines = new Set<string>(state.machines.map(value => value.id))
@@ -82,7 +86,7 @@ export function shellFixture(count = 40) {
   pool.sources.register(SHELL_ENTITIES, source)
   return { issues, sessions, fileTabs, shipOrders, shipLanes, pool, live, source, loads, listeners, addressed,
     state: () => state,
-    change(patch: Partial<Store>) { state = { ...state, ...patch }; syncHeader(); for (const listener of listeners) listener() },
+    change(patch: Partial<Store>) { state = patchFixtureScreen(state, patch); syncHeader(); for (const listener of listeners) listener() },
     lane(value: ShipLaneProjection | undefined, id = shipLanes[0]!.id) {
       state = { ...state, shipLanes: [...state.shipLanes.filter(row => row.id !== id), ...(value ? [value] : [])] }
       for (const listener of addressed) listener({ type: 'update', rows: [{ kind: 'shipLanes', id }] })

@@ -79,7 +79,10 @@ vi.mock('@/app/store', () => ({
     return f.fixture!.owner.replica.exitKind?.('session', id)
   },
 }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => handle }))
+vi.mock('@podium/client-core/react', async () => ({
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => f.fixture!.owner),
+  useStoreHandle: () => handle,
+}))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () =>
     useSyncExternalStore(

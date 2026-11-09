@@ -1,7 +1,7 @@
 import type { PodiumClientApi } from '../src/api'
 import type { SocketHub } from '../src/socket-transport'
 import type { ScreenState } from '../src/ui/state'
-import { UiStore } from '../src/ui/ui-store'
+import { UiStore, type UiStorePorts } from '../src/ui/ui-store'
 import {
   AutoContinueDialogModel,
   PaletteViewModel,
@@ -9,7 +9,7 @@ import {
 } from '../src/ui/view-models'
 import { createMemoryRouterWindow, createRouter, type RoutedUiState } from '../src/ui-state'
 import { emptyWorkspace, focusPane, leafPaneIds, openTab, splitPane } from '../src/values'
-import { workspaceKeyForState } from '../src/ui/state'
+import { workspaceKeyForState, workspaceMirrorPatch } from '../src/ui/state'
 import { fixtureNavigation } from './navigation'
 import { observable, runInAction } from 'mobx'
 
@@ -20,8 +20,48 @@ export function refreshFixtureUi(owner: object): void {
   refreshers.get(owner)?.()
 }
 
+/** Publish old pane inputs as the workspace layouts the real store produces. */
+export function patchFixtureScreen<T extends object>(state: T, patch: Partial<T>): T {
+  const next = { ...state, ...patch } as T & ScreenState
+  const key = workspaceKeyForState(next)
+  let workspace = next.workspaces?.[key]
+  if (Object.hasOwn(patch, 'paneA')) {
+    workspace ??= emptyWorkspace(key)
+    const paneId = leafPaneIds(workspace.root)[0]!
+    workspace = next.paneA
+      ? openTab(workspace, next.paneA, { paneId, permanent: true })
+      : { ...workspace, panes: { ...workspace.panes, [paneId]: { ...workspace.panes[paneId]!, tabs: [], activeTabId: null } } }
+    next.workspaces = { ...next.workspaces, [key]: workspace }
+  }
+  return { ...next, ...workspaceMirrorPatch(workspace ?? emptyWorkspace(key)) }
+}
+
+/** Plain storage fixtures publish keys; product stores expose observable reads. */
+export function observableFixtureKeys(source: RoutedUiState): RoutedUiState & { dispose(): void } {
+  const revisions = observable.map<string, number>()
+  let stop: (() => void) | undefined
+  const bump = (changed: ReadonlySet<string>) => runInAction(() => {
+    for (const key of changed) revisions.set(key, (revisions.get(key) ?? 0) + 1)
+  })
+  return {
+    get: (key) => {
+      stop ??= source.subscribe(bump)
+      revisions.get(key)
+      return source.get(key)
+    },
+    set: (key, value) => {
+      if (source.get(key) === value) return
+      const before = revisions.get(key)
+      source.set(key, value)
+      if (revisions.get(key) === before) bump(new Set([key]))
+    },
+    subscribe: notify => source.subscribe(notify),
+    dispose: () => stop?.(),
+  }
+}
+
 /** UI fixture for snapshot-era test doubles. The product never uses this adapter. */
-export function fixtureUi(keys?: RoutedUiState): UiStore {
+export function fixtureUi(keys?: RoutedUiState, ports: Partial<UiStorePorts> = {}): UiStore {
   const values = new Map<string, string>()
   const source: RoutedUiState = keys ?? {
     get: (key) => values.get(key) ?? null,
@@ -31,37 +71,19 @@ export function fixtureUi(keys?: RoutedUiState): UiStore {
     },
     subscribe: () => () => {},
   }
-  // Runtime keys are observable. Plain storage fakes publish addressed keys;
-  // make those notifications visible to the real UiStore's derived fields.
-  const revisions = observable.map<string, number>()
-  let stopKeys: (() => void) | undefined
-  const bump = (changed: ReadonlySet<string>) => runInAction(() => {
-    for (const key of changed) revisions.set(key, (revisions.get(key) ?? 0) + 1)
-  })
+  const port = observableFixtureKeys(source)
   const ui = new UiStore({
     api: {} as PodiumClientApi,
     hub: { reportTabRelease: () => {} } as unknown as SocketHub,
     notices: { error: () => {}, info: () => {} },
-    keys: {
-      get: (key) => {
-        stopKeys ??= source.subscribe(bump)
-        revisions.get(key)
-        return source.get(key)
-      },
-      set: (key, value) => {
-        if (source.get(key) === value) return
-        const before = revisions.get(key)
-        source.set(key, value)
-        if (revisions.get(key) === before) bump(new Set([key]))
-      },
-      subscribe: (notify) => source.subscribe(notify),
-    },
+    keys: port,
     router: createRouter({ win: createMemoryRouterWindow() }),
     repositories: () => [],
     isVisible: () => true,
+    ...ports,
   })
   const dispose = ui.dispose
-  Object.defineProperty(ui, 'dispose', { configurable: true, writable: true, value: () => { stopKeys?.(); dispose() } })
+  Object.defineProperty(ui, 'dispose', { configurable: true, writable: true, value: () => { port.dispose(); dispose() } })
   return ui
 }
 export function addFixtureUi(
@@ -77,7 +99,7 @@ export function addFixtureUi(
     set: (key, value) => {
       const source = (fake.getSnapshot() as { uiState?: RoutedUiState }).uiState
       if (source) source.set(key, value)
-      else if (value === null) values.delete(key)
+      if (value === null || source?.get(key) === value) values.delete(key)
       else values.set(key, value)
     },
     subscribe: (notify) => (fake.getSnapshot() as { uiState?: RoutedUiState }).uiState?.subscribe?.(notify) ?? (() => {}),
@@ -90,10 +112,13 @@ export function addFixtureUi(
   const palette = new PaletteViewModel(),
     autoContinueDialog = new AutoContinueDialogModel()
   let syncing = false
+  let disposed = false
+  let stopStore: (() => void) | undefined
   let previous: Partial<ScreenState> | undefined
+  let previousWorkspaces: ScreenState['workspaces'] | undefined
   const actions = new Set<string>()
   const sync = () => {
-    if (syncing) return
+    if (syncing || disposed) return
     syncing = true
     try {
     const snapshot = fake.getSnapshot() as Partial<ScreenState>
@@ -113,7 +138,7 @@ export function addFixtureUi(
     }
     const patch = Object.fromEntries(
       Object.keys(ui.screen)
-        .filter((key) => !['paneA', 'paneB', 'split'].includes(key) && Object.hasOwn(snapshot, key))
+        .filter((key) => !['paneA', 'paneB', 'split'].includes(key) && Object.hasOwn(snapshot, key) && (key !== 'workspaces' || snapshot.workspaces !== previousWorkspaces))
         .map((key) => [key, Reflect.get(snapshot, key)]),
     )
     ui.patch(patch)
@@ -139,6 +164,7 @@ export function addFixtureUi(
       split: snapshot.split,
       focusedPane: snapshot.focusedPane,
     }
+    previousWorkspaces = snapshot.workspaces
     palette.setOpen(snapshot.paletteOpen ?? false)
     if (snapshot.autoContinuePromptSessionId)
       autoContinueDialog.open(snapshot.autoContinuePromptSessionId)
@@ -151,10 +177,10 @@ export function addFixtureUi(
   // owner only on first use, after the suite has initialized its producer.
   let following = false
   const read = <T>(value: T): T => {
-    if (!following) {
+    if (!following && !disposed) {
       following = true
       sync()
-      fake.subscribe(sync)
+      stopStore = fake.subscribe(sync)
     }
     return value
   }
@@ -162,6 +188,12 @@ export function addFixtureUi(
     if (following) sync()
     else read(ui)
   })
+  const dispose = ui.dispose
+  Object.defineProperty(ui, 'dispose', { configurable: true, writable: true, value: () => {
+    disposed = true
+    stopStore?.()
+    dispose()
+  } })
   fake.deviceState = keys
   Object.defineProperties(fake, {
     ui: { configurable: true, enumerable: true, get: () => read(ui) },
