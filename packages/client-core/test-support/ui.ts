@@ -55,7 +55,7 @@ export function addFixtureUi(
       else if (value === null) values.delete(key)
       else values.set(key, value)
     },
-    subscribe: (notify) => (fake.getSnapshot() as { uiState?: RoutedUiState }).uiState?.subscribe(notify) ?? (() => {}),
+    subscribe: (notify) => (fake.getSnapshot() as { uiState?: RoutedUiState }).uiState?.subscribe?.(notify) ?? (() => {}),
   }
   const ui = fixtureUi(keys)
   const navigation = fixtureNavigation({
@@ -66,6 +66,7 @@ export function addFixtureUi(
     autoContinueDialog = new AutoContinueDialogModel()
   let syncing = false
   let previous: Partial<ScreenState> | undefined
+  const actions = new Set<string>()
   const sync = () => {
     if (syncing) return
     syncing = true
@@ -76,8 +77,14 @@ export function addFixtureUi(
     // Install those spies on the UiStore that owns these methods now, so the
     // render still verifies dispatch through the current producer surface.
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(snapshot))) {
-      if (typeof descriptor.value === 'function' && typeof Reflect.get(ui, key) === 'function')
-        Object.defineProperty(ui, key, { configurable: true, writable: true, value: descriptor.value })
+      if (!actions.has(key) && typeof descriptor.value === 'function' && typeof Reflect.get(ui, key) === 'function') {
+        actions.add(key)
+        Object.defineProperty(ui, key, {
+          configurable: true,
+          writable: true,
+          value: (...args: unknown[]) => Reflect.get(fake.getSnapshot(), key)(...args),
+        })
+      }
     }
     const patch = Object.fromEntries(
       Object.keys(ui.screen)

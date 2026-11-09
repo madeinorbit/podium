@@ -199,6 +199,7 @@ it('updates pool host metrics without waking stable action owners', async () => 
       <BroadReader />
       <HostReader />
     </>,
+    { machines: [{ id: 'synthetic-host', name: 'Synthetic host', online: true }] as never },
   )
   const before = broadRenders
   for (const hostname of ['first', 'second']) {
