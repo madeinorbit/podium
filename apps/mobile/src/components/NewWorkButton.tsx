@@ -60,7 +60,7 @@ import {
 } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions, useUiState } from '../client/hooks'
-import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
@@ -211,7 +211,6 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
   const uiState = useUiState()
-  const pool = useMobilePool()
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
@@ -228,7 +227,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     (key: string, value: string) => {
       uiState.set(key, value)
     },
-    [uiState, pool],
+    [uiState],
   )
   const setModelPick = useCallback(
     (value: string) => setDraftPick(NEW_WORK_MODEL_KEY, value),
