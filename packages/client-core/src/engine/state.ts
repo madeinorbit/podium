@@ -12,7 +12,7 @@ export interface EngineState {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   machines: MachineWire[]
 }
-export type EngineStatics<TApi extends PodiumClientApi> = Omit<Store<TApi>, keyof EngineState>
+export type EngineStatics<TApi extends PodiumClientApi> = Omit<Store<TApi>, keyof RuntimeState>
 export const initialEngineState = (): EngineState => ({
   repos: [],
   reposLoading: false,

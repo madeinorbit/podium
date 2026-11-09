@@ -1,3 +1,4 @@
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { addSink } from '@podium/logger'
 import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -28,7 +29,9 @@ describe('principal replica storage', () => {
       principal: 'alice',
       now: () => 1,
     })
-    const aliceUi = createSideCache({ storage: memory.api, keyPrefix: alice.keyPrefix }).uiState()
+    const aliceUi = openLegacyDeviceKeys(
+      createSideCache({ storage: memory.api, keyPrefix: alice.keyPrefix }).deviceStorage(),
+    )
     aliceUi.set('podium.panelMode', '{"s1":"chat"}')
     aliceUi.set('podium.view', 'issueProjections')
     await new Promise((r) => setTimeout(r, 0))
@@ -42,7 +45,9 @@ describe('principal replica storage', () => {
       principal: 'bob',
       now: () => 2,
     })
-    const bobUi = createSideCache({ storage: memory.api, keyPrefix: bob.keyPrefix }).uiState()
+    const bobUi = openLegacyDeviceKeys(
+      createSideCache({ storage: memory.api, keyPrefix: bob.keyPrefix }).deviceStorage(),
+    )
     expect(bobUi.get('podium.panelMode')).toBeNull()
     expect(bobUi.get('podium.view')).toBeNull()
     // Alice's namespaced blob remains; Bob has a separate empty collection.
@@ -139,7 +144,7 @@ describe('principal replica storage', () => {
       enumerateKeys: memory.keys,
       keyPrefix: alicePrefix,
     })
-    expect(alice.uiState().get('podium.view')).toBe('issueProjections')
+    expect(openLegacyDeviceKeys(alice.deviceStorage()).get('podium.view')).toBe('issueProjections')
     expect(
       alice
         .outboxStorage()
@@ -155,10 +160,10 @@ describe('principal replica storage', () => {
       enumerateKeys: memory.keys,
       keyPrefix: principalKeyPrefix('podium.kernel-replica', 'bob'),
     })
-    expect(bob.uiState().get('podium.view')).toBeNull()
+    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.view')).toBeNull()
     expect(bob.outboxStorage().load()).toEqual([])
     // Theme is mirrored deliberately: cosmetic, identity-free, and pre-auth.
-    expect(bob.uiState().get('podium.theme.mode')).toBe('dark')
+    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.theme.mode')).toBe('dark')
     alice.dispose()
     bob.dispose()
   })
@@ -173,7 +178,7 @@ describe('principal replica storage', () => {
       keyPrefix: principalKeyPrefix('podium.kernel-replica', 'alice'),
     })
     const changed = vi.fn()
-    alice.uiState().subscribe(changed)
+    openLegacyDeviceKeys(alice.deviceStorage()).subscribe(changed)
 
     events.fire(principalKeyPrefix('podium.kernel-replica', 'bob') + '.uistate.v1')
     expect(changed).not.toHaveBeenCalled()

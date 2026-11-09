@@ -1,16 +1,11 @@
-import { issueRefText } from '@podium/protocol'
-import { omitGone } from './lookup'
-import { headerView } from './header-views'
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { keyedComputed } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, machinePathBasename, machinePathKey } from '@podium/model/browser'
-import {
-  compareStructural,
-  observable,
-  runInAction,
-} from 'mobx'
+import { issueRefText } from '@podium/protocol'
+import { compareStructural, observable, runInAction } from 'mobx'
+import { headerView } from './header-views'
+import { inBoardScope } from './issue-board-cards'
 import { createBoardLayout } from './issue-board-layout'
 import {
   type BoardCatalog,
@@ -19,9 +14,10 @@ import {
   ISSUE_BOARD_SUMMARIES,
   type IssueBoardSourceRows,
 } from './issue-board-schema'
-import { inBoardScope } from './issue-board-cards'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
+import { isFinished } from './shared/predicates'
 import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -34,27 +30,21 @@ const text = (value: unknown): string =>
  * Query demand and scalar computeds disappear on filter change/unmount. */
 export function createIssueBoardSource(
   pool: MobxPool,
-  owner?: {
-    readLocal(key: 'openIssueId'): string | null
-    onLocals(keys: readonly 'openIssueId'[], listener: () => void): () => void
-  },
+  owner?: { readonly ui: Pick<import('@podium/client-core/ui').UiStore, 'openIssueId'> },
 ) {
   const layout = createBoardLayout(pool)
-  const cache = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read())
+  const cache = keyedComputed(
+    (key: string) => `IssueBoard@${key}`,
+    (_key: string, read: () => unknown) => read(),
+  )
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const frame = defineSource({ readById, release })
-  const open = observable.box(owner?.readLocal('openIssueId') ?? null)
-  // Keyed (POD-5433): only an open-issue change wakes the board.
-  const stopOwner =
-    owner?.onLocals(['openIssueId'], () =>
-      runInAction(() => open.set(owner.readLocal('openIssueId'))),
-    ) ?? (() => {})
+  const stopOwner = () => {}
   function memo<T>(key: string, read: () => T): T {
     if (frame.disposed) return LOADING as T
     return cache(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
-
     // Resident rows share memoized scalar facts. Cold facts remain
     // demand-owned by the reader's addressed computations.
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
@@ -70,7 +60,9 @@ export function createIssueBoardSource(
       ? Object.fromEntries(ISSUE_BOARD_SUMMARIES.issue.map((key) => [key, raw[key]]))
       : raw
     const repoId = pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? (omitGone(pool.row('repo', repoId)) as Loaded<{ prefix?: string }>) : undefined
+    const repo = repoId
+      ? (omitGone(pool.row('repo', repoId)) as Loaded<{ prefix?: string }>)
+      : undefined
     if (repo === LOADING) return LOADING
     const prefix = repo?.prefix
     const deadline = Date.parse((raw.deferUntil as string) ?? '')
@@ -93,7 +85,12 @@ export function createIssueBoardSource(
       worktreePath: raw.worktreePath ?? null,
     } as IssueViewModel
   }
-  function scoped(row: IssueViewModel, agents: boolean, liveParents = false, id: string = row.id): boolean {
+  function scoped(
+    row: IssueViewModel,
+    agents: boolean,
+    liveParents = false,
+    id: string = row.id,
+  ): boolean {
     return inBoardScope(pool, row, id, agents, liveParents)
   }
   function roster(id: string) {
@@ -121,14 +118,22 @@ export function createIssueBoardSource(
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
     return layout.queryIds(query)
   }
-  const catalogEntry = keyedComputed('IssueBoard.catalogEntry', (key: string) => {
-    const [id, agents] = JSON.parse(key) as [string, boolean]
-    const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
-    if (!row || row === LOADING) return row
-    const eligible = !row.archived && !row.deletedAt && scoped(row, agents, true, id)
-    return { path: row.repoPath, eligible, assignee: eligible ? row.assignee : undefined,
-      labels: eligible ? row.labels : [] }
-  }, { equals: compareStructural })
+  const catalogEntry = keyedComputed(
+    'IssueBoard.catalogEntry',
+    (key: string) => {
+      const [id, agents] = JSON.parse(key) as [string, boolean]
+      const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
+      if (!row || row === LOADING) return row
+      const eligible = !row.archived && !row.deletedAt && scoped(row, agents, true, id)
+      return {
+        path: row.repoPath,
+        eligible,
+        assignee: eligible ? row.assignee : undefined,
+        labels: eligible ? row.labels : [],
+      }
+    },
+    { equals: compareStructural },
+  )
   function catalog(agents: boolean): Loaded<BoardCatalog> {
     return memo(`catalog:${agents}`, () => {
       const scope: string[] = [],
@@ -139,7 +144,8 @@ export function createIssueBoardSource(
         const row = catalogEntry(JSON.stringify([id, agents]))
         if (row === LOADING) return false
         if (!row) return true
-        if (row.path && !paths.has(machinePathKey(row.path))) paths.set(machinePathKey(row.path), row.path)
+        if (row.path && !paths.has(machinePathKey(row.path)))
+          paths.set(machinePathKey(row.path), row.path)
         if (row.eligible) {
           scope.push(id)
           if (row.assignee) assignees.add(row.assignee)
@@ -163,13 +169,15 @@ export function createIssueBoardSource(
   }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`row:${id}`, () => {
-
       const value = facts(id)
       if (!value || value === LOADING) return value
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const row = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<{ stage?: string; closedReason?: string | null }>
+        const row = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<{
+          stage?: string
+          closedReason?: string | null
+        }>
         if (row === LOADING) return LOADING
         if (row && isFinished(row)) childDoneCount++
       }
@@ -182,7 +190,9 @@ export function createIssueBoardSource(
         for (const dep of row?.deps ?? [])
           if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
-      const memberSessionIds = [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId)
+      const memberSessionIds = [...pool.graph.many('issue', id, 'pageSessions')]
+        .sort(byId)
+        .map(asSessionId)
       const readAt = pool.readCursor(id) ?? null,
         readTime = Date.parse(readAt ?? '')
       let unread = !Number.isFinite(readTime) || Date.parse(value.updatedAt) > readTime
@@ -216,29 +226,38 @@ export function createIssueBoardSource(
   const board = layout.board
   function menu(options: { ids: string[]; agents: boolean }) {
     return memo(`menu:${JSON.stringify(options)}`, () => {
-      const issues: IssueViewModel[] = [], seats = new Map<string, SessionView>()
+      const issues: IssueViewModel[] = [],
+        seats = new Map<string, SessionView>()
       // The menu reads addressed origins itself and opens choice catalogs
       // only for the relevant submenu. Its trigger needs selected rows only.
       for (const id of options.ids) {
-        const row = issue(id), roster = sessions(id)
+        const row = issue(id),
+          roster = sessions(id)
         if (row === LOADING || roster === LOADING) return LOADING
         if (row) issues.push(row)
         for (const seat of roster ?? []) seats.set(seat.sessionId, seat)
       }
       return {
-        issues, allIssues: issues, sessions: [...seats.values()],
-        repos: headerView(pool).ids('repository').flatMap(id => {
-          const row = headerView(pool).row('repository', id)
-          return row ? [row] : []
-        }),
+        issues,
+        allIssues: issues,
+        sessions: [...seats.values()],
+        repos: headerView(pool)
+          .ids('repository')
+          .flatMap((id) => {
+            const row = headerView(pool).row('repository', id)
+            return row ? [row] : []
+          }),
         machines: headerView(pool).machines(),
       }
     })
   }
-  function readById(entity: keyof IssueBoardSourceRows, id: string): ReturnType<PoolSource<keyof IssueBoardSourceRows>['read']> {
+  function readById(
+    entity: keyof IssueBoardSourceRows,
+    id: string,
+  ): ReturnType<PoolSource<keyof IssueBoardSourceRows>['read']> {
     switch (entity) {
       case 'issueBoardWindow':
-        return { openIssueId: open.get() ? asIssueId(open.get()!) : null }
+        return { openIssueId: owner?.ui.openIssueId ?? null }
       case 'issueBoardQuery':
         return queryIds(JSON.parse(id))
       case 'issueBoardCatalog':
@@ -265,7 +284,6 @@ export function createIssueBoardSource(
         return issue(id)
       case 'issueBoardSessions':
         return sessions(id)
-
     }
   }
   function release(): void {

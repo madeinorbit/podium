@@ -4,7 +4,6 @@ import type { UiState } from './replica/contract'
 import {
   createMemoryRouterWindow,
   createRoutedUiState,
-  createRouterUiState,
   FILE_SCROLL_MAP_CAP,
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_DISPLAY_KEY,
@@ -19,7 +18,6 @@ import {
   requireReplicatedLayoutKey,
   SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
-  UI_STATE_ROUTES,
   uiStateRoute,
   writeFileScrollPosition,
 } from './ui-state'
@@ -112,8 +110,15 @@ describe('workspace ui-state routing', () => {
   })
 
   it('is total over the closed key set and has both homes', () => {
-    expect(Object.keys(UI_STATE_ROUTES).sort()).toEqual(Object.values(UI_STATE_KEYS).sort())
-    expect(new Set(Object.values(UI_STATE_ROUTES).map((route) => route.home))).toEqual(
+    expect(
+      Object.values(UI_STATE_KEYS)
+        .map((key) => {
+          uiStateRoute(key)
+          return key
+        })
+        .sort(),
+    ).toEqual(Object.values(UI_STATE_KEYS).sort())
+    expect(new Set(Object.values(UI_STATE_KEYS).map((key) => uiStateRoute(key).home))).toEqual(
       new Set(['device-local', 'per-user-replicated']),
     )
   })
@@ -254,40 +259,5 @@ describe('workspace ui-state routing', () => {
         UI_STATE_KEYS.panelMode,
       ),
     ).toBeNull()
-  })
-
-  it('hydrates and flushes the whole workspace through one path across reload', () => {
-    const local = memoryUi()
-    const replicated = replicatedUi()
-    const first = createRouterUiState({
-      local,
-      replicated,
-      win: createMemoryRouterWindow('/workspace?wt=%2Frepo%2Fwt&pane=s1'),
-    })
-    const hydrated = first.hydrate()
-    first.flush({
-      ...hydrated,
-      paneB: 's2' as never,
-      split: true,
-      superOpen: false,
-      panelMode: { s1: 'chat' },
-      dockShells: { '/repo/wt': 'shell1' as never },
-    })
-
-    const second = createRouterUiState({
-      local,
-      replicated,
-      win: createMemoryRouterWindow('/'),
-    }).hydrate()
-    expect(second).toMatchObject({
-      view: 'workspace',
-      selectedWorktree: '/repo/wt',
-      paneA: 's1',
-      paneB: 's2',
-      split: true,
-      superOpen: false,
-      panelMode: { s1: 'chat' },
-      dockShells: { '/repo/wt': 'shell1' },
-    })
   })
 })

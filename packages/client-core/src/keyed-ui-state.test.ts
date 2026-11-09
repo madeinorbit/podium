@@ -1,3 +1,4 @@
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { createReplicatedLayoutController } from './engine/replicated-layout'
@@ -15,7 +16,10 @@ it('notifies the canonical key and every declared alias without unrelated keys',
     notices: { error: () => {}, info: () => {} } as StoreNotices,
     userId: asUserId('u-1'),
   })
-  const ui = createRoutedUiState({ local: side.uiState(), replicated: controller })
+  const ui = createRoutedUiState({
+    local: openLegacyDeviceKeys(side.deviceStorage()),
+    replicated: controller,
+  })
   const changes: string[][] = []
   const stop = ui.subscribe((keys) => changes.push([...keys].sort()))
   try {
@@ -42,7 +46,7 @@ it('publishes exact keys for local writes and cross-tab additions, changes and r
     enumerateKeys: () => [],
     storageEventApi,
   })
-  const ui = side.uiState(),
+  const ui = openLegacyDeviceKeys(side.deviceStorage()),
     changes: string[][] = []
   const stop = ui.subscribe((keys) => changes.push([...keys].sort()))
   try {

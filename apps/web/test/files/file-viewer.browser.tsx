@@ -1,19 +1,20 @@
-import { preferenceSource } from '@podium/client-graph/preference-source'
 /** Real surfaces over one offline runtime and its existing pool. Synthetic only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { writeFilePanelMode } from '@podium/client-core/ui-state'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { FileBrowserModal } from '../../src/features/files/FileBrowserModal'
+import { FilePanel } from '../../src/features/files/FilePanel'
+import { WorktreeFileTree } from '../../src/features/files/WorktreeFileTree'
 import { DiffSheet } from '../../src/features/git/DiffSheet'
 import { GitPanelView } from '../../src/features/git/GitPanelView'
 import { parseStatus } from '../../src/features/git/git-panel'
-import { FileBrowserModal } from '../../src/features/files/FileBrowserModal'
-import { FilePanel } from '../../src/features/files/FilePanel'
 import { checkFileViewerPreferences } from './file-viewer-check'
 import {
   createFileViewerFixture,
@@ -21,7 +22,6 @@ import {
   VIEWER_SCOPE,
   VIEWER_TABS,
 } from './file-viewer-fixture'
-import { WorktreeFileTree } from '../../src/features/files/WorktreeFileTree'
 import '@/index.css'
 
 const fixture = createFileViewerFixture(5600, 5014),
@@ -150,7 +150,12 @@ const driver = {
   async preferences() {
     for (let step = 0; step < 20; step++) {
       for (const tab of VIEWER_TABS)
-        writeFilePanelMode(owner.ui, tab.mapKey, tab.tabId, step % 2 ? 'preview' : 'source')
+        writeFilePanelMode(
+          owner.deviceState,
+          tab.mapKey,
+          tab.tabId,
+          step % 2 ? 'preview' : 'source',
+        )
       await frame()
     }
     await frame()
@@ -186,7 +191,7 @@ const driver = {
         (sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0),
         0,
       ),
-      pool: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
+      pool: pool ? (preferenceSource(pool)?.counts ?? null) : undefined,
       commits,
       commitMs,
       failures,
@@ -200,9 +205,9 @@ const driver = {
   },
   async check() {
     if (!pool) return null
-    checkFileViewerPreferences(pool, owner.ui, VIEWER_TABS)
+    checkFileViewerPreferences(pool, owner.deviceState, VIEWER_TABS)
     await frame()
-    return checkFileViewerPreferences(pool, owner.ui, VIEWER_TABS)
+    return checkFileViewerPreferences(pool, owner.deviceState, VIEWER_TABS)
   },
   close: () => root.unmount(),
 }

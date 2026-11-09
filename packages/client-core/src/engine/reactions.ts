@@ -1,5 +1,5 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
-import { action, observableRef } from 'mobx'
+import { action, actionBound, observableRef } from 'mobx'
 import { ReadAcknowledgements } from './read-acknowledgements'
 import type { IssueVisitBaseline } from './types'
 /**
@@ -129,7 +129,7 @@ export interface ReactionPorts {
 
 export class Reactions {
   @observableRef accessor issueVisitBaseline: IssueVisitBaseline | null = null
-  @action.bound setIssueVisitBaseline(value: IssueVisitBaseline | null): void {
+  @actionBound setIssueVisitBaseline(value: IssueVisitBaseline | null): void {
     this.issueVisitBaseline = value
   }
   private readonly ports: ReactionPorts

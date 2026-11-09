@@ -5,6 +5,8 @@ import {
   type LocalsListener,
 } from '../src/engine/keyed-inputs'
 import type { RuntimeState } from '../src/engine/state'
+import type { UiStore } from '../src/ui/ui-store'
+import { addFixtureUi } from './ui'
 
 /**
  * Keyed inputs over a hand-held snapshot store (fixtures and harness fakes
@@ -86,7 +88,11 @@ export function keyedInputsOverStore(store: {
 /** Give a fixture's whole-snapshot runtime the keyed surface, in place. */
 export function withKeyedInputs<
   T extends { getSnapshot(): object; subscribe(listener: () => void): () => void },
->(fake: T): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
+>(
+  fake: T,
+): Omit<T, 'ui'> &
+  KeyedInputs & { readonly ui: UiStore; readonly access: ReturnType<T['getSnapshot']> } {
+  addFixtureUi(fake as T & Record<string, unknown>)
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
   const fixture = fake as T & {
     services?: object
@@ -109,5 +115,6 @@ export function withKeyedInputs<
     fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
   return Object.defineProperty(Object.assign(fake, inputs), 'access', {
     get: () => fake.getSnapshot(),
-  }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
+  }) as Omit<T, 'ui'> &
+    KeyedInputs & { readonly ui: UiStore; readonly access: ReturnType<T['getSnapshot']> }
 }

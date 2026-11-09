@@ -64,18 +64,11 @@ export interface ChatSurface {
   openFile: (sessionId: SessionId, path: string) => void
 }
 
-const LAYOUT_ACTIONS = [
-  'trpc',
-  'openFile',
-  'httpOrigin',
-  'clearAttachedSession',
-  'clearTranscriptReveal',
-] as const
+const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'clearAttachedSession'] as const
 
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
-  const { trpc, openFile, httpOrigin, clearAttachedSession, clearTranscriptReveal } =
-    useRuntimeActions(LAYOUT_ACTIONS)
+  const { trpc, openFile, httpOrigin, clearAttachedSession } = useRuntimeActions(LAYOUT_ACTIONS)
   const answerSession = useAnswerSession()
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.

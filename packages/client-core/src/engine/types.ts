@@ -162,7 +162,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * writer that aimed it anywhere else) — `setSuperThreadId` survives for a
    * surface that can genuinely render a second thread, which none does today.
    */
-  superThreadId: ThreadId
+  superThreadId: ThreadId | null
   setSuperThreadId: (id: string) => void
   /** Whether the superagent panel is open — a collapsible right dock on desktop,
    *  a minimizable overlay on mobile (no longer a full-screen view). */
@@ -197,7 +197,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Captured before eager mark-read advances the issue's per-user cursor. */
   issueVisitBaseline: IssueVisitBaseline | null
   /** Consumed by the matching chat surface, then cleared by nonce. */
-  transcriptReveal: TranscriptRevealRequest | null
   /**
    * EDITOR-STYLE TAB WORKSPACES (POD-710): what each task in the left sidebar
    * has open — its tabs, its active tab, its ONE preview tab and its split
@@ -232,8 +231,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     itemKey: string,
     opts?: { permanent?: boolean },
   ) => void
-  /** Clear only the request the consumer actually handled. */
-  clearTranscriptReveal: (nonce: number) => void
   /** The same, for any tab id (a session, or a `file:…` editor tab). */
   openTabInWorkspace: (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
   /** Preview → permanent, with no reorder (typing into the panel, or a
@@ -261,7 +258,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Which split pane currently holds input focus — drives the `focused` field of
    *  the view-state the client reports so the server prioritizes that session's PTY
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
-  focusedPane: 'A' | 'B'
+  focusedPane: PaneId
   setFocusedPane: (pane: 'A' | 'B') => void
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>

@@ -29,7 +29,15 @@ export interface PhoneWorkFilterSnapshot {
 
 /** Live filters, with a serializable navigation snapshot for a remounted screen. */
 export class PhoneWorkFilters {
-  @observable accessor lane: PhoneWorkLane = 'open'
+  @observable private accessor initialLane: PhoneWorkLane = 'open'
+  @observableRef private accessor pool: MobxPool | undefined = undefined
+  @lazy get lane(): PhoneWorkLane {
+    const value = this.pool?.layoutValue('phone.board.lanes')
+    return value === 'open' || value === 'snoozed' || value === 'closed' ? value : this.initialLane
+  }
+  @action bind(pool: MobxPool): void {
+    this.pool = pool
+  }
   @observable accessor query = ''
   constructor(
     initial?: PhoneWorkFilterSnapshot,
@@ -38,12 +46,13 @@ export class PhoneWorkFilters {
     if (initial) this.restore(initial)
   }
   @action restore(snapshot: PhoneWorkFilterSnapshot) {
-    this.lane = snapshot.lane
+    if (!this.pool) this.initialLane = snapshot.lane
     this.query = snapshot.query
   }
   @action setLane(lane: PhoneWorkLane) {
     if (this.lane === lane) return
-    this.lane = lane
+    if (this.pool?.hasLayout) this.pool.setLayoutValue('phone.board.lanes', lane)
+    else this.initialLane = lane
     this.changed?.({ lane: this.lane, query: this.query })
   }
   @action setQuery(query: string) {
@@ -64,6 +73,7 @@ export class PhoneWorklist {
   constructor(readonly worklist: Worklist) {}
 
   @action setFilters(filters: PhoneWorkFilters) {
+    filters.bind(this.worklist.pool)
     this.filters = filters
   }
   get lane() {

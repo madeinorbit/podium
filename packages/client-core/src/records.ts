@@ -35,8 +35,8 @@ import type {
   RecordOp,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
-  SUPERAGENT_THREAD_RECORD,
   SUBSCRIPTION_RECORD,
+  SUPERAGENT_THREAD_RECORD,
   SyncedKindDeclaration,
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
@@ -312,7 +312,7 @@ export const RECORD_HOMES: {
   },
   session: { target: 'sessions', row: (id) => id },
   effect: { target: 'effects', row: (id) => id },
-  userLayout: null,
+  userLayout: 'userLayouts',
   // Standalone per-user rows (POD-6673): the pool keys each by its feed id.
   pin: { target: 'pins', row: (id) => id },
   tabOrder: { target: 'tabOrders', row: (id) => id },

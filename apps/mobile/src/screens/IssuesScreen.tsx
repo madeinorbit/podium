@@ -231,7 +231,14 @@ export const IssuesScreen = observer(function IssuesScreen() {
         roster={roster}
         count={filterCount}
         onFilter={(filter) => board?.setFilter(filter)}
-        onOrdering={(ordering) => setDisplay({ ...display, ordering })}
+        onOrdering={(ordering) => {
+          pool?.setLayoutValue('phone.tasks.options', {
+            filter: board?.filter ?? {},
+            showDone: board?.showDone ?? false,
+            ordering,
+          })
+          setDisplay({ ...display, ordering })
+        }}
         onShowAgentTasks={(show) =>
           setSavedFilters({ assignedTo: savedFilters.assignedTo, showAgentTasks: show })
         }
@@ -261,9 +268,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
                 {
                   label: rowMenu.issue.pinned ? 'Unpin' : 'Pin',
                   onPress: () =>
-                    runAction(
-                      store.setPinned('issue', rowMenu.issue.id, !rowMenu.issue.pinned),
-                    ),
+                    runAction(store.setPinned('issue', rowMenu.issue.id, !rowMenu.issue.pinned)),
                 },
                 {
                   label: rowMenu.issue.archived ? 'Unarchive task' : 'Archive task',

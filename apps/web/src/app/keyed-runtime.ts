@@ -18,7 +18,9 @@ function useInputs(): KeyedInputs {
   return useStoreHandle<Trpc>() as unknown as KeyedInputs
 }
 
-export function useRuntimeLocal<K extends LocalKey>(key: K): RuntimeState[K] {
+export function useRuntimeLocal<K extends LocalKey>(
+  key: K,
+): import('@podium/client-core/engine').EngineState[K] {
   const inputs = useInputs()
   const subscribe = useCallback(
     (notify: () => void) => inputs.onLocals([key], notify),

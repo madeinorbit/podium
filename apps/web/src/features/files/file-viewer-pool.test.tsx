@@ -1,6 +1,3 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -15,23 +12,28 @@ import {
 } from '@podium/client-core/ui-state'
 import type { FileScope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { DiffSheet } from '../git/DiffSheet'
-import { GitPanelView } from '../git/GitPanelView'
-import { parseStatus } from '../git/git-panel'
-import { FileBrowserModal } from './FileBrowserModal'
-import { FilePanel } from './FilePanel'
-import { checkFileViewerPreferences, FILE_VIEWER_PREFERENCE_KEYS } from '../../../test/files/file-viewer-check'
+import {
+  checkFileViewerPreferences,
+  FILE_VIEWER_PREFERENCE_KEYS,
+} from '../../../test/files/file-viewer-check'
 import {
   createFileViewerFixture,
   VIEWER_FILES,
   VIEWER_SCOPE,
   VIEWER_TABS,
 } from '../../../test/files/file-viewer-fixture'
+import { DiffSheet } from '../git/DiffSheet'
+import { GitPanelView } from '../git/GitPanelView'
+import { parseStatus } from '../git/git-panel'
+import { FileBrowserModal } from './FileBrowserModal'
+import { FilePanel } from './FilePanel'
 import { useFileDocument } from './useFileDocument'
 import { WorktreeFileTree } from './WorktreeFileTree'
 
@@ -105,10 +107,11 @@ it('compares all file modes through declared, batched preference rows, including
   )
   try {
     attachPreferenceSource(pool, ui)
-    for (const key of FILE_VIEWER_PREFERENCE_KEYS) expect(omitGone(pool.row('preference', key))).toBe(LOADING)
+    for (const key of FILE_VIEWER_PREFERENCE_KEYS)
+      expect(omitGone(pool.row('preference', key))).toBe(LOADING)
     expect(checkFileViewerPreferences(pool, ui, tabs)).toMatchObject({ pending: 4, positions: 604 })
     await Promise.resolve()
-    expect((preferenceSource(pool)?.counts ?? null)).toMatchObject({ batches: 1, loaded: 4 })
+    expect(preferenceSource(pool)?.counts ?? null).toMatchObject({ batches: 1, loaded: 4 })
     for (const map of [
       null,
       '{corrupt',
@@ -203,9 +206,10 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
   await act(async () => {})
   expect(owners.size).toBe(1)
   for (const key of [HTML_MODE_MAP_KEY, JSON_MODE_MAP_KEY, MD_MODE_MAP_KEY])
-    expect(owner.ui.get(key)).toBeNull()
+    expect(owner.deviceState.get(key)).toBeNull()
   await act(async () => {
-    for (const tab of VIEWER_TABS) writeFilePanelMode(owner.ui, tab.mapKey, tab.tabId, 'source')
+    for (const tab of VIEWER_TABS)
+      writeFilePanelMode(owner.deviceState, tab.mapKey, tab.tabId, 'source')
   })
   // Utility dialogs intentionally hide the surrounding mounted file panels.
   for (const { path } of VIEWER_FILES)
@@ -214,7 +218,7 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
     ).toBeTruthy()
   const attachedPool = pool as MobxPool | null
   if (!attachedPool) throw new Error('Pool did not attach')
-  expect(checkFileViewerPreferences(attachedPool, owner.ui, VIEWER_TABS)).toMatchObject({
+  expect(checkFileViewerPreferences(attachedPool, owner.deviceState, VIEWER_TABS)).toMatchObject({
     differences: 0,
     pending: 0,
     positions: 7,

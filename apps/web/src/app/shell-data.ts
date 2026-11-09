@@ -45,10 +45,20 @@ export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {
     const state = owner.access
-    return Object.fromEntries(ACTIONS.map((key) => [key, state[key]])) as Pick<
-      Store,
-      (typeof ACTIONS)[number]
-    >
+    return Object.fromEntries(
+      ACTIONS.map((key) => [
+        key,
+        key === 'uiState'
+          ? owner.deviceState
+          : key === 'setPaletteOpen'
+            ? owner.palette.setOpen
+            : key === 'closeAutoContinuePrompt'
+              ? owner.autoContinueDialog.close
+              : key in owner.ui
+                ? Reflect.get(owner.ui, key)
+                : state[key],
+      ]),
+    ) as Pick<Store, (typeof ACTIONS)[number]>
   }, [owner])
 }
 /** The right dock's routing view: an observer reads each field where it is
@@ -68,8 +78,34 @@ export function useShellShipping() {
 
 export function useShellWindow() {
   if (import.meta.env.DEV) assertReactiveRead('useShellWindow')
-  const pool = useWorklistPool()
-  return pool ? here(pool.row('shellWindow', 'window')) : undefined
+  const owner = useStoreHandle<Trpc>(),
+    ui = owner.ui
+  return {
+    get view() {
+      return ui.view
+    },
+    get paneA() {
+      return ui.paneA
+    },
+    get selectedIssueId() {
+      return ui.selectedIssueId
+    },
+    get selectedWorktree() {
+      return ui.selectedWorktree
+    },
+    get superOpen() {
+      return ui.superOpen
+    },
+    get reposLoaded() {
+      return owner.readLocal('reposLoaded')
+    },
+    get paletteOpen() {
+      return owner.palette.open
+    },
+    get autoContinuePromptSessionId() {
+      return owner.autoContinueDialog.sessionId
+    },
+  }
 }
 /** The agent requests waiting for this person, oldest first (POD-6674): the
  *  pool's `approval` effect models. */
@@ -86,18 +122,21 @@ export function useShellLinks() {
     views = pool ? shellView(pool) : null
   return useMemo(
     () => ({
-      readSession: (identifier: string) => allowImperativeRead(() => {
-        const session = views?.linkedSession(identifier)
-        return session && session !== LOADING ? session : undefined
-      }),
-      readIssue: (identifier: string) => allowImperativeRead(() => {
-        const issue = views?.linkedIssue(identifier)
-        return issue && issue !== LOADING ? issue : undefined
-      }),
-      artifactIssue: (id: string) => allowImperativeRead(() => {
-        const row = views?.issue(id, true)
-        return row && row !== LOADING ? (row as IssueViewModel) : undefined
-      }),
+      readSession: (identifier: string) =>
+        allowImperativeRead(() => {
+          const session = views?.linkedSession(identifier)
+          return session && session !== LOADING ? session : undefined
+        }),
+      readIssue: (identifier: string) =>
+        allowImperativeRead(() => {
+          const issue = views?.linkedIssue(identifier)
+          return issue && issue !== LOADING ? issue : undefined
+        }),
+      artifactIssue: (id: string) =>
+        allowImperativeRead(() => {
+          const row = views?.issue(id, true)
+          return row && row !== LOADING ? (row as IssueViewModel) : undefined
+        }),
       pool,
     }),
     [pool, views],
@@ -106,10 +145,11 @@ export function useShellLinks() {
 export function useShellSessionResolver() {
   const pool = useWorklistPool()
   return useMemo(
-    () => (id: string) => allowImperativeRead(() => {
-      const value = pool ? shellView(pool).session(id) : undefined
-      return value && value !== LOADING ? value : undefined
-    }),
+    () => (id: string) =>
+      allowImperativeRead(() => {
+        const value = pool ? shellView(pool).session(id) : undefined
+        return value && value !== LOADING ? value : undefined
+      }),
     [pool],
   )
 }
@@ -151,5 +191,13 @@ export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).chrome() : LOADING
-  return value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME
+  const owner = useStoreHandle<Trpc>(),
+    ui = owner.ui
+  return {
+    ...(value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME),
+    view: ui.view,
+    selectedIssueId: ui.selectedIssueId,
+    paletteOpen: owner.palette.open,
+    superOpen: ui.superOpen,
+  }
 }

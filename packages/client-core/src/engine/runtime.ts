@@ -84,7 +84,8 @@ import { createRecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
-import { createDeviceKeys } from '../ui/device-storage'
+import { openLegacyDeviceKeys } from '../ui/draft-storage'
+import { createUiKeys } from '../ui/keys'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
 import { UiPersistence } from '../ui/persistence'
 import { sessionLinkProblem, sessionLinkSelection } from '../ui/session-link'
@@ -481,7 +482,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onDeadLetter: () => this.publishOutbox(),
     })
     const device = this.replica.deviceStorage()
-    const localUi = createDeviceKeys(device)
+    const localUi = openLegacyDeviceKeys(device)
     this.state = initialEngineState() as EngineState & ScreenState
     this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
     // ORDER IS LOAD-BEARING HERE. `createActions()` builds the replicated-layout
@@ -495,7 +496,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.principal.userId,
       createRecordsApi((kind, input) => this.requirePoolWriter().write(kind, input)),
     )
-    const actions = this.createActions()
     // An advance is a queued edit of my `userReadPosition` record (POD-6673):
     // painted at once, kept offline, retired by its receipt.
     const readPositionRecords = createRecordsApi((kind, input) =>
@@ -516,7 +516,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       publish: (patch) => this.apply(patch),
     })
-    this.deviceState = createRoutedUiState({ local: localUi, replicated: this.replicatedLayout })
+    this.deviceState = createUiKeys(() => this.ui, localUi, this.replicatedLayout)
     this.ui = new UiStore({
       api: this.api,
       hub: this.hub,
@@ -526,6 +526,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       repos: () => this.state.repos,
       reposLoaded: () => this.state.reposLoaded,
       isVisible: () => this.visibility.isVisible(),
+      revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       changed: (changed) => {
         if (this.inputs)
           this.runReactions(changed as ReadonlySet<keyof (EngineState & ScreenState)>)
@@ -534,7 +535,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         return reaction(() => [this.ui.selectedIssueId, this.ui.navigation], listener)
       },
       navigate: (intent) => this.navigate(intent),
-      revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       waitForSessionNavigation: (identifier) => {
         this.pendingSessionNavigation = identifier
         this.watchNavigation()
@@ -543,7 +543,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.uiPersistence = new UiPersistence(this.ui, device, localUi, this.visibility)
     // Only internal policy code uses this read port. Every value is a getter
     // into the MobX home; no device field is retained in EngineState.
-    Object.defineProperties(this.state, Object.getOwnPropertyDescriptors(this.ui.screen))
+    Object.defineProperties(
+      this.state,
+      Object.fromEntries(
+        Object.entries(Object.getOwnPropertyDescriptors(this.ui.screen)).filter(
+          ([key]) => !Object.hasOwn(this.state, key),
+        ),
+      ),
+    )
     Object.defineProperties(this.state, {
       paletteOpen: { enumerable: true, get: () => this.palette.open },
       autoContinuePromptSessionId: {
@@ -613,6 +620,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       persistDebounceMs: init.draftPersistDebounceMs,
     })
     this.inputs = createKeyedInputs(() => this.state, false, [])
+    const actions = this.createActions()
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
       { ...this.services },
@@ -639,8 +647,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly onLocals = (keys: readonly LocalKey[], listener: LocalsListener): (() => void) =>
     this.inputs.onLocals(keys, listener)
   /** The value of one local as the last batch published it. */
-  readonly readLocal = <K extends LocalKey>(key: K): (EngineState & ScreenState)[K] =>
-    this.inputs.readLocal(key)
+  readonly readLocal = <K extends LocalKey>(key: K): EngineState[K] => this.inputs.readLocal(key)
   /** Discovery and window lists by id: the ids whose row changed per batch. */
   readonly onList = <N extends KeyedListName>(
     name: N,
@@ -1140,13 +1147,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (patch.issueVisitBaseline !== undefined)
         this.reactions.setIssueVisitBaseline(patch.issueVisitBaseline)
       const screenPatch = Object.fromEntries(
-        Object.entries(patch).filter(([key]) => Object.hasOwn(this.ui.screen, key)),
+        Object.entries(patch).filter(
+          ([key]) => Object.hasOwn(this.ui.screen, key) && !['repos', 'reposLoaded'].includes(key),
+        ),
       )
       if (Object.keys(screenPatch).length) this.ui.patch(screenPatch)
       const changed = new Set<keyof (EngineState & ScreenState)>()
       for (const k of Object.keys(patch) as Array<keyof (EngineState & ScreenState)>) {
         if (
-          Object.hasOwn(this.ui.screen, k) ||
+          (Object.hasOwn(this.ui.screen, k) && !['repos', 'reposLoaded'].includes(k)) ||
           k === 'paletteOpen' ||
           k === 'autoContinuePromptSessionId' ||
           k === 'issueVisitBaseline'
@@ -1200,7 +1209,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.pendingChanges = new Set()
           // Clear bookkeeping before notifying: listeners may write again.
           if (changed.size > 0 && !this.destroyed) {
-            this.inputs.emit(changed)
+            this.inputs.emit(
+              new Set(
+                [...changed].filter((key): key is keyof EngineState =>
+                  ['repos', 'reposLoading', 'reposLoaded', 'repoDiagnostics', 'machines'].includes(
+                    key,
+                  ),
+                ),
+              ),
+            )
           }
         }
       }
@@ -1611,7 +1628,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       ui: this.ui,
       apply: (patch) => this.apply(patch),
       navigate: (intent) => this.navigate(intent),
-      revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       waitForSessionNavigation: (identifier) => {
         this.dropPaneLink()
         this.pendingNavigation = undefined
@@ -1622,7 +1638,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // this batch; the async outbox drain echo and background broadcasts stay
       // separate by construction (they fire after the batch closed).
       batch: (fn) => this.batch(fn),
-      onLocals: (keys, listener) => this.onLocals(keys, listener),
+      onLocals: (_keys, listener) =>
+        reaction(() => [this.ui.selectedIssueId, this.ui.navigation], listener),
       write: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)

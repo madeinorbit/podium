@@ -1138,7 +1138,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * wrong thing) whenever a file was open. In split view the session being
    * worked may be the one in pane B.
    */
-  const activeSessionId = useFocusedSessionId(split && focusedPane === 'B' ? paneB : paneA)
+  const activeSessionId = useFocusedSessionId(useUiValue('focusedSessionId'))
   /** The mission's own row: the header is the root of the tree (round 3 §4). */
   const rootRow = screen.rootRow
   /**

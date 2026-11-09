@@ -64,14 +64,14 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       if (ids) headerEntities(pool).order(entity, ids)
     })
   }
-  const windowKeys = HEADER_SCHEMA.window.fields
-  const inputs = createFieldInputs<HeaderRows['window']>(windowKeys, {}, 'headerWindow')
-  function locals(changed?: ReadonlySet<string>): void {
-    runInAction(() => {
-      for (const key of windowKeys)
-        if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
-    })
-  }
+  const window = Object.defineProperties(
+    {},
+    {
+      view: { enumerable: true, get: () => runtime.ui.view },
+      paneA: { enumerable: true, get: () => runtime.ui.paneA },
+      fileTabs: { enumerable: true, get: () => runtime.ui.fileTabList },
+    },
+  ) as HeaderRows['window']
   function shipping(): void {
     replace(
       'shipOrder',
@@ -93,8 +93,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   })
   keyed('machine', 'machines')
   keyed('repository', 'repos')
-  locals()
-  replace('window', [['window', inputs.row]])
+  replace('window', [['window', window]])
   shipping()
   attachHeaderRequests(pool, runtime.access.trpc as unknown as HeaderRequestsApi)
   const stops = [
@@ -115,7 +114,6 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       }
       headerEntities(pool).apply(records)
     }),
-    runtime.onLocals(windowKeys, locals),
     runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
     runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
   ]

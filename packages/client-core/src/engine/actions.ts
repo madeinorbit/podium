@@ -139,7 +139,6 @@ export const UI_LOCAL_ACTIONS = [
   'setFocusedPane',
   'openSessionTab',
   'openSessionAtTranscript',
-  'clearTranscriptReveal',
   'openTabInWorkspace',
   'promoteWorkspaceTab',
   'activateWorkspaceTab',
@@ -235,29 +234,7 @@ export const COMMAND_ACTIONS = [
 /** Command contracts reduced directly into non-entity action state. */
 export const ACTION_STATE_REDUCER_COMMANDS = ['layout.set', 'layout.clear'] as const
 
-type ActionState = {
-  navigation: NavigationProvider
-  repos: Store['repos']
-  superThreadId: ThreadId
-  superOpen: boolean
-  attachedSessionId: SessionId | null
-  dockTab: DockTab
-  paletteOpen: boolean
-  selectedWorktree: string | null
-  selectedIssueId: IssueId | null
-  transcriptReveal: Store['transcriptReveal']
-  workspaces: WorkspaceMap
-  paneA: SessionId | null
-  paneB: SessionId | null
-  split: boolean
-  focusedPane: 'A' | 'B'
-  panelMode: Record<string, 'chat' | 'native'>
-  dockShells: Record<string, SessionId>
-  dockVisibleSession: string | null
-  autoContinuePromptSessionId: SessionId | null
-  fileTabs: FileTab[]
-  recentFiles: RecentFileEntry[]
-}
+type ActionState = import('../ui/state').ScreenState
 
 type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[number]
 // S5: batchGesture is UI-local but its Store interface addition is pending
@@ -287,7 +264,7 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
 }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
-  readonly layout: import('../ui/layout-access').LayoutAccess
+  readonly layout: ReplicatedLayoutController | import('../ui/layout-access').LayoutAccess
   readonly ui: import('../ui/ui-store').UiStore
   readonly api: TApi
   readonly hub: SocketHub
@@ -560,7 +537,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       return { ok: false, reason }
     }
   }
-  const transcriptRevealNonce = 0
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
@@ -715,9 +691,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     openSessionTab: rt.ui.openSessionTab,
     openSessionAtTranscript: rt.ui.openSessionAtTranscript,
 
-    clearTranscriptReveal: (nonce) => {
-      if (rt.state().transcriptReveal?.nonce === nonce) rt.apply({ transcriptReveal: null })
-    },
     openTabInWorkspace: rt.ui.openTabInWorkspace,
     promoteWorkspaceTab: rt.ui.promoteWorkspaceTab,
     activateWorkspaceTab: rt.ui.activateWorkspaceTab,

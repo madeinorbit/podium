@@ -122,9 +122,9 @@ const driver = {
   },
   async preferences() {
     for (let step = 0; step < 20; step++) {
-      owner.ui.set('podium.chat.stickyPrompts', step % 2 ? null : 'false')
-      owner.ui.set('podium.shell.density', step % 2 ? 'balanced' : 'compact')
-      owner.ui.set('podium:sidebar:pinned', step % 2 ? 'false' : 'true')
+      owner.deviceState.set('podium.chat.stickyPrompts', step % 2 ? null : 'false')
+      owner.deviceState.set('podium.shell.density', step % 2 ? 'balanced' : 'compact')
+      owner.deviceState.set('podium:sidebar:pinned', step % 2 ? 'false' : 'true')
       await nextFrame()
     }
   },
@@ -148,7 +148,7 @@ const driver = {
     const { checkPreferences } = await import(
       '../../../tests/worklist/diagnostics/preference-check'
     )
-    return checkPreferences(pool, owner.ui)
+    return checkPreferences(pool, owner.deviceState)
   },
   close: () => root.unmount(),
 }

@@ -1,4 +1,8 @@
-import { createReplicaFixture, type ReplicaFixtureOptions } from '@podium/client-core/test-support/replica'
+import {
+  createReplicaFixture,
+  type ReplicaFixtureOptions,
+} from '@podium/client-core/test-support/replica'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { readStoredView } from '@podium/client-core/ui-state'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -32,7 +36,9 @@ beforeEach(() => {
 describe('replica ui-state collection', () => {
   it('migrates a persisted removed Home view to Work', () => {
     const { storage } = makeStorage()
-    const ui = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).deviceStorage(),
+    )
     ui.set('podium.view', 'home')
     expect(readStoredView(ui)).toBe('workspace')
   })
@@ -46,11 +52,13 @@ describe('replica ui-state collection', () => {
       'podium:sidebar:width': '320',
       'unrelated.key': 'stays',
     })
-    const ui = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
 
     // Every known key (exact + prefix-matched) is readable from the collection…
     expect(ui.get('podium.view')).toBe('issues')
@@ -77,11 +85,13 @@ describe('replica ui-state collection', () => {
       'podium.htmlmode:file:b:/y.html': 'source',
       'podium.mdmode:file:a:/notes.md': 'source',
     })
-    const ui = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
 
     // Exact keys migrate under their own names…
     expect(ui.get('podium.panelModeDefault')).toBe('chat')
@@ -108,11 +118,13 @@ describe('replica ui-state collection', () => {
     const { storage, data } = makeStorage({
       'podium.theme.mode': 'light',
     })
-    const ui = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
     expect(ui.get('podium.theme.mode')).toBe('light')
     // index.html's anti-flash script and the pre-store ThemeProvider read these
     // raw — migration must NOT retire them.
@@ -121,17 +133,21 @@ describe('replica ui-state collection', () => {
 
   it('ignores resurrected per-file keys after the one-time side-cache migration', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = openLegacyDeviceKeys(
+      createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).deviceStorage(),
+    )
     a.set('podium.htmlmode', JSON.stringify({ 'file:a:/x.html': 'preview' }))
     await new Promise((r) => setTimeout(r, 0))
     // Stale legacy keys reappear: one colliding, one new.
     data.set('podium.htmlmode:file:a:/x.html', 'split')
     data.set('podium.htmlmode:file:c:/z.html', 'source')
-    const b = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const b = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
     expect(JSON.parse(b.get('podium.htmlmode') ?? '{}')).toEqual({
       'file:a:/x.html': 'preview',
     })
@@ -142,18 +158,22 @@ describe('replica ui-state collection', () => {
 
   it('kv semantics: set/get/delete round-trip and persist across instances', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = openLegacyDeviceKeys(
+      createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).deviceStorage(),
+    )
     expect(a.get('podium.view')).toBeNull()
     a.set('podium.view', 'workspace')
     a.set('podium.split', '1')
     expect(a.get('podium.view')).toBe('workspace')
     await new Promise((r) => setTimeout(r, 0))
 
-    const b = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const b = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
     expect(b.get('podium.view')).toBe('workspace')
     expect(b.get('podium.split')).toBe('1')
 
@@ -163,16 +183,20 @@ describe('replica ui-state collection', () => {
 
   it('does not reimport a stale key after the one-time side-cache migration', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = openLegacyDeviceKeys(
+      createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).deviceStorage(),
+    )
     a.set('podium.view', 'settings')
     await new Promise((r) => setTimeout(r, 0))
     // A stale ad-hoc key reappears (e.g. an old tab wrote it post-migration).
     data.set('podium.view', 'home')
-    const b = createReplicaFixture({
-      storage,
-      keyPrefix: prefix,
-      enumerateKeys: () => [...data.keys()],
-    }).uiState()
+    const b = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage,
+        keyPrefix: prefix,
+        enumerateKeys: () => [...data.keys()],
+      }).deviceStorage(),
+    )
     expect(b.get('podium.view')).toBe('settings')
     expect(data.get(`${prefix}.uistate.v1.migrated`)).toBe('1')
     expect(data.get('podium.view')).toBe('home') // one-time migration stays complete
@@ -180,7 +204,9 @@ describe('replica ui-state collection', () => {
 
   it('notifies subscribers on writes', () => {
     const { storage } = makeStorage()
-    const ui = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).deviceStorage(),
+    )
     const cb = vi.fn()
     const off = ui.subscribe(cb)
     ui.set('podium.dockTab', 'files')
@@ -192,16 +218,18 @@ describe('replica ui-state collection', () => {
   })
 
   it('works in private mode (in-memory) without throwing', () => {
-    const ui = createReplicaFixture({
-      storage: {
-        getItem: () => null,
-        setItem: () => {
-          throw new Error('quota')
+    const ui = openLegacyDeviceKeys(
+      createReplicaFixture({
+        storage: {
+          getItem: () => null,
+          setItem: () => {
+            throw new Error('quota')
+          },
+          removeItem: () => {},
         },
-        removeItem: () => {},
-      },
-      keyPrefix: prefix,
-    }).uiState()
+        keyPrefix: prefix,
+      }).deviceStorage(),
+    )
     ui.set('podium.view', 'usage')
     expect(ui.get('podium.view')).toBe('usage')
   })

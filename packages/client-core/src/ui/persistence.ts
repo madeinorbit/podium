@@ -10,9 +10,11 @@ import {
   readStoredRecentFiles,
   readStoredView,
   UI_STATE_KEYS,
+  uiStateRoute,
 } from '../ui-state'
 import { allTabIds, deserializeWorkspaces, emptyWorkspace, openTab, splitPane } from '../values'
 import type { DeviceStorage } from './device-storage'
+import { DEVICE_DRAFT_KEYS, type LegacyDeviceKeys } from './draft-storage'
 import type { UiStore } from './ui-store'
 
 /** Only these device-local screen keys are imported. Synced preferences never are. */
@@ -48,7 +50,7 @@ export class UiPersistence {
   constructor(
     private readonly ui: UiStore,
     private readonly device: DeviceStorage,
-    private readonly legacy: UiState,
+    private readonly legacy: LegacyDeviceKeys,
     private readonly visibility: VisibilitySource,
   ) {
     this.key = `${device.keyPrefix}.ui.v1`
@@ -70,6 +72,7 @@ export class UiPersistence {
       workspaces: ui.workspaces,
       dockShells: ui.dockShells,
       recentFiles: ui.recentFiles,
+      devicePrefs: Object.fromEntries(ui.devicePrefs),
       fileTabs: [...ui.fileTabs.values()],
       fileScroll: Object.fromEntries(ui.fileScroll),
     }
@@ -118,9 +121,26 @@ export class UiPersistence {
         this.ui.patch({ workspaces: { [key]: ws } })
       }
     }
+    const screenKeys = new Set(MIGRATED_SCREEN_KEYS.map((field) => UI_STATE_KEYS[field]))
+    const prefKeys: string[] = []
+    for (const key of old.keys()) {
+      if (screenKeys.has(key as never) || DEVICE_DRAFT_KEYS.has(key)) continue
+      try {
+        if (uiStateRoute(key).home === 'device-local') {
+          const value = old.get(key)
+          if (value !== null) {
+            this.ui.setDevicePref(key, value)
+            prefKeys.push(key)
+          }
+        }
+      } catch {
+        /* No unrelated or undeclared key is imported. */
+      }
+    }
     try {
       this.device.storage.setItem(this.key, JSON.stringify(this.snapshot))
       for (const field of MIGRATED_SCREEN_KEYS) old.set(UI_STATE_KEYS[field], null)
+      for (const key of prefKeys) old.set(key, null)
     } catch {
       /* Keep the old keys until the new document can be saved. */
     }
@@ -143,17 +163,26 @@ export class UiPersistence {
       openIssueId: nullableString(saved.openIssueId)
         ? asIssueId(saved.openIssueId as string)
         : null,
-      superThreadId: asThreadId(nullableString(saved.superThreadId) ?? 'global'),
+      superThreadId:
+        saved.superThreadId === null
+          ? null
+          : asThreadId(nullableString(saved.superThreadId) ?? 'global'),
       attachedSessionId: nullableString(saved.attachedSessionId)
         ? asSessionId(saved.attachedSessionId as string)
         : null,
       dockVisibleSession: nullableString(saved.dockVisibleSession),
-      focusedPane: saved.focusedPane === 'B' ? 'B' : 'A',
+      focusedPane: nullableString(saved.focusedPane) ?? 'p0',
       workspaces: deserializeWorkspaces(stringify(saved.workspaces)),
       dockShells: readStoredDockShells(get),
       fileTabs: readStoredFileTabs(get),
       recentFiles: readStoredRecentFiles(get),
     })
+    for (const [key, value] of Object.entries(record(saved.devicePrefs))) {
+      if (typeof value !== 'string' || DEVICE_DRAFT_KEYS.has(key)) continue
+      try {
+        if (uiStateRoute(key).home === 'device-local') ui.setDevicePref(key, value)
+      } catch {}
+    }
     for (const [id, value] of Object.entries(record(saved.fileScroll))) {
       const position = typeof value === 'number' ? { top: value, left: 0 } : record(value)
       if (
@@ -169,6 +198,7 @@ export class UiPersistence {
   }
   start(): void {
     if (this.stop || this.erased) return
+    this.dirty = true
     this.stop = reaction(
       () => this.snapshot,
       () => {
@@ -176,18 +206,18 @@ export class UiPersistence {
         if (this.timer) clearTimeout(this.timer)
         this.timer = setTimeout(() => {
           this.timer = undefined
-          void this.flush()
+          void this.flush().catch(() => {})
         }, 300)
       },
     )
     this.offVisibility = this.visibility.subscribe(() => {
-      if (!this.visibility.isVisible()) void this.flush()
+      if (!this.visibility.isVisible()) void this.flush().catch(() => {})
     })
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
       window.addEventListener('pagehide', this.onHide)
   }
   private readonly onHide = () => {
-    void this.flush()
+    void this.flush().catch(() => {})
   }
   async flush(): Promise<void> {
     if (this.timer) clearTimeout(this.timer)
@@ -206,7 +236,7 @@ export class UiPersistence {
     this.offVisibility = undefined
     if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function')
       window.removeEventListener('pagehide', this.onHide)
-    void this.flush()
+    void this.flush().catch(() => {})
   }
   erase(): void {
     this.stopSaving()

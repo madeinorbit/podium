@@ -181,8 +181,8 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     oldPool = pool!
   await act(async () => view.container.querySelector('button')!.click())
   expect(view.container.textContent).toBe('false')
-  expect(owner.ui.get(STICKY)).toBe('false')
-  expect(checkPreferences(pool!, owner.ui)).toMatchObject({ differences: 0, pending: 0 })
+  expect(owner.deviceState.get(STICKY)).toBe('false')
+  expect(checkPreferences(pool!, owner.deviceState)).toMatchObject({ differences: 0, pending: 0 })
   expect(
     storeStats
       .snapshot()

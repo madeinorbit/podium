@@ -1,3 +1,4 @@
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import type { Cursor, EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -67,13 +68,23 @@ it('counts keyed membership through eviction, readmission and replacement withou
   replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's1' })
   expect(replica.rowCount!('sessions')).toBe(0)
   cache.put('session', 's1', session('s1'))
-  replica.onKernelEvent({ type: 'upserted', record: cache.read('session', 's1')!, readmitted: true })
+  replica.onKernelEvent({
+    type: 'upserted',
+    record: cache.read('session', 's1')!,
+    readmitted: true,
+  })
   expect(replica.rowCount!('sessions')).toBe(1)
   expect(cache.readEntitiesCalls).toBe(1)
   expect(rows).not.toHaveBeenCalled()
-  expect(replica.rows('sessions').map(row => row.sessionId)).toEqual(['s1'])
+  expect(replica.rows('sessions').map((row) => row.sessionId)).toEqual(['s1'])
   cache.records = []
-  replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2, entityCount: 0, bufferedFramesApplied: 0 })
+  replica.onKernelEvent({
+    type: 'bootstrap-installed',
+    cause: 'rescope',
+    snapshotSeq: 2,
+    entityCount: 0,
+    bufferedFramesApplied: 0,
+  })
   expect(replica.rowCount!('sessions')).toBe(0)
 })
 
@@ -86,13 +97,23 @@ it('lists keyed membership through deltas and replacement without building the s
   cache.drop('session', 's2')
   replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's2' })
   cache.put('session', 's3', session('s3'))
-  replica.onKernelEvent({ type: 'upserted', record: cache.read('session', 's3')!, readmitted: false })
+  replica.onKernelEvent({
+    type: 'upserted',
+    record: cache.read('session', 's3')!,
+    readmitted: false,
+  })
   expect(new Set(replica.ids!('sessions'))).toEqual(new Set(['s1', 's3']))
   expect(cache.readEntitiesCalls).toBe(1)
   expect(rows).not.toHaveBeenCalled()
   expect(replica.rows('sessions').map((row) => row.sessionId)).toEqual(['s1', 's3'])
   cache.records = []
-  replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2, entityCount: 0, bufferedFramesApplied: 0 })
+  replica.onKernelEvent({
+    type: 'bootstrap-installed',
+    cause: 'rescope',
+    snapshotSeq: 2,
+    entityCount: 0,
+    bufferedFramesApplied: 0,
+  })
   expect([...replica.ids!('sessions')]).toEqual([])
 })
 
@@ -899,7 +920,7 @@ describe('the side cache', () => {
   it('persists ui-state, notifies subscribers, and deletes on null', () => {
     const storage = memoryStorage()
     const side = createSideCache({ storage, enumerateKeys: () => [] })
-    const ui = side.uiState()
+    const ui = openLegacyDeviceKeys(side.deviceStorage())
     const cb = vi.fn()
     ui.subscribe(cb)
 
@@ -917,15 +938,15 @@ describe('the side cache', () => {
 
     // Survives a reload of the same storage.
     expect(
-      createSideCache({ storage, enumerateKeys: () => [] })
-        .uiState()
-        .get('podium.view'),
+      openLegacyDeviceKeys(
+        createSideCache({ storage, enumerateKeys: () => [] }).deviceStorage(),
+      ).get('podium.view'),
     ).toBeNull()
     ui.set('podium.dockTab', 'files')
     expect(
-      createSideCache({ storage, enumerateKeys: () => [] })
-        .uiState()
-        .get('podium.dockTab'),
+      openLegacyDeviceKeys(
+        createSideCache({ storage, enumerateKeys: () => [] }).deviceStorage(),
+      ).get('podium.dockTab'),
     ).toBe('files')
   })
 
@@ -940,7 +961,7 @@ describe('the side cache', () => {
       storage,
       enumerateKeys: () => ['podium:sidebar:width', 'podium.htmlmode:tab-1'],
     })
-    const ui = side.uiState()
+    const ui = openLegacyDeviceKeys(side.deviceStorage())
     expect(ui.get('podium.view')).toBe('issueProjections')
     expect(ui.get('podium:sidebar:width')).toBe('320')
     expect(JSON.parse(ui.get('podium.htmlmode') ?? '{}')).toEqual({ 'tab-1': 'raw' })
@@ -1292,7 +1313,9 @@ describe('the side cache', () => {
         storage: denyingStorage(() => true),
         enumerateKeys: () => [],
       })
-      expect(() => side.uiState().set('podium.view', 'issueProjections')).not.toThrow()
+      expect(() =>
+        openLegacyDeviceKeys(side.deviceStorage()).set('podium.view', 'issueProjections'),
+      ).not.toThrow()
       expect(() => side.dispose()).not.toThrow()
     })
   })
@@ -1302,7 +1325,7 @@ describe('the side cache', () => {
     storage.setItem('podium.kernel-replica.uistate.v1', '{not json')
     storage.setItem('podium.kernel-replica.outbox.v1', 'null')
     const side = createSideCache({ storage, enumerateKeys: () => [] })
-    expect(side.uiState().get('podium.view')).toBeNull()
+    expect(openLegacyDeviceKeys(side.deviceStorage()).get('podium.view')).toBeNull()
     expect(side.outboxStorage().load()).toEqual([])
   })
 })

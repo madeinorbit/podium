@@ -45,6 +45,7 @@ import {
   emptyWorkspace,
   type FileTab,
   leafPaneIds,
+  type PaneId,
   type RecentFileEntry,
   type WorkspaceKey,
   type WorkspaceLayout,
@@ -65,7 +66,7 @@ export interface ScreenState {
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null
-  superThreadId: ThreadId
+  superThreadId: ThreadId | null
   superOpen: boolean
   /**
    * THE SESSION "ASK SUPERAGENT (BTW)" ATTACHED, awaiting the next turn
@@ -87,7 +88,6 @@ export interface ScreenState {
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
   issueVisitBaseline: IssueVisitBaseline | null
-  transcriptReveal: TranscriptRevealRequest | null
   /**
    * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
    * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
@@ -98,7 +98,7 @@ export interface ScreenState {
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
-  focusedPane: 'A' | 'B'
+  focusedPane: PaneId
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
@@ -181,7 +181,7 @@ export interface WorkspacePatch {
   paneA?: SessionId | null
   paneB?: SessionId | null
   split?: boolean
-  focusedPane?: 'A' | 'B'
+  focusedPane?: PaneId
 }
 
 /** The selection a workspace key is computed from. */
@@ -286,7 +286,7 @@ export function workspaceMirrorPatch(next: WorkspaceLayout): WorkspacePatch {
     paneA: activeOf(leaves[0]),
     paneB: activeOf(leaves[1]),
     split: leaves.length >= 2,
-    focusedPane: leaves[1] !== undefined && next.focusedPaneId === leaves[1] ? 'B' : 'A',
+    focusedPane: next.focusedPaneId,
   }
 }
 
@@ -538,7 +538,7 @@ export function workspaceUiSnapshot(st: ScreenState): WorkspaceUiSnapshot {
     selectedIssueId: st.selectedIssueId,
     dockTab: st.dockTab,
     workspaces: st.workspaces,
-    fileTabs: st.fileTabs,
+    fileTabs: [...st.fileTabs],
     paneA: st.paneA,
     paneB: st.paneB,
     split: st.split,

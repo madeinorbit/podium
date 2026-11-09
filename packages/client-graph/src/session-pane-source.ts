@@ -7,7 +7,7 @@ export class SessionPaneSource {
   @observable private accessor version = 0
   private readonly stop: () => void
   private readonly source = defineSource({
-    readById: () => this.window,
+    readById: (_entity: string, _id: string) => this.window,
     release: () => this.stop(),
   })
   private readonly window: SessionPaneRows['sessionPaneWindow']

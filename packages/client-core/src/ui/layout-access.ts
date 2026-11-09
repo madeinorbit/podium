@@ -1,5 +1,5 @@
 import { isLayoutKey, layoutKeyFromLegacy, layoutRowId, type UserId } from '@podium/model'
-import { action, observable, observableRef, reaction } from 'mobx'
+import { action, actionBound, observable, observableRef, reaction } from 'mobx'
 import type { RecordsApi } from '../records'
 
 /** A handle to the pool's userLayout records. It never retains row values. */
@@ -10,7 +10,7 @@ export class LayoutAccess {
     private readonly userId: UserId,
     private readonly records: RecordsApi,
   ) {}
-  @action.bound attach(read: (key: string) => unknown): () => void {
+  @actionBound attach(read: (key: string) => unknown): () => void {
     this.read = read
     return action(() => {
       if (this.read === read) this.read = undefined

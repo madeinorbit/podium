@@ -9,13 +9,13 @@ import {
   type ThreadId,
 } from '@podium/model'
 import { isSessionIdPrefix } from '@podium/protocol'
-import { action, observable, observableRef } from 'mobx'
+import { action, actionBound, observable, observableRef } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { loadingNavigationProvider, type NavigationProvider } from '../engine/navigation-provider'
 import type { Store, StoreNotices, UserFocus } from '../engine/types'
 import type { SocketHub } from '../socket-transport'
 import type { FileScrollPosition, MainView, RoutedUiState, Router } from '../ui-state'
-import { readStoredPanelModes, UI_STATE_KEYS } from '../ui-state'
+import { readStoredPanelModes, UI_STATE_KEYS, uiStateRoute } from '../ui-state'
 import type {
   DockTab,
   FileScope,
@@ -44,6 +44,7 @@ import { type NavigationIntent, planNavigation } from './navigation'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
+  focusedPaneSession,
   NAVIGATION_LOADING,
   overlayState,
   resolvedWorkspaceKey,
@@ -91,13 +92,23 @@ export class UiStore {
   @observable accessor selectedIssueId: IssueId | null = null
   @observable accessor settingsTab: string | null = null
   @observable accessor openIssueId: IssueId | null = null
-  @observable accessor superThreadId: ThreadId = asThreadId('global')
+  @observable accessor superThreadId: ThreadId | null = asThreadId('global')
   @observable accessor attachedSessionId: SessionId | null = null
   @observable accessor dockVisibleSession: SessionId | null = null
-  @observable accessor focusedPane: 'A' | 'B' = 'A'
+  @observable accessor focusedPane: PaneId = 'p0'
   @observableRef accessor workspaces: WorkspaceMap = {}
   @observableRef accessor dockShells: Record<string, SessionId> = {}
   @observableRef accessor recentFiles: RecentFileEntry[] = []
+  readonly devicePrefs = observable.map<string, string>()
+  getDevicePref(key: string): string | null {
+    return this.devicePrefs.get(key) ?? null
+  }
+  @actionBound setDevicePref(key: string, value: string | null): void {
+    if (uiStateRoute(key).home !== 'device-local')
+      throw new Error(`Not a device preference: ${key}`)
+    if (value === null) this.devicePrefs.delete(key)
+    else this.devicePrefs.set(key, value)
+  }
   readonly fileTabs = observable.map<string, FileTab>(undefined, { deep: false })
   readonly fileScroll = observable.map<string, FileScrollPosition>(undefined, { deep: false })
   readonly notices = observable.array<Notice>([], { deep: false })
@@ -152,8 +163,14 @@ export class UiStore {
   @lazy get fileTabList(): FileTab[] {
     return [...this.fileTabs.values()]
   }
+  @lazy get workspaceLoading(): boolean {
+    return resolvedWorkspaceKey(this.screen) === NAVIGATION_LOADING
+  }
   @lazy get workspace(): WorkspaceLayout {
     return currentWorkspace(this.screen)
+  }
+  @lazy get focusedSessionId(): SessionId | null {
+    return focusedPaneSession(this.screen)
   }
   @lazy get paneA(): SessionId | null {
     return workspaceMirrorPatch(this.workspace).paneA ?? null
@@ -170,15 +187,13 @@ export class UiStore {
   }
   @lazy get dockTab(): DockTab {
     const tab = this.ports.keys.get(UI_STATE_KEYS.dockTab)
-    return tab === 'files' || tab === 'git' || tab === 'shell' || tab === 'issue'
-      ? tab
-      : 'superagent'
+    return tab === 'files' || tab === 'git' || tab === 'issue' ? tab : 'superagent'
   }
   @lazy get superOpen(): boolean {
     return this.ports.keys.get(UI_STATE_KEYS.superOpen) !== '0'
   }
 
-  @action.bound
+  @actionBound
   patch(patch: Partial<ScreenState>): void {
     if (!this.alive) return
     const changed = new Set<keyof ScreenState>()
@@ -213,25 +228,25 @@ export class UiStore {
     this.ports.changed?.(changed)
   }
 
-  @action.bound setFileScroll(id: string, value: FileScrollPosition): void {
+  @actionBound setFileScroll(id: string, value: FileScrollPosition): void {
     this.fileScroll.set(id, Object.freeze({ ...value }))
   }
-  @action.bound addNotice(notice: Notice): void {
+  @actionBound addNotice(notice: Notice): void {
     this.notices.push(notice)
   }
-  @action.bound dismissNotice(id: string): void {
+  @actionBound dismissNotice(id: string): void {
     this.notices.replace(this.notices.filter((notice) => notice.id !== id))
   }
-  @action.bound setNavigation(navigation: NavigationProvider): void {
+  @actionBound setNavigation(navigation: NavigationProvider): void {
     this.patch({ navigation })
   }
-  @action.bound workspaceKey() {
+  @actionBound workspaceKey() {
     return workspaceKeyForState(this.screen)
   }
-  @action.bound getUserFocus(): UserFocus {
+  @actionBound getUserFocus(): UserFocus {
     return userFocus(this.screen)
   }
-  @action.bound dispose(): void {
+  @actionBound dispose(): void {
     this.alive = false
     this.notices.clear()
   }
@@ -257,7 +272,7 @@ export class UiStore {
         }),
       )
   }
-  @action.bound navigate(intent: NavigationIntent): boolean {
+  @actionBound navigate(intent: NavigationIntent): boolean {
     if (!this.alive) return false
     if (this.ports.navigate) return this.ports.navigate(intent)
     const plan = planNavigation(this.screen, this.router.current(), intent, {
@@ -270,7 +285,7 @@ export class UiStore {
     else this.router.navigate(plan.route)
     return true
   }
-  @action.bound navigateToSession(identifier: string): void {
+  @actionBound navigateToSession(identifier: string): void {
     if (!this.alive) return
     const meta = this.navigation.session(identifier)
     if (meta === NAVIGATION_LOADING) {
@@ -314,7 +329,7 @@ export class UiStore {
       history: 'push',
     })
   }
-  @action.bound
+  @actionBound
   navigateWorkspace(
     ...parameters: Parameters<Store['navigateWorkspace']>
   ): ReturnType<Store['navigateWorkspace']> {
@@ -322,22 +337,22 @@ export class UiStore {
     return this.navigate({ ...intent, view: 'workspace' })
   }
 
-  @action.bound
+  @actionBound
   setView(...parameters: Parameters<Store['setView']>): ReturnType<Store['setView']> {
     const [view] = parameters
 
     if (this.view !== view) this.navigate({ view })
   }
 
-  @action.bound setSettingsTab(tab: string | null): void {
+  @actionBound setSettingsTab(tab: string | null): void {
     if (this.view === 'settings' || tab !== null)
       this.patch({ view: 'settings', settingsTab: tab, openIssueId: null })
   }
-  @action.bound setOpenIssueId(id: IssueId | null): void {
+  @actionBound setOpenIssueId(id: IssueId | null): void {
     this.patch({ view: 'issues', openIssueId: id, settingsTab: null })
   }
 
-  @action.bound
+  @actionBound
   setSuperThreadId(
     ...parameters: Parameters<Store['setSuperThreadId']>
   ): ReturnType<Store['setSuperThreadId']> {
@@ -345,35 +360,35 @@ export class UiStore {
     return this.patch({ superThreadId: asThreadId(superThreadId) })
   }
 
-  @action.bound
+  @actionBound
   setSuperOpen(
     ...parameters: Parameters<Store['setSuperOpen']>
   ): ReturnType<Store['setSuperOpen']> {
     const [superOpen] = parameters
-    return this.patch({ superOpen })
+    this.ports.keys.set(UI_STATE_KEYS.superOpen, superOpen ? '1' : '0')
   }
 
-  @action.bound
+  @actionBound
   setDockTab(...parameters: Parameters<Store['setDockTab']>): ReturnType<Store['setDockTab']> {
     const [dockTab] = parameters
-    return this.patch({ dockTab })
+    this.ports.keys.set(UI_STATE_KEYS.dockTab, dockTab)
   }
 
-  @action.bound
+  @actionBound
   async startBtw(...parameters: Parameters<Store['startBtw']>): ReturnType<Store['startBtw']> {
     const [sessionId] = parameters
 
     this.patch({ attachedSessionId: sessionId, superOpen: true, dockTab: 'superagent' })
   }
 
-  @action.bound
+  @actionBound
   clearAttachedSession(
     ...parameters: Parameters<Store['clearAttachedSession']>
   ): ReturnType<Store['clearAttachedSession']> {
     return this.patch({ attachedSessionId: null })
   }
 
-  @action.bound
+  @actionBound
   setSelectedWorktree(
     ...parameters: Parameters<Store['setSelectedWorktree']>
   ): ReturnType<Store['setSelectedWorktree']> {
@@ -381,7 +396,7 @@ export class UiStore {
     return this.patch({ selectedWorktree })
   }
 
-  @action.bound
+  @actionBound
   setSelectedIssueId(
     ...parameters: Parameters<Store['setSelectedIssueId']>
   ): ReturnType<Store['setSelectedIssueId']> {
@@ -389,7 +404,7 @@ export class UiStore {
     return this.patch({ selectedIssueId })
   }
 
-  @action.bound
+  @actionBound
   setPane(...parameters: Parameters<Store['setPane']>): ReturnType<Store['setPane']> {
     const [pane, id] = parameters
 
@@ -401,7 +416,7 @@ export class UiStore {
     this.editWorkspace((ws) => openTab(ws, id, { permanent: true, paneId }))
   }
 
-  @action.bound
+  @actionBound
   openSessionTab(
     ...parameters: Parameters<Store['openSessionTab']>
   ): ReturnType<Store['openSessionTab']> {
@@ -409,7 +424,7 @@ export class UiStore {
     return this.openInWorkspace(sessionId, opts)
   }
 
-  @action.bound
+  @actionBound
   openSessionAtTranscript(...parameters: Parameters<Store['openSessionAtTranscript']>): void {
     const [sessionId, itemKey, opts] = parameters
     if (!sessionId || !itemKey) return
@@ -417,7 +432,7 @@ export class UiStore {
     this.ports.revealTranscript?.(sessionId, itemKey)
   }
 
-  @action.bound
+  @actionBound
   openTabInWorkspace(
     ...parameters: Parameters<Store['openTabInWorkspace']>
   ): ReturnType<Store['openTabInWorkspace']> {
@@ -425,7 +440,7 @@ export class UiStore {
     return this.openInWorkspace(tabId, opts)
   }
 
-  @action.bound
+  @actionBound
   promoteWorkspaceTab(
     ...parameters: Parameters<Store['promoteWorkspaceTab']>
   ): ReturnType<Store['promoteWorkspaceTab']> {
@@ -433,7 +448,7 @@ export class UiStore {
     return this.editWorkspace((ws) => promoteTab(ws, tabId))
   }
 
-  @action.bound
+  @actionBound
   activateWorkspaceTab(
     ...parameters: Parameters<Store['activateWorkspaceTab']>
   ): ReturnType<Store['activateWorkspaceTab']> {
@@ -441,7 +456,7 @@ export class UiStore {
     return this.editWorkspace((ws) => activateTab(ws, tabId))
   }
 
-  @action.bound
+  @actionBound
   closeWorkspaceTab(
     ...parameters: Parameters<Store['closeWorkspaceTab']>
   ): ReturnType<Store['closeWorkspaceTab']> {
@@ -464,7 +479,7 @@ export class UiStore {
     if (!isFile) this.ports.hub.reportTabRelease(tabId as SessionId)
   }
 
-  @action.bound
+  @actionBound
   moveWorkspaceTab(
     ...parameters: Parameters<Store['moveWorkspaceTab']>
   ): ReturnType<Store['moveWorkspaceTab']> {
@@ -472,7 +487,7 @@ export class UiStore {
     return this.editWorkspace((ws) => moveTab(ws, tabId, toPaneId, toIndex))
   }
 
-  @action.bound
+  @actionBound
   splitWorkspacePane(
     ...parameters: Parameters<Store['splitWorkspacePane']>
   ): ReturnType<Store['splitWorkspacePane']> {
@@ -480,7 +495,7 @@ export class UiStore {
     return this.editWorkspace((ws) => splitPane(ws, paneId, axis, opts))
   }
 
-  @action.bound
+  @actionBound
   closeWorkspacePane(
     ...parameters: Parameters<Store['closeWorkspacePane']>
   ): ReturnType<Store['closeWorkspacePane']> {
@@ -488,7 +503,7 @@ export class UiStore {
     return this.editWorkspace((ws) => closePane(ws, paneId))
   }
 
-  @action.bound
+  @actionBound
   focusWorkspacePane(
     ...parameters: Parameters<Store['focusWorkspacePane']>
   ): ReturnType<Store['focusWorkspacePane']> {
@@ -496,7 +511,7 @@ export class UiStore {
     return this.editWorkspace((ws) => focusPane(ws, paneId))
   }
 
-  @action.bound
+  @actionBound
   resizeWorkspaceSplit(
     ...parameters: Parameters<Store['resizeWorkspaceSplit']>
   ): ReturnType<Store['resizeWorkspaceSplit']> {
@@ -504,15 +519,17 @@ export class UiStore {
     return this.editWorkspace((ws) => resizeSplit(ws, path, sizes))
   }
 
-  @action.bound
+  @actionBound
   setFocusedPane(
     ...parameters: Parameters<Store['setFocusedPane']>
   ): ReturnType<Store['setFocusedPane']> {
     const [focusedPane] = parameters
-    return this.patch({ focusedPane })
+    const leaves = leafPaneIds(this.workspace.root)
+    const paneId = focusedPane === 'B' ? leaves[1] : leaves[0]
+    if (paneId) this.focusWorkspacePane(paneId)
   }
 
-  @action.bound
+  @actionBound
   async focusIssueSession(
     ...parameters: Parameters<Store['focusIssueSession']>
   ): ReturnType<Store['focusIssueSession']> {
@@ -561,7 +578,7 @@ export class UiStore {
     return session.sessionId
   }
 
-  @action.bound
+  @actionBound
   setPanelMode(
     ...parameters: Parameters<Store['setPanelMode']>
   ): ReturnType<Store['setPanelMode']> {
@@ -572,7 +589,7 @@ export class UiStore {
       this.patch({ panelMode: { ...panelMode, [sessionId]: mode } })
   }
 
-  @action.bound
+  @actionBound
   preferPanelMode(
     ...parameters: Parameters<Store['preferPanelMode']>
   ): ReturnType<Store['preferPanelMode']> {
@@ -583,7 +600,7 @@ export class UiStore {
     this.patch({ panelMode: { ...panelMode, [sessionId]: mode } })
   }
 
-  @action.bound
+  @actionBound
   setDockVisibleSession(
     ...parameters: Parameters<Store['setDockVisibleSession']>
   ): ReturnType<Store['setDockVisibleSession']> {
@@ -591,7 +608,7 @@ export class UiStore {
     return this.patch({ dockVisibleSession })
   }
 
-  @action.bound
+  @actionBound
   setDockShell(
     ...parameters: Parameters<Store['setDockShell']>
   ): ReturnType<Store['setDockShell']> {
@@ -605,7 +622,7 @@ export class UiStore {
     this.patch({ dockShells })
   }
 
-  @action.bound
+  @actionBound
   toggleSplit(...parameters: Parameters<Store['toggleSplit']>): ReturnType<Store['toggleSplit']> {
     const leaves = leafPaneIds(currentWorkspace(this.screen).root)
     if (leaves.length < 2) {
@@ -615,7 +632,7 @@ export class UiStore {
     this.editWorkspace((ws) => leaves.slice(1).reduce((acc, paneId) => closePane(acc, paneId), ws))
   }
 
-  @action.bound
+  @actionBound
   openFile(...parameters: Parameters<Store['openFile']>): ReturnType<Store['openFile']> {
     const [sessionId, path] = parameters
 
@@ -648,7 +665,7 @@ export class UiStore {
     })
   }
 
-  @action.bound
+  @actionBound
   openFileInWorktree(
     ...parameters: Parameters<Store['openFileInWorktree']>
   ): ReturnType<Store['openFileInWorktree']> {
@@ -681,7 +698,7 @@ export class UiStore {
     })
   }
 
-  @action.bound
+  @actionBound
   openArtifact(
     ...parameters: Parameters<Store['openArtifact']>
   ): ReturnType<Store['openArtifact']> {
@@ -712,7 +729,7 @@ export class UiStore {
     })
   }
 
-  @action.bound
+  @actionBound
   closeFileTab(
     ...parameters: Parameters<Store['closeFileTab']>
   ): ReturnType<Store['closeFileTab']> {

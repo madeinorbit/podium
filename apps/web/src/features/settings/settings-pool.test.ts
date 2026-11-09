@@ -1,17 +1,17 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachSettingsSource } from '@podium/client-graph/settings-source'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { settingsView } from '@podium/client-graph/settings-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { checkSettings } from '../../../../../tests/worklist/diagnostics/settings-check'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { attachSettingsSource } from '@podium/client-graph/settings-source'
+import { settingsView } from '@podium/client-graph/settings-views'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { dedupeSessionsByResume } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { checkSettings } from '../../../../../tests/worklist/diagnostics/settings-check'
 
 const disposals: (() => void)[] = []
 afterEach(() => {
@@ -167,7 +167,9 @@ describe('declared settings readers', () => {
     expect(read).toHaveBeenCalled()
     expect(omitGone(pool.row('settingsWindow', 'window'))).toEqual({ settingsTab: 'accounts' })
     expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
-    const view = createPoolProjection(pool, (current) => omitGone(current.row('settingsMachine', 'host')))
+    const view = createPoolProjection(pool, (current) =>
+      omitGone(current.row('settingsMachine', 'host')),
+    )
     const wake = vi.fn(),
       stop = view.subscribe(wake)
     disposals.push(stop)
@@ -213,7 +215,7 @@ describe('declared settings readers', () => {
       session('shell', 'shell'),
       { ...session('headless', 'codex'), headless: true },
     ])
-    f.owner.ui.set('podium.sounds.enabled', 'false')
+    f.owner.deviceState.set('podium.sounds.enabled', 'false')
     expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toBe(LOADING)
     expect(
       checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
@@ -226,7 +228,7 @@ describe('declared settings readers', () => {
     expect(settingsView(f.pool).sessionPresent('older')).toBe(false)
     expect(settingsView(f.pool).sessionPresent('newer')).toBe(true)
     f.publish({ settingsTab: 'updates', repos: [], machines: [] })
-    f.owner.ui.set('podium.sounds.enabled', 'true')
+    f.owner.deviceState.set('podium.sounds.enabled', 'true')
     await Promise.resolve()
     expect(
       checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]),
@@ -235,7 +237,9 @@ describe('declared settings readers', () => {
 
   it('detaches the existing owners and refuses stale reads and queued loads after disposal', async () => {
     const f = fixture()
-    const catalog = createPoolProjection(f.pool, (pool) => omitGone(pool.row('settingsCatalog', 'catalog')))
+    const catalog = createPoolProjection(f.pool, (pool) =>
+      omitGone(pool.row('settingsCatalog', 'catalog')),
+    )
     disposals.push(catalog.subscribe(() => {}))
     expect(catalog.getSnapshot()).toBe(LOADING)
     omitGone(f.pool.row('preference', 'podium.sounds.enabled'))

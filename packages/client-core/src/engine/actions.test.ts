@@ -19,7 +19,9 @@ import type { OutboxEntry } from '../outbox'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
+import { UiStore } from '../ui/ui-store'
 import type { Router } from '../ui-state'
+import { createRoutedUiState } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
 import {
   COMMAND_ACTIONS,
@@ -27,6 +29,7 @@ import {
   type EngineActionRuntime,
   UI_LOCAL_ACTIONS,
 } from './actions'
+import { createReplicatedLayoutController } from './replicated-layout'
 import type { RuntimeState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -200,7 +203,43 @@ function harness(
     },
   })
   Object.assign(state, { navigation })
-  const actions = createEngineActions(runtime)
+  const controller = createReplicatedLayoutController({
+    outbox: runtime.outbox,
+    notices: runtime.notices,
+    userId: ME,
+    seed: layout.seed,
+  })
+  const values = new Map<string, string>()
+  const keys = createRoutedUiState({
+    local: {
+      get: (key) => values.get(key) ?? null,
+      set: (key, value) => {
+        if (value === null) values.delete(key)
+        else values.set(key, value)
+      },
+      subscribe: () => () => {},
+    },
+    replicated: controller,
+  })
+  const ui = new UiStore({
+    api: runtime.api,
+    hub: runtime.hub,
+    notices: runtime.notices,
+    keys,
+    router,
+    repos: () => state.repos,
+    reposLoaded: () => true,
+    isVisible: () => true,
+    changed: () => {
+      state = { ...state, ...ui.screen } as typeof state
+      publish()
+    },
+    watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
+    navigate: runtime.navigate,
+  })
+  ui.patch({ ...state, navigation } as unknown as Partial<RuntimeState>)
+  Object.assign(runtime, { ui, layout: controller })
+  const actions = { ...createEngineActions(runtime), replicatedLayout: controller }
   const without = (list: OutboxEntry[], entry: OutboxEntry): void => {
     const at = list.indexOf(entry)
     if (at >= 0) list.splice(at, 1)

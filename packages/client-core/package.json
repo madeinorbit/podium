@@ -259,6 +259,11 @@
       "@podium/source": "./src/ui/index.ts",
       "types": "./src/ui/index.ts",
       "import": "./src/ui/index.ts"
+    },
+    "./test-support/ui": {
+      "@podium/source": "./test-support/ui.ts",
+      "types": "./test-support/ui.ts",
+      "import": "./test-support/ui.ts"
     }
   },
   "scripts": {

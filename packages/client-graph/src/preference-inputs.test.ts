@@ -1,11 +1,15 @@
-import { omitGone } from './lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { createRoutedUiState, FIRST_TASK_ACTIVATION_DRAFT_KEY, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
+import {
+  createRoutedUiState,
+  FIRST_TASK_ACTIVATION_DRAFT_KEY,
+  type ReplicatedUiStatePort,
+} from '@podium/client-core/ui-state'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -35,7 +39,7 @@ function fixture() {
       }
     },
   }
-  const ui = createRoutedUiState({ local: side.uiState(), replicated })
+  const ui = createRoutedUiState({ local: openLegacyDeviceKeys(side.deviceStorage()), replicated })
   const get = vi.spyOn(ui, 'get')
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   attachPreferenceSource(pool, ui)
@@ -86,7 +90,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     expect(seen[keys[0]!]).toBe('final')
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
-    expect((preferenceSource(f.pool)?.keys() ?? [])).not.toContain(keys[1])
+    expect(preferenceSource(f.pool)?.keys() ?? []).not.toContain(keys[1])
     f.get.mockClear()
     f.ui.set(keys[1]!, '2')
     await flush()

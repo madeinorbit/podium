@@ -1,4 +1,5 @@
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
@@ -36,7 +37,9 @@ function account() {
     },
   }
   const device = (hydrate = replicated.hydrate, now = () => AT) => {
-    const local = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }).uiState()
+    const local = openLegacyDeviceKeys(
+      createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }).deviceStorage(),
+    )
     const ui = createRoutedUiState({ local, replicated })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     attachPreferenceSource(pool, ui)
@@ -170,7 +173,7 @@ it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydr
   })
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   disposers.push(() => side.dispose())
-  const ui = createRoutedUiState({ local: side.uiState(), replicated })
+  const ui = createRoutedUiState({ local: openLegacyDeviceKeys(side.deviceStorage()), replicated })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   attachPreferenceSource(pool, ui)
   disposers.push(() => pool.dispose())

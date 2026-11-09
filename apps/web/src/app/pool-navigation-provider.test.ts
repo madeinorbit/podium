@@ -27,8 +27,8 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { IssueProjection } from '@podium/model'
 import { asIssueId } from '@podium/model/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
 import { Reactions } from '../../../../packages/client-core/src/engine/reactions'
+import { planNavigation } from '../../../../packages/client-core/src/ui/navigation'
 import {
   issueActivityAt,
   referenceState,

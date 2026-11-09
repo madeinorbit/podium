@@ -1,21 +1,21 @@
 import type { SessionId } from '@podium/model'
-import { action, observable, observableRef } from 'mobx'
+import { action, actionBound, observable, observableRef } from 'mobx'
 import type { TranscriptRevealRequest } from '../engine/types'
 
 /** Always-on palette view model; opening a palette is never saved navigation. */
 export class PaletteViewModel {
   @observable accessor open = false
-  @action.bound setOpen(open: boolean): void {
+  @actionBound setOpen(open: boolean): void {
     this.open = open
   }
 }
 /** The auto-continue dialog owns the session it is asking about. */
 export class AutoContinueDialogModel {
   @observable accessor sessionId: SessionId | null = null
-  @action.bound open(sessionId: SessionId): void {
+  @actionBound open(sessionId: SessionId): void {
     this.sessionId = sessionId
   }
-  @action.bound close(): void {
+  @actionBound close(): void {
     this.sessionId = null
   }
 }

@@ -1,65 +1,43 @@
 import { describe, expect, it, vi } from 'vitest'
 import { keyedInputsOverStore } from '../../test-support/keyed-inputs'
 import { createKeyedInputs, discoveryRepoId } from './keyed-inputs'
-import type { RuntimeState } from './state'
+import type { EngineState } from './state'
 
-function channel(initial: Partial<RuntimeState>) {
-  let state = { ...initial } as RuntimeState
+function channel(initial: Partial<EngineState>) {
+  let state = { ...initial } as EngineState
   const inputs = createKeyedInputs(() => state)
   return {
     inputs,
-    write(patch: Partial<RuntimeState>) {
+    write(patch: Partial<EngineState>) {
       state = { ...state, ...patch }
-      inputs.emit(new Set(Object.keys(patch) as (keyof RuntimeState)[]))
+      inputs.emit(new Set(Object.keys(patch) as (keyof EngineState)[]))
     },
   }
 }
 
 const repo = (path: string, branch = 'main') =>
-  ({ path, branch, machineId: 'm1', worktrees: [] }) as unknown as RuntimeState['repos'][number]
+  ({ path, branch, machineId: 'm1', worktrees: [] }) as unknown as EngineState['repos'][number]
 
 describe('keyed inputs (POD-5433)', () => {
   it('wakes a listener only for its own keys, with the changed subset', () => {
-    const c = channel({ paletteOpen: false, dockTab: 'files', paneA: null })
+    const c = channel({ reposLoading: false, reposLoaded: false, repos: [] })
     const listener = vi.fn()
-    c.inputs.onLocals(['paletteOpen', 'paneA'], listener)
-    c.write({ dockTab: 'git' })
+    c.inputs.onLocals(['reposLoading', 'repos'], listener)
+    c.write({ reposLoaded: true })
     expect(listener).not.toHaveBeenCalled()
-    c.write({ paletteOpen: true, dockTab: 'files' })
+    c.write({ reposLoading: true, reposLoaded: false })
     expect(listener).toHaveBeenCalledTimes(1)
-    expect(listener.mock.calls).toEqual([[new Set(['paletteOpen'])]])
-    expect(c.inputs.readLocal('paletteOpen')).toBe(true)
+    expect(listener.mock.calls).toEqual([[new Set(['reposLoading'])]])
+    expect(c.inputs.readLocal('reposLoading')).toBe(true)
   })
 
   it('publishes only at emit: a reader never sees an unannounced local', () => {
-    let state = { paletteOpen: false } as RuntimeState
+    let state = { reposLoading: false } as EngineState
     const inputs = createKeyedInputs(() => state)
-    state = { ...state, paletteOpen: true }
-    expect(inputs.readLocal('paletteOpen')).toBe(false)
-    inputs.emit(new Set(['paletteOpen']))
-    expect(inputs.readLocal('paletteOpen')).toBe(true)
-  })
-
-  it('reads delegated selection from its owner while notifying at batch publication', () => {
-    let selected = 'first' as RuntimeState['selectedIssueId']
-    const state = {
-      get selectedIssueId() {
-        return selected
-      },
-      paletteOpen: false,
-    } as RuntimeState
-    const inputs = createKeyedInputs(() => state, false, ['selectedIssueId'])
-    const listener = vi.fn()
-    inputs.onLocals(['selectedIssueId'], listener)
-    selected = 'next' as RuntimeState['selectedIssueId']
-    state.paletteOpen = true
-    expect(inputs.readLocal('selectedIssueId')).toBe('next')
-    expect(inputs.readLocal('paletteOpen')).toBe(false)
-    expect(listener).not.toHaveBeenCalled()
-    inputs.emit(new Set(['selectedIssueId']))
-    expect(listener).toHaveBeenCalledWith(new Set(['selectedIssueId']))
-    expect(inputs.readLocal('selectedIssueId')).toBe('next')
-    inputs.dispose()
+    state = { ...state, reposLoading: true }
+    expect(inputs.readLocal('reposLoading')).toBe(false)
+    inputs.emit(new Set(['reposLoading']))
+    expect(inputs.readLocal('reposLoading')).toBe(true)
   })
 
   it('diffs a list by id: unchanged rows keep identity, changed ids and order are named', () => {
@@ -85,31 +63,23 @@ describe('keyed inputs (POD-5433)', () => {
     expect(c.inputs.listRow('repos', discoveryRepoId(a))).toBeUndefined()
   })
 
-  it('reads a record list by key and catches up a list nobody follows', () => {
-    const c = channel({ workspaces: { w1: { panes: 1 } } as never })
-    expect(c.inputs.listIds('workspaces')).toEqual(['w1'])
-    c.write({ workspaces: { w1: { panes: 1 }, w2: { panes: 2 } } as never })
-    expect(c.inputs.listIds('workspaces')).toEqual(['w1', 'w2'])
-    expect(c.inputs.listRow('workspaces', 'w2')).toEqual({ panes: 2 })
-  })
-
   it('leaves composer documents to DraftStore', () => {
     expect(channel({}).inputs).not.toHaveProperty('onDraft')
   })
 
   it('a throwing listener does not stop the others', () => {
-    const c = channel({ paneA: null })
+    const c = channel({ reposLoaded: false })
     const after = vi.fn()
-    c.inputs.onLocals(['paneA'], () => {
+    c.inputs.onLocals(['reposLoaded'], () => {
       throw new Error('boom')
     })
-    c.inputs.onLocals(['paneA'], after)
-    c.write({ paneA: 'p' as never })
+    c.inputs.onLocals(['reposLoaded'], after)
+    c.write({ reposLoaded: true })
     expect(after).toHaveBeenCalledTimes(1)
   })
 
   it('over a hand-held store, diffs each publication key by key', () => {
-    let state: Record<string, unknown> = { paneA: null, paneB: null }
+    let state: Record<string, unknown> = { reposLoaded: false, reposLoading: null }
     const listeners = new Set<() => void>()
     const inputs = keyedInputsOverStore({
       getSnapshot: () => state,
@@ -119,12 +89,12 @@ describe('keyed inputs (POD-5433)', () => {
       },
     })
     const locals = vi.fn()
-    inputs.onLocals(['paneA'], locals)
+    inputs.onLocals(['reposLoaded'], locals)
     // Following reads nothing, so a key's first publication counts as moved.
     for (const listener of listeners) listener()
     expect(locals).toHaveBeenCalledTimes(1)
     locals.mockClear()
-    state = { ...state, paneB: 'other' }
+    state = { ...state, reposLoading: true }
     for (const listener of listeners) listener()
     expect(locals).not.toHaveBeenCalled()
     inputs.dispose()

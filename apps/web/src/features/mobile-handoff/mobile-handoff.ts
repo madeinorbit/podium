@@ -164,25 +164,7 @@ export function useMobileHandoffUrl(
 /** The session in the pane the operator is actively using. */
 const FOCUS_ACTIONS = ['workspaceKey'] as const
 export function useFocusedHandoffSessionId(): string | null {
-  const { workspaceKey } = useRuntimeActions(FOCUS_ACTIONS)
-  const workspaces = useUiValue('workspaces')
-  const paneA = useUiValue('paneA'),
-    paneB = useUiValue('paneB')
-  const split = useUiValue('split'),
-    focus = useUiValue('focusedPane')
-  // Selection changes can resolve to a different existing layout.
-  const selectedIssueId = useUiValue('selectedIssueId')
-  const selectedWorktree = useUiValue('selectedWorktree')
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
-  const read = useCallback(() => {
-    const layout = workspaces?.[workspaceKey()]
-    if (!layout || allTabIds(layout).length === 0)
-      return (split && focus === 'B' ? paneB : paneA) ?? null
-    const visible = leafPaneIds(layout.root)
-    const paneId = visible.includes(layout.focusedPaneId) ? layout.focusedPaneId : visible[0]
-    return paneId === undefined ? null : (layout.panes[paneId]?.activeTabId ?? null)
-  }, [workspaceKey, workspaces, paneA, paneB, split, focus, selectedIssueId, selectedWorktree])
-  return useWorklistPoolProjection(read, null)
+  return useUiValue('focusedSessionId')
 }
 
 const readHasFirstTask = (pool: MobxPool): boolean => settingsHasFirstTask(pool) === true

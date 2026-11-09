@@ -1,5 +1,6 @@
-import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import { createSideCache } from '../replica/kernel/side-cache'
 import type { StoredTranscriptMessage } from './backend'
@@ -164,8 +165,8 @@ describe('transcript clean-up stays inside the transcript database', () => {
       removeItem: (key: string) => void data.delete(key),
     }
     const side = createSideCache({ storage, enumerateKeys: () => [...data.keys()], keyPrefix: 'p' })
-    side.uiState().set('podium.sidebar.width', '320')
-    side.uiState().set('podium.drafts', '{"s1":"half a message"}')
+    openLegacyDeviceKeys(side.deviceStorage()).set('podium.sidebar.width', '320')
+    openLegacyDeviceKeys(side.deviceStorage()).set('podium.drafts', '{"s1":"half a message"}')
     side.outboxStorage().save([{ mutationId: 'm1', kind: 'rename', queuedAt: 1 } as never])
     const snapshotStorage = () => JSON.stringify([...data.entries()].sort())
     const dumpIdb = async (name: string) => {

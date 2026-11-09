@@ -1,16 +1,16 @@
-import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { AgentPanel } from '../features/terminal/AgentPanel'
 import { DockShellLifecycle } from '../features/terminal/dock-shell-lifecycle'
-import { usePendingSpawnPrompt, useDraftValue } from './keyed-runtime'
+import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { Workspace } from './Workspace'
 
@@ -148,18 +148,14 @@ it.each([
   await check('mapped dock change', () =>
     runtime!.access.setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
   )
-  await check('session switch', () =>
-    runtime!.access.navigateToSession('synthetic-session-2'),
-  )
+  await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
   await check('worktree selection', () => {
     runtime!.access.setSelectedIssueId(null)
     runtime!.access.setSelectedWorktree('/synthetic/project/guests')
   })
-  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () =>
-    runtime!.access.setSelectedWorktree('/synthetic/missing'),
-  )
-  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
+  expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project/guests')
+  await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
+  expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project')
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
   )

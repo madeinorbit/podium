@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useUi } from '@podium/client-core/react'
 import {
   type FileScrollPosition,
   readFileScrollPosition,
@@ -13,13 +13,13 @@ export function useFileScrollPosition(
   view: 'preview' | 'source',
   ready: boolean,
 ): (node: HTMLElement | null) => void {
-  const { uiState } = useStoreHandle().access
+  const ui = useUi()
   const visible = usePanelVisible()
   const [node, setNode] = useState<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
     if (!node || !ready || !visible) return
-    const saved = readFileScrollPosition(uiState, tabId, view)
+    const saved = ui.fileScroll.get(`${view}:${tabId}`)
     let pending: FileScrollPosition | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let restoring = saved !== undefined
@@ -36,7 +36,7 @@ export function useFileScrollPosition(
       restoring = false
     })
     const flush = () => {
-      if (pending) writeFileScrollPosition(uiState, tabId, view, pending)
+      if (pending) ui.setFileScroll(`${view}:${tabId}`, pending)
       pending = undefined
       timer = undefined
     }
@@ -53,7 +53,7 @@ export function useFileScrollPosition(
       // Use the last scroll event, since hiding/removing a panel can reset its DOM.
       flush()
     }
-  }, [node, ready, visible, uiState, tabId, view])
+  }, [node, ready, visible, ui, tabId, view])
 
   return setNode
 }

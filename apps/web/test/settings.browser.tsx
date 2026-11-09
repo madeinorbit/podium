@@ -148,7 +148,7 @@ const driver = {
   },
   async preferences() {
     for (let step = 0; step < 20; step++) {
-      owner.ui.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
+      owner.deviceState.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
       referenceState(owner).setSettingsTab(step % 2 ? 'accounts' : 'notifications')
       await nextFrame()
     }
@@ -174,7 +174,7 @@ const driver = {
     const { checkSettings } = await import('../../../tests/worklist/diagnostics/settings-check')
     return checkSettings(pool, owner)
   },
-  sound: () => owner.ui.get('podium.sounds.enabled'),
+  sound: () => owner.deviceState.get('podium.sounds.enabled'),
   switchPrincipal: () => changePrincipal(),
   close: () => root.unmount(),
 }

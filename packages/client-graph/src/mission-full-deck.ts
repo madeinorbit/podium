@@ -306,9 +306,34 @@ export class FullDeckTask {
  * and a seat compares itself with that one ID.
  */
 export class FullDeck {
-  @observable accessor filter: FullDeckFilter = 'all'
+  @observable private accessor fixtureOptions: { filter: FullDeckFilter; showDone: boolean } = {
+    filter: 'all',
+    showDone: true,
+  }
+  @lazy private get options(): { filter: FullDeckFilter; showDone: boolean } {
+    if (!this.screen.pool.hasLayout) return this.fixtureOptions
+    const value = this.screen.pool.layoutValue('mission.options') as
+      | { filter?: FullDeckFilter; showDone?: boolean }
+      | undefined
+    return {
+      filter:
+        value && ['all', 'active', 'needs-you', 'up-next'].includes(value.filter ?? '')
+          ? value.filter!
+          : 'all',
+      showDone: value?.showDone !== false,
+    }
+  }
+  @lazy get filter(): FullDeckFilter {
+    return this.options.filter
+  }
   /** Done work shows in place by default (POD-6245); the eye button hides it. */
-  @observable accessor showDone = true
+  @lazy get showDone(): boolean {
+    return this.options.showDone
+  }
+  private save(options: { filter: FullDeckFilter; showDone: boolean }): void {
+    if (this.screen.pool.hasLayout) this.screen.pool.setLayoutValue('mission.options', options)
+    else this.fixtureOptions = options
+  }
   private readonly card = companion((issue: IssueModel) => new FullDeckTask(issue, this))
 
   constructor(readonly screen: MissionScreen) {}
@@ -330,13 +355,11 @@ export class FullDeck {
   /** Choosing a filter turns Show done off (handoff note 5); coming back to
    * All returns to the default, done work shown (POD-6245). */
   @action setFilter(filter: FullDeckFilter): void {
-    this.filter = filter
-    this.showDone = filter === 'all'
+    this.save({ filter, showDone: filter === 'all' })
   }
   /** Show done returns to All: done work shows in its place in the tree. */
   @action setShowDone(show: boolean): void {
-    this.showDone = show
-    if (show) this.filter = 'all'
+    this.save({ showDone: show, filter: show ? 'all' : this.filter })
   }
   @action toggleShowDone(): void {
     this.setShowDone(!this.showDone)

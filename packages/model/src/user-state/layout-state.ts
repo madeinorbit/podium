@@ -86,6 +86,10 @@ export const LAYOUT_EXACT_KEYS = [
   'issues.display',
   /** Tasks filters that follow the member: Assigned to, Show agent tasks (POD-6294). */
   'issues.filters',
+  /** Deliberate view options follow the user; screen geometry does not. */
+  'mission.options',
+  'phone.tasks.options',
+  'phone.board.lanes',
   /** HTML file tab presentation modes, map of tabId → mode. */
   'htmlmode',
   /** Markdown file tab presentation modes, map of tabId → mode. */

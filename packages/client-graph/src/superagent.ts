@@ -442,7 +442,8 @@ export function superagentState(
   const rows = myRows(pool)
   const threads = rows.map(threadView)
   const loading = pending(local)
-  const active = local && typeof local !== 'symbol' ? named(rows, local.superThreadId) : undefined
+  const active =
+    local && typeof local !== 'symbol' ? named(rows, local.superThreadId ?? 'global') : undefined
   return {
     threads,
     active,

@@ -49,7 +49,6 @@ export function useChatMachines() {
 }
 const EMPTY_WINDOW: ChatContextRows['chatWindow'] = {
   attachedSessionId: null,
-  transcriptReveal: null,
 }
 const EMPTY_INTERACTIONS = { blocked: false, question: undefined, pending: 1 }
 export function useChatMentions(query: string | null) {

@@ -260,18 +260,46 @@ export class MobileTasksBoard {
   // --- Options (the view's own state)
 
   /** The Show-done toggle. */
-  @observable accessor showDone: boolean
+  @observableRef private accessor fixtureOptions: Pick<
+    MobileTasksOptions,
+    'filter' | 'showDone' | 'ordering'
+  > = { filter: {}, showDone: false, ordering: 'priority' }
+  @lazy private get options(): Pick<MobileTasksOptions, 'filter' | 'showDone' | 'ordering'> {
+    if (!this.pool.hasLayout) return this.fixtureOptions
+    const value = this.pool.layoutValue('phone.tasks.options') as
+      | Partial<MobileTasksOptions>
+      | undefined
+    return {
+      filter: value?.filter && typeof value.filter === 'object' ? value.filter : {},
+      showDone: value?.showDone === true,
+      ordering: value?.ordering ?? 'priority',
+    }
+  }
+  @lazy get showDone(): boolean {
+    return this.options.showDone
+  }
+  private saveOptions(
+    patch: Partial<Pick<MobileTasksOptions, 'filter' | 'showDone' | 'ordering'>>,
+  ): void {
+    const next = { ...this.options, ...patch }
+    if (this.pool.hasLayout) this.pool.setLayoutValue('phone.tasks.options', next)
+    else this.fixtureOptions = next
+  }
   /** Parents showing their children. Local to this view, as the desktop board
    * holds it, not replicated ui-state: expanding an epic is a look, not a
    * preference, and the desk and the phone look at different things. */
   @observableRef accessor expanded: readonly string[]
   /** The filter sheet's choices. */
-  @observableRef accessor filter: BoardFilter
+  @lazy get filter(): BoardFilter {
+    return this.options.filter
+  }
   /** The search field's text. */
   @observable accessor query = ''
   // The shared display preference. It stays saved where it is until the
   // UiStore (POD-5797) holds it; the screen passes it in with showDisplay().
-  @observable accessor ordering: IssuesOrdering
+  @lazy get ordering(): IssuesOrdering {
+    return this.options.ordering
+  }
   @observable accessor showAgentTasks: boolean
   /** The resolved Assigned to filter (POD-6297): a member id, or undefined
    * for every assignee's tasks. The member's saved choice is resolved by the
@@ -282,24 +310,30 @@ export class MobileTasksBoard {
     readonly pool: MobxPool,
     options: MobileTasksOptions,
   ) {
-    this.showDone = options.showDone
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = {
+        filter: options.filter,
+        showDone: options.showDone,
+        ordering: options.ordering,
+      }
     this.expanded = options.expanded
-    this.filter = options.filter
-    this.ordering = options.ordering
     this.showAgentTasks = options.showAgentTasks
   }
 
   @action configure(options: MobileTasksOptions) {
-    this.showDone = options.showDone
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = {
+        filter: options.filter,
+        showDone: options.showDone,
+        ordering: options.ordering,
+      }
     this.expanded = options.expanded
-    this.filter = options.filter
     this.query = ''
-    this.ordering = options.ordering
     this.showAgentTasks = options.showAgentTasks
   }
 
   @action toggleShowDone() {
-    this.showDone = !this.showDone
+    this.saveOptions({ showDone: !this.showDone })
   }
 
   @action toggleExpanded(id: string) {
@@ -313,11 +347,11 @@ export class MobileTasksBoard {
   }
 
   @action setFilter(filter: BoardFilter) {
-    this.filter = filter
+    this.saveOptions({ filter })
   }
 
   @action clearFilter(key: keyof BoardFilter) {
-    this.filter = clearChip(this.filter, key)
+    this.saveOptions({ filter: clearChip(this.filter, key) })
   }
 
   @action showDisplay(display: {
@@ -325,7 +359,7 @@ export class MobileTasksBoard {
     showAgentTasks: boolean
     assignee?: string | undefined
   }) {
-    this.ordering = display.ordering
+    if (!this.pool.hasLayout) this.saveOptions({ ordering: display.ordering })
     this.showAgentTasks = display.showAgentTasks
     this.assignee = display.assignee
   }

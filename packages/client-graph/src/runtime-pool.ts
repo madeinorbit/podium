@@ -230,13 +230,10 @@ export type WorklistRuntime = RowSourceRuntime &
     /** Historical corpus harness only; production supplies no manual clock. */
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
     readonly replica: RowSourceReplica
-    readonly ui?: RoutedUiState
+    readonly deviceState?: RoutedUiState
+    readonly replicatedLayout?: import('@podium/client-core/ui').LayoutAccess
     /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
     readonly live?: LiveStore
-    attachWorklistSelection?(selection: {
-      readonly selectedId: string | null
-      select(id: string | null): void
-    }): () => void
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
 
@@ -402,10 +399,18 @@ export function createRuntimeWorklistPool(
       'worklist',
     )
     if (runtime.live) handle.pool.bindLive(runtime.live)
-    const stopLayout = runtime.replicatedLayout.attach((key) => {
-      const model = handle.pool.model('userLayout', layoutRowId(runtime.principal.userId, key))
-      return model && typeof model !== 'symbol' && !('reason' in model) ? model.value : undefined
-    })
+    const pool = handle.pool
+    const principal = runtime.principal
+    let stopLayout: () => void = () => {}
+    if (runtime.replicatedLayout && principal) {
+      const layout = runtime.replicatedLayout
+      const readLayout = (key: string) => {
+        const model = pool.model('userLayout', layoutRowId(asUserId(principal.userId), key))
+        return model && typeof model !== 'symbol' && !('reason' in model) ? model.value : undefined
+      }
+      stopLayout = layout.attach(readLayout)
+      pool.bindLayout({ read: readLayout, write: (key, value) => layout.set(key, value) })
+    }
     const disposePool = handle.dispose.bind(handle)
     handle.dispose = () => {
       stopLayout()

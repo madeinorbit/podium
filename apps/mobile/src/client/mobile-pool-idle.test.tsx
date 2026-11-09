@@ -1,12 +1,12 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model'
-import { observer } from 'mobx-react-lite'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
@@ -56,9 +56,12 @@ it.each([
       <Surface />
     </StoreProvider>,
   )
-  await waitFor(() => expect(omitGone(pool?.row('mobileSessionReader', 'reader'))).toBeTypeOf('object'), {
-    timeout: 10000,
-  })
+  await waitFor(
+    () => expect(omitGone(pool?.row('mobileSessionReader', 'reader'))).toBeTypeOf('object'),
+    {
+      timeout: 10000,
+    },
+  )
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(`Synthetic agent 0||${12 * scale + 2}`),
   )
@@ -99,9 +102,9 @@ it.each([
   await check('worktree selection', () =>
     runtime!.access.setSelectedWorktree('/synthetic/project/guests'),
   )
-  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
+  expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project/guests')
   await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
-  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
+  expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project')
   await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),

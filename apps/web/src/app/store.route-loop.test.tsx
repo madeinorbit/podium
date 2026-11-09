@@ -1,9 +1,9 @@
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createSidebarFixture } from '../../test/sidebar-fixture'
+import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
@@ -65,7 +65,9 @@ const realRepo = {
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })) },
+    refreshRepos: {
+      mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })),
+    },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
@@ -84,7 +86,7 @@ vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m
 
 const { StoreProvider, useRuntimeSelector } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
-const { useRuntimeLocal } = await import('./keyed-runtime')
+const { useUiValue } = await import('@podium/client-core/react')
 const { loadingNavigationProvider } = await import('@podium/client-core/engine')
 
 let renderCount = 0
@@ -96,9 +98,14 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
-  const pool = useWorklistPool(), navigation = useRuntimeLocal('navigation')
+  const pool = useWorklistPool(),
+    navigation = useUiValue('navigation')
   poolReady = pool !== null && navigation !== loadingNavigationProvider
-  const s = useRuntimeSelector(s => ({ selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }))
+  const s = {
+    selectedWorktree: useUiValue('selectedWorktree'),
+    paneA: useUiValue('paneA'),
+    view: useUiValue('view'),
+  }
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
   // The bug manifested as an unbounded update loop (React #185). Fail fast and
@@ -159,7 +166,9 @@ async function mountAt(url: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 20))
   })
   await vi.waitFor(async () => {
-    await act(async () => { await Promise.resolve() })
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(poolReady).toBe(true)
   })
 }

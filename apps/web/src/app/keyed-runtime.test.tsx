@@ -1,3 +1,5 @@
+import { fixtureUi } from '@podium/client-core/test-support/ui'
+import { reaction } from 'mobx'
 // @vitest-environment happy-dom
 
 import { DraftStore } from '@podium/client-core/conversation'
@@ -19,7 +21,14 @@ import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/se
 import { useDraftValue, usePendingSpawnPrompt, useRuntimeList } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => f.owner }))
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => f.owner,
+  useUiValue: (key: string) => {
+    const ui = (f.owner as { ui: object }).ui
+    const read = () => Reflect.get(ui, key)
+    return useSyncExternalStore((notify) => reaction(read, notify), read)
+  },
+}))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {
     const view = createPoolProjection(f.pool as MobxPool, read)
@@ -69,6 +78,7 @@ beforeEach(() => {
   drafts.values.set(sid, 'Saved draft')
   f.owner = {
     drafts,
+    ui: fixtureUi(),
     ...inputs,
     getSnapshot: () => {
       throw new Error('Keyed reader used the old snapshot')
@@ -225,78 +235,42 @@ it('preserves harness availability and discovery changes without legacy list rea
   expect(screen.getByTestId('fleet').textContent).toBe('available|')
 })
 
-it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff', () => {
-  state.workspaces = {
-    none: {
-      key: 'none',
-      previewTabId: null,
-      focusedPaneId: 'C',
-      root: {
-        kind: 'split',
-        axis: 'row',
-        sizes: [1, 1, 1],
-        children: [
-          { kind: 'leaf', paneId: 'A' },
-          { kind: 'leaf', paneId: 'B' },
-          { kind: 'leaf', paneId: 'C' },
-        ],
-      },
-      panes: {
-        A: { id: 'A', tabs: [sid], activeTabId: sid },
-        B: { id: 'B', tabs: [other], activeTabId: other },
-        C: { id: 'C', tabs: ['third'], activeTabId: 'third' },
-      },
-    },
-  }
-  state.paneA = sid
-  state.paneB = other
-  state.split = true
-  state.focusedPane = 'A'
-  inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']))
-  drafts = new DraftStore({
-    storage: { get: () => null, set: () => {} },
-    hub: {
-      on: () => () => {},
-      sendDraftEdit: () => {},
-      connectionHealth: () => ({ status: 'ok' }),
-    } as never,
-  })
-  drafts.values.set(sid, 'Saved draft')
-  f.owner = {
-    drafts,
-    ...inputs,
-    access: new Proxy(
-      { workspaceKey: () => 'none' },
-      {
-        get: (target, key) => {
-          if (key !== 'workspaceKey') throw new Error(`Handoff read legacy ${String(key)}`)
-          return target.workspaceKey
+it('preserves third-pane focus and falls back only within the restored layout', () => {
+  const ui = (f.owner as { ui: ReturnType<typeof fixtureUi> }).ui
+  ui.patch({
+    workspaces: {
+      none: {
+        key: 'none',
+        focusedPaneId: 'C',
+        root: {
+          kind: 'split',
+          axis: 'row',
+          sizes: [1, 1, 1],
+          children: [
+            { kind: 'leaf', paneId: 'A' },
+            { kind: 'leaf', paneId: 'B' },
+            { kind: 'leaf', paneId: 'C' },
+          ],
         },
-      },
-    ),
-    subscribe: () => {
-      throw new Error('Handoff subscribed to the old store')
+        panes: {
+          A: { id: 'A', tabs: [sid], activeTabId: sid },
+          B: { id: 'B', tabs: [other], activeTabId: other },
+          C: { id: 'C', tabs: ['third'], activeTabId: 'third' },
+        },
+      } as never,
     },
-  }
+  })
   function Focus() {
     return <output data-testid="focus">{useFocusedHandoffSessionId()}</output>
   }
   render(<Focus />)
   expect(screen.getByTestId('focus').textContent).toBe('third')
-  act(() => {
-    state.workspaces = { none: { ...state.workspaces.none!, root: { kind: 'leaf', paneId: 'A' } } }
-    inputs.emit(new Set(['workspaces']))
-  })
+  act(() =>
+    ui.patch({
+      workspaces: { none: { ...ui.workspaces.none!, root: { kind: 'leaf', paneId: 'A' } } },
+    }),
+  )
   expect(screen.getByTestId('focus').textContent).toBe(sid)
-  act(() => {
-    state.workspaces = {}
-    state.focusedPane = 'B'
-    inputs.emit(new Set(['workspaces', 'focusedPane']))
-  })
-  expect(screen.getByTestId('focus').textContent).toBe(other)
-  act(() => {
-    state.split = false
-    inputs.emit(new Set(['split']))
-  })
-  expect(screen.getByTestId('focus').textContent).toBe(sid)
+  act(() => ui.patch({ workspaces: {} }))
+  expect(screen.getByTestId('focus').textContent).toBe('')
 })

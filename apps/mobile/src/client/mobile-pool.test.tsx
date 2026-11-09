@@ -299,9 +299,9 @@ describe('mobile pool ownership', () => {
     const firstRuntime = currentRuntime(first.seen.runtime)
     await waitFor(() => expect(first.seen.pool).toBeTruthy())
     act(() => {
-      firstRuntime.ui.set('podium.chat.stickyPrompts', 'saved')
-      firstRuntime.ui.set('podium:sidebar:task-details-fold', 'false')
-      firstRuntime.ui.set('podium:sidebar:repo', 'true')
+      firstRuntime.deviceState.set('podium.chat.stickyPrompts', 'saved')
+      firstRuntime.deviceState.set('podium:sidebar:task-details-fold', 'false')
+      firstRuntime.deviceState.set('podium:sidebar:repo', 'true')
     })
     await waitFor(() =>
       expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
@@ -338,7 +338,7 @@ describe('mobile pool ownership', () => {
       expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
     )
     expect(preferenceSource(alice.pool)?.keys() ?? []).toEqual([])
-    act(() => alice.runtime.ui.set('podium.chat.stickyPrompts', 'old-person'))
+    act(() => alice.runtime.deviceState.set('podium.chat.stickyPrompts', 'old-person'))
     await settle()
     expect(screen.getByTestId('preferences').textContent).toBe('default:true:false')
     const bobPool = app.seen.pool
