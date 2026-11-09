@@ -11,6 +11,7 @@ export class UrlMirror {
     private readonly ui: UiStore,
     private readonly router: Router,
     private readonly adopt: (route: RouteState) => void,
+    private readonly pendingPane: () => string | null = () => null,
   ) {}
   start(): void {
     if (this.stop) return
@@ -44,7 +45,7 @@ export class UrlMirror {
     }
   }
   @actionBound mirror(): void {
-    if (this.applying || this.ui.workspaceLoading) return
+    if (this.applying) return
     const ui = this.ui,
       current = this.router.current()
     this.applying = true
@@ -55,7 +56,7 @@ export class UrlMirror {
         settingsTab: ui.settingsTab,
         issueId: ui.openIssueId,
         worktree: ui.selectedWorktree,
-        pane: ui.paneA,
+        pane: this.pendingPane() ?? (ui.workspaceLoading ? current.pane : ui.paneA),
       })
     } finally {
       this.applying = false

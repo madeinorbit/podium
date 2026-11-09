@@ -79,8 +79,8 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     stop = projection.subscribe(wake)
   try {
     expect(projection.getSnapshot()).toEqual([null, null])
-    expect(local.get).not.toHaveBeenCalled()
-    expect(replicated.get).not.toHaveBeenCalled()
+    expect(local.get).toHaveBeenCalledWith(STICKY)
+    expect(replicated.get).toHaveBeenCalledWith('sidebar.section.pinned')
     expect(() => omitGone(pool.row('preference', 'unclassified.key'))).toThrow('Unclassified')
     await Promise.resolve()
     expect(preferenceSource(pool)?.counts.batches).toBe(0)

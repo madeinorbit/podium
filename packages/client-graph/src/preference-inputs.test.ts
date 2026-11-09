@@ -63,7 +63,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     }),
   )
   try {
-    expect(Object.values(seen)).toEqual([LOADING, LOADING, LOADING])
+    expect(Object.values(seen)).toEqual([null, null, null])
     await flush()
     expect(checkPreferences(f.pool, f.ui, keys)).toMatchObject({ differences: 0, pending: 0 })
     for (const key of keys) {

@@ -1,5 +1,6 @@
 import { DraftStore } from '@podium/client-core/conversation'
-import { MobxPool } from '@podium/client-graph'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
+import { TranscriptRevealActions } from '@podium/client-core/ui'
 import {
   chatActivityState,
   chatSessionReference,
@@ -8,6 +9,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/values'
+import { MobxPool } from '@podium/client-graph'
 import { asSessionId, isAgentComputing } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -77,6 +79,8 @@ function fixture() {
     } as never,
   })
   const runtime = {
+    ui: fixtureUi(),
+    transcriptReveals: new TranscriptRevealActions(),
     drafts,
     access: {
       hub: { subscribeTranscript: () => () => {} },
@@ -217,6 +221,22 @@ it('keeps backend choices and captured context on each view', () => {
     expect(two.backend).toMatchObject({ model: 'auto', effort: 'auto' })
     expect('backendPick' in f.conversation).toBe(false)
     expect('ctxSeq' in f.conversation).toBe(false)
+  } finally {
+    f.dispose()
+  }
+})
+
+it('reads sticky prompt preference from UiStore across view reopenings without a copied option', () => {
+  const f = fixture()
+  try {
+    expect(f.view.stickyPrompts).toBe(true)
+    f.conversation.runtime.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
+    expect(f.view.stickyPrompts).toBe(false)
+    const reopened = new ChatViewModel(f.conversation, false, undefined, () => {})
+    expect(reopened.stickyPrompts).toBe(false)
+    f.conversation.runtime.ui.setDevicePref('podium.chat.stickyPrompts', null)
+    expect(reopened.stickyPrompts).toBe(true)
+    reopened.close()
   } finally {
     f.dispose()
   }

@@ -78,6 +78,7 @@ function harness(
     for (const listener of [...listeners]) listener()
   }
   let state = {
+    view: 'tasks' as const,
     pins: { panels: [], worktrees: [], repos: [] },
     tabOrders: {},
     sessions: [],
@@ -253,6 +254,7 @@ function harness(
   }
   return {
     actions,
+    ui,
     revealTranscript,
     dismissOffer,
     submit,
@@ -312,7 +314,7 @@ describe('engine action ownership boundary', () => {
     // reopened on the terminal too. A suggestion now yields to a pick and still
     // decides for a session nobody has decided about.
     const h = harness()
-    const mode = (): unknown => (h.state().panelMode as Record<string, unknown>)[sessionId]
+    const mode = (): unknown => h.ui.panelMode[sessionId]
 
     h.actions.preferPanelMode(sessionId, 'native')
     expect(mode()).toBe('native')
@@ -906,7 +908,7 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
     expect(h.state().dockTab).toBe('superagent')
   })
 
-  it('mints no thread: the attachment is local until the turn that carries it', async () => {
+  it('keeps the attachment local while opening the synced dock', async () => {
     // The session rides the next `sendTurn` as `attachSessionId` and the server
     // digests it into that turn's preamble, so an offline client can still line
     // one up.
@@ -914,7 +916,20 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
 
     await h.actions.startBtw(asSessionId('sess-btw'))
 
-    expect(h.queued).toEqual([])
+    expect(h.queued).toEqual([
+      {
+        kind: 'recordEdit',
+        input: { kind: 'userLayout', id: layoutRowId(ME, 'superOpen'), patch: { value: '1' } },
+      },
+      {
+        kind: 'recordEdit',
+        input: {
+          kind: 'userLayout',
+          id: layoutRowId(ME, 'dockTab'),
+          patch: { value: 'superagent' },
+        },
+      },
+    ])
   })
 
   it("drops the attachment on clear, so the chip's × is not a lie", async () => {

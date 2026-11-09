@@ -231,8 +231,7 @@ export class UiPersistence {
   async flush(): Promise<void> {
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
-    if (this.erased) return
-    if (this.dirty) {
+    if (!this.erased && this.dirty) {
       this.device.storage.setItem(this.key, JSON.stringify(this.snapshot))
       this.dirty = false
     }
@@ -251,6 +250,7 @@ export class UiPersistence {
     this.stopSaving()
     this.erased = true
     this.device.storage.removeItem(this.key)
+    void this.flush().catch(() => {})
   }
 }
 function parse(value: string | null): unknown {

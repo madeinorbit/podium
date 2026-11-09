@@ -1,61 +1,69 @@
-import { observer } from 'mobx-react-lite'
-import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
-import { omitGone } from '@podium/client-graph/lookup'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { preferenceSource } from '@podium/client-graph/preference-source'
-import { relativeTime } from '@podium/client-core/focus'
-import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
-import {
-  NEW_WORK_EFFORT_KEY,
-  NEW_WORK_MACHINE_KEY,
-  NEW_WORK_MODEL_KEY,
-  NEW_WORK_REPO_KEY,
-  LAST_LAUNCH_PICK_KEY,
-} from '@podium/client-core/ui-state'
-import {
-  AGENT_NOT_READY_COPY,
-  agentCanLaunch,
-  signInInTerminalCopy,
-  agentReadinessOnMachines,
-  launchAgentKind,
-  machineViewsFromWire,
-  type RepoNavView,
-  resolveSpawnTargetMachine,
-  spawnTargetForRepo,
-  usableMachines,
-} from '@podium/client-core/values'
-import type { AgentKind, MachineId, MachineWire } from '@podium/model'
-import { machinePathsEqual } from '@podium/model/browser'
-import { usePathname, useRouter } from 'expo-router'
-import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect, useRef } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useStoreActions, useUiState } from '../client/hooks'
-import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
-import { useLaunchWorkPicker } from '../client/use-launch-inputs'
-import type { MobileTrpc } from '../client/trpc'
-import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
   type CatalogOption,
   decodeModelPick,
-  encodeModelPick,
+  draftForLaunchContext,
+  draftForReportedModels,
+  effortLabel,
   effortOptionsForModel,
+  encodeModelPick,
   filterCatalogOptions,
   groupedCatalogOptions,
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
-  draftForReportedModels,
-  draftForLaunchContext,
-  readLastLaunchPicks,
-  rememberLaunchPick,
-  type LaunchPickContext,
-  effortLabel,
   issueAgentLabel,
   issueDefaultAgentKind,
+  type LaunchPickContext,
+  readLastLaunchPicks,
+  rememberLaunchPick,
   spawnSelection,
 } from '@podium/client-core/agent-models'
+import { relativeTime } from '@podium/client-core/focus'
+import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
+import {
+  LAST_LAUNCH_PICK_KEY,
+  NEW_WORK_EFFORT_KEY,
+  NEW_WORK_MACHINE_KEY,
+  NEW_WORK_MODEL_KEY,
+  NEW_WORK_REPO_KEY,
+} from '@podium/client-core/ui-state'
+import {
+  AGENT_NOT_READY_COPY,
+  agentCanLaunch,
+  agentReadinessOnMachines,
+  launchAgentKind,
+  machineViewsFromWire,
+  type RepoNavView,
+  resolveSpawnTargetMachine,
+  signInInTerminalCopy,
+  spawnTargetForRepo,
+  usableMachines,
+} from '@podium/client-core/values'
+import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { AgentKind, MachineId, MachineWire } from '@podium/model'
+import { machinePathsEqual } from '@podium/model/browser'
+import { usePathname, useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { useStoreActions, useUiState } from '../client/hooks'
+import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
+import { useLaunchWorkPicker } from '../client/use-launch-inputs'
+import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
@@ -75,16 +83,23 @@ const EMPTY_INPUTS = {
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
 function usePoolLaunchInputs(picker: LaunchWorkPicker | undefined) {
-  const readLaunchInputs = useCallback(() => picker?.opened ? picker.newWork() : EMPTY_INPUTS, [picker])
+  const readLaunchInputs = useCallback(
+    () => (picker?.opened ? picker.newWork() : EMPTY_INPUTS),
+    [picker],
+  )
   return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
 }
 /** Usage labels share the opening's recency snapshot with its ordering. */
 function ProjectUsage({ path, picker }: { path: string; picker: LaunchWorkPicker | undefined }) {
   const read = useCallback(() => picker?.repositoryActivity(path) ?? 0, [path, picker])
   const used = useMobilePoolProjection(read, 0)
-  return <Text style={styles.rowSub} numberOfLines={1}>
-    {used ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}` : 'not used yet'}
-  </Text>
+  return (
+    <Text style={styles.rowSub} numberOfLines={1}>
+      {used
+        ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}`
+        : 'not used yet'}
+    </Text>
+  )
 }
 
 /** The model pick that means "no agent at all" — a plain shell in the worktree.
@@ -99,17 +114,38 @@ const SEARCH_THRESHOLD = 8
 
 const readString = (raw: string | null): string | null => (raw && raw.length > 0 ? raw : null)
 
-const EMPTY_DRAFT_PICKS = { modelPick: null, effortPick: null, machinePick: null, repoPick: null, loading: true }
+const EMPTY_DRAFT_PICKS = {
+  modelPick: null,
+  effortPick: null,
+  machinePick: null,
+  repoPick: null,
+  loading: true,
+}
 /** One draft read: a loading flag must describe the SAME values restoration sees. */
 function readNewWorkDraft(pool: MobxPool): {
-  modelPick: string | null; effortPick: string | null; machinePick: string | null; repoPick: string | null; loading: boolean
+  modelPick: string | null
+  effortPick: string | null
+  machinePick: string | null
+  repoPick: string | null
+  loading: boolean
 } {
-  const rows = [NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_MACHINE_KEY, NEW_WORK_REPO_KEY]
-    .map((key) => omitGone(pool.row('preference', key)))
+  const rows = [
+    NEW_WORK_MODEL_KEY,
+    NEW_WORK_EFFORT_KEY,
+    NEW_WORK_MACHINE_KEY,
+    NEW_WORK_REPO_KEY,
+  ].map((key) => omitGone(pool.row('preference', key)))
   if (rows.some((row) => typeof row !== 'object' || row === null)) return EMPTY_DRAFT_PICKS
-  const values = rows.map((row) => typeof row === 'object' && row !== null ? readString(row.value) : null)
-  return { modelPick: values[0] ?? null, effortPick: values[1] ?? null,
-    machinePick: values[2] ?? null, repoPick: values[3] ?? null, loading: false }
+  const values = rows.map((row) =>
+    typeof row === 'object' && row !== null ? readString(row.value) : null,
+  )
+  return {
+    modelPick: values[0] ?? null,
+    effortPick: values[1] ?? null,
+    machinePick: values[2] ?? null,
+    repoPick: values[3] ?? null,
+    loading: false,
+  }
 }
 
 /**
@@ -132,16 +168,26 @@ function readNewWorkDraft(pool: MobxPool): {
  * {@link useModelCatalog}; until reported, the menu offers Auto. Tracked tasks are still created from the Tasks tab — this sheet only
  * starts an agent.
  */
-export function NewWorkButton({ size = 28, renderTrigger }: { size?: 28 | 32 | 34; renderTrigger?: (open: () => void) => ReactNode }) {
+export function NewWorkButton({
+  size = 28,
+  renderTrigger,
+}: {
+  size?: 28 | 32 | 34
+  renderTrigger?: (open: () => void) => ReactNode
+}) {
   const [step, setStep] = useState<PickerStep>(null)
   // The prompt survives dismissal and an optimistic launch settling while the
   // launcher is unmounted. Persisted choices live in the existing UI state.
   const [prompt, setPrompt] = useState('')
   return (
     <>
-      {renderTrigger ? renderTrigger(() => setStep('launch')) : <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
-        <Icon as={Plus} size={19} color={color.text} />
-      </HeaderButton>}
+      {renderTrigger ? (
+        renderTrigger(() => setStep('launch'))
+      ) : (
+        <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
+          <Icon as={Plus} size={19} color={color.text} />
+        </HeaderButton>
+      )}
       {step !== null ? (
         <NewWorkLauncher step={step} setStep={setStep} prompt={prompt} setPrompt={setPrompt} />
       ) : null}
@@ -169,18 +215,42 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
-  const { modelPick, effortPick, machinePick, repoPick, loading: draftLoading } = useMobilePoolProjection(readNewWorkDraft, EMPTY_DRAFT_PICKS)
+  const {
+    modelPick,
+    effortPick,
+    machinePick,
+    repoPick,
+    loading: draftLoading,
+  } = useMobilePoolProjection(readNewWorkDraft, EMPTY_DRAFT_PICKS)
   // As on desktop, publish the accepted local edit before React restores the
   // controlled field. A menu closes in the same event as the write.
-  const setDraftPick = useCallback((key: string, value: string) => {
-    uiState.set(key, value)
-    if (pool) preferenceSource(pool)?.refreshKey(key)
-  }, [uiState, pool])
-  const setModelPick = useCallback((value: string) => setDraftPick(NEW_WORK_MODEL_KEY, value), [setDraftPick])
-  const setEffortPick = useCallback((value: string) => setDraftPick(NEW_WORK_EFFORT_KEY, value), [setDraftPick])
-  const setMachinePick = useCallback((value: string) => setDraftPick(NEW_WORK_MACHINE_KEY, value), [setDraftPick])
-  const setRepoPick = useCallback((value: string) => setDraftPick(NEW_WORK_REPO_KEY, value), [setDraftPick])
-  const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
+  const setDraftPick = useCallback(
+    (key: string, value: string) => {
+      uiState.set(key, value)
+    },
+    [uiState, pool],
+  )
+  const setModelPick = useCallback(
+    (value: string) => setDraftPick(NEW_WORK_MODEL_KEY, value),
+    [setDraftPick],
+  )
+  const setEffortPick = useCallback(
+    (value: string) => setDraftPick(NEW_WORK_EFFORT_KEY, value),
+    [setDraftPick],
+  )
+  const setMachinePick = useCallback(
+    (value: string) => setDraftPick(NEW_WORK_MACHINE_KEY, value),
+    [setDraftPick],
+  )
+  const setRepoPick = useCallback(
+    (value: string) => setDraftPick(NEW_WORK_REPO_KEY, value),
+    [setDraftPick],
+  )
+  const [lastLaunchPicks] = usePersistedUiState(
+    LAST_LAUNCH_PICK_KEY,
+    readLastLaunchPicks,
+    JSON.stringify,
+  )
   const draftReady = !draftLoading
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   const model = modelPick ?? AUTO
@@ -210,8 +280,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   // models and effort support render from the report, bundled copy offline.
   const { served } = useHarnessDescriptors<MobileTrpc>(machineId ?? undefined)
 
-  const visibleRepos = (
-    () => reposOnMachine(repos, machineId, machineViews.length))()
+  const visibleRepos = (() => reposOnMachine(repos, machineId, machineViews.length))()
 
   /**
    * The project this sheet will start in, decided BEFORE it is shown.
@@ -222,7 +291,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
    * top of the list is what the operator would have done by hand.
    */
   const selectedRepo =
-    visibleRepos.find((repo) => repoPick !== null && machinePathsEqual(repo.path, repoPick)) ?? visibleRepos[0] ?? null
+    visibleRepos.find((repo) => repoPick !== null && machinePathsEqual(repo.path, repoPick)) ??
+    visibleRepos[0] ??
+    null
   const onlyOneRepo = visibleRepos.length === 1
 
   /**
@@ -300,25 +371,52 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const pickHarness = harness === 'shell' ? defaultHarness : harness
   const launchContext = selectedTarget?.machineId ?? machineId
   const context = launchContext ? { machineId: launchContext, harness } : undefined
-  const storedDraft = { model: picked.model, effort, launchPickTouched: modelPick !== null || effortPick !== null }
-  const restoredDraft = draftReady && !isShell && context
-    ? draftForLaunchContext(storedDraft, previousLaunchContext.current, context, lastLaunchPicks)
-    : storedDraft
+  const storedDraft = {
+    model: picked.model,
+    effort,
+    launchPickTouched: modelPick !== null || effortPick !== null,
+  }
+  const restoredDraft =
+    draftReady && !isShell && context
+      ? draftForLaunchContext(storedDraft, previousLaunchContext.current, context, lastLaunchPicks)
+      : storedDraft
   // Remembered choices are restored BEFORE the machine's catalog validation.
-  const effectiveDraft = isShell ? restoredDraft : draftForReportedModels(restoredDraft, catalog[pickHarness]) ?? restoredDraft
-  const effectiveModel = isShell ? SHELL_PICK : effectiveDraft.model === AUTO ? AUTO : encodeModelPick(harness, effectiveDraft.model)
+  const effectiveDraft = isShell
+    ? restoredDraft
+    : (draftForReportedModels(restoredDraft, catalog[pickHarness]) ?? restoredDraft)
+  const effectiveModel = isShell
+    ? SHELL_PICK
+    : effectiveDraft.model === AUTO
+      ? AUTO
+      : encodeModelPick(harness, effectiveDraft.model)
   const effectiveEffort = effectiveDraft.effort
   useLayoutEffect(() => {
     if (!draftReady || !context) return
     // Auto returns to the sheet's default harness. That normalization is part
     // of this restoration, not another user harness change to restore again.
-    const nextHarness = effectiveModel === AUTO ? launchAgentKind({
-      picked: undefined, preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
-    }) : harness
+    const nextHarness =
+      effectiveModel === AUTO
+        ? launchAgentKind({
+            picked: undefined,
+            preferred: defaultHarness,
+            candidates: ISSUE_AGENT_KINDS,
+            readiness: readinessOf,
+          })
+        : harness
     previousLaunchContext.current = { ...context, harness: nextHarness }
     if (effectiveModel !== model) setModelPick(effectiveModel)
     if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
-  }, [draftReady, context?.machineId, harness, effectiveModel, effectiveEffort, model, effort, setModelPick, setEffortPick])
+  }, [
+    draftReady,
+    context?.machineId,
+    harness,
+    effectiveModel,
+    effectiveEffort,
+    model,
+    effort,
+    setModelPick,
+    setEffortPick,
+  ])
   const decoded = decodeModelPick(effectiveModel)
   const readiness = harness === 'shell' ? undefined : readinessOf(harness as IssueAgentKind)
   // spawnDraftAgent sends sessions.create without requestedDriverId: the
@@ -339,8 +437,12 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
     })
-    if (worktree.machineId) rememberLaunchPick(uiState, { machineId: worktree.machineId, harness },
-      isShell ? { model: AUTO, effort: AUTO } : effectiveDraft)
+    if (worktree.machineId)
+      rememberLaunchPick(
+        uiState,
+        { machineId: worktree.machineId, harness },
+        isShell ? { model: AUTO, effort: AUTO } : effectiveDraft,
+      )
     void launch.settled.then((confirmed) => {
       if (!confirmed) return
       setPrompt((current) => (current.trim() === firstPrompt ? '' : current))
@@ -359,9 +461,14 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       return
     }
     const picked = decodeModelPick(value)
-    const kind = picked.agentKind ?? launchAgentKind({
-      picked: undefined, preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
-    })
+    const kind =
+      picked.agentKind ??
+      launchAgentKind({
+        picked: undefined,
+        preferred: defaultHarness,
+        candidates: ISSUE_AGENT_KINDS,
+        readiness: readinessOf,
+      })
     // A model picked from the combined list is an explicit draft choice even
     // when it also names another harness.
     if (launchContext) previousLaunchContext.current = { machineId: launchContext, harness: kind }
@@ -370,10 +477,13 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
 
   // The shell rides at the END of the list: it is the escape hatch, not a peer
   // of the models above it.
-  const modelOptions = useMemo<CatalogOption[]>(() => [
-    ...allConnectorModelOptions(catalog, served),
-    { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
-  ], [catalog, served])
+  const modelOptions = useMemo<CatalogOption[]>(
+    () => [
+      ...allConnectorModelOptions(catalog, served),
+      { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
+    ],
+    [catalog, served],
+  )
   // Auto names its harness once it is not the default one, so the operator can
   // see that the signed-out default was stepped over rather than guess.
   const autoValue =
@@ -477,10 +587,16 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             <FieldSelect
               label="Effort"
               value={effortLabel(pickHarness, effectiveEffort)}
-              {...(effortChoices.length > 0 ? {
-                onPress: () => setStep('effort'),
-                picker: { options: effortChoices, selected: effectiveEffort, onSelect: applyEffort },
-              } : {})}
+              {...(effortChoices.length > 0
+                ? {
+                    onPress: () => setStep('effort'),
+                    picker: {
+                      options: effortChoices,
+                      selected: effectiveEffort,
+                      onSelect: applyEffort,
+                    },
+                  }
+                : {})}
             />
           ) : null}
 
@@ -550,7 +666,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
           ) : machineOk && !harnessReady ? (
             <Text style={styles.none}>{AGENT_NOT_READY_COPY}</Text>
           ) : readiness?.state === 'logged-out' ? (
-            <Text style={styles.none}>{signInInTerminalCopy(readiness, issueAgentLabel(harness, served))}</Text>
+            <Text style={styles.none}>
+              {signInInTerminalCopy(readiness, issueAgentLabel(harness, served))}
+            </Text>
           ) : null}
         </>
       ) : null}
@@ -566,7 +684,11 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       ) : null}
 
       {step === 'effort' ? (
-        <OptionList groups={[{ options: effortChoices }]} selected={effectiveEffort} onPick={applyEffort} />
+        <OptionList
+          groups={[{ options: effortChoices }]}
+          selected={effectiveEffort}
+          onPick={applyEffort}
+        />
       ) : null}
 
       {step === 'machine' ? (
@@ -642,7 +764,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
                   key={repo.path}
                   accessibilityRole="button"
                   accessibilityLabel={repo.name}
-                  accessibilityState={{ selected: !!selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) }}
+                  accessibilityState={{
+                    selected: !!selectedRepo && machinePathsEqual(repo.path, selectedRepo.path),
+                  }}
                   aria-pressed={!!selectedRepo && machinePathsEqual(repo.path, selectedRepo.path)}
                   onPress={() => {
                     setRepoPick(repo.path)
@@ -664,7 +788,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
                     </Text>
                     <ProjectUsage path={repo.path} picker={picker} />
                   </View>
-                    {selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) ? (
+                  {selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) ? (
                     <Text style={styles.check}>✓</Text>
                   ) : (
                     <Icon as={ChevronRight} size={15} color={color.textMicro} />

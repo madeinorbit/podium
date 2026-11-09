@@ -13,7 +13,6 @@ import { usePoolMachine } from '@/app/header-data'
 import { useRuntimeActions } from '@/app/keyed-runtime'
 import type { MediaLightboxItem } from '@/components/MediaLightbox'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { useAnswerSession } from './answer-session'
 import { ChatViewModel } from './chat-view-model'
 import { RENDER_WINDOW } from './conversation-presentation'
@@ -87,8 +86,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     return () => view.close()
   }, [view])
   const presentation = view.presentation
-  const sticky = useStickyPromptsPreference()
-  useEffect(() => view.setOptions(active, sticky.enabled), [view, active, sticky.enabled])
+  useEffect(() => view.setActive(active), [view, active])
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)

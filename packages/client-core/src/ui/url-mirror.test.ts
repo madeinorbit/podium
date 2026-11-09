@@ -103,6 +103,15 @@ describe('UiStore URL mirror', () => {
     f.ui.setOpenIssueId(null)
     expect(f.replaces).toHaveBeenCalledTimes(before)
   })
+  it('mirrors settings while an issue workspace is loading and keeps the incoming pane', () => {
+    const f = fixture('/workspace?pane=linked')
+    f.ui.setSelectedIssueId(asIssueId('unresolved-child'))
+    f.mirror.start()
+    f.ui.setSettingsTab('appearance')
+    expect(f.address.pathname).toBe('/settings/appearance')
+    expect(f.address.searchParams.get('pane')).toBe('linked')
+    f.mirror.stopMirroring()
+  })
   it('adopts popstate through the same service without echoing another history entry', () => {
     const f = fixture()
     f.mirror.start()

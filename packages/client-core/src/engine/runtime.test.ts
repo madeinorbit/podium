@@ -27,7 +27,7 @@ import { memoryStorage, type Replica, type StorageApi } from '../replica/contrac
 import type { SocketHub } from '../socket-transport'
 import * as notificationAudio from '../sound/cuelume'
 import type { NotificationSession, SessionPhaseChange } from '../sound/notification-sounds'
-import { type RouterWindow } from '../ui-state'
+import type { RouterWindow } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane } from '../values'
 import {
   NAVIGATION_LOADING,
@@ -549,6 +549,33 @@ describe('saved device screen and cold links', () => {
     expect(frames).toEqual([expected])
     expect(rendered.container.textContent).toBe(JSON.stringify(expected))
     rendered.unmount()
+    engine.destroy()
+  })
+  it('keeps a cold pane link while the saved issue workspace waits for navigation', async () => {
+    const storage = memoryStorage(),
+      pane = '00000000-0000-4000-8000-000000000001'
+    storage.setItem(
+      'podium.kernel-replica.ui.v1',
+      JSON.stringify({
+        version: 1,
+        selectedIssueId: 'not-loaded',
+        workspaces: {
+          'issue:not-loaded': openTab(emptyWorkspace('issue:not-loaded'), 'old', {
+            permanent: true,
+          }),
+        },
+      }),
+    )
+    const { engine, rw } = makeEngine({
+      storage,
+      url: `/workspace?pane=${pane}`,
+      networkEnabled: false,
+    })
+    engine.start()
+    expect(rw.url()).toContain(`pane=${pane}`)
+    await settle()
+    expect(engine.ui.paneA).toBe(pane)
+    expect(rw.url()).toContain(`pane=${pane}`)
     engine.destroy()
   })
   it.each([

@@ -1,3 +1,4 @@
+import { STICKY_PROMPTS_KEY } from '@podium/client-core/ui-state'
 import {
   type ChatRow,
   chatActivityState,
@@ -29,7 +30,9 @@ export class ChatViewModel {
     this.isOperatorPromptRow(row),
   )
   @observable accessor active = true
-  @observable accessor stickyPrompts = false
+  @lazy get stickyPrompts(): boolean {
+    return this.conversation.runtime.ui.getDevicePref(STICKY_PROMPTS_KEY) !== 'false'
+  }
   @observable accessor ctxSeq: number | null = null
   @observableRef accessor backendPick: {
     model?: string
@@ -84,9 +87,8 @@ export class ChatViewModel {
     this.release?.()
     this.release = undefined
   }
-  @actionBound setOptions(active: boolean, stickyPrompts: boolean): void {
+  @actionBound setActive(active: boolean): void {
     this.active = active
-    this.stickyPrompts = stickyPrompts
   }
   @lazy get session(): SessionModel | undefined {
     return this.conversation.session

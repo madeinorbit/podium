@@ -305,5 +305,8 @@ describe('device UiStore', () => {
     expect(second.ui.focusedPane).toBe('p2')
     expect(second.ui.fileTabs.size).toBe(1)
     expect(second.ui.dockVisibleSession).toBe(s2)
+    second.persistence.erase()
+    await second.persistence.flush()
+    expect(backing.has(`${prefix}.ui.v1`)).toBe(false)
   })
 })

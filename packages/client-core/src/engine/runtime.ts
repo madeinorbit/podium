@@ -573,7 +573,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         openIssueId: parsed.issueId,
         ...(parsed.worktree ? { selectedWorktree: parsed.worktree } : {}),
       })
-    this.urlMirror = new UrlMirror(this.ui, this.router, (route) => this.onRouteChanged(route))
+    this.urlMirror = new UrlMirror(
+      this.ui,
+      this.router,
+      (route) => this.onRouteChanged(route),
+      () => this.paneLink?.sessionId ?? this.pendingPaneLink,
+    )
     this.reactions = new Reactions({
       state: () => this.state,
       publish: (patch) => this.apply(patch),
@@ -1105,7 +1110,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
             this.reactions.worktreeFallback()
           )
             this.pendingWorktreeFallback = false
-          if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
+          if (
+            this.paneLink &&
+            !this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
+          )
+            this.apply(this.openWorkspaceTab(this.paneLink.sessionId))
           if (this.pendingSessionNavigation)
             this.services.navigateToSession(this.pendingSessionNavigation)
           if (this.pendingNavigation) this.navigate(this.pendingNavigation)
@@ -1237,8 +1246,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
-    // State→URL mirror — the single URL writer.
-    if (any('selectedWorktree', 'paneA')) this.urlMirror.mirror()
     // View-state report to the server. `workspaces` is a trigger in its own
     // right: a third pane's active tab changes what is on screen without moving
     // `paneA`/`paneB`. `panelMode` is equally live: switching Native → Chat must
@@ -1447,11 +1454,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     // A pane the state is not already showing is a LINK (deep link, back/forward),
     // not this runtime's own mirror write.
+    if (route.pane !== prev?.pane) this.dropPaneLink()
     const linked = !!route.pane && route.pane !== prev?.pane && route.pane !== st.paneA
     if (!linked && route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
     this.apply(patch)
     if (linked) this.followPaneLink(route)
-    this.urlMirror.mirror()
   }
 
   /**
