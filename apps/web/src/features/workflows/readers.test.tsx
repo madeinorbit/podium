@@ -93,7 +93,8 @@ it('renders the actual screens through no-pool then real attachment without chan
     </Wrapper>,
   )
   expect(screen.getByText('Loading agent profiles…')).toBeTruthy()
-  expect(await screen.findByText('Loading issue · synthetic-0…')).toBeTruthy()
+  // The runs are synced records (POD-6676): none shows before the pool does.
+  expect(screen.queryByText(/synthetic-workflow-run/)).toBeNull()
   await act(async () => {
     attach()
   })
@@ -101,13 +102,11 @@ it('renders the actual screens through no-pool then real attachment without chan
   await screen.findByText('session · synthetic-session-0')
   expect(screen.queryByText('Loading agent profiles…')).toBeNull()
   expect(screen.getAllByText(/synthetic-missing · no access/)).toHaveLength(2)
-  expect(fixture.calls).toMatchObject({
-    list: 1,
-    bindings: 1,
-    profiles: 1,
-    runs: 1,
-    get: 1,
-  })
+  // Every record came on the feed (POD-6676): no list, binding, profile, run or
+  // detail read was asked for.
+  for (const read of ['list', 'bindings', 'profiles', 'runs', 'get']) {
+    expect(fixture.calls[read], read).toBeUndefined()
+  }
   expect(storeStats.snapshot().runtimes.every((runtime) => runtime.selectorRuns === 0)).toBe(true)
   expect(fatal).not.toHaveBeenCalled()
 })
@@ -317,12 +316,12 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
         (runtime) => runtime.selectorRuns === 0 && Object.keys(runtime.slices).length === 0,
       ),
   ).toBe(true)
-  expect(fixture.calls.list).toBe(1)
   fixture.denyWrites('Synthetic denial')
   fireEvent.click(screen.getByRole('button', { name: /Skip current/ }))
   expect((await screen.findByRole('alert')).textContent).toContain('Synthetic denial')
   expect(fixture.calls.skip).toBe(1)
-  expect(fixture.calls.list).toBe(2)
+  // A refusal is surfaced once; nothing is re-read (the records are the feed's).
+  expect(fixture.calls.list).toBeUndefined()
   expect(owner?.access.replica).toBe(fixture.replica)
   expect(fatal).not.toHaveBeenCalled()
 })

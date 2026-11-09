@@ -30,6 +30,7 @@ import {
   asArtifactId,
   asSessionId,
   type SessionId,
+  subscriptionRowIdOf,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -681,20 +682,34 @@ describe('admin Alice gets no reach over Bob’s mail or subscriptions', () => {
       /only your own sessions/,
     )
     // Control, and the Automations UI path: Bob names his own session.
-    const sub = (await bob.subscriptionAdd.mutate(forBob as never)) as { id: string }
+    const sub = (await bob.subscriptionAdd.mutate(forBob as never)) as {
+      id: string
+      subscriberKind: 'session'
+      subscriberId: string
+    }
     const listed = async (who: typeof alice) =>
       ((await who.subscriptionList.query({} as never)) as Array<{ id: string }>).map((row) => row.id)
     expect(await listed(bob)).toContain(sub.id)
     expect(await listed(alice)).not.toContain(sub.id)
-    await expect(
-      alice.subscriptionSetEnabled.mutate({ id: sub.id, enabled: false } as never),
-    ).rejects.toThrow(/do not own/)
-    await expect(alice.subscriptionRemove.mutate({ id: sub.id } as never)).rejects.toThrow(/do not own/)
-    await expect(
-      bob.subscriptionSetEnabled.mutate({ id: sub.id, enabled: false } as never),
-    ).resolves.toMatchObject({ updated: true })
-    await expect(bob.subscriptionRemove.mutate({ id: sub.id } as never)).resolves.toMatchObject({
-      removed: true,
-    })
+    // A toggle and a removal are the record's generic edits (POD-6676).
+    const id = subscriptionRowIdOf(sub)
+    const submit = async (name: MemberName, command: string, input: unknown) =>
+      (
+        (await (await trpc(name)).sync.submit.mutate({
+          mutationId: `mut_${name}_${command}`,
+          command,
+          version: 1,
+          input,
+        } as never)) as { outcome: string }
+      ).outcome
+    expect(await submit('alice', 'records.subscription.edit', { id, patch: { enabled: false } })).toBe(
+      'rejected',
+    )
+    expect(await submit('alice', 'records.subscription.remove', { id })).toBe('rejected')
+    expect(await submit('bob', 'records.subscription.edit', { id, patch: { enabled: false } })).toBe(
+      'applied',
+    )
+    expect(await submit('bob', 'records.subscription.remove', { id })).toBe('applied')
+    expect(await listed(bob)).not.toContain(sub.id)
   })
 })

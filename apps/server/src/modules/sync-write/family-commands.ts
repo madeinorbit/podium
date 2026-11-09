@@ -7,7 +7,6 @@
  * The queued commands are `outbox-commands.ts`.
  */
 
-import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
 import { APPROVAL_REQUEST_COMMAND, registerApprovalRequest } from '../approvals/request-sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
@@ -30,10 +29,6 @@ import type { SyncWriteRegistry } from './registry'
 
 /** Every command registered here, by wire name. */
 export const FAMILY_COMMAND_NAMES = [
-  'agentProfiles.create',
-  'agentProfiles.update',
-  'agentProfiles.delete',
-  'agentProfiles.import',
   'automations.create',
   'automations.update',
   'automations.setEnabled',
@@ -47,7 +42,6 @@ export const FAMILY_COMMAND_NAMES = [
   'workflows.revise',
   'workflows.fork',
   'workflows.publish',
-  'workflows.assign',
   'workflows.checkpoint',
   'workflows.assignStep',
   'workflows.skip',
@@ -83,7 +77,6 @@ export interface FamilyCommandDeps extends SyncFamilyDeps {
 }
 
 export function registerFamilyCommands(registry: SyncWriteRegistry, deps: FamilyCommandDeps): void {
-  registerSyncFamily(registry, AGENT_PROFILE_SYNC_FAMILY, deps)
   registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)

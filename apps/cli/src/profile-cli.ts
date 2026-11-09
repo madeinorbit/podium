@@ -10,13 +10,16 @@
  * the Claude Code agent-file shape).
  */
 
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { makeRelayIssueClient } from '@podium/issue-client'
 import {
   type AgentCandidate,
   AgentCandidate as AgentCandidateSchema,
+  AgentProfileDocumentError,
   formatAgentCandidates,
+  parseAgentProfileMarkdown,
 } from '@podium/model'
 import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
@@ -27,14 +30,14 @@ type Proc = {
   mutate(input?: unknown): Promise<unknown>
 }
 
+/** The reads are the CLI's own request answers (it has no replica); every
+ *  write is the synced record's generic edit on `sync.submit` (POD-6676). */
 export interface ProfileClient extends SyncSubmitTransport {
-  agentProfiles: Record<
-    'list' | 'show' | 'export' | 'create' | 'update' | 'delete' | 'import',
-    Proc
-  >
+  agentProfiles: Record<'list' | 'show' | 'export', Proc>
 }
 
-type ProfileWrite = 'create' | 'update' | 'delete' | 'import'
+/** A create's fields or an edit's patch, as `records.agentProfile.*` take them. */
+type ProfileFields = Record<string, unknown>
 
 export interface ProfileFs {
   readText(path: string): string
@@ -188,7 +191,8 @@ function fieldsFrom(args: ParsedArgs, fs: ProfileFs, cwd: string): Record<string
   const candidates = args.flags.get('candidate')
   if (candidates) fields.candidates = candidates.map(parseCandidate)
   const machine = one(args, 'machine')
-  if (machine !== undefined) fields.machine = machine === 'none' ? null : machine
+  // A machine id or a visible machine's name; the server stores the id.
+  if (machine !== undefined) fields.machineId = machine === 'none' ? null : machine
   const instructions = one(args, 'instructions')
   const instructionsFile = one(args, 'instructions-file')
   if (instructions !== undefined && instructionsFile !== undefined) {
@@ -238,14 +242,34 @@ export async function runProfileCli(
   }
   const fs = deps.fs ?? nodeFs
   const api = deps.client.agentProfiles
-  // The writes go through the sync write entry point (POD-6412).
-  // LEGACY(remove-after: 2027-03): an older server has no `sync.submit` and takes
-  // the command's own route.
-  const write = async (name: ProfileWrite, input: unknown): Promise<unknown> =>
-    await submitNow(deps.client, `agentProfiles.${name}`, input, {
-      action: `${name} agent profiles`,
-      legacy: async () => await api[name].mutate(input),
-    })
+  // Every write is the profile record's generic edit on the sync write entry
+  // point (POD-6676): a create under an id minted here, an edit or a removal of
+  // the id a name resolves to.
+  const create = async (fields: ProfileFields): Promise<ProfileView> => {
+    const id = `agp_${randomUUID()}`
+    await submitNow(
+      deps.client,
+      'records.agentProfile.create',
+      { id, fields },
+      {
+        action: 'create agent profiles',
+      },
+    )
+    return (await api.show.query({ ref: id })) as ProfileView
+  }
+  const idOf = async (ref: string): Promise<string> =>
+    ((await api.show.query({ ref })) as ProfileView).id
+  const edit = async (id: string, patch: ProfileFields): Promise<ProfileView> => {
+    await submitNow(
+      deps.client,
+      'records.agentProfile.edit',
+      { id, patch },
+      {
+        action: 'update agent profiles',
+      },
+    )
+    return (await api.show.query({ ref: id })) as ProfileView
+  }
   const args = parseArgs(argv)
   const out = (data: unknown, text: string): string =>
     args.json ? JSON.stringify({ ok: true, data }) : text
@@ -268,10 +292,7 @@ export async function runProfileCli(
     }
     case 'create': {
       allowOnly(args, ['description', 'candidate', 'machine', 'instructions', 'instructions-file'])
-      const profile = (await write('create', {
-        name: requireName(args),
-        ...fieldsFrom(args, fs, deps.cwd),
-      })) as ProfileView
+      const profile = await create({ name: requireName(args), ...fieldsFrom(args, fs, deps.cwd) })
       return out(profile, `created profile ${renderLine(profile)}`)
     }
     case 'update': {
@@ -291,15 +312,21 @@ export async function runProfileCli(
           'update: no fields given — nothing changed (see `podium profile --help`)',
         )
       }
-      const profile = (await write('update', {
-        ref: requireName(args),
-        ...fields,
-      })) as ProfileView
+      const profile = await edit(await idOf(requireName(args)), fields)
       return out(profile, `updated profile ${renderLine(profile)}`)
     }
     case 'delete': {
       allowOnly(args, [])
-      const deleted = (await write('delete', { ref: requireName(args) })) as { name: string }
+      const profile = (await api.show.query({ ref: requireName(args) })) as ProfileView
+      await submitNow(
+        deps.client,
+        'records.agentProfile.remove',
+        { id: profile.id },
+        {
+          action: 'delete agent profiles',
+        },
+      )
+      const deleted = { id: profile.id, name: profile.name }
       return out(deleted, `deleted profile ${deleted.name}`)
     }
     case 'import': {
@@ -314,9 +341,39 @@ export async function runProfileCli(
         return [full]
       })
       if (paths.length === 0) throw new ProfileCliError(`no .md files in ${sources.join(', ')}`)
-      const results = (await write('import', {
-        files: paths.map((path) => ({ name: basename(path, '.md'), text: fs.readText(path) })),
-      })) as Array<{ name: string; action: string }>
+      // Parse every file before writing any, so one bad file changes nothing.
+      const docs = paths.map((path) => {
+        try {
+          return parseAgentProfileMarkdown(fs.readText(path), basename(path, '.md'))
+        } catch (error) {
+          if (error instanceof AgentProfileDocumentError) {
+            throw new ProfileCliError(`${basename(path, '.md')}: ${error.message}`)
+          }
+          throw error
+        }
+      })
+      const seen = new Set<string>()
+      for (const doc of docs) {
+        if (seen.has(doc.name))
+          throw new ProfileCliError(`two files define the profile '${doc.name}'`)
+        seen.add(doc.name)
+      }
+      const existing = new Map(
+        ((await api.list.query({})) as ProfileView[]).map((profile) => [profile.name, profile.id]),
+      )
+      const results: Array<{ name: string; action: 'created' | 'updated' }> = []
+      for (const doc of docs) {
+        const fields = {
+          description: doc.description,
+          candidates: doc.candidates,
+          machineId: doc.machine,
+          instructions: doc.instructions,
+        }
+        const id = existing.get(doc.name)
+        if (id === undefined) await create({ name: doc.name, ...fields })
+        else await edit(id, fields)
+        results.push({ name: doc.name, action: id === undefined ? 'created' : 'updated' })
+      }
       return out(results, results.map((r) => `${r.action} ${r.name}`).join('\n'))
     }
     case 'export': {

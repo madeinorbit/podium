@@ -66,6 +66,8 @@ export * from './entities/conversation'
 // because the states are the contract the UI slices are written against.
 export * from './entities/cost'
 export * from './entities/draft-doc'
+// The message delivery lifecycle, declared as a forward-only machine (POD-4765).
+export * from './entities/effect'
 export * from './entities/handoff'
 export * from './entities/issue'
 export * from './entities/issue-dep'
@@ -86,8 +88,6 @@ export * from './entities/loop'
 // (docs/multi-user-readiness.md §3.1.1/§3.1.4) — see the file header.
 export * from './entities/machine'
 export * from './entities/machine-projection'
-// The message delivery lifecycle, declared as a forward-only machine (POD-4765).
-export * from './entities/effect'
 export * from './entities/message-delivery'
 export { MessageLedgerWire } from './entities/message-ledger'
 export * from './entities/message-record'
@@ -96,11 +96,14 @@ export * from './entities/pending-interaction-row'
 export * from './entities/repo'
 export * from './entities/session'
 export * from './entities/settings-records'
+// Automation trigger subscriptions and workflows as synced records (POD-6676).
+export * from './entities/subscription'
 export * from './entities/transcript'
 // The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a
 // producer of plain strings has a name for where it stands (POD-361; POD-362 /
 // POD-363 retire the uses).
 export * from './entities/wire-input'
+export * from './entities/workflow'
 export * from './exhaustive'
 export * from './fields/attribution'
 // The legacy-attribution sweep (POD-1075): every device-level / role-level

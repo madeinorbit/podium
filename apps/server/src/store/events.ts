@@ -1279,6 +1279,23 @@ export class EventsRepository {
     return rows.map(rowToSubscription)
   }
 
+  /** Every subscription, for the boot reconcile (POD-6676): one keyset walk of
+   *  `idx_subscriptions_created`, a page per {@link SUBSCRIPTION_PAGE_MAX} rows. */
+  async allSubscriptionsForBootReconcile(): Promise<Subscription[]> {
+    const out: Subscription[] = []
+    let after: SubscriptionPageCursor | undefined
+    for (;;) {
+      const page = await this.listSubscriptionsPage({
+        ...(after ? { after } : {}),
+        limit: SUBSCRIPTION_PAGE_MAX,
+      })
+      out.push(...page)
+      const last = page.at(-1)
+      if (page.length < SUBSCRIPTION_PAGE_MAX || last === undefined) return out
+      after = { createdAt: last.createdAt, id: last.id }
+    }
+  }
+
   /** Flip a subscription's enabled flag. Returns true when a row was updated. */
   async setSubscriptionEnabled(id: string, enabled: boolean): Promise<boolean> {
     const r = await setSubscriptionEnabledById(this.db).run({ id, enabled })

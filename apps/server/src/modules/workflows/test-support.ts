@@ -42,6 +42,8 @@
  * deleted rather than inherited.
  */
 
+import { workflowAssignInput } from '@podium/commands'
+import type { WorkflowBindingWire } from '@podium/protocol'
 import { isWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
 import type { WorkflowCaller, WorkflowService } from './service'
 
@@ -56,7 +58,13 @@ type WorkflowCommandMethods = {
   ) => ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
 }
 
-export type DrivenWorkflowService = WorkflowService & WorkflowCommandMethods
+/** `assign` became the binding's generic edit (POD-6676); the suite still calls
+ *  it `assign(input, caller)`, driven through `WorkflowService.assign` with the
+ *  edit's own parse. */
+export type DrivenWorkflowService = WorkflowService &
+  WorkflowCommandMethods & {
+    assign(input: unknown, caller: WorkflowCaller): Promise<WorkflowBindingWire>
+  }
 
 /**
  * A `WorkflowService` that also answers to the eleven proc names, by forwarding
@@ -71,6 +79,10 @@ export type DrivenWorkflowService = WorkflowService & WorkflowCommandMethods
 export function driveWorkflows(service: WorkflowService): DrivenWorkflowService {
   return new Proxy(service, {
     get(target, prop, _receiver) {
+      if (prop === 'assign') {
+        return async (input: unknown, caller: WorkflowCaller) =>
+          await target.assign(caller, workflowAssignInput.parse(input))
+      }
       if (typeof prop === 'string' && isWorkflowCommand(prop)) {
         return async (input: unknown, caller: WorkflowCaller) =>
           await target.execute(caller, prop as WorkflowProcName, input)

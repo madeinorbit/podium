@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "e99926df706254345a6e2f2f4085e9b38215c102cfe8cf00ca1448c231a43c83",
+      "tokens": "c049b62305a7fb1c8dc9bdf640f1fa01f2d415b0f14275d35badd0f0829a1dd3",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "25ad2f726209164a71ae12c77e176873c44a0e899bbe784e81552c6687219c81",
+      "fingerprint": "1169e9d17cad8187716716e6d27fcdd0742d15fe14d43b1530603249f5265a6d",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -52,14 +52,14 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "0b9f5a4ba14697e050eebbc1196dc3d387543f3383c2cc3ea4f013c7997625df",
+      "tokens": "323ee0eefe388de0a37b9a6ebc8cc3cdcb5099dc2b8041d19abdcdd382263d4c",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
       "origin": [
         "01ed545e82ce89ee20c4cf35e0f3ccb95db01ad9e0e7117571472ac7ed4938aa"
       ],
-      "fingerprint": "155756d1b30803fb4c0b66e1b596140e5db8528c4f62cb2555cf7e09bc2766d6",
+      "fingerprint": "62b29e54bf824c07d8c692d276c7f2e4161431346997f0b27874a8fde71d54e9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9406,14 +9406,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "94353e5bbbb3c09d3ed61ad1942e7829ebdd5e4f3c028435ae329c2c768dfc6d",
+      "tokens": "0b59ec77de0f791cb895edab7f6718e5073e7f72425599e61d1abd26f7da8334",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "dd4dc01eb6b4e6107916e601af98f3ccd877610ea1928b6a048d30626659b842",
+      "fingerprint": "2f12a7045630cfdd1e4ff091f117e22c8bf4d7e3f2e69c5aad5068d714db257c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12847,12 +12847,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "d0d32dc139739bfe0affd92bf70a60bf046a24d661f45d8ec465b02f3b2dbad0",
+      "tokens": "0a951cfc7d75531502b2aa71fc2b44c8abac966f0c8adfe2e49c31c8c4df1669",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "9b7fc69ab04865da23615b271df1ee329bb6433d10753d6d48241437e91d5b42",
+      "fingerprint": "d6481077fa8a9675106b7d19a806e13ec513a86357aed1e819608a2fe267ba77",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -13238,14 +13238,14 @@
       "file": "packages/client-core/src/engine/actions.ts",
       "holder": "createEngineActions/setTabOrder/callback",
       "rule": "helper-consumer",
-      "tokens": "35fe073b7eeaeb9aaaf2029700db1e49cb373441470ba3e676f389cf6ad66eb9",
+      "tokens": "d4d23c40cae5f58e1a23dc5673e58afd1bd5ac4e97499a89dee0574e5d530818",
       "gate": [
         "else:839406a8be7fa588d0242471f621e92b43d8db9cd54b46688b5a407f533c1563"
       ],
       "origin": [
         "c1ce7355dc2ffd91e40bcffc16a5f4e7848b2a873302b8f8723e2dbde9d660bc"
       ],
-      "fingerprint": "04d2a04dc9b8711a3251544a03bc155551a054008d61649ed70cef539a591a33",
+      "fingerprint": "a7aec1eb1cc11b1a8ff34bcc051d2e85ed82180a022a813a2abdb26b48809677",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6673",
@@ -36913,6 +36913,84 @@
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
       "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
       "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+    },
+    {
+      "file": "packages/client-graph/src/workflow-views.ts",
+      "holder": "modelsOf",
+      "rule": "enumerate:keys",
+      "tokens": "05020f795d5d733cc588e68b06c1c3004eae0ffedb1eb312492b76caa0182105",
+      "gate": [],
+      "origin": [
+        "c4162fcd98f46691d3ff12a4f0e5f2260adc1504a8b226e52f09d24812c7cc2e"
+      ],
+      "fingerprint": "15edbefcdfb607e67c0533c3dd1a5f3be0e115878096270f6c2d8112fefd2349",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6676",
+      "trigger": "A reader of the workflow screen (profiles, library, bindings, runs) or of the Automations triggers.",
+      "bound": "The pool's agentProfile, workflow, workflowRevision, workflowBinding, workflowRun and subscription tables: the instance's profiles and workflows, and the runs and subscriptions this person may read. The screens listed the same sets in full through their requests.",
+      "reason": "Synced records the feed delivers (POD-6676): one computed per kind per pool, kept equal by value, so a publication that moves no member of a list keeps its identity.",
+      "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
+    },
+    {
+      "file": "packages/client-graph/src/workflow-views.ts",
+      "holder": "modelsOf",
+      "rule": "loop:for-of",
+      "tokens": "899865154d393878d8c2c525d750681e28c03ce8fef56a53994a047a95663264",
+      "gate": [],
+      "origin": [
+        "c4162fcd98f46691d3ff12a4f0e5f2260adc1504a8b226e52f09d24812c7cc2e",
+        "f3f3cd87d5f38a6bcb6697c3ce679c1613d725c3e3edf3a140b9602d3765fcc5"
+      ],
+      "fingerprint": "cdec476ad8c647c572c991ec915341510f72d99ce55c1199ef06b715c246f2e9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6676",
+      "trigger": "A reader of the workflow screen (profiles, library, bindings, runs) or of the Automations triggers.",
+      "bound": "The pool's agentProfile, workflow, workflowRevision, workflowBinding, workflowRun and subscription tables: the instance's profiles and workflows, and the runs and subscriptions this person may read. The screens listed the same sets in full through their requests.",
+      "reason": "Synced records the feed delivers (POD-6676): one computed per kind per pool, kept equal by value, so a publication that moves no member of a list keeps its identity.",
+      "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
+    },
+    {
+      "file": "packages/client-graph/src/workflow-views.ts",
+      "holder": "mySubscriptions/reads/view:callback/of/computed:callback",
+      "rule": "enumerate:keys",
+      "tokens": "0c5a854dd40a661ff6bae8344f131ed5ebde29a13b0a45bf81fc3b6e780a3a82",
+      "gate": [
+        "then:3daed661e553787b7cd5fc0898dba7b738fee053eb3fa8f39e0d92044e271bc3"
+      ],
+      "origin": [
+        "597cc2ca0995eac360a78ea097a616d57dce3302f6ff2b7850b31e219d2a9ff4"
+      ],
+      "fingerprint": "288b5af25d0bfd796c8b7dadacdb9603e9c01c73f12f10103ede9d4c2eec997e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6676",
+      "trigger": "A reader of the workflow screen (profiles, library, bindings, runs) or of the Automations triggers.",
+      "bound": "The pool's agentProfile, workflow, workflowRevision, workflowBinding, workflowRun and subscription tables: the instance's profiles and workflows, and the runs and subscriptions this person may read. The screens listed the same sets in full through their requests.",
+      "reason": "Synced records the feed delivers (POD-6676): one computed per kind per pool, kept equal by value, so a publication that moves no member of a list keeps its identity.",
+      "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
+    },
+    {
+      "file": "packages/client-graph/src/workflow-views.ts",
+      "holder": "mySubscriptions/reads/view:callback/of/computed:callback",
+      "rule": "loop:for-of",
+      "tokens": "22ef2d4274fe8716ae26d448234702f919e4b3d6c13050e4b10bea7fcb52db8c",
+      "gate": [
+        "then:3daed661e553787b7cd5fc0898dba7b738fee053eb3fa8f39e0d92044e271bc3"
+      ],
+      "origin": [
+        "597cc2ca0995eac360a78ea097a616d57dce3302f6ff2b7850b31e219d2a9ff4",
+        "99c048dd73a844069271f90c4ea9c3ce3d980af34b5359913d7338e3a6671536"
+      ],
+      "fingerprint": "e41f3b885112fd8fa149577bcea6eb1862e60c0c808dae8c7d21e4cf58b02f28",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6676",
+      "trigger": "A reader of the workflow screen (profiles, library, bindings, runs) or of the Automations triggers.",
+      "bound": "The pool's agentProfile, workflow, workflowRevision, workflowBinding, workflowRun and subscription tables: the instance's profiles and workflows, and the runs and subscriptions this person may read. The screens listed the same sets in full through their requests.",
+      "reason": "Synced records the feed delivers (POD-6676): one computed per kind per pool, kept equal by value, so a publication that moves no member of a list keeps its identity.",
+      "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
     }
   ]
 }

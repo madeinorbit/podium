@@ -99,6 +99,12 @@ export type ModelSchemaName =
   | 'PersonalPreferences'
   | 'ReadPositionWire'
   | 'SuperagentThreadWire'
+  | 'AgentProfileWire'
+  | 'WorkflowWire'
+  | 'WorkflowRevisionWire'
+  | 'WorkflowBindingWire'
+  | 'WorkflowRunRecord'
+  | 'SubscriptionWire'
   | 'AccountView'
   | 'MemberView'
   | 'MobileClientSession'
@@ -136,6 +142,12 @@ export type RowArrival =
   | 'replica:userPreferences'
   | 'replica:userReadPositions'
   | 'replica:superagentThreads'
+  | 'replica:agentProfiles'
+  | 'replica:workflows'
+  | 'replica:workflowRevisions'
+  | 'replica:workflowBindings'
+  | 'replica:workflowRuns'
+  | 'replica:subscriptions'
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
@@ -195,7 +207,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread'
+export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription'
 
 /**
  * Four kinds, and no more.
@@ -1204,6 +1216,14 @@ const DECLARED = defineSchema({
   machine: syncedIdentity('MachineProjection', 'replica:machines'),
   automation: syncedIdentity('AutomationWire', 'replica:automations'),
   automationRun: syncedIdentity('AutomationRunWire', 'replica:automationRuns'),
+  // POD-6676: agent profiles, workflows and trigger subscriptions; their fields
+  // and models register from the deferred `workflow-models` module.
+  agentProfile: syncedIdentity('AgentProfileWire', 'replica:agentProfiles'),
+  workflow: syncedIdentity('WorkflowWire', 'replica:workflows'),
+  workflowRevision: syncedIdentity('WorkflowRevisionWire', 'replica:workflowRevisions'),
+  workflowBinding: syncedIdentity('WorkflowBindingWire', 'replica:workflowBindings'),
+  workflowRun: syncedIdentity('WorkflowRunRecord', 'replica:workflowRuns'),
+  subscription: syncedIdentity('SubscriptionWire', 'replica:subscriptions'),
 })
 
 /** The schema, as every engine reads it: data, keyed by name. */

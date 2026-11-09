@@ -3,9 +3,10 @@
  *
  * Two jobs:
  *
- *  1. The library: list/show/create/update/delete/import/export. Profiles are
- *     edited by PEOPLE only; an agent session may pick a profile (`--profile`
- *     on an issue or a spawn) but every write here refuses it.
+ *  1. The library: list/show/export, and the synced record's create/edit/
+ *     remove (`records.agentProfile.*`, POD-6676). Profiles are edited by
+ *     PEOPLE only; an agent session may pick a profile (`--profile` on an issue
+ *     or a spawn) but every write here refuses it.
  *  2. The launch: {@link AgentProfileService.launch} turns a profile id plus an
  *     issue's or session's own fields into the concrete harness/model/effort/
  *     machine a session starts with. The rule (profile, fields on top) is the
@@ -13,15 +14,7 @@
  *     is usable, because that is a machine fact.
  */
 
-import { randomUUID } from 'node:crypto'
 import {
-  agentProfileCreateInput,
-  agentProfileDeleteInput,
-  agentProfileImportInput,
-  agentProfileUpdateInput,
-} from '@podium/commands'
-import {
-  AgentProfileDocumentError,
   type AgentProfileWire,
   type AgentSetupFields,
   asMachineId,
@@ -30,17 +23,36 @@ import {
   type MachineId,
   machineByRef,
   type NameableMachine,
-  parseAgentProfileMarkdown,
   pickAgentCandidate,
   resolveAgentSetup,
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { z } from 'zod'
+import type { EntityChangeSpec, LedgerCommitOp } from '@podium/sync'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
-/** A refusal the caller can act on; the router maps it to a 4xx with this text. */
+/** A refusal the caller can act on; the entry point answers it with this text. */
 export class AgentProfileRefusal extends Error {}
+
+/** What a profile write commits through: the command's writer (POD-6676). */
+export interface AgentProfileWriter {
+  commit<T>(op: LedgerCommitOp<T>): Promise<{ result: T }>
+}
+
+/** A create's fields or an edit's patch, as the generic record declares them. */
+export interface AgentProfileRecordFields {
+  name?: string
+  description?: string
+  candidates?: AgentProfileWire['candidates']
+  /** A machine id (a visible machine's name is resolved to its id), or null. */
+  machineId?: string | null
+  instructions?: string
+}
+
+/** One profile's change entry: the row as stored. */
+export function agentProfileUpsert(row: AgentProfileWire): EntityChangeSpec {
+  return { entity: 'agentProfile', id: row.id, op: 'upsert', value: row }
+}
 
 /** Who is asking: a person, or an agent session acting for one. */
 export interface AgentProfileCaller {
@@ -119,125 +131,115 @@ export class AgentProfileService {
   }
 
   // -------------------------------------------------------------------------
-  // Writes — people only
+  // The synced record's writes (POD-6676): `records.agentProfile.*`
   // -------------------------------------------------------------------------
 
-  async create(
-    caller: AgentProfileCaller,
-    raw: z.input<typeof agentProfileCreateInput>,
-  ): Promise<AgentProfileView> {
+  /**
+   * May this caller write profiles at all: a person (never an agent session),
+   * an instance admin now. Throws the refusal the caller reads.
+   */
+  async assertMayWrite(caller: AgentProfileCaller): Promise<void> {
     await this.requirePerson(caller)
-    const input = agentProfileCreateInput.parse(raw)
-    if (await this.deps.store.getByName(input.name)) {
-      throw new AgentProfileRefusal(
-        `a profile named '${input.name}' already exists — use \`podium profile update ${input.name}\``,
-      )
-    }
-    const created = await this.deps.store.insert({
-      id: `agp_${randomUUID()}`,
-      name: input.name,
-      description: input.description,
-      candidates: input.candidates,
-      machineId: await this.machineIdFor(input.machine ?? null),
-      instructions: input.instructions.trim(),
-      actor: actorOf(caller),
-      now: this.deps.now(),
-    })
-    return this.view(created, await this.machineNames())
   }
 
-  async update(
+  /** The stored row by id, for the generic layer's collision check. */
+  async record(id: string): Promise<AgentProfileWire | null> {
+    return await this.deps.store.get(id)
+  }
+
+  /**
+   * `records.agentProfile.create`: a new profile under the device's id. The
+   * name must be free; a machine is stored by id (a visible machine's name is
+   * resolved to it, as the CLI's `--machine` always was).
+   */
+  async createRecord(
     caller: AgentProfileCaller,
-    raw: z.input<typeof agentProfileUpdateInput>,
-  ): Promise<AgentProfileView> {
+    writer: AgentProfileWriter,
+    id: string,
+    fields: AgentProfileRecordFields,
+  ): Promise<AgentProfileWire> {
     await this.requirePerson(caller)
-    const input = agentProfileUpdateInput.parse(raw)
-    const current = await this.require(input.ref)
-    if (input.name && input.name !== current.name) {
-      const clash = await this.deps.store.getByName(input.name)
+    const name = fields.name ?? ''
+    if (await this.deps.store.getByName(name)) {
+      throw new AgentProfileRefusal(
+        `a profile named '${name}' already exists — use \`podium profile update ${name}\``,
+      )
+    }
+    const machineId = await this.machineIdFor(fields.machineId ?? null)
+    const { result } = await writer.commit({
+      write: async () =>
+        await this.deps.store.insert({
+          id,
+          name,
+          description: fields.description ?? '',
+          candidates: fields.candidates ?? [],
+          machineId,
+          instructions: (fields.instructions ?? '').trim(),
+          actor: actorOf(caller),
+          now: this.deps.now(),
+        }),
+      changes: (row) => [agentProfileUpsert(row)],
+    })
+    return result
+  }
+
+  /**
+   * `records.agentProfile.edit`: the named fields only, over the stored row
+   * (field-level last writer wins, design §1.9). A rename must stay unique.
+   */
+  async editRecord(
+    caller: AgentProfileCaller,
+    writer: AgentProfileWriter,
+    id: string,
+    patch: AgentProfileRecordFields,
+  ): Promise<AgentProfileWire> {
+    await this.requirePerson(caller)
+    const current = await this.deps.store.get(id)
+    if (!current) throw new AgentProfileRefusal(`no agent profile '${id}'`)
+    if (patch.name !== undefined && patch.name !== current.name) {
+      const clash = await this.deps.store.getByName(patch.name)
       if (clash && clash.id !== current.id) {
-        throw new AgentProfileRefusal(`a profile named '${input.name}' already exists`)
+        throw new AgentProfileRefusal(`a profile named '${patch.name}' already exists`)
       }
     }
-    await this.deps.store.update({
-      id: current.id,
-      name: input.name ?? current.name,
-      description: input.description ?? current.description,
-      candidates: input.candidates ?? current.candidates,
-      machineId:
-        input.machine === undefined
-          ? (current.machineId as MachineId | null)
-          : await this.machineIdFor(input.machine),
-      instructions:
-        input.instructions === undefined ? current.instructions : input.instructions.trim(),
-      actor: actorOf(caller),
-      now: this.deps.now(),
+    const machineId =
+      patch.machineId === undefined
+        ? (current.machineId as MachineId | null)
+        : await this.machineIdFor(patch.machineId)
+    const { result } = await writer.commit({
+      write: async () => {
+        await this.deps.store.update({
+          id,
+          name: patch.name ?? current.name,
+          description: patch.description ?? current.description,
+          candidates: patch.candidates ?? current.candidates,
+          machineId,
+          instructions:
+            patch.instructions === undefined ? current.instructions : patch.instructions.trim(),
+          actor: actorOf(caller),
+          now: this.deps.now(),
+        })
+        return (await this.deps.store.get(id)) as AgentProfileWire
+      },
+      changes: (row) => [agentProfileUpsert(row)],
     })
-    return await this.show(current.id)
+    return result
   }
 
-  async delete(
+  /** `records.agentProfile.remove`: refused while an open issue uses it. */
+  async removeRecord(
     caller: AgentProfileCaller,
-    raw: z.input<typeof agentProfileDeleteInput>,
-  ): Promise<{ id: string; name: string }> {
+    writer: AgentProfileWriter,
+    id: string,
+  ): Promise<void> {
     await this.requirePerson(caller)
-    const current = await this.require(agentProfileDeleteInput.parse(raw).ref)
-    const using = await this.deps.store.openIssueSeqsUsing(current.id)
-    if (using.length > 0) {
-      const shown = using
-        .slice(0, 10)
-        .map((seq) => `#${seq}`)
-        .join(', ')
-      throw new AgentProfileRefusal(
-        `profile '${current.name}' is used by ${using.length} open issue(s) (${shown}${using.length > 10 ? ', …' : ''}) — ` +
-          'move them to another profile first (`podium issue update <id> --profile <name>`, or `--profile none`)',
-      )
-    }
-    await this.deps.store.delete(current.id)
-    return { id: current.id, name: current.name }
-  }
-
-  /** Create or replace profiles by name from `.podium/agents/<name>.md` texts. */
-  async import(
-    caller: AgentProfileCaller,
-    raw: z.input<typeof agentProfileImportInput>,
-  ): Promise<Array<{ name: string; action: 'created' | 'updated' }>> {
-    await this.requirePerson(caller)
-    const input = agentProfileImportInput.parse(raw)
-    // Parse every file before writing any, so one bad file changes nothing.
-    const docs = input.files.map((file) => {
-      try {
-        return parseAgentProfileMarkdown(file.text, file.name)
-      } catch (err) {
-        if (err instanceof AgentProfileDocumentError) {
-          throw new AgentProfileRefusal(`${file.name ?? 'profile file'}: ${err.message}`)
-        }
-        throw err
-      }
+    const current = await this.deps.store.get(id)
+    if (!current) throw new AgentProfileRefusal(`no agent profile '${id}'`)
+    await this.refuseWhileUsed(current)
+    await writer.commit({
+      write: async () => await this.deps.store.delete(id),
+      changes: (removed) => (removed ? [{ entity: 'agentProfile', id, op: 'remove' }] : []),
     })
-    const seen = new Set<string>()
-    for (const doc of docs) {
-      if (seen.has(doc.name))
-        throw new AgentProfileRefusal(`two files define the profile '${doc.name}'`)
-      seen.add(doc.name)
-    }
-    const results: Array<{ name: string; action: 'created' | 'updated' }> = []
-    for (const doc of docs) {
-      const fields = {
-        description: doc.description,
-        candidates: doc.candidates,
-        machine: doc.machine,
-        instructions: doc.instructions,
-      }
-      if (await this.deps.store.getByName(doc.name)) {
-        await this.update(caller, { ref: doc.name, ...fields })
-        results.push({ name: doc.name, action: 'updated' })
-      } else {
-        await this.create(caller, { name: doc.name, ...fields })
-        results.push({ name: doc.name, action: 'created' })
-      }
-    }
-    return results
   }
 
   // -------------------------------------------------------------------------
@@ -309,6 +311,20 @@ export class AgentProfileService {
       )
     }
     return found
+  }
+
+  /** The deletion guard: a profile an open issue points at stays. */
+  private async refuseWhileUsed(current: AgentProfileWire): Promise<void> {
+    const using = await this.deps.store.openIssueSeqsUsing(current.id)
+    if (using.length === 0) return
+    const shown = using
+      .slice(0, 10)
+      .map((seq) => `#${seq}`)
+      .join(', ')
+    throw new AgentProfileRefusal(
+      `profile '${current.name}' is used by ${using.length} open issue(s) (${shown}${using.length > 10 ? ', …' : ''}) — ` +
+        'move them to another profile first (`podium issue update <id> --profile <name>`, or `--profile none`)',
+    )
   }
 
   private async requirePerson(caller: AgentProfileCaller): Promise<void> {

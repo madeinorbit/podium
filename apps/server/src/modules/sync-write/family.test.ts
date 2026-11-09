@@ -1,8 +1,8 @@
 /**
  * THE SYNC FAMILY BUILDER AND ITS FIRST FAMILIES (POD-6412, plan Task 16).
  *
- * Through the registry the server actually composes: agent profiles,
- * conversations, read positions and the instance settings tier. Each write
+ * Through the registry the server actually composes: agent profiles (a
+ * generic record kind since POD-6676), conversations, read positions and the instance settings tier. Each write
  * arrives through `submit` with its provenance and a receipt; a replay answers
  * the recorded result and runs nothing; the target check refuses before the
  * handler; a handler's own refusal carries its message; and the old routes are
@@ -23,9 +23,17 @@ const routerRecord = (name: string): Record<string, unknown> =>
   (appRouter as unknown as { _def: { record: Record<string, Record<string, unknown>> } })._def
     .record[name] ?? {}
 
-const profileInput = (name: string) => ({
-  name,
-  candidates: [{ harness: 'claude-code' as const, model: 'auto', effort: 'high' }],
+/** A device-minted profile id per name, stable within a test. */
+const profileId = (name: string) =>
+  `agp_00000000-0000-4000-8000-${Buffer.from(name).toString('hex').padEnd(12, '0').slice(0, 12)}`
+
+/** `records.agentProfile.create`'s input (POD-6676). */
+const profileCreate = (name: string) => ({
+  id: profileId(name),
+  fields: {
+    name,
+    candidates: [{ harness: 'claude-code' as const, model: 'auto', effort: 'high' }],
+  },
 })
 
 /** A member account that exists, so its role is read live. */
@@ -56,27 +64,33 @@ describe('the sync families on the entry point', () => {
     for (const name of FAMILY_COMMAND_NAMES) expect(names, name).toContain(name)
   })
 
-  it('agentProfiles.create applies once with a receipt; the replay answers the recorded profile', async () => {
+  it('records.agentProfile.create applies once with a receipt and its change entry', async () => {
     const o = await makeOracle()
-    const { result } = await expectAppliedOnPath(
+    const { rows } = await expectAppliedOnPath(
       o,
-      envelope('agentProfiles.create', profileInput('critique'), 'mut_profile_create'),
-      // Agent profiles are not on the change log yet (POD-5802 moves them).
-      { writes: false },
+      envelope('records.agentProfile.create', profileCreate('critique'), 'mut_profile_create'),
+      // A profile is a synced record (POD-6676): its row reaches the log.
+      { writes: true },
     )
-    expect(result).toMatchObject({ name: 'critique' })
+    expect(rows.map((row) => [row.entity, row.entityId])).toEqual([
+      ['agentProfile', profileId('critique')],
+    ])
     expect((await o.call.agentProfiles.list({})).map((p) => p.name)).toContain('critique')
   })
 
   it("a handler's own refusal is a rejected reply that carries its message", async () => {
     const o = await makeOracle()
     appliedReply(
-      await submit(o, envelope('agentProfiles.create', profileInput('dup'), 'mut_dup_1')),
+      await submit(o, envelope('records.agentProfile.create', profileCreate('dup'), 'mut_dup_1')),
     )
 
     const reply = await submit(
       o,
-      envelope('agentProfiles.create', profileInput('dup'), 'mut_dup_2'),
+      envelope(
+        'records.agentProfile.create',
+        { ...profileCreate('dup'), id: 'agp_00000000-0000-4000-8000-0000000000d2' },
+        'mut_dup_2',
+      ),
     )
     expect(reply).toEqual({
       outcome: 'rejected',
@@ -90,15 +104,15 @@ describe('the sync families on the entry point', () => {
   it('the target check refuses a member before the handler, with no message', async () => {
     const o = await makeOracle()
     const user = await member(o)
-    const create = vi.spyOn(o.reg.modules.agentProfiles, 'create')
+    const create = vi.spyOn(o.reg.modules.agentProfiles, 'createRecord')
 
     const reply = await submitAs(
       o,
       userCommandPrincipal(user, 'member'),
-      'agentProfiles.create',
-      profileInput('nope'),
+      'records.agentProfile.create',
+      profileCreate('nope'),
     )
-    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+    expect(reply).toMatchObject({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
     expect(create).not.toHaveBeenCalled()
   })
 
@@ -182,33 +196,21 @@ describe('the old routes of the sync families', () => {
     expect(routerRecord('conversations').setMeta).toBeUndefined()
   })
 
+  it('agent profiles have no write route: their writes are the record kind (POD-6676)', () => {
+    for (const key of ['create', 'update', 'delete', 'import']) {
+      expect(routerRecord('agentProfiles')[key], `agentProfiles.${key}`).toBeUndefined()
+    }
+  })
+
   it('the routes shipped clients still call are served, as mutations', () => {
     const verbOf = (proc: unknown) => (proc as { _def?: { type?: string } } | undefined)?._def?.type
-    for (const key of ['create', 'update', 'delete', 'import']) {
-      expect(verbOf(routerRecord('agentProfiles')[key]), `agentProfiles.${key}`).toBe('mutation')
-    }
     expect(verbOf(routerRecord('settings').updateInstance)).toBe('mutation')
   })
 
   it('each kept route is a thin adapter onto the entry point', async () => {
     const o = await makeOracle()
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
-
-    const profile = await o.call.agentProfiles.create(profileInput('via-route'))
-    expect(profile).toMatchObject({ name: 'via-route' })
     await o.call.settings.updateInstance({ values: { 'hibernation.memoryPct': 75 } })
-
-    expect(entry.mock.calls.map(([env]) => env.command)).toEqual([
-      'agentProfiles.create',
-      'settings.updateInstance',
-    ])
-  })
-
-  it("a kept route answers a handler's refusal with the family's own error", async () => {
-    const o = await makeOracle()
-    await o.call.agentProfiles.create(profileInput('twice'))
-    await expect(o.call.agentProfiles.create(profileInput('twice'))).rejects.toThrow(
-      "a profile named 'twice' already exists",
-    )
+    expect(entry.mock.calls.map(([env]) => env.command)).toEqual(['settings.updateInstance'])
   })
 })

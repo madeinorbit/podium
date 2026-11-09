@@ -1,4 +1,5 @@
 import {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
@@ -21,8 +22,13 @@ import {
   SessionMeta,
   SessionUserStateWire,
   SuperagentThreadWire,
+  SubscriptionWire,
   TabOrderWire,
   UserPreferencesWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -269,6 +275,19 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Visibility class `per-user-state`: its owner's principals only. Additive:
    *  an older build parses these rows as {@link UnknownMetadataChange}. */
   metadataChangeArm(z.literal('superagentThread'), SuperagentThreadWire),
+  /** Agent profiles, workflows and automation trigger subscriptions
+   *  (POD-6676, ADR 12 D1; design POD-5620 §1.9-1.11). A profile is instance
+   *  substrate (every member); a workflow, its revisions, a binding and a run
+   *  follow their owner; a subscription its subscriber (row id
+   *  `subscriptionRowId`). A binding is keyed `workflowBindingRowId`. Additive:
+   *  an older build parses these rows as {@link UnknownMetadataChange} and
+   *  advances. */
+  metadataChangeArm(z.literal('agentProfile'), AgentProfileWire),
+  metadataChangeArm(z.literal('workflow'), WorkflowWire),
+  metadataChangeArm(z.literal('workflowRevision'), WorkflowRevisionWire),
+  metadataChangeArm(z.literal('workflowBinding'), WorkflowBindingWire),
+  metadataChangeArm(z.literal('workflowRun'), WorkflowRunRecord),
+  metadataChangeArm(z.literal('subscription'), SubscriptionWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -295,6 +314,12 @@ export const MetadataEntityKind = z.enum([
   'tabOrder',
   'userPreferences',
   'superagentThread',
+  'agentProfile',
+  'workflow',
+  'workflowRevision',
+  'workflowBinding',
+  'workflowRun',
+  'subscription',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

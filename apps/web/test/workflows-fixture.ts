@@ -4,8 +4,10 @@ import type { Trpc } from '../src/app/trpc'
 import type { AgentProfileRow } from '../src/features/workflows/use-workflows'
 import { createHeaderFixture } from './header-fixture'
 
-/** Synthetic workflow RPC data over the actual provider runtime and replica.
- * The RPC hook is the only workflow source; no workflow rows enter the feed. */
+/** Synthetic workflow records over the actual provider runtime and replica:
+ * profiles, the workflow, its revision and the runs arrive on the feed as
+ * synced records (POD-6676). The RPC answers only the writes (`sync.submit`)
+ * and a run's history (`workflows.status`). */
 export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCount) {
   const fixture = createHeaderFixture(issueCount, sessionCount)
   const stamp = new Date(Date.now() - 3600000).toISOString()
@@ -43,17 +45,32 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
     steps: index === 3 ? [activeStep] : [], history: [{ kind: 'run.started', actorKind: 'session', actorId: 'synthetic-session-0', onBehalfOf: index ? null : 'synthetic-human', createdAt: stamp }],
     startedAt: stamp, completedAt: null,
   }))
+  // The records, as the feed carries them: a run names its revision by id and
+  // carries no history.
+  const put = (entity: string, entityId: string, value: unknown) =>
+    fixture.records.set(`${entity}:${entityId}`, { entity, entityId, value, provenance: { seq: 1 } } as never)
+  for (const profile of profiles) put('agentProfile', profile.id, profile)
+  put('workflow', detail.workflow.id, detail.workflow)
+  for (const revision of detail.revisions) put('workflowRevision', revision.id, revision)
+  for (const run of runs) {
+    const { revision, history: _history, ...rest } = run
+    put('workflowRun', run.id, { ...rest, revisionId: revision.id, workflowId: revision.workflowId })
+  }
   const calls: Record<string, number> = {}
   let denial: string | null = null
   const query = <T>(key: string, read: () => T) => async () => { calls[key] = (calls[key] ?? 0) + 1; return read() }
-  const skip = query('skip', () => { if (denial) throw new Error(denial); return runs[3] })
+  const submit = async (envelope: { command: string; input: { runId?: string } }) => {
+    const key = envelope.command.replace(/^workflows\./, '')
+    calls[key] = (calls[key] ?? 0) + 1
+    if (denial) return { outcome: 'rejected', refusal: { kind: 'unauthorized', message: denial } }
+    return { outcome: 'applied', result: runs[3], receipt: { feedId: 'f', epoch: 'e', seq: 2 }, replayed: false }
+  }
   Object.assign(fixture.api, {
     discovery: { refreshRepos: { mutate: query('discovery', () => ({ repositories: [], machines: [...machines], diagnostics: [] })) } },
+    sync: { submit: { mutate: submit } },
     workflows: {
-      list: { query: query('list', () => [detail.workflow]) }, bindings: { query: query('bindings', () => []) },
-      runs: { query: query('runs', () => runs) }, get: { query: query('get', () => detail) }, skip: { mutate: skip },
+      status: { query: async (input: { runId: string }) => { calls.status = (calls.status ?? 0) + 1; return runs.find((run) => run.id === input.runId) } },
     },
-    agentProfiles: { list: { query: query('profiles', () => profiles) } },
   })
   return { ...fixture, get replica() { return fixture.replica }, api: fixture.api as unknown as Trpc, machines, profiles, runs, detail, calls,
     denyWrites(message: string | null) { denial = message },

@@ -12,6 +12,8 @@ import {
 } from '@podium/model'
 import type {
   WorkflowGitObservation as GitObservation,
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
   WorkflowNextActionWire,
   WorkflowRevisionWire,
   WorkflowRunStepWire,
@@ -37,6 +39,8 @@ import {
   type WorkflowPolicyPorts,
   WorkflowRefusal,
 } from './handlers/context'
+import { assignHandler } from './handlers/library'
+import { committedWorkflowWrite, recordedWorkflowStore, type WorkflowChangeWriter } from './records'
 import { dispatchWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
 
 /**
@@ -145,6 +149,13 @@ export interface WorkflowServiceDeps {
    * The honest type forces the `afterCommit` hand-off in `advances.ts`.
    */
   notifyCoordinator?(sessionId: SessionId, text: string): Promise<void>
+  /**
+   * The feed's own writer (the `feed.workflows` mirror origin, POD-6676): an
+   * operation no command's writer reaches (the run a spawn starts, inside
+   * whichever operation spawned the session) commits its rows and their change
+   * entries through it. Absent (the engine's unit tests), writes publish nothing.
+   */
+  changes?: WorkflowChangeWriter
 }
 
 function globalTargetId(): string {
@@ -201,12 +212,28 @@ export interface WorkflowEngine {
 }
 
 export class WorkflowService implements WorkflowEngine {
+  /** The deps with the repository recording what each write touched, so every
+   *  operation's records reach the feed (`records.ts`). */
+  private readonly deps: WorkflowServiceDeps
+
   constructor(
-    private readonly deps: WorkflowServiceDeps,
+    deps: WorkflowServiceDeps,
     ports?: WorkflowPolicyPorts & { ledger?: AdvanceIdempotencyPort },
   ) {
-    this.access = new WorkflowAccess(deps, ports)
+    this.deps = {
+      ...deps,
+      store: recordedWorkflowStore(deps.store, { strict: deps.changes !== undefined }),
+    }
+    this.access = new WorkflowAccess(this.deps, ports)
     this.ledger = ports?.ledger
+  }
+
+  /** Run one operation as one commit of its rows and their change entries. */
+  private async committed<T>(
+    writer: WorkflowChangeWriter | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return await committedWorkflowWrite(this.deps.store, writer ?? this.deps.changes, operation)
   }
 
   /**
@@ -514,6 +541,18 @@ export class WorkflowService implements WorkflowEngine {
     /** The delegating human, when the caller could resolve one. */
     onBehalfOf?: string | null
   }): Promise<WorkflowRunWire> {
+    return await this.committed(undefined, async () => await this.startRunNow(input))
+  }
+
+  private async startRunNow(input: {
+    sessionId: SessionId
+    cwd: string
+    issueId?: IssueId
+    revisionId: string
+    supersedesRunId?: string
+    startStepId?: string
+    onBehalfOf?: string | null
+  }): Promise<WorkflowRunWire> {
     const subjectKind = input.issueId ? 'issue' : 'session'
     const subjectId = input.issueId ?? input.sessionId
     const existing = await this.deps.store.findLiveRun(subjectKind, subjectId)
@@ -765,7 +804,11 @@ export class WorkflowService implements WorkflowEngine {
     caller: WorkflowCaller,
     proc: N,
     rawInput: unknown,
-    opts: Pick<WorkflowHandlerContext, 'afterCommit'> = {},
+    opts: Pick<WorkflowHandlerContext, 'afterCommit'> & {
+      /** The command's writer: the operation's rows and their change entries
+       *  commit on it (POD-6676). Absent: the service's own. */
+      writer?: WorkflowChangeWriter
+    } = {},
   ): ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']> {
     const ctx: WorkflowHandlerContext = {
       caller,
@@ -774,12 +817,36 @@ export class WorkflowService implements WorkflowEngine {
       engine: this,
       ...(opts.afterCommit !== undefined ? { afterCommit: opts.afterCommit } : {}),
     }
-    return dispatchWorkflowCommand(
-      proc,
-      ctx,
-      rawInput,
-      this.ledger ? { ledger: this.ledger } : {},
+    return this.committed(
+      opts.writer,
+      async () =>
+        await dispatchWorkflowCommand(
+          proc,
+          ctx,
+          rawInput,
+          this.ledger ? { ledger: this.ledger } : {},
+        ),
     ) as ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
+  }
+
+  /**
+   * MAKE A TARGET RUN A REVISION: `records.workflowBinding.edit` (POD-6676),
+   * which replaced `workflows.assign`. Its checks are assign's, unchanged.
+   */
+  async assign(
+    caller: WorkflowCaller,
+    input: { targetKind: WorkflowBindingTarget; targetId: string; revisionId: string },
+    writer?: WorkflowChangeWriter,
+    afterCommit?: WorkflowHandlerContext['afterCommit'],
+  ): Promise<WorkflowBindingWire> {
+    const ctx: WorkflowHandlerContext = {
+      caller,
+      deps: this.deps,
+      access: this.access,
+      engine: this,
+      ...(afterCommit !== undefined ? { afterCommit } : {}),
+    }
+    return await this.committed(writer, async () => await assignHandler(ctx, input))
   }
 
   /**
@@ -802,7 +869,7 @@ export class WorkflowService implements WorkflowEngine {
    */
   async targetRefusal(
     caller: WorkflowCaller,
-    proc: WorkflowProcName,
+    proc: WorkflowProcName | 'assign',
     input: unknown,
   ): Promise<WorkflowRefusal | undefined> {
     const named = (input ?? {}) as { workflowId?: string; revisionId?: string; runId?: string }

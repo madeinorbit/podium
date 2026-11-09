@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, subscriptionRowIdOf } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -691,17 +691,34 @@ describe('issues.subscription* authz (Phase B)', () => {
     ).toEqual([])
   })
 
+  /** A generic record write on the sync write entry point (POD-6676): a
+   *  subscription's toggle and removal are its record's edits. */
+  const submit = async (
+    caller: ReturnType<typeof callerWith>,
+    command: string,
+    input: unknown,
+  ): Promise<{ outcome: string }> =>
+    (await caller.sync.submit({
+      mutationId: `mut_${Math.random().toString(36).slice(2)}`,
+      command,
+      version: 1,
+      input,
+    })) as { outcome: string }
+
   it('a subtree caller may only remove its OWN subscription', async () => {
     const sa = await scopedTo(A.id).issues.subscriptionAdd({
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
     })
-    await expect(scopedTo(B.id).issues.subscriptionRemove({ id: sa.id })).rejects.toThrow(
-      /do not own/,
-    )
-    await expect(scopedTo(A.id).issues.subscriptionRemove({ id: sa.id })).resolves.toMatchObject({
-      removed: true,
-    })
+    const id = subscriptionRowIdOf(sa)
+    // Another subscriber's subscription fails as an unknown one.
+    expect(
+      (await submit(scopedTo(B.id), 'records.subscription.remove', { id })).outcome,
+    ).toBe('rejected')
+    expect(
+      (await submit(scopedTo(A.id), 'records.subscription.remove', { id })).outcome,
+    ).toBe('applied')
+    expect(await scopedTo(A.id).issues.subscriptionList()).toEqual([])
   })
 
   it('the operator creates a subscription for an EXPLICIT subscriber (Automations UI)', async () => {
@@ -728,18 +745,21 @@ describe('issues.subscription* authz (Phase B)', () => {
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
     })
+    const id = subscriptionRowIdOf(sa)
+    const toggle = (enabled: boolean) => ({ id, patch: { enabled } })
     // Operator toggles it off, then a foreign subtree caller is refused.
-    await expect(
-      callerWith(OPERATOR).issues.subscriptionSetEnabled({ id: sa.id, enabled: false }),
-    ).resolves.toMatchObject({ updated: true })
+    expect(
+      (await submit(callerWith(OPERATOR), 'records.subscription.edit', toggle(false))).outcome,
+    ).toBe('applied')
     expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(false)
-    await expect(
-      scopedTo(B.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
-    ).rejects.toThrow(/do not own/)
+    expect(
+      (await submit(scopedTo(B.id), 'records.subscription.edit', toggle(true))).outcome,
+    ).toBe('rejected')
     // The owner may re-enable it.
-    await expect(
-      scopedTo(A.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
-    ).resolves.toMatchObject({ updated: true })
+    expect(
+      (await submit(scopedTo(A.id), 'records.subscription.edit', toggle(true))).outcome,
+    ).toBe('applied')
+    expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(true)
   })
 })
 

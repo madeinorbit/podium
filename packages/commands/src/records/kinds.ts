@@ -17,6 +17,9 @@
  */
 
 import {
+  AgentCandidates,
+  AgentProfileName,
+  AgentProfileWire,
   EffectDecision,
   EffectIdField,
   EffectRecordWire,
@@ -27,15 +30,18 @@ import {
   isLayoutKey,
   LayoutKeyField,
   LayoutWire,
+  MAX_AGENT_PROFILE_INSTRUCTIONS,
   NewIssueId,
   PinWire,
   parseLayoutRowId,
   parsePinRowId,
   parseReadPositionRowId,
   parseSuperagentThreadRowId,
+  parseSubscriptionRowId,
   parseTabOrderRowId,
   parseUserEntityKey,
   parseUserPreferencesRowId,
+  parseWorkflowBindingRowId,
   ReadPositionWire,
   ReadStreamIdField,
   ROW,
@@ -47,11 +53,17 @@ import {
   SuperagentThreadKind,
   SuperagentThreadWire,
   SuperagentTurnFailureWire,
+  SubscriberKind,
+  SubscriptionOrigin,
+  SubscriptionSourceKind,
+  SubscriptionWire,
   TabOrderWire,
   ThreadIdField,
   USER_PREFERENCE_LEAVES,
   UserIdField,
   UserPreferencesWire,
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
   WorkState,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
@@ -789,6 +801,236 @@ export const SUPERAGENT_THREAD_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// agentProfile, subscription, workflowBinding (POD-6676, ADR 12 D1; design
+// POD-5620 §1.9-1.11)
+// ---------------------------------------------------------------------------
+
+/** An existing profile's id: a minted `agp_<uuid>` or a starter's `agp_seed_<name>`. */
+const AgentProfileRef = z.string().regex(/^agp_[A-Za-z0-9_-]+$/, 'an agent profile id')
+/** A new profile's id, minted on the device (ADR 12 D4). */
+const NewAgentProfileId = z
+  .string()
+  .regex(/^agp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, 'agp_<uuid>')
+
+const AGENT_PROFILE_RATIONALE =
+  'Instance-wide configuration every issue and session may point at, so the floor is ADMIN, as ' +
+  '`agentProfiles.create/update/delete` were: the matrix row `agent-profiles` says "Write is ' +
+  'admin-grade, and never an agent session’s". Flight deck D4’s people-only rule (an agent session ' +
+  'is refused even under an admin’s delegation) is the adapter’s target check, because a role floor ' +
+  'cannot say it. No `machineVerb`: saving a profile that names a machine places no work there; ' +
+  '`use` is checked when a session spawns.'
+
+const AGENT_PROFILE_WRITE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'admin',
+  resource: 'settings-domain',
+  confirmation: 'none',
+  rationale: AGENT_PROFILE_RATIONALE,
+}
+
+const AGENT_PROFILE_REMOVE: CommandPolicy = {
+  action: 'manage',
+  roleFloor: 'admin',
+  resource: 'settings-domain',
+  confirmation: 'none',
+  rationale:
+    `${AGENT_PROFILE_RATIONALE} A removal deletes the row; it is refused while an open issue points ` +
+    'at the profile, and sessions keep the values they ran with.',
+}
+
+/**
+ * AN AGENT PROFILE (design 1.9): every field but the timestamps is spec,
+ * field-level last writer wins. Names stay unique (the adapter refuses a clash),
+ * a machine is named by id (the CLI resolves a name first), and a profile an
+ * open issue uses cannot be removed. Online only, as before: profile edits are
+ * rare and made with the server in reach, and nothing is lost by refusing one
+ * offline.
+ */
+export const AGENT_PROFILE_RECORD = defineSyncedKind({
+  kind: 'agentProfile',
+  title: 'agent profile',
+  wire: AgentProfileWire,
+  ref: AgentProfileRef,
+  newId: NewAgentProfileId,
+  conflict: 'field-LWW',
+  fields: {
+    name: spec(AgentProfileName, ROW.agentProfiles, { required: true }),
+    description: spec(z.string().trim().max(2_000), ROW.agentProfiles, { default: '' }),
+    candidates: spec(AgentCandidates, ROW.agentProfiles, { default: [] }),
+    machineId: spec(z.string().min(1).nullable(), ROW.agentProfiles, { default: null }),
+    instructions: spec(z.string().max(MAX_AGENT_PROFILE_INSTRUCTIONS), ROW.agentProfiles, {
+      default: '',
+    }),
+    createdAt: status(z.string(), ROW.agentProfiles),
+    updatedAt: status(z.string(), ROW.agentProfiles),
+  },
+  ops: {
+    create: { policy: AGENT_PROFILE_WRITE, note: 'A new named agent setup.' },
+    edit: { policy: AGENT_PROFILE_WRITE, note: 'Change a profile, field by field.' },
+    remove: { policy: AGENT_PROFILE_REMOVE, note: 'Delete a profile no open issue uses.' },
+  },
+  visibility: 'deployment-substrate',
+  exposure: SUBMIT_ONLY,
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'Answered now on `sync.submit` (ADR 12 D2), never queued: profile edits are rare, made from the ' +
+      'CLI with the server in reach, and nothing is lost by refusing one offline; the caller runs it ' +
+      'again.',
+    applyTimeReauthorization:
+      'Re-authorized live at apply: the caller’s role is read at that moment, so an admin demoted ' +
+      'mid-call is refused.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'Nothing redacted. A profile holds harness and model NAMES, effort levels, a machine reference ' +
+      'and instruction text written by the instance’s own people; no credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Every profile is visible to every member (substrate): there is no hidden row to reveal.',
+  },
+  creates: {
+    creates: ['agent-profile'],
+    owner: 'on-behalf-of-human',
+    visibility: 'deployment-substrate',
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note:
+      'A profile has no owner (`owner: none, substrate`): it belongs to the deployment. Its creator ' +
+      'is recorded as `created_by`, history only, never a grant.',
+  },
+  fresh: {
+    cells: {},
+    pending: { createdAt: (ctx) => ctx.at, updatedAt: (ctx) => ctx.at },
+  },
+})
+
+const SUBSCRIPTION_WRITE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'none',
+  confirmation: 'none',
+  rationale:
+    'A subscription is its SUBSCRIBER’s (POD-6288): a person changes only one whose subscriber is a ' +
+    'session they own or a task assigned to them, an agent only its own derived subscriber’s, as ' +
+    '`issues.subscriptionSetEnabled` and `subscriptionRemove` did. Admins get the same: a nudge ' +
+    'drives the subscriber’s agent, so nobody else’s is theirs to change. No confirmation: a toggle ' +
+    'is reversible and a removal changes only what wakes the caller’s own agent.',
+}
+
+/**
+ * AN AUTOMATION TRIGGER SUBSCRIPTION (design 1.11). `enabled` is its one spec
+ * field and removing it the other write, both its subscriber's own. A
+ * subscription is created by `issues.subscriptionAdd`, which resolves the
+ * source and checks the watched source is in reach. The row id carries the
+ * subscriber (`subscriptionRowId`).
+ */
+export const SUBSCRIPTION_RECORD = defineSyncedKind({
+  kind: 'subscription',
+  title: 'subscription',
+  wire: SubscriptionWire,
+  ref: rowRef(parseSubscriptionRowId, 'a subscription row id'),
+  conflict: 'single-writer',
+  fields: {
+    subscriberKind: key(SubscriberKind, ROW.eventSubscriptions),
+    subscriberId: key(z.string(), ROW.eventSubscriptions),
+    event: key(z.string(), ROW.eventSubscriptions),
+    sourceKind: key(SubscriptionSourceKind, ROW.eventSubscriptions),
+    sourceRef: key(z.string(), ROW.eventSubscriptions),
+    deliverNudge: key(z.boolean(), ROW.eventSubscriptions),
+    deliverNotify: key(z.boolean(), ROW.eventSubscriptions),
+    origin: status(SubscriptionOrigin, ROW.eventSubscriptions),
+    enabled: spec(z.boolean(), ROW.eventSubscriptions),
+    createdAt: status(z.string(), ROW.eventSubscriptions),
+  },
+  ops: {
+    edit: { policy: SUBSCRIPTION_WRITE, note: 'Turn one of my trigger subscriptions on or off.' },
+    remove: { policy: SUBSCRIPTION_WRITE, note: 'Remove one of my trigger subscriptions.' },
+  },
+  visibility: 'personal',
+  // An agent removes its own subscriptions (`podium issue subscription remove`).
+  exposure: SUBMIT_AND_RELAY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'An event name, a source reference and two flags; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another subscriber’s subscription fails as an unknown one.',
+  },
+})
+
+const WORKFLOW_BINDING_WRITE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'issue',
+  confirmation: 'confirm',
+  rationale:
+    'As `workflows.assign`: a binding attaches a revision the caller may read to a target, and the ' +
+    'authority it needs is over the TARGET. An issue binding needs the issue (an agent’s scope, ' +
+    'widened by its confirmation), a session binding that session and its machine’s `use`; the ' +
+    'global and repository arms are substrate and admin-grade, and take only a published revision.',
+}
+
+/**
+ * WHICH WORKFLOW REVISION A TARGET RUNS (design 1.10): `{ targetKind,
+ * targetId } → revisionId`, keyed by the target (`workflowBindingRowId`), one
+ * per target, last writer wins. An edit sets it whether or not one was set
+ * before; there is no create.
+ */
+export const WORKFLOW_BINDING_RECORD = defineSyncedKind({
+  kind: 'workflowBinding',
+  title: 'workflow binding',
+  wire: WorkflowBindingWire,
+  ref: rowRef((id) => {
+    if (parseWorkflowBindingRowId(id) === undefined) throw new Error('not a binding id')
+  }, 'a workflow binding row id'),
+  conflict: 'field-LWW',
+  fields: {
+    targetKind: key(WorkflowBindingTarget, ROW.workflowBindings),
+    targetId: key(z.string(), ROW.workflowBindings),
+    revisionId: spec(z.string().min(1), ROW.workflowBindings),
+    updatedAt: status(z.string(), ROW.workflowBindings),
+  },
+  ops: {
+    edit: { policy: WORKFLOW_BINDING_WRITE, note: 'Make a target run a workflow revision.' },
+  },
+  visibility: 'personal',
+  // An agent binds its own session (`podium workflow assign`), as before.
+  exposure: SUBMIT_AND_RELAY,
+  // Offline-eligible, as `workflows.assign` was: the checks run at apply, live.
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A target reference and a revision id; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: true,
+    note:
+      'A revision the caller may not read fails as an unknown one; the one carve-out is placement: ' +
+      'a session on a machine the caller may not use is unauthorized, one that is offline is ' +
+      'unreachable (readiness §3.1.4 M5), as `workflows.assign`.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -802,6 +1044,9 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   USER_READ_POSITION_RECORD,
   EFFECT_RECORD,
   SUPERAGENT_THREAD_RECORD,
+  AGENT_PROFILE_RECORD,
+  SUBSCRIPTION_RECORD,
+  WORKFLOW_BINDING_RECORD,
 ]
 
 /**
@@ -837,6 +1082,21 @@ export const NOT_YET_GENERIC: Readonly<
   machine: { reason: 'Machine spec moves with POD-5802.', by: 'POD-5802' },
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
+    by: 'never (status)',
+  },
+  workflow: {
+    reason:
+      'A definition is written with its revisions: create, fork, revise and publish append a revision or move the server’s revision pointers (`append`/`cmd`), on sync.submit as `workflows.*`; no field takes a plain edit (POD-6676).',
+    by: 'never (workflows.*)',
+  },
+  workflowRevision: {
+    reason:
+      'Immutable once written: appended by `workflows.revise` and stamped by `workflows.publish`.',
+    by: 'never (append)',
+  },
+  workflowRun: {
+    reason:
+      'All status: the run state machine is the server’s, moved by the run commands (`workflows.*`).',
     by: 'never (status)',
   },
 }

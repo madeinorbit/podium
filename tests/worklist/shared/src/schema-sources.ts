@@ -5,6 +5,7 @@ import { AccountView, MemberView, RequestRecordKey } from '@podium/model'
 import '@podium/client-graph/message-models'
 import { PendingInteractionWire } from '@podium/protocol'
 import '@podium/client-graph/synced-models'
+import '@podium/client-graph/workflow-models'
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
  * the real definition in `@podium/model`.
@@ -29,6 +30,7 @@ import {
   SCHEMA,
 } from '@podium/client-graph/shared/schema'
 import {
+  AgentProfileWire,
   AgentRuntimeState,
   MessageRecordWire,
   MessageLedgerWire,
@@ -59,6 +61,11 @@ import {
   SessionMeta,
   SessionOffer,
   SessionUserStateWire,
+  SubscriptionWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 
 /** The minimum a zod object exposes that the validator needs. */
@@ -87,6 +94,12 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   PersonalPreferences,
   ReadPositionWire,
   SuperagentThreadWire,
+  AgentProfileWire,
+  WorkflowWire,
+  WorkflowRevisionWire,
+  WorkflowBindingWire,
+  WorkflowRunRecord,
+  SubscriptionWire,
   IssueUserStateWire,
   IssueGitStateProjection,
   IssueDerived,

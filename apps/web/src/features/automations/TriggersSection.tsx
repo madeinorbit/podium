@@ -1,8 +1,11 @@
-import { asAutomationId } from '@podium/model'
-import type { AutomationId } from '@podium/model'
+import { useCurrentPrincipal } from '@podium/client-core/react'
+import type { SubscriptionModel } from '@podium/client-graph/models'
+import { mySubscriptions } from '@podium/client-graph/workflow-views'
 import { Bell, CircleCheck, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useRuntimeActions } from '@/app/keyed-runtime'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,15 +28,12 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
-/** A durable event subscription row, inferred from the tRPC contract so the UI
- *  tracks the server's `Subscription` shape without re-declaring it. */
-type Subscription = Awaited<ReturnType<Trpc['issues']['subscriptionList']['query']>>[number]
+/** A trigger subscription as the pool's shared model (POD-6676): a synced
+ *  record, keyed by its feed id; `subscriptionId` is its stored id. */
+type Subscription = SubscriptionModel
 
-/** The operator's subscriptions are read one page at a time, oldest first
- *  (POD-6209); a reload re-reads as many as are shown, up to the server's
- *  largest page. */
-const TRIGGER_PAGE = 100
-const TRIGGER_PAGE_MAX = 500
+const NO_SUBSCRIPTIONS: readonly Subscription[] = Object.freeze([])
+const TRIGGER_ACTIONS = ['setSubscriptionEnabled', 'removeSubscription'] as const
 
 /** The event-subscription kinds a trigger can match. Mirrors the steward's
  *  subscription-event vocabulary (issue lifecycle + session state). */
@@ -91,63 +91,38 @@ function subscriptionSentence(s: Subscription): string {
 
 /**
  * The Notification triggers surface — real, backend-wired event subscriptions.
- * Lists live subscriptions (operator sees all), toggles/deletes them, shows the
+ * Lists my subscriptions from the pool, toggles/deletes them, shows the
  * code-defined built-in defaults read-only, and composes new custom triggers.
  */
 export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
-  const [subs, setSubs] = useState<Subscription[] | null>(null)
+  // My subscriptions are synced records (POD-6676): a toggle or a removal on my
+  // other device, or a new one an agent made, shows here without a request, and
+  // the saved copy answers offline. A toggle and a removal are generic edits,
+  // queued and painted at once; a refusal shows in the outbox's notices.
+  const principal = useCurrentPrincipal()
+  const pool = useWorklistPool()
+  const viewer = principal?.userId
+  const read = useCallback(
+    (p: Parameters<typeof mySubscriptions>[0]) => mySubscriptions(p, viewer),
+    [viewer],
+  )
+  const subs = useWorklistPoolProjection(read, NO_SUBSCRIPTIONS)
+  const { setSubscriptionEnabled, removeSubscription } = useRuntimeActions(TRIGGER_ACTIONS)
   const [error, setError] = useState('')
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const shown = useRef(TRIGGER_PAGE)
 
-  const reload = useCallback((): void => {
-    const limit = Math.min(TRIGGER_PAGE_MAX, Math.max(TRIGGER_PAGE, shown.current))
-    trpc.issues.subscriptionList
-      .query({ limit })
-      .then((rows) => {
-        setSubs(rows)
-        setHasMore(rows.length === limit)
-        setError('')
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-  }, [trpc])
-
-  const loadMore = (): void => {
-    const last = subs?.at(-1)
-    if (!subs || !last) return
-    trpc.issues.subscriptionList
-      .query({ after: { createdAt: last.createdAt, id: last.id }, limit: TRIGGER_PAGE })
-      .then((page) => {
-        const next = [...subs, ...page]
-        shown.current = next.length
-        setSubs(next)
-        setHasMore(page.length === TRIGGER_PAGE)
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  const setEnabled = (id: string, enabled: boolean): void => {
+    setError('')
+    setSubscriptionEnabled(id, enabled).catch((e: unknown) =>
+      setError(e instanceof Error ? e.message : String(e)),
+    )
   }
 
-  useEffect(() => {
-    reload()
-  }, [reload])
-
-  const setEnabled = (id: AutomationId, enabled: boolean): void => {
-    setBusyId(id)
-    trpc.issues.subscriptionSetEnabled
-      .mutate({ id, enabled })
-      .then(() => reload())
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusyId(null))
-  }
-
-  const remove = (id: AutomationId): void => {
-    setBusyId(id)
-    trpc.issues.subscriptionRemove
-      .mutate({ id })
-      .then(() => reload())
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusyId(null))
+  const remove = (id: string): void => {
+    setError('')
+    removeSubscription(id).catch((e: unknown) =>
+      setError(e instanceof Error ? e.message : String(e)),
+    )
   }
 
   return (
@@ -172,7 +147,7 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
         </div>
       )}
 
-      {subs === null ? (
+      {pool === null ? (
         <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-3 text-[12px] text-muted-foreground">
           <LoaderCircle size={14} aria-hidden="true" className="animate-spin" /> Loading triggers…
         </div>
@@ -186,16 +161,10 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
             <TriggerRow
               key={s.id}
               sub={s}
-              busy={busyId === s.id}
-              onToggle={(v) => setEnabled(asAutomationId(s.id), v)}
-              onRemove={() => remove(asAutomationId(s.id))}
+              onToggle={(v) => setEnabled(s.id, v)}
+              onRemove={() => remove(s.id)}
             />
           ))}
-          {hasMore && (
-            <Button type="button" size="sm" variant="outline" onClick={loadMore}>
-              Show more
-            </Button>
-          )}
         </div>
       )}
 
@@ -220,10 +189,8 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
         <NewTriggerDialog
           trpc={trpc}
           onClose={() => setCreating(false)}
-          onCreated={() => {
-            setCreating(false)
-            reload()
-          }}
+          // The new subscription arrives on the feed; nothing to re-read.
+          onCreated={() => setCreating(false)}
         />
       )}
     </div>
@@ -232,12 +199,10 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
 
 function TriggerRow({
   sub,
-  busy,
   onToggle,
   onRemove,
 }: {
   sub: Subscription
-  busy: boolean
   onToggle: (enabled: boolean) => void
   onRemove: () => void
 }): JSX.Element {
@@ -264,7 +229,6 @@ function TriggerRow({
       </div>
       <Switch
         checked={sub.enabled}
-        disabled={busy}
         onCheckedChange={onToggle}
         aria-label={`${sub.enabled ? 'Disable' : 'Enable'} this trigger`}
       />
@@ -273,7 +237,6 @@ function TriggerRow({
         type="button"
         className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-red-500 disabled:opacity-50"
         aria-label="Delete trigger"
-        disabled={busy}
         onClick={onRemove}
       >
         <Trash2 size={14} aria-hidden="true" />

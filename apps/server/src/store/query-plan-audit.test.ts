@@ -257,6 +257,11 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
     ['a1|s0|r0', 'a0|s0|r0', 'a0|s1|r0', 'a0|s1|r1', 'a1|s0|r1'],
   ],
   ['apps/server/src/store/workflows.ts:insertRunSteps', SIZES],
+  // The feed's visibility facts for a batch of workflow-family rows (POD-6676).
+  ['apps/server/src/store/workflows.ts:workflowOwnersOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:revisionWorkflowsOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:bindingOwnersOfTargets', SIZES],
+  ['apps/server/src/store/workflows.ts:runOwnersOfIds', SIZES],
   [
     'apps/server/src/store/conversations/index.ts:recentConversations',
     [
@@ -582,6 +587,14 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/issues.ts:commentCountsByIssue',
     'Whole-table read (POD-6172): countIssueCommentsByIssue is a test oracle only; no production code calls it since the legacy report batch went with the issue map (POD-6158).',
+  ],
+  [
+    'apps/server/src/store/workflows.ts:everyRun',
+    'Whole-table read (POD-6676): every workflow run, with its revision’s workflow, for the `workflowRun` kind’s full-truth reconcile at boot (reconcileWorkflowRecords), once per boot.',
+  ],
+  [
+    'apps/server/src/store/workflows.ts:everyRunStep',
+    'Whole-table read (POD-6676): every run step, read with the runs for the same boot reconcile, in the primary key’s run order; once per boot.',
   ],
   [
     'apps/server/src/store/sessions.ts:allPins',

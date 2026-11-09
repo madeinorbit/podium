@@ -1,6 +1,7 @@
 /** Store-neutral contract implemented by the kernel client facade. */
 
 import type {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
@@ -21,8 +22,13 @@ import type {
   ShipLaneProjection,
   ShipOrderProjection,
   SuperagentThreadWire,
+  SubscriptionWire,
   TabOrderWire,
   UserPreferencesWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { ExitKind } from '@podium/sync/replica'
@@ -120,6 +126,15 @@ export interface ReplicaRows {
   userReadPositions: ReadPositionWire
   /** My superagent threads (POD-6675), keyed `superagentThreadRowId`. */
   superagentThreads: SuperagentThreadWire
+  /** POD-6676: agent profiles, workflows (definitions, revisions, bindings,
+   *  runs) and automation trigger subscriptions, the records each screen
+   *  fetched until then. */
+  agentProfiles: AgentProfileWire
+  workflows: WorkflowWire
+  workflowRevisions: WorkflowRevisionWire
+  workflowBindings: WorkflowBindingWire
+  workflowRuns: WorkflowRunRecord
+  subscriptions: SubscriptionWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -153,6 +168,12 @@ export interface ReplicaHydrateResult {
   userPreferences: UserPreferencesWire[]
   userReadPositions: ReadPositionWire[]
   superagentThreads: SuperagentThreadWire[]
+  agentProfiles: AgentProfileWire[]
+  workflows: WorkflowWire[]
+  workflowRevisions: WorkflowRevisionWire[]
+  workflowBindings: WorkflowBindingWire[]
+  workflowRuns: WorkflowRunRecord[]
+  subscriptions: SubscriptionWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

@@ -592,6 +592,8 @@ function recordPartition(input: { kind: RecordKind; id: string }): string {
   // An effect record's decision queues with that record's other writes.
   if (home.target === 'effects') return `effect:${row}`
   if (home.target === 'superagentThreads') return `thread:${row}`
+  // A subscription's writes queue with that subscription's other writes.
+  if (home.target === 'subscriptions') return `subscription:${row}`
   // A session's own record and its per-user row order with the session's other
   // writes (an offer dismissal), as the per-command kinds did.
   return home.target === 'sessionUserStates' || home.target === 'sessions'

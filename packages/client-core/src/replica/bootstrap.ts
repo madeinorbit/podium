@@ -76,6 +76,12 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   userPreferences: 'userPreferences',
   userReadPosition: 'userReadPositions',
   superagentThread: 'superagentThreads',
+  agentProfile: 'agentProfiles',
+  workflow: 'workflows',
+  workflowRevision: 'workflowRevisions',
+  workflowBinding: 'workflowBindings',
+  workflowRun: 'workflowRuns',
+  subscription: 'subscriptions',
 }
 
 type SnapshotKind = Extract<

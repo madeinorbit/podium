@@ -12,17 +12,18 @@
  * arrives it is one more entry in `workflow-commands.ts` with its own predicate,
  * rendered by the same `CommandButton`, and nothing in this file restructures.
  */
-import type { WorkflowScope } from '@podium/protocol'
+
 import { workflowLibraryEntries, workflowRevisionDetail } from '@podium/client-core/values'
+import type { WorkflowBindingTarget, WorkflowScope } from '@podium/protocol'
 import { Plus, ShieldCheck } from 'lucide-react'
 import type { FormEvent, JSX } from 'react'
 import { useState } from 'react'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import type { WorkflowsSource } from './use-workflows'
+import { cn } from '@/lib/utils'
 import { useWorkflowEditDraft } from './use-workflow-edit-draft'
-import { workflowCommands, type WorkflowRights } from './workflow-commands'
-import { CommandButton, Empty, Field, type Dispatch } from './workflow-ui'
+import type { WorkflowsSource } from './use-workflows'
+import { type WorkflowRights, workflowCommands } from './workflow-commands'
+import { CommandButton, type Dispatch, Empty, Field } from './workflow-ui'
 
 function parseSteps(raw: string): unknown[] {
   const parsed = JSON.parse(raw) as unknown
@@ -355,7 +356,7 @@ function AssignmentPanel({
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
-  const [kind, setKind] = useState('issue')
+  const [kind, setKind] = useState<WorkflowBindingTarget>('issue')
   const [targetId, setTargetId] = useState('')
   const model = source.detail ? workflowRevisionDetail(source.detail) : null
   const head = model?.head
@@ -374,7 +375,11 @@ function AssignmentPanel({
         </p>
       </div>
       <Field label="Target">
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className="input">
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as WorkflowBindingTarget)}
+          className="input"
+        >
           <option value="session">Session</option>
           <option value="issue">Task</option>
           <option value="repository">Repository default</option>
@@ -408,10 +413,7 @@ function AssignmentPanel({
             </p>
           ) : (
             mine.map((binding) => (
-              <div
-                key={`${binding.targetKind}:${binding.targetId}`}
-                className="rounded-md bg-muted/40 p-2 text-[11px]"
-              >
+              <div key={binding.id} className="rounded-md bg-muted/40 p-2 text-[11px]">
                 <div className="font-medium">
                   {binding.targetKind}
                   {binding.targetId ? ` · ${binding.targetId}` : ''}

@@ -39,7 +39,14 @@ import {
   workflows as workflowsTable,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -575,6 +582,106 @@ const appendEventRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+// ---- the synced records' reads (POD-6676) ----------------------------------
+
+/** Under SQLite's bound-parameter limit, like the other batched readers. */
+const ID_CHUNK = 500
+
+/** Each asked workflow's owner and scope, for the feed's visibility pass. */
+const workflowOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      id: workflowsTable.id,
+      ownerUserId: workflowsTable.ownerUserId,
+      scope: workflowsTable.scope,
+    })
+    .from(workflowsTable)
+    .where(inListOf(workflowsTable.id, size))
+    .prepare(),
+)
+
+/** Each asked revision's workflow, with that workflow's owner and scope: a
+ *  revision is read as its workflow is (design §1.10). */
+const revisionWorkflowsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      id: workflowRevisions.id,
+      workflowId: workflowRevisions.workflowId,
+      ownerUserId: workflowsTable.ownerUserId,
+      scope: workflowsTable.scope,
+    })
+    .from(workflowRevisions)
+    .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
+    .where(inListOf(workflowRevisions.id, size))
+    .prepare(),
+)
+
+/** The asked bindings of ONE target kind, through the primary key's prefix. */
+const bindingOwnersOfTargets = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      targetKind: workflowBindings.targetKind,
+      targetId: workflowBindings.targetId,
+      ownerUserId: workflowBindings.ownerUserId,
+    })
+    .from(workflowBindings)
+    .where(
+      and(
+        eq(workflowBindings.targetKind, param(workflowBindings.targetKind, 'targetKind')),
+        inListOf(workflowBindings.targetId, size),
+      ),
+    )
+    .prepare(),
+)
+
+const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: workflowRuns.id, ownerUserId: workflowRuns.ownerUserId })
+    .from(workflowRuns)
+    .where(inListOf(workflowRuns.id, size))
+    .prepare(),
+)
+
+/** Every revision, for the boot reconcile (one read). */
+const everyRevision = prepared((db: StoreDrizzle) =>
+  db.select().from(workflowRevisions).orderBy(asc(workflowRevisions.id)).prepare(),
+)
+
+/** Every run, live and terminal, with its revision's workflow (one read). */
+const everyRun = prepared((db: StoreDrizzle) =>
+  db
+    .select({ ...getTableColumns(workflowRuns), workflowId: workflowRevisions.workflowId })
+    .from(workflowRuns)
+    .innerJoin(workflowRevisions, eq(workflowRevisions.id, workflowRuns.revisionId))
+    .orderBy(asc(workflowRuns.id))
+    .prepare(),
+)
+
+/** Every run step, for the boot reconcile (one read), in the primary key's
+ *  `(run_id, step_id)` order; each run's steps are put in position order after. */
+const everyRunStep = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(workflowRunSteps)
+    .orderBy(asc(workflowRunSteps.runId), asc(workflowRunSteps.stepId))
+    .prepare(),
+)
+
+/** The owner and scope the feed decides a workflow-family row by. */
+export interface WorkflowVisibilityFacts {
+  /** workflow id → its owner (null for a row written before owners) and scope. */
+  readonly workflows: ReadonlyMap<string, { ownerUserId: string | null; scope: WorkflowScope }>
+  /** revision id → its workflow. */
+  readonly revisions: ReadonlyMap<
+    string,
+    { workflowId: string; ownerUserId: string | null; scope: WorkflowScope }
+  >
+  /** binding row id (`kind:id`) → its owner. */
+  readonly bindings: ReadonlyMap<string, string | null>
+  /** run id → its owner. */
+  readonly runs: ReadonlyMap<string, string | null>
+}
+
 export class WorkflowsRepository {
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
@@ -631,6 +738,101 @@ export class WorkflowsRepository {
     return (
       await workflowsWhere(this.db, key).all({ scope: opts.scope, scopeRef: opts.scopeRef })
     ).map(toWorkflow)
+  }
+
+  /**
+   * THE FACTS THE FEED DECIDES WORKFLOW ROWS BY (POD-6676), for one batch of
+   * ids: at most one read per kind per 500 ids (bindings one per target kind
+   * asked), never one per row. An id with no row is absent: nobody's.
+   */
+  async visibilityFacts(asked: {
+    workflowIds: readonly string[]
+    revisionIds: readonly string[]
+    bindings: readonly { targetKind: WorkflowBindingTarget; targetId: string }[]
+    runIds: readonly string[]
+  }): Promise<WorkflowVisibilityFacts> {
+    const chunks = function* (ids: readonly string[]) {
+      const unique = [...new Set(ids)]
+      for (let at = 0; at < unique.length; at += ID_CHUNK) yield unique.slice(at, at + ID_CHUNK)
+    }
+    const workflows = new Map<string, { ownerUserId: string | null; scope: WorkflowScope }>()
+    for (const chunk of chunks(asked.workflowIds)) {
+      const size = inListSize(chunk.length)
+      for (const row of await workflowOwnersOfIds(this.db, size).all(inListValues(chunk, size))) {
+        workflows.set(row.id, {
+          ownerUserId: row.ownerUserId ?? null,
+          scope: row.scope as WorkflowScope,
+        })
+      }
+    }
+    const revisions = new Map<
+      string,
+      { workflowId: string; ownerUserId: string | null; scope: WorkflowScope }
+    >()
+    for (const chunk of chunks(asked.revisionIds)) {
+      const size = inListSize(chunk.length)
+      for (const row of await revisionWorkflowsOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
+        revisions.set(row.id, {
+          workflowId: row.workflowId,
+          ownerUserId: row.ownerUserId ?? null,
+          scope: row.scope as WorkflowScope,
+        })
+      }
+    }
+    const bindings = new Map<string, string | null>()
+    const byKind = new Map<WorkflowBindingTarget, string[]>()
+    for (const { targetKind, targetId } of asked.bindings) {
+      const ids = byKind.get(targetKind) ?? []
+      ids.push(targetId)
+      byKind.set(targetKind, ids)
+    }
+    for (const [targetKind, ids] of byKind) {
+      for (const chunk of chunks(ids)) {
+        const size = inListSize(chunk.length)
+        const values = { ...inListValues(chunk, size), targetKind }
+        for (const row of await bindingOwnersOfTargets(this.db, size).all(values)) {
+          bindings.set(`${row.targetKind}:${row.targetId}`, row.ownerUserId ?? null)
+        }
+      }
+    }
+    const runs = new Map<string, string | null>()
+    for (const chunk of chunks(asked.runIds)) {
+      const size = inListSize(chunk.length)
+      for (const row of await runOwnersOfIds(this.db, size).all(inListValues(chunk, size))) {
+        runs.set(row.id, row.ownerUserId ?? null)
+      }
+    }
+    return { workflows, revisions, bindings, runs }
+  }
+
+  /** Every workflow, archived ones too, for the boot reconcile. */
+  async allWorkflowsForBootReconcile(): Promise<WorkflowWire[]> {
+    return await this.listWorkflows({ includeArchived: true })
+  }
+
+  /** Every revision, for the boot reconcile. */
+  async allRevisionsForBootReconcile(): Promise<WorkflowRevisionWire[]> {
+    return (await everyRevision(this.db).all()).map(toRevision)
+  }
+
+  /** Every run with its steps and its revision's workflow, for the boot
+   *  reconcile: two reads whatever the number of runs. */
+  async allRunsForBootReconcile(): Promise<
+    Array<{ run: WorkflowRunRow; workflowId: string; steps: RunStep[] }>
+  > {
+    const steps = new Map<string, RunStep[]>()
+    for (const row of await everyRunStep(this.db).all()) {
+      const list = steps.get(row.runId) ?? []
+      list.push(toRunStep(row))
+      steps.set(row.runId, list)
+    }
+    for (const list of steps.values()) list.sort((a, b) => a.position - b.position)
+    return (await everyRun(this.db).all()).map((row) => {
+      const { workflowId, ...run } = row
+      return { run: toRun(run), workflowId, steps: steps.get(row.id) ?? [] }
+    })
   }
 
   async getWorkflow(id: string): Promise<WorkflowWire | null> {

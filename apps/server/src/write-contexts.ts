@@ -111,6 +111,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'effect records, from every write to the effects table',
     kind: 'mirror',
   },
+  'feed.workflows': {
+    what: "workflow records (a run and its steps) from a workflow write no command's writer reaches: the run a spawn starts, inside whichever operation spawned the session, a command's included (POD-6676)",
+    kind: 'mirror',
+  },
   'feed.superagentThreads': {
     what: "superagent threads, from every write to the superagent_threads table (a command's, the turn runner's, a reset's, the boot back-fill's)",
     kind: 'mirror',

@@ -707,11 +707,11 @@ describe('SessionRegistry', () => {
       ],
     })
     await reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
-    await reg.modules.workflows.execute(operator, 'assign', {
+    // A binding is the generic edit's record (POD-6676); `assign` runs its checks.
+    await reg.modules.workflows.assign(operator, {
       targetKind: 'global',
       targetId: '',
       revisionId: created.revision.id,
-      onBehalfOf: firstAdminMemberId(),
     })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',

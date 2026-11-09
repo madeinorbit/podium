@@ -50,7 +50,6 @@ type WorkflowProcName =
   | 'fork'
   | 'publish'
   | 'bindings'
-  | 'assign'
   | 'runs'
   | 'prime'
   | 'status'

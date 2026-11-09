@@ -1,7 +1,7 @@
 /**
  * THE WORKFLOW WRITES ON THE SYNC WRITE ENTRY POINT (POD-6418, ADR 12 D2).
  *
- * The ten writes of `WORKFLOW_COMMANDS`, on the sync family builder. Each runs
+ * The nine writes of `WORKFLOW_COMMANDS`, on the sync family builder. Each runs
  * through `WorkflowService.execute`, the one door every workflow write has used
  * since POD-732: the contract's parse, `WorkflowAccess`, and the run-scoped
  * advance idempotency all still apply. What the entry point adds is everything
@@ -63,6 +63,8 @@ export function workflowCallerForPrincipal(
 /** What a workflow write reaches: the service, and the caller, built per call. */
 export interface WorkflowWriteState {
   readonly workflows: WorkflowService
+  /** The command's own writer: its rows' change entries commit on it. */
+  readonly writer: SyncFamilyState['writer']
   caller(): Promise<WorkflowCaller>
   afterCommit(step: () => void | Promise<void>, label: string): void
 }
@@ -71,6 +73,7 @@ export function selectWorkflowWriteState(state: SyncFamilyState): WorkflowWriteS
   const { principal } = state
   return {
     workflows: state.modules.workflows,
+    writer: state.writer,
     caller: async () => {
       if (principal.kind === 'system')
         throw new Error('a workflow write reached its handler without a human')
@@ -97,6 +100,7 @@ export type WorkflowSyncCommands = { readonly [N in WorkflowProcName]: WorkflowS
 function syncCommand<N extends WorkflowProcName>(proc: N): WorkflowSyncCommand<N> {
   const handler = async (state: WorkflowWriteState, input: unknown): Promise<unknown> =>
     await state.workflows.execute(await state.caller(), proc, input, {
+      writer: state.writer,
       afterCommit: (step, label) => state.afterCommit(step, label),
     })
   // `execute` is typed per proc through a conditional the compiler cannot
@@ -134,7 +138,7 @@ async function workflowTarget(
     : refuseTarget({ kind: REFUSAL_KINDS[refused.kind], message: refused.message })
 }
 
-const REFUSAL_KINDS: Readonly<Record<WorkflowRefusal['kind'], SyncSubmitRefusal['kind']>> = {
+export const REFUSAL_KINDS: Readonly<Record<WorkflowRefusal['kind'], SyncSubmitRefusal['kind']>> = {
   'not-found': 'target-not-found',
   unauthorized: 'unauthorized',
   conflict: 'conflict',

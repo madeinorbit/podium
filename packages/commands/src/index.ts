@@ -42,20 +42,7 @@ export {
   accountsUseOnMyMachinesContract,
   accountsUseOnMyMachinesInput,
 } from './accounts/contracts'
-export {
-  AGENT_PROFILE_CONTRACT_NAMES,
-  AGENT_PROFILE_CONTRACTS,
-  type AgentProfileContractName,
-  AgentProfileRef,
-  agentProfileCreateContract,
-  agentProfileCreateInput,
-  agentProfileDeleteContract,
-  agentProfileDeleteInput,
-  agentProfileImportContract,
-  agentProfileImportInput,
-  agentProfileUpdateContract,
-  agentProfileUpdateInput,
-} from './agent-profiles/contracts'
+export { AgentProfileRef } from './agent-profiles/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
@@ -469,6 +456,7 @@ export {
   PENDING_ISSUE_SEQ,
 } from './records/issue-fresh'
 export {
+  AGENT_PROFILE_RECORD,
   EFFECT_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
@@ -477,11 +465,13 @@ export {
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SUPERAGENT_THREAD_RECORD,
+  SUBSCRIPTION_RECORD,
   SYNCED_KINDS,
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
   USER_PREFERENCES_RECORD,
   USER_READ_POSITION_RECORD,
+  WORKFLOW_BINDING_RECORD,
 } from './records/kinds'
 export {
   applyRedaction,
@@ -589,7 +579,6 @@ export {
   workflowAdoptContract,
   workflowAdoptInput,
   workflowAdvanceOf,
-  workflowAssignContract,
   workflowAssignInput,
   workflowAssignStepContract,
   workflowAssignStepInput,

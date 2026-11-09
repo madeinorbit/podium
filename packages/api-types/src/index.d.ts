@@ -119,119 +119,6 @@ interface PodiumEventRecord {
 }
 
 /**
- * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
- * ([spec:2026-08-11-logging-strategy-design]).
- *
- * Two ingestion writes and one operator command. The first two are a client
- * reporting itself; the third is the valve the whole design exists to open —
- * raising one running client so a problem on a user's machine can be diagnosed
- * without shipping them a new build. That asymmetry is why they sit at different
- * role floors, and each contract says so where it is declared.
- *
- * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
- * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
- * one-shot "I died, here is the flight recorder". Both are server-side ingestion
- * with no client code in this chunk — these contracts are the shape chunks 4 and
- * 5 build their forwarding sinks against.
- *
- * ---------------------------------------------------------------------------
- * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
- * ---------------------------------------------------------------------------
- *
- * Podium is self-hosted: the client's server is the USER'S OWN server, so
- * forwarding a log line to it discloses nothing to anybody — it moves the user's
- * data from one of their processes to another. The consent gate sits one hop
- * further out, where a scrubbed crash SIGNATURE may leave the installation
- * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
- * states this in "Client → server forwarding"; it is written here too because
- * this is the contract a reviewer reads when asking "why is there no consent
- * check on an endpoint that accepts logs".
- *
- * ---------------------------------------------------------------------------
- * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
- * ---------------------------------------------------------------------------
- *
- * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
- * authentication check in front of it. Every collection and every string below
- * is capped in the SCHEMA, so an oversized batch is refused by the transport
- * before a handler sees it, and the cap is visible to the client author writing
- * the batching sink rather than discoverable by exceeding it in production.
- *
- * The caps are deliberately generous against the spec's own client behaviour
- * (flush every 5 s or 50 records) so a client that batches correctly never meets
- * them: they exist to bound the worst case, not to shape the normal one.
- */
-
-declare const logsSetLevelInput: z.ZodObject<{
-    /** `null` puts the matched clients back to their boot default. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the client's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every connected client — see {@link logLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        /** The server-minted connection id (`c3`), as reported by a previous call. */
-        clientId: z.ZodOptional<z.ZodString>;
-        role: z.ZodOptional<z.ZodString>;
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }, {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-    ttlMs?: number | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    target?: {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-    ttlMs?: number | undefined;
-}>;
-declare const logsSetDaemonLevelInput: z.ZodObject<{
-    /** `null` puts the matched daemons back to their boot default AND stops them
-     *  forwarding. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the daemon's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    }, {
-        machineId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    } | undefined;
-    ttlMs?: number | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    target?: {
-        machineId?: string | undefined;
-    } | undefined;
-    ttlMs?: number | undefined;
-}>;
-type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
-type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
-
-/**
  * The channels an INSTANCE can default its fleet to. Deliberately the same three
  * values as `UpdateChannel` in @podium/model, which is what a single machine may
  * pin — a fleet default and a per-machine override answer the same question at
@@ -852,6 +739,119 @@ interface SeatCoordinator {
     title: string;
     sessionId: SessionId;
 }
+
+/**
+ * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
+ * ([spec:2026-08-11-logging-strategy-design]).
+ *
+ * Two ingestion writes and one operator command. The first two are a client
+ * reporting itself; the third is the valve the whole design exists to open —
+ * raising one running client so a problem on a user's machine can be diagnosed
+ * without shipping them a new build. That asymmetry is why they sit at different
+ * role floors, and each contract says so where it is declared.
+ *
+ * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
+ * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
+ * one-shot "I died, here is the flight recorder". Both are server-side ingestion
+ * with no client code in this chunk — these contracts are the shape chunks 4 and
+ * 5 build their forwarding sinks against.
+ *
+ * ---------------------------------------------------------------------------
+ * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
+ * ---------------------------------------------------------------------------
+ *
+ * Podium is self-hosted: the client's server is the USER'S OWN server, so
+ * forwarding a log line to it discloses nothing to anybody — it moves the user's
+ * data from one of their processes to another. The consent gate sits one hop
+ * further out, where a scrubbed crash SIGNATURE may leave the installation
+ * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
+ * states this in "Client → server forwarding"; it is written here too because
+ * this is the contract a reviewer reads when asking "why is there no consent
+ * check on an endpoint that accepts logs".
+ *
+ * ---------------------------------------------------------------------------
+ * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
+ * ---------------------------------------------------------------------------
+ *
+ * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
+ * authentication check in front of it. Every collection and every string below
+ * is capped in the SCHEMA, so an oversized batch is refused by the transport
+ * before a handler sees it, and the cap is visible to the client author writing
+ * the batching sink rather than discoverable by exceeding it in production.
+ *
+ * The caps are deliberately generous against the spec's own client behaviour
+ * (flush every 5 s or 50 records) so a client that batches correctly never meets
+ * them: they exist to bound the worst case, not to shape the normal one.
+ */
+
+declare const logsSetLevelInput: z.ZodObject<{
+    /** `null` puts the matched clients back to their boot default. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the client's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every connected client — see {@link logLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        /** The server-minted connection id (`c3`), as reported by a previous call. */
+        clientId: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodString>;
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }, {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}>;
+declare const logsSetDaemonLevelInput: z.ZodObject<{
+    /** `null` puts the matched daemons back to their boot default AND stops them
+     *  forwarding. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the daemon's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    }, {
+        machineId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}>;
+type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
+type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
 
 /**
  * The send vocabulary — the nouns every messages module and every caller of the
@@ -1663,29 +1663,6 @@ interface FeatureStateWire extends FeatureState {
     visibility: FeatureVisibility;
 }
 
-type Input_agentProfiles_create = {
-    candidates?: undefined | {
-        effort?: string | undefined;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model?: string | undefined;
-    }[];
-    description?: string | undefined;
-    instructions?: string | undefined;
-    machine?: null | string | undefined;
-    name: string;
-};
-type Input_agentProfiles_update = {
-    candidates?: undefined | {
-        effort?: string | undefined;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model?: string | undefined;
-    }[];
-    description?: string | undefined;
-    instructions?: string | undefined;
-    machine?: null | string | undefined;
-    name?: string | undefined;
-    ref: string;
-};
 type Input_automations_create = {
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
     cron?: null | string | undefined;
@@ -2776,22 +2753,6 @@ type Output_accounts_login = Pick<{
     machineName: _podium_model.MachineProjection["name"];
     status: NativeLoginAttemptStatus;
 };
-type Output_agentProfiles_create = {
-    candidates: {
-        effort: string;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model: string;
-    }[];
-    createdAt: string;
-    description: string;
-    id: string;
-    instructions: string;
-    machineId: null | string;
-    name: string;
-    updatedAt: string;
-} & {
-    machineName: null | string;
-};
 type Output_agentProfiles_list = Array<{
     candidates: {
         effort: string;
@@ -2808,6 +2769,22 @@ type Output_agentProfiles_list = Array<{
 } & {
     machineName: null | string;
 }>;
+type Output_agentProfiles_show = {
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: null | string;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+};
 type Output_auth_status = {
     canManageInstance: boolean;
     hasOwnCredential: boolean;
@@ -6683,21 +6660,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
     };
     "agentProfiles": {
-        "create": TRPC.TRPCMutationProcedure<{
-            input: Input_agentProfiles_create;
-            output: Output_agentProfiles_create;
-            meta: unknown;
-        }>;
-        "delete": TRPC.TRPCMutationProcedure<{
-            input: {
-                ref: string;
-            };
-            output: {
-                id: string;
-                name: string;
-            };
-            meta: unknown;
-        }>;
         "export": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
                 ref?: string | undefined;
@@ -6705,19 +6667,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<{
                 name: string;
                 text: string;
-            }>;
-            meta: unknown;
-        }>;
-        "import": TRPC.TRPCMutationProcedure<{
-            input: {
-                files: {
-                    name?: string | undefined;
-                    text: string;
-                }[];
-            };
-            output: Array<{
-                action: "created" | "updated";
-                name: string;
             }>;
             meta: unknown;
         }>;
@@ -6732,12 +6681,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 ref: string;
             };
-            output: Output_agentProfiles_create;
-            meta: unknown;
-        }>;
-        "update": TRPC.TRPCMutationProcedure<{
-            input: Input_agentProfiles_update;
-            output: Output_agentProfiles_create;
+            output: Output_agentProfiles_show;
             meta: unknown;
         }>;
     };
@@ -7712,25 +7656,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 limit?: number | undefined;
             });
             output: Array<Subscription>;
-            meta: unknown;
-        }>;
-        "subscriptionRemove": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: {
-                removed: boolean;
-            };
-            meta: unknown;
-        }>;
-        "subscriptionSetEnabled": TRPC.TRPCMutationProcedure<{
-            input: {
-                enabled: boolean;
-                id: string;
-            };
-            output: {
-                updated: boolean;
-            };
             meta: unknown;
         }>;
         "supersede": TRPC.TRPCMutationProcedure<{
@@ -8975,15 +8900,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Protocol.WorkflowRunWire;
             meta: unknown;
         }>;
-        "assign": TRPC.TRPCMutationProcedure<{
-            input: {
-                revisionId: string;
-                targetId: string;
-                targetKind: "global" | "issue" | "repository" | "session";
-            };
-            output: Protocol.WorkflowBindingWire;
-            meta: unknown;
-        }>;
         "assignStep": TRPC.TRPCMutationProcedure<{
             input: {
                 mutationId?: string | undefined;
@@ -8998,7 +8914,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 [k: string]: unknown;
             } & {};
-            output: Array<Protocol.WorkflowBindingWire>;
+            output: Array<_podium_model.WorkflowBindingWire>;
             meta: unknown;
         }>;
         "checkpoint": TRPC.TRPCMutationProcedure<{
@@ -9025,7 +8941,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: Input_workflows_list;
-            output: Array<Protocol.WorkflowWire>;
+            output: Array<_podium_model.WorkflowWire>;
             meta: unknown;
         }>;
         "prime": TRPC.TRPCQueryProcedure<{
@@ -9039,7 +8955,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 revisionId: string;
             };
-            output: Protocol.WorkflowRevisionWire;
+            output: _podium_model.WorkflowRevisionWire;
             meta: unknown;
         }>;
         "retry": TRPC.TRPCMutationProcedure<{
@@ -9053,7 +8969,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "revise": TRPC.TRPCMutationProcedure<{
             input: Input_workflows_revise;
-            output: Protocol.WorkflowRevisionWire;
+            output: _podium_model.WorkflowRevisionWire;
             meta: unknown;
         }>;
         "runs": TRPC.TRPCQueryProcedure<{

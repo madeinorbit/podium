@@ -22,8 +22,12 @@ const BUILD = {
   updatedAt: 't0',
 }
 
-function fakeClient() {
+/** A client whose reads answer from {@link BUILD} and whose writes are
+ *  recorded `sync.submit` envelopes (POD-6676: every profile write is a generic
+ *  record write). `refuse` names a command the server refuses. */
+function fakeClient(refuse?: { command: string; message: string }) {
   const calls: Array<[string, unknown]> = []
+  const submitted: Array<{ command: string; input: unknown }> = []
   const proc = (name: string, answer: (input: unknown) => unknown) => ({
     query: async (input?: unknown) => {
       calls.push([name, input])
@@ -37,20 +41,35 @@ function fakeClient() {
   const client: ProfileClient = {
     agentProfiles: {
       list: proc('list', () => [BUILD]),
-      show: proc('show', () => BUILD),
+      show: proc('show', (input) => {
+        const ref = (input as { ref: string }).ref
+        if (ref === 'build' || ref === BUILD.id) return BUILD
+        // A profile this client created: its fields, under its id.
+        const created = submitted.find(
+          (entry) => (entry.input as { id?: string }).id === ref,
+        )?.input as { fields?: object } | undefined
+        return { ...BUILD, id: ref, ...created?.fields }
+      }),
       export: proc('export', () => [{ name: 'build', text: '---\nname: build\n---\n' }]),
-      create: proc('create', (input) => ({ ...BUILD, ...(input as object) })),
-      update: proc('update', (input) => ({ ...BUILD, ...(input as object) })),
-      delete: proc('delete', () => ({ id: BUILD.id, name: 'build' })),
-      import: proc('import', (input) =>
-        (input as { files: Array<{ name: string }> }).files.map((f) => ({
-          name: f.name,
-          action: 'created',
-        })),
-      ),
+    },
+    sync: {
+      submit: {
+        mutate: async (envelope) => {
+          submitted.push({ command: envelope.command, input: envelope.input })
+          if (envelope.command === refuse?.command) {
+            return { outcome: 'rejected', refusal: { kind: 'invalid', message: refuse.message } }
+          }
+          return {
+            outcome: 'applied',
+            result: { ok: true },
+            receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+            replayed: false,
+          }
+        },
+      },
     },
   }
-  return { client, calls }
+  return { client, calls, submitted }
 }
 
 function fakeFs(files: Record<string, string>) {
@@ -74,44 +93,26 @@ function fakeFs(files: Record<string, string>) {
 }
 
 describe('podium profile', () => {
-  it('writes through sync.submit when the server has it, with the handler message on a refusal', async () => {
-    const { client, calls } = fakeClient()
-    const submitted: Array<{ command: string; input: unknown }> = []
-    const withSubmit: ProfileClient = {
-      ...client,
-      sync: {
-        submit: {
-          mutate: async (envelope) => {
-            submitted.push({ command: envelope.command, input: envelope.input })
-            if (envelope.command === 'agentProfiles.delete') {
-              return {
-                outcome: 'rejected',
-                refusal: { kind: 'invalid', message: 'build is used by an open issue' },
-              }
-            }
-            return {
-              outcome: 'applied',
-              result: { ...BUILD, ...(envelope.input as object) },
-              receipt: { feedId: 'f', epoch: 'e', seq: 1 },
-              replayed: false,
-            }
-          },
-        },
-      },
-    }
-
+  it('writes generic records on sync.submit, with the handler message on a refusal', async () => {
+    const { client, submitted } = fakeClient({
+      command: 'records.agentProfile.remove',
+      message: 'build is used by an open issue',
+    })
     const text = await runProfileCli(['create', 'review', '--candidate', 'codex'], {
-      client: withSubmit,
+      client,
       cwd: '/repo',
     })
     expect(text).toContain('created profile review')
-    expect(submitted[0]?.command).toBe('agentProfiles.create')
-    // The old route is not called when sync.submit answers.
-    expect(calls.filter(([name]) => name === 'create')).toEqual([])
-
-    await expect(
-      runProfileCli(['delete', 'build'], { client: withSubmit, cwd: '/repo' }),
-    ).rejects.toThrow('build is used by an open issue')
+    expect(submitted[0]?.command).toBe('records.agentProfile.create')
+    // The id is minted here (ADR 12 D4).
+    expect((submitted[0]?.input as { id: string }).id).toMatch(/^agp_[0-9a-f-]{36}$/)
+    await expect(runProfileCli(['delete', 'build'], { client, cwd: '/repo' })).rejects.toThrow(
+      'build is used by an open issue',
+    )
+    expect(submitted.at(-1)).toEqual({
+      command: 'records.agentProfile.remove',
+      input: { id: BUILD.id },
+    })
   })
 
   it('lists profiles with their candidates', async () => {
@@ -122,7 +123,7 @@ describe('podium profile', () => {
   })
 
   it('creates a profile from flags, keeping candidate order and reading an instructions file', async () => {
-    const { client, calls } = fakeClient()
+    const { client, submitted } = fakeClient()
     const { fs } = fakeFs({ '/repo/notes.md': '# Be brief' })
     await runProfileCli(
       [
@@ -138,51 +139,66 @@ describe('podium profile', () => {
       ],
       { client, cwd: '/repo', fs },
     )
-    expect(calls).toEqual([
-      [
-        'create',
-        {
-          name: 'docs',
-          candidates: [
-            { harness: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
-            { harness: 'claude-code', model: 'auto', effort: 'auto' },
-          ],
-          machine: 'flatblock',
-          instructions: '# Be brief',
-        },
+    expect(submitted.map(({ command }) => command)).toEqual(['records.agentProfile.create'])
+    expect((submitted[0]?.input as { fields: unknown }).fields).toEqual({
+      name: 'docs',
+      candidates: [
+        { harness: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+        { harness: 'claude-code', model: 'auto', effort: 'auto' },
       ],
-    ])
+      machineId: 'flatblock',
+      instructions: '# Be brief',
+    })
   })
 
-  it('update sends only the named fields; --machine none clears; an empty update is refused', async () => {
-    const { client, calls } = fakeClient()
+  it('update sends only the named fields of the id the name resolves to; --machine none clears; an empty update is refused', async () => {
+    const { client, submitted } = fakeClient()
     await runProfileCli(['update', 'build', '--machine', 'none', '--name', 'make'], {
       client,
       cwd: '/r',
     })
-    expect(calls).toEqual([['update', { ref: 'build', machine: null, name: 'make' }]])
+    expect(submitted).toEqual([
+      {
+        command: 'records.agentProfile.edit',
+        input: { id: BUILD.id, patch: { machineId: null, name: 'make' } },
+      },
+    ])
     await expect(runProfileCli(['update', 'build'], { client, cwd: '/r' })).rejects.toThrow(
       /no fields given/,
     )
   })
 
-  it('imports every .md in .podium/agents by default, naming each by its file', async () => {
-    const { client, calls } = fakeClient()
+  it('imports every .md in .podium/agents by default: an edit for a name that exists, else a create', async () => {
+    const { client, submitted } = fakeClient()
     const { fs } = fakeFs({
-      [`/repo/${DEFAULT_AGENTS_DIR}/a.md`]: 'A',
-      [`/repo/${DEFAULT_AGENTS_DIR}/b.md`]: 'B',
+      [`/repo/${DEFAULT_AGENTS_DIR}/build.md`]: '---\ndescription: Builds\n---\nBuild it well.',
+      [`/repo/${DEFAULT_AGENTS_DIR}/triage.md`]: '---\nmodel: auto\n---\nSort them.',
     })
     const text = await runProfileCli(['import'], { client, cwd: '/repo', fs })
-    expect(calls[0]).toEqual([
-      'import',
-      {
-        files: [
-          { name: 'a', text: 'A' },
-          { name: 'b', text: 'B' },
-        ],
-      },
+    expect(submitted.map(({ command }) => command)).toEqual([
+      'records.agentProfile.edit',
+      'records.agentProfile.create',
     ])
-    expect(text).toBe('created a\ncreated b')
+    expect(submitted[0]?.input).toMatchObject({
+      id: BUILD.id,
+      patch: { description: 'Builds', instructions: 'Build it well.' },
+    })
+    expect(submitted[1]?.input).toMatchObject({
+      fields: { name: 'triage', instructions: 'Sort them.' },
+    })
+    expect(text).toBe('updated build\ncreated triage')
+  })
+
+  it('imports nothing when one file is bad', async () => {
+    const { client, submitted } = fakeClient()
+    const { fs } = fakeFs({
+      [`/repo/${DEFAULT_AGENTS_DIR}/ok.md`]: '---\nname: ok\n---\n',
+      [`/repo/${DEFAULT_AGENTS_DIR}/zbad.md`]: 'no frontmatter',
+    })
+    await expect(runProfileCli(['import'], { client, cwd: '/repo', fs })).rejects.toThrow(
+      ProfileCliError,
+    )
+    expect(submitted).toEqual([])
   })
 
   it('exports into <dir>/<name>.md', async () => {

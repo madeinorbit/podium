@@ -127,6 +127,16 @@ await op('accounts.listFor', async () => await store.accounts.listFor(ALICE))
 await op('locks.getLock', async () => await store.locks.getLock('repo_census' as never, 'merge'))
 await op('workflows.listWorkflows', async () => await store.workflows.listWorkflows())
 await op('workflows.listWorkflows(scope)', async () => await store.workflows.listWorkflows({ scope: 'global' as never }))
+await op('workflows.visibilityFacts', async () =>
+  await store.workflows.visibilityFacts({
+    workflowIds: ['wf_census'],
+    revisionIds: ['wfr_census'],
+    bindings: [{ targetKind: 'global', targetId: '' }],
+    runIds: ['wrun_census'],
+  }),
+)
+await op('workflows.allRunsForBootReconcile', async () => await store.workflows.allRunsForBootReconcile())
+await op('events.allSubscriptionsForBootReconcile', async () => await store.events.allSubscriptionsForBootReconcile())
 await op('automations.list', async () => await store.automations.list())
 await op('interactions.listOpen', async () => await store.interactions.listOpen())
 await op('effects.listAwaiting', async () => await store.effects.listAwaiting('approval', 500))

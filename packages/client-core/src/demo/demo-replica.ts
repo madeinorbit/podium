@@ -96,8 +96,7 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
       })
     }
     if (issue.gitState) put(records, 'issueGitState', issue.id, { ...issue.gitState, id: issue.id })
-    const prefix =
-      issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1]
+    const prefix = issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1]
     repos.set(repoId, {
       id: repoId,
       repoPath: issue.repoPath,
@@ -184,6 +183,12 @@ const DEMO_SLICE_KINDS = [
   'userPreferences',
   'userReadPositions',
   'superagentThreads',
+  'agentProfiles',
+  'workflows',
+  'workflowRevisions',
+  'workflowBindings',
+  'workflowRuns',
+  'subscriptions',
 ] as const
 
 /**

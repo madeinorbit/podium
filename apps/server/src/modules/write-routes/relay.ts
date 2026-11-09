@@ -158,6 +158,10 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   // Reached only inside a `sync.submit` envelope: there is no direct arm.
   'records.pin.create': entry('records.pin.create'),
   'records.pin.remove': entry('records.pin.remove'),
+  // An agent's own subscriptions and its session's workflow binding (POD-6676).
+  'records.subscription.edit': entry('records.subscription.edit'),
+  'records.subscription.remove': entry('records.subscription.remove'),
+  'records.workflowBinding.edit': entry('records.workflowBinding.edit'),
 }
 
 /**

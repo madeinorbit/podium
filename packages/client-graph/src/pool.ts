@@ -1,5 +1,5 @@
-import type { LiveStore } from '@podium/client-core/live'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import type { LiveStore } from '@podium/client-core/live'
 import type { AccountView, GitRepositoryWire, MemberView, PinKind } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 
@@ -75,6 +75,7 @@ import {
 
 import type { OutboxKinds } from '@podium/client-core/engine'
 import type {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   EffectRecordWire,
@@ -84,7 +85,12 @@ import type {
   PinWire,
   ReadPositionWire,
   SuperagentThreadWire,
+  SubscriptionWire,
   TabOrderWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import {
@@ -289,6 +295,18 @@ export interface PoolRows {
   userReadPosition: Readonly<ReadPositionWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
   superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  /** POD-6676: profiles, workflows and trigger subscriptions, each keyed by its
+   *  feed id (a binding's and a subscription's stamped as `id`). */
+  agentProfile: Readonly<AgentProfileWire> & Readonly<Record<string, unknown>>
+  workflow: Readonly<WorkflowWire> & Readonly<Record<string, unknown>>
+  workflowRevision: Readonly<WorkflowRevisionWire> & Readonly<Record<string, unknown>>
+  workflowBinding: Readonly<WorkflowBindingWire> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
+  workflowRun: Readonly<WorkflowRunRecord> & Readonly<Record<string, unknown>>
+  subscription: Readonly<SubscriptionWire> & { readonly subscriptionId: string } & Readonly<
+      Record<string, unknown>
+    >
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>

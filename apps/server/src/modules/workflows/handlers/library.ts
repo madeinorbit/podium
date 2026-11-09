@@ -10,13 +10,14 @@
 import { randomUUID } from 'node:crypto'
 import type {
   ContractInput,
-  workflowAssignContract,
+  workflowAssignInput,
   workflowCreateContract,
   workflowForkContract,
   workflowPublishContract,
   workflowReviseContract,
 } from '@podium/commands'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import type { z } from 'zod'
 import { unknownRevision, type WorkflowHandlerContext, WorkflowRefusal } from './context'
 
 export async function createHandler(
@@ -145,7 +146,7 @@ export async function publishHandler(
 
 export async function assignHandler(
   ctx: WorkflowHandlerContext,
-  input: ContractInput<typeof workflowAssignContract>,
+  input: z.infer<typeof workflowAssignInput>,
 ) {
   const { caller, deps, access, engine } = ctx
   const revision = await deps.store.getRevision(input.revisionId)

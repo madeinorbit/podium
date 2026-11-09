@@ -7,14 +7,17 @@
  * write that `sync.submit` calls unknown.
  */
 
-import { asSessionId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
+import { registerAgentProfileRecord } from '../agent-profiles/records'
+import { registerSubscriptionRecord } from '../issues/subscription-record'
 import { sessionStatePrincipalFor } from '../sessions/session-state/registry'
 import { registerSuperagentThreadRecords } from '../superagent/thread-records'
 import type { SyncWriteRegistry } from '../sync-write/registry'
 import { registerUserRecords } from '../user-records/records'
+import { registerWorkflowBindingRecord } from '../workflows/binding-record'
 import { registerEffectRecord } from './effect-record'
 import { registerIssueRecord } from './issue-record'
 import { registerIssueUserStateRecord } from './issue-user-state-record'
@@ -55,5 +58,23 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
   registerSuperagentThreadRecords(registry, {
     threads: () => deps.store().superagent,
     roleOf: async (user) => await deps.store().users.roleOf(user),
+  })
+  // Agent profiles, trigger subscriptions and workflow bindings (POD-6676).
+  registerAgentProfileRecord(registry, deps)
+  registerSubscriptionRecord(registry, {
+    modules: deps.modules,
+    sessionOwner: async (sessionId) =>
+      (await deps.store().sessions.getSessions([sessionId])).get(sessionId)?.ownerUserId,
+    issueOwner: async (issueId) =>
+      (
+        await deps
+          .modules()
+          .issues.reports.getMeta(issueId)
+          .catch(() => null)
+      )?.ownerUserId,
+  })
+  registerWorkflowBindingRecord(registry, {
+    modules: deps.modules,
+    roleOf: async (user) => await deps.store().users.roleOf(asUserId(user)),
   })
 }

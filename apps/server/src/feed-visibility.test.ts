@@ -5,6 +5,7 @@ import {
   interactionRowId,
   issueUserStateRowId,
   messageRecordRowId,
+  subscriptionRowId,
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
@@ -62,6 +63,18 @@ async function fixture() {
       orderIdsForIssues: async () => [],
     },
     automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
+    // The workflow kinds' owners (POD-6676): one workflow, its revision, a
+    // binding and a run, all the owner's.
+    workflows: {
+      visibilityFacts: async () => ({
+        workflows: new Map([['shared', { ownerUserId: owner, scope: 'repository' as const }]]),
+        revisions: new Map([
+          ['wfr_shared', { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const }],
+        ]),
+        bindings: new Map([['issue:shared', owner]]),
+        runs: new Map([['shared', owner]]),
+      }),
+    },
     effects: {
       // Three effects: one on the shared issue, one on the shared session, one on
       // a machine; each created by the stranger's neighbour `creator`.
@@ -356,6 +369,58 @@ describe('feed visibility grant semantics', () => {
     expect(adminReads.count).toBe(0)
     await policy.state.forBatch!([{ entity: 'effect', entityId: 'eff_update' }])
     expect(adminReads.count).toBe(1)
+  })
+
+  it('a workflow, its revisions, a binding and a run are read by their owner, a read grantee and the admins (POD-6676)', async () => {
+    const { policy, grant } = await fixture()
+    await grant('workflow-definition', reader, 'read')
+    const rows: EntityRef[] = [
+      { entity: 'workflow', entityId: 'shared' },
+      { entity: 'workflowRevision', entityId: 'wfr_shared' },
+      { entity: 'workflowBinding', entityId: 'issue:shared' },
+      { entity: 'workflowRun', entityId: 'shared' },
+      { entity: 'workflow', entityId: 'wf_gone' },
+    ]
+    const all = [
+      'workflow:shared',
+      'workflowRevision:wfr_shared',
+      'workflowBinding:issue:shared',
+      'workflowRun:shared',
+    ]
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(rows)
+      for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {
+        expect(state.classOf(kind)).toBe('personal')
+      }
+      const readable = (user: typeof owner) =>
+        rows.filter((ref) => state.mayRead(user, ref)).map((ref) => `${ref.entity}:${ref.entityId}`)
+      expect(readable(owner)).toEqual(all)
+      expect(readable(firstAdmin)).toEqual(all)
+      // A read grant on the definition reaches it and its revisions, never the
+      // runs or the bindings, which are owned in their own right.
+      expect(readable(reader)).toEqual(['workflow:shared', 'workflowRevision:wfr_shared'])
+      expect(readable(stranger)).toEqual([])
+    }
+  })
+
+  it('a profile is instance substrate; a subscription follows its subscriber (POD-6676)', async () => {
+    const { policy } = await fixture()
+    const subs: EntityRef[] = [
+      { entity: 'subscription', entityId: subscriptionRowId('session', 'shared', 'sub_s') },
+      { entity: 'subscription', entityId: subscriptionRowId('issue', 'shared', 'sub_i') },
+      { entity: 'subscription', entityId: 'not a row id' },
+    ]
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(subs)
+      expect(state.classOf('agentProfile')).toBe('deployment-substrate')
+      expect(state.classOf('subscription')).toBe('personal')
+      const readable = (user: typeof owner) =>
+        subs.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      // A session's subscription is its owner's; a task's every member's, as
+      // the task is (design §1.11).
+      expect(readable(owner)).toEqual([subs[0]!.entityId, subs[1]!.entityId])
+      expect(readable(stranger)).toEqual([subs[1]!.entityId])
+    }
   })
 
   it('reads grants through its store port but cannot write them', () => {

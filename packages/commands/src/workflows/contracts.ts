@@ -413,69 +413,19 @@ export const workflowAssignInput = z.object({
   revisionId: z.string().min(1),
 })
 
-export const workflowAssignContract = {
-  name: 'workflows.assign',
-  version: 1,
-  visibility: WORKFLOW_VISIBILITY,
-  input: workflowAssignInput,
-  policy: {
-    action: 'write',
-    roleFloor: 'member',
-    resource: 'issue',
-    confirmation: 'confirm',
-    rationale:
-      'A binding attaches a revision to a target, and the authority it needs is authority over the ' +
-      'TARGET: an issue binding needs the issue, a session binding needs that session, and the ' +
-      'global/repository arms are substrate and stay admin-grade — the shipped `protectedWrite` check, ' +
-      'kept, plus the published-revision precondition it is checked BEFORE (POD-730 pins that order).',
-  },
-  /**
-   * DO NOT COPY THIS CONTRACT FOR A PER-USER PREFERENCE (POD-311, POD-1076).
-   *
-   * This is the one of the ten with POD-351's rename-contract trap, and it is
-   * flagged here because the trap is invisible from the classification: a
-   * binding is `(target_kind, target_id) → revision`, which is structurally a
-   * PIN, and `pins` / `snoozes` / `tab_order` are exactly the family POD-380 had
-   * to re-key `(userId, entity)` after they shipped instance-wide.
-   *
-   * A binding is `personal` because it is ONE SHARED FACT about a target —
-   * "this issue runs that workflow" is true for everyone who can see the issue,
-   * which is why it inherits the target's owner and grants rather than the
-   * binder's. A future "my default workflow for this repo" is a DIFFERENT fact:
-   * it differs per reader, so it is `per-user-state`, keyed `(userId, target)`,
-   * writable by the owning user ONLY — not admins, not `system`, not agents
-   * acting on behalf — and it must not ride the binding's wire projection,
-   * because a value that differs per reader cannot be a field of a shape
-   * broadcast to many readers.
-   *
-   * Copying this contract for that feature would key a personal preference as a
-   * shared instance-wide row: visible to everyone who can see the target, and
-   * silently overwritable by any of them.
-   *
-   * ADJUDICATED BY POD-1076, and the classification STANDS: a binding is not a
-   * family member. What POD-1076 changes is that the warning above now has a
-   * concrete destination instead of a description — `@podium/model`'s
-   * `user-state/` family is built, keyed over the one `perUserKey` fragment, so
-   * "my default workflow for this repo" composes that rather than being invented
-   * beside it. The copy trap is unchanged; the correct alternative is no longer
-   * hypothetical.
-   */
-  exposure: SERVED_ON,
-  delivery: LIBRARY_DELIVERY,
-  redaction: LIBRARY_REDACTION,
-  ownership: OWNED_BY_HUMAN(
-    ['workflow-binding'],
-    'A binding inherits the TARGET it binds — the issue’s or the session’s owner and grants, not the ' +
-      'binder’s. Sharing an issue must share what runs on it; a binding owned by whoever last changed ' +
-      'it would make the issue’s owner unable to see why their own issue starts the workflow it does.',
-  ),
-  attribution: ATTRIBUTION,
-  errorConsistency: CONSISTENT_ERRORS,
-  cli: { summary: 'Bind a revision to a target' },
-  conflict: 'cmd',
-  conflictRule:
-    'One binding per (target, workflow); assigning replaces the target existing binding in a single Authority commit rather than accumulating two',
-} as const satisfies WorkflowCommandContract
+/*
+ * `workflows.assign` became the generic edit `records.workflowBinding.edit`
+ * (POD-6676, design POD-5620 §1.10): a binding is a synced record keyed by its
+ * target, and its checks are the binding adapter's
+ * (`apps/server/src/modules/workflows/records.ts`), in assign's order. The input
+ * above stays: it is the shape the binding's handler takes.
+ *
+ * The POD-311/POD-1076 warning that lived on that contract still holds for the
+ * record: a binding is ONE SHARED FACT about a target, not a per-user
+ * preference. "My default workflow for this repo" differs per reader and is
+ * `per-user-state`, keyed `(userId, target)`; it must not be modelled as a
+ * binding.
+ */
 
 // ---------------------------------------------------------------------------
 // RUN ADVANCES — the five that carry the run-id resource scope
@@ -735,7 +685,6 @@ export const WORKFLOW_CONTRACTS = {
   revise: workflowReviseContract,
   fork: workflowForkContract,
   publish: workflowPublishContract,
-  assign: workflowAssignContract,
   checkpoint: workflowCheckpointContract,
   assignStep: workflowAssignStepContract,
   skip: workflowSkipContract,

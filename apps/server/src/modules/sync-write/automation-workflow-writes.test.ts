@@ -349,9 +349,10 @@ describe('workflows on the entry point', () => {
     // A shared default needs a published revision: the handler's own rule.
     const reply = await submit(
       o,
+      // A binding is the generic edit's record (POD-6676); its checks are assign's.
       envelope(
-        'workflows.assign',
-        { targetKind: 'global', targetId: '', revisionId: revision.id },
+        'records.workflowBinding.edit',
+        { id: 'global:', patch: { revisionId: revision.id } },
         'mut_wf_assign_draft',
       ),
     )

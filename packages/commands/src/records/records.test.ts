@@ -108,6 +108,9 @@ describe('a declaration that could never serve a command fails where it is writt
 describe('the generated commands', () => {
   it('one contract per offered op, named records.<kind>.<op>', () => {
     expect(Object.keys(RECORD_CONTRACTS).sort()).toEqual([
+      'records.agentProfile.create',
+      'records.agentProfile.edit',
+      'records.agentProfile.remove',
       'records.effect.edit',
       'records.issueProjection.create',
       'records.issueProjection.edit',
@@ -118,6 +121,8 @@ describe('the generated commands', () => {
       'records.session.remove',
       'records.sessionUserState.edit',
       'records.sessionUserState.remove',
+      'records.subscription.edit',
+      'records.subscription.remove',
       'records.superagentThread.edit',
       'records.tabOrder.edit',
       'records.tabOrder.remove',
@@ -125,6 +130,7 @@ describe('the generated commands', () => {
       'records.userLayout.remove',
       'records.userPreferences.edit',
       'records.userReadPosition.edit',
+      'records.workflowBinding.edit',
     ])
   })
 

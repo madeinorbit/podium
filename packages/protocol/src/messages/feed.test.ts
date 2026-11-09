@@ -18,6 +18,7 @@
  */
 
 import {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
@@ -36,6 +37,11 @@ import {
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
+  SubscriptionWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -77,6 +83,13 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   shipOrder: ShipOrderProjection,
   shipLane: ShipLaneProjection,
   effect: EffectRecordWire,
+  // POD-6676: profiles, workflows and trigger subscriptions.
+  agentProfile: AgentProfileWire,
+  workflow: WorkflowWire,
+  workflowRevision: WorkflowRevisionWire,
+  workflowBinding: WorkflowBindingWire,
+  workflowRun: WorkflowRunRecord,
+  subscription: SubscriptionWire,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -104,10 +117,11 @@ const delta = (
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all fourteen entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all twenty entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
-    // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(14)
+    // every loop here would iterate nothing and pass silently. Fourteen, and
+    // POD-6676's six synced records.
+    expect(arms).toHaveLength(20)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 

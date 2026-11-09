@@ -57,6 +57,7 @@
  * type.
  */
 import type { WorkflowContractName } from '@podium/commands'
+import { type WorkflowBindingTarget, workflowBindingRowId } from '@podium/model/browser'
 
 /** What the principal may do on this surface. Supplied by the view from what the
  *  server told it, never computed from a role name here. */
@@ -100,8 +101,9 @@ export const OPERATOR_WORKFLOW_RIGHTS: WorkflowRights = {
  *  caller at the point of use and never carries identity. */
 export interface WorkflowCommand<TInput = unknown> {
   readonly id: string
-  /** The POD-641 contract this dispatches. */
-  readonly contract: WorkflowContractName
+  /** The command it submits on the sync write entry point: a workflow contract
+   *  (`workflows.<proc>`) or, for a binding, its generic edit (POD-6676). */
+  readonly wire: `workflows.${WorkflowContractName}` | 'records.workflowBinding.edit'
   readonly label: string
   /** Shown while the write is in flight. */
   readonly pendingLabel: string
@@ -127,7 +129,7 @@ export interface CreateInput {
 export const workflowCommands = {
   create: command<CreateInput>({
     id: 'workflows.create',
-    contract: 'create',
+    wire: 'workflows.create',
     label: 'Create revision 1',
     pendingLabel: 'Creating workflow…',
     success: 'Created the workflow.',
@@ -144,7 +146,7 @@ export const workflowCommands = {
 
   revise: command<{ workflowId: string; instructions: string; steps: unknown[] }>({
     id: 'workflows.revise',
-    contract: 'revise',
+    wire: 'workflows.revise',
     label: 'Create revision',
     pendingLabel: 'Creating revision…',
     success: 'Created a new immutable revision.',
@@ -154,7 +156,7 @@ export const workflowCommands = {
 
   publish: command<{ revisionId: string }>({
     id: 'workflows.publish',
-    contract: 'publish',
+    wire: 'workflows.publish',
     label: 'Publish',
     pendingLabel: 'Publishing…',
     success: 'Published this revision.',
@@ -162,19 +164,24 @@ export const workflowCommands = {
     build: (input) => ({ revisionId: input.revisionId }),
   }),
 
-  assign: command<{ targetKind: string; targetId: string; revisionId: string }>({
+  // A binding is a synced record keyed by its target (POD-6676): assigning is
+  // its generic edit, and every device shows the new binding from the feed.
+  assign: command<{ targetKind: WorkflowBindingTarget; targetId: string; revisionId: string }>({
     id: 'workflows.assign',
-    contract: 'assign',
+    wire: 'records.workflowBinding.edit',
     label: 'Assign latest revision',
     pendingLabel: 'Assigning revision…',
     success: 'Pinned the exact workflow revision.',
     enabledBy: (r) => r.write,
-    build: (input) => ({ ...input }),
+    build: (input) => ({
+      id: workflowBindingRowId(input.targetKind, input.targetId),
+      patch: { revisionId: input.revisionId },
+    }),
   }),
 
   skip: command<{ runId: string; stepId: string; reason: string }>({
     id: 'workflows.skip',
-    contract: 'skip',
+    wire: 'workflows.skip',
     label: 'Skip current',
     pendingLabel: 'Skipping…',
     success: 'Skipped the current workflow step.',
@@ -184,7 +191,7 @@ export const workflowCommands = {
 
   retry: command<{ runId: string; stepId: string }>({
     id: 'workflows.retry',
-    contract: 'retry',
+    wire: 'workflows.retry',
     label: 'Retry',
     pendingLabel: 'Retrying…',
     success: 'Reset the step for another attempt.',

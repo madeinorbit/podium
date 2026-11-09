@@ -106,7 +106,17 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // An issue pin is the human's own pin record (POD-6692): `podium issue update
   // --pinned` creates or removes it through the entry point. Only pins, and the
   // pin adapter refuses any row that is not the caller's human's.
-  records: new Set(['pin.create', 'pin.remove']),
+  // An agent's own trigger subscriptions (`podium issue subscription remove`) and
+  // its session's workflow binding (`podium workflow assign`), POD-6676: the
+  // adapters refuse any subscription that is not the agent's derived subscriber's
+  // and any binding the agent's scope does not reach, as the commands did.
+  records: new Set([
+    'pin.create',
+    'pin.remove',
+    'subscription.edit',
+    'subscription.remove',
+    'workflowBinding.edit',
+  ]),
 }
 
 /**

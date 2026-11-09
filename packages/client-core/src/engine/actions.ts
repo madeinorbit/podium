@@ -199,6 +199,8 @@ export const COMMAND_ACTIONS = [
   'answerSession',
   'resurrectSession',
   'decideApproval',
+  'setSubscriptionEnabled',
+  'removeSubscription',
   'sendChat',
   'chatSendsFor',
   'discardChat',
@@ -717,7 +719,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       else await records.remove({ kind: 'pin', id: pin })
     },
     setTabOrder: async (worktree: string, sessionIds: SessionId[]) => {
-      const ref: RecordRef<'tabOrder'> = { kind: 'tabOrder', id: tabOrderRowId(rt.userId, worktree) }
+      const ref: RecordRef<'tabOrder'> = {
+        kind: 'tabOrder',
+        id: tabOrderRowId(rt.userId, worktree),
+      }
       // An empty order is no record.
       if (sessionIds.length === 0) await records.remove(ref)
       else await records.edit(ref, { sessionIds })
@@ -1139,7 +1144,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       ).catch(() => {})
       // My auto-continue choice is a synced record of mine (POD-6673).
       const preferences = rt.preferences?.()
-      if (preferences !== undefined && shouldPromptAutoContinue(preferences as unknown as PodiumSettings)) {
+      if (
+        preferences !== undefined &&
+        shouldPromptAutoContinue(preferences as unknown as PodiumSettings)
+      ) {
         rt.apply({ autoContinuePromptSessionId: sessionId })
       }
     },
@@ -1161,6 +1169,15 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // status follows on every device.
     decideApproval: async (id, decision, revision) => {
       await records.edit({ kind: 'effect', id }, { decision }, revision)
+    },
+    // A trigger subscription on or off, or removed (POD-6676): generic edits of
+    // its record, by its feed id. Queued and painted at once, offline too;
+    // every device of mine shows the change from the record.
+    setSubscriptionEnabled: async (id, enabled) => {
+      await records.edit({ kind: 'subscription', id }, { enabled })
+    },
+    removeSubscription: async (id) => {
+      await records.remove({ kind: 'subscription', id })
     },
     // Stop, scoped to the turn the person saw (POD-6397): a `session.interrupt`
     // effect record, queued durably. Every device shows it from the record:
@@ -1387,7 +1404,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // `userPreferences` record. `undefined` resets a leaf to its default.
     setPreferences: async (values) => {
       const patch: Record<string, unknown> = {}
-      for (const [path, value] of Object.entries(values)) patch[path] = value === undefined ? UNSET : value
+      for (const [path, value] of Object.entries(values))
+        patch[path] = value === undefined ? UNSET : value
       if (Object.keys(patch).length === 0) return
       await records.edit(
         { kind: 'userPreferences', id: userPreferencesRowId(rt.userId) },

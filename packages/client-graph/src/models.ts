@@ -9,6 +9,22 @@ import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, Repos
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
+export type {
+  AgentProfileModel,
+  SubscriptionModel,
+  WorkflowBindingModel,
+  WorkflowModel,
+  WorkflowRevisionModel,
+  WorkflowRunModel,
+} from './workflow-models'
+import type {
+  AgentProfileModel,
+  SubscriptionModel,
+  WorkflowBindingModel,
+  WorkflowModel,
+  WorkflowRevisionModel,
+  WorkflowRunModel,
+} from './workflow-models'
 
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1439,6 +1455,12 @@ export type ModelOf = {
   userPreferences: UserPreferencesModel
   userReadPosition: UserReadPositionModel
   superagentThread: SuperagentThreadModel
+  agentProfile: AgentProfileModel
+  workflow: WorkflowModel
+  workflowRevision: WorkflowRevisionModel
+  workflowBinding: WorkflowBindingModel
+  workflowRun: WorkflowRunModel
+  subscription: SubscriptionModel
 }
 
 /** The installed class registry. Deferred kinds join it before their first model
@@ -1461,7 +1483,7 @@ for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, Mode
 const deferredClasses = observable.map<EntityName, ModelClass | Error>(undefined, { deep: false })
 let deferredRequest: Promise<unknown> | undefined
 export function loadSyncedModels(): Promise<unknown> {
-  return deferredRequest ??= Promise.all([import('./synced-models'), import('./message-models'), import('./requested-models')]).catch(cause => {
+  return deferredRequest ??= Promise.all([import('./synced-models'), import('./message-models'), import('./requested-models'), import('./workflow-models')]).catch(cause => {
     const error = cause instanceof Error ? cause : new Error(String(cause))
     runInAction(() => {
       for (const entity of Object.keys(SCHEMA) as EntityName[])

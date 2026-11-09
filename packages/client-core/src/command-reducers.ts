@@ -33,7 +33,7 @@ import type {
   UserPreferencesWire,
   WorkState,
 } from '@podium/model'
-import { IssueProjection, IssueUserStateWire } from '@podium/model'
+import { IssueProjection, type IssueUserStateWire } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
 import {
@@ -63,6 +63,8 @@ export type OverlayTarget =
   | PerUserRecordTarget
   // A human gate's decision on an effect record (POD-6674).
   | 'effects'
+  // A trigger subscription's toggle or removal (POD-6676).
+  | 'subscriptions'
 
 /** The per-user record kinds that are pool rows of their own (POD-6673). */
 export type PerUserRecordTarget =

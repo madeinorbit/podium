@@ -20,6 +20,7 @@ import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
+import { subscriptionRemoval, subscriptionUpsert } from '../subscription-changes'
 import type { IssueCollaborator, IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
@@ -139,7 +140,12 @@ export class IssueAttentionModule {
    * personal set. The first record is kept. Takes a resolved id: its callers
    * (a session start or attach) already hold the task.
    */
-  async recordParticipation(writer: IssueWriter, issueId: IssueId, member: UserId, via: IssueJoinVia): Promise<void> {
+  async recordParticipation(
+    writer: IssueWriter,
+    issueId: IssueId,
+    member: UserId,
+    via: IssueJoinVia,
+  ): Promise<void> {
     await this.store.recordParticipation(writer, issueId, member, via)
   }
 
@@ -157,7 +163,11 @@ export class IssueAttentionModule {
   }
 
   /** Remove `member`'s "assigned to you by X" row and nothing else. */
-  async dismissAssignment(writer: IssueWriter, id: string, member: UserId): Promise<{ dismissed: boolean }> {
+  async dismissAssignment(
+    writer: IssueWriter,
+    id: string,
+    member: UserId,
+  ): Promise<{ dismissed: boolean }> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     return { dismissed: await this.store.dismissAssignment(writer, row.id, member) }
   }
@@ -220,8 +230,7 @@ export class IssueAttentionModule {
           (session) =>
             session.sessionId !== opts.sessionId &&
             !session.archived &&
-            (session.status === 'live' ||
-              session.status === 'starting'),
+            (session.status === 'live' || session.status === 'starting'),
         )
         if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
@@ -350,8 +359,7 @@ export class IssueAttentionModule {
             (session) =>
               session.sessionId === coordinatorId &&
               !session.archived &&
-              (session.status === 'live' ||
-                session.status === 'starting') &&
+              (session.status === 'live' || session.status === 'starting') &&
               row.worktreePath != null &&
               isMemberCwd(row.worktreePath, session.cwd),
           )
@@ -566,16 +574,19 @@ export class IssueAttentionModule {
    *  it enabled. `sourceRef` for an issue/session source is stored as given — an
    *  issue ref is resolved to its internal id so relationship/subject matching is
    *  stable across #seq churn. */
-  async subscriptionAdd(input: {
-    subscriberKind: Subscription['subscriberKind']
-    subscriberId: string
-    event: string
-    sourceKind: Subscription['sourceKind']
-    sourceRef: string
-    deliverNudge?: boolean
-    deliverNotify?: boolean
-    origin?: Subscription['origin']
-  }): Promise<Subscription> {
+  async subscriptionAdd(
+    writer: IssueWriter,
+    input: {
+      subscriberKind: Subscription['subscriberKind']
+      subscriberId: string
+      event: string
+      sourceKind: Subscription['sourceKind']
+      sourceRef: string
+      deliverNudge?: boolean
+      deliverNotify?: boolean
+      origin?: Subscription['origin']
+    },
+  ): Promise<Subscription> {
     const sub: Subscription = {
       id: `sub_${randomUUID()}`,
       subscriberKind: input.subscriberKind,
@@ -592,18 +603,23 @@ export class IssueAttentionModule {
       enabled: true,
       createdAt: this.store.now(),
     }
-    await this.store.deps.funnel.run({
+    // The row and its change entry commit together (POD-6676).
+    await writer.commit({
       write: async () => await this.store.deps.store.events.addSubscription(sub),
+      changes: () => [subscriptionUpsert(sub)],
     })
     return sub
   }
 
-  async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
-    const existed = (await this.store.deps.store.events.getSubscription(id)) !== undefined
-    await this.store.deps.funnel.run({
+  /** `records.subscription.remove` (POD-6676): the row and its removal entry. */
+  async subscriptionRemove(writer: IssueWriter, id: string): Promise<{ removed: boolean }> {
+    const existing = await this.store.deps.store.events.getSubscription(id)
+    if (existing === undefined) return { removed: false }
+    await writer.commit({
       write: async () => await this.store.deps.store.events.removeSubscription(id),
+      changes: () => [subscriptionRemoval(existing)],
     })
-    return { removed: existed }
+    return { removed: true }
   }
 
   async subscriptionList(filter: { subscriberId: string }): Promise<Subscription[]> {
@@ -631,12 +647,20 @@ export class IssueAttentionModule {
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
-  async subscriptionSetEnabled(id: string, enabled: boolean): Promise<{ updated: boolean }> {
-    return await this.store.deps.funnel.run({
-      write: async () => ({
-        updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled),
-      }),
+  async subscriptionSetEnabled(
+    writer: IssueWriter,
+    id: string,
+    enabled: boolean,
+  ): Promise<{ updated: boolean }> {
+    const events = this.store.deps.store.events
+    const { result } = await writer.commit({
+      write: async () =>
+        (await events.setSubscriptionEnabled(id, enabled))
+          ? await events.getSubscription(id)
+          : undefined,
+      changes: (sub) => (sub === undefined ? [] : [subscriptionUpsert(sub)]),
     })
+    return { updated: result !== undefined }
   }
 
   async subscriptionGet(id: string): Promise<Subscription | undefined> {
@@ -812,7 +836,11 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public async onIssueArchived(writer: IssueWriter, row: IssueRow, archivedBy?: UserId): Promise<void> {
+  public async onIssueArchived(
+    writer: IssueWriter,
+    row: IssueRow,
+    archivedBy?: UserId,
+  ): Promise<void> {
     await this.cascadeArchiveSessions(writer, row, archivedBy)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
@@ -853,7 +881,11 @@ export class IssueAttentionModule {
    *  for the assignee, whose read it fires on. A server write with no human
    *  behind it, and a session that records no human (older rows), archive
    *  as before. */
-  public async cascadeArchiveSessions(writer: IssueWriter, row: IssueRow, archivedBy?: UserId): Promise<void> {
+  public async cascadeArchiveSessions(
+    writer: IssueWriter,
+    row: IssueRow,
+    archivedBy?: UserId,
+  ): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
     for (const s of await this.store.sessionsFor(row)) {

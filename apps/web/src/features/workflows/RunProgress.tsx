@@ -20,25 +20,21 @@
  * ATTRIBUTION IS READ, NEVER ASSERTED
  * ---------------------------------------------------------------------------
  *
- * The history rows come from `WorkflowRunWire.history`, which the server projects
+ * The history rows come from `workflows.status`, asked for when the card's history
+ * is opened (POD-6676: it grows, so it is not on the synced run). The server projects
  * from `workflow_events` — columns stamped from the authenticated transport. The
  * card shows the PAIR: who acted, and which human they acted for. A row with no
  * human is shown as such rather than attributed to the operator by default.
  */
-import {
-  currentStepOf,
-  runAdvances,
-  runAttribution,
-} from '@podium/client-core/values'
+import { currentStepOf, runAdvances, runAttribution } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { WorkflowRunWire } from '@podium/protocol'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
-import { Button } from '@/components/ui/button'
-import { useWorkflowSubject } from './readers'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { WorkflowsSource } from './use-workflows'
-import { workflowCommands, type WorkflowRights } from './workflow-commands'
+import { useWorkflowSubject } from './readers'
+import { useRunHistory, type WorkflowRunRow, type WorkflowsSource } from './use-workflows'
+import { type WorkflowRights, workflowCommands } from './workflow-commands'
 import { CommandButton, Empty, OpaqueReference, statusClass } from './workflow-ui'
 
 export function RunProgress({
@@ -62,10 +58,7 @@ export function RunProgress({
             <input
               type="checkbox"
               checked={source.showHistory}
-              onChange={(e) => {
-                source.setShowHistory(e.target.checked)
-                void source.refresh(e.target.checked)
-              }}
+              onChange={(e) => source.setShowHistory(e.target.checked)}
             />
             Show completed
           </label>
@@ -77,11 +70,6 @@ export function RunProgress({
             {source.runs.map((run) => (
               <RunCard key={run.id} run={run} source={source} rights={rights} />
             ))}
-            {source.hasMoreRuns ? (
-              <Button variant="outline" size="sm" onClick={() => void source.loadMoreRuns()}>
-                Show more
-              </Button>
-            ) : null}
           </div>
         )}
       </div>
@@ -94,14 +82,19 @@ function RunCard({
   source,
   rights,
 }: {
-  run: WorkflowRunWire
+  run: WorkflowRunRow
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
   const subject = useWorkflowSubject(run)
   const current = currentStepOf(run)
   const advances = runAdvances(run)
-  const attribution = runAttribution(run)
+  // The history is a request answer, asked for when shown (POD-6676): it grows,
+  // so it is not on the synced run. It is asked again when the run moves.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  // A moved run carries a new steps list: that re-asks.
+  const history = useRunHistory(run.id, historyOpen, run.steps)
+  const attribution = history.events ? runAttribution({ history: [...history.events] }) : []
 
   return (
     <article className="rounded-lg border bg-card p-4" data-run-id={run.id}>
@@ -109,7 +102,9 @@ function RunCard({
         <div>
           <h3 className="text-sm font-semibold">
             {subject === LOADING ? (
-              <span role="status">Loading {run.subjectKind} · {run.subjectId}…</span>
+              <span role="status">
+                Loading {run.subjectKind} · {run.subjectId}…
+              </span>
             ) : subject.state === 'present' ? (
               <>
                 {run.subjectKind} · {run.subjectId}
@@ -119,7 +114,8 @@ function RunCard({
             )}
           </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {run.id} · revision {run.revision.version} · coordinator {run.coordinatorSessionId}
+            {run.id} · revision {run.revision?.version ?? run.revisionId} · coordinator{' '}
+            {run.coordinatorSessionId}
           </p>
         </div>
         <span className={cn('rounded-full px-2 py-1 text-[11px]', statusClass(run.status))}>
@@ -161,12 +157,28 @@ function RunCard({
         </ol>
       )}
 
-      {attribution.length > 0 && (
-        <div className="mt-3 border-t pt-3">
-          <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Run history
-          </h4>
-          <ul className="space-y-1">
+      <div className="mt-3 border-t pt-3">
+        <button
+          data-pressable
+          type="button"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((open) => !open)}
+          className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        >
+          Run history
+        </button>
+        {historyOpen && history.loading && attribution.length === 0 && (
+          <p role="status" className="mt-1.5 text-[11px] text-muted-foreground">
+            Loading history…
+          </p>
+        )}
+        {historyOpen && history.error && (
+          <p role="alert" className="mt-1.5 text-[11px] text-destructive">
+            {history.error}
+          </p>
+        )}
+        {historyOpen && attribution.length > 0 && (
+          <ul className="mt-1.5 space-y-1">
             {attribution.map((row) => (
               <li
                 key={`${row.kind}:${row.at}`}
@@ -186,8 +198,8 @@ function RunCard({
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
 
       {current && (advances.skip || advances.retry) && (
         <div className="mt-3 flex justify-end gap-2">

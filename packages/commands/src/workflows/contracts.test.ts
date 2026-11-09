@@ -41,7 +41,6 @@ const TEN: readonly WorkflowContractName[] = [
   'revise',
   'fork',
   'publish',
-  'assign',
   'checkpoint',
   'assignStep',
   'skip',
@@ -112,7 +111,6 @@ describe('the ten workflow contracts', () => {
       revise: 'offline-eligible',
       fork: 'offline-eligible',
       publish: 'offline-eligible',
-      assign: 'offline-eligible',
       checkpoint: 'online-only',
       assignStep: 'online-only',
       skip: 'online-only',
@@ -146,7 +144,6 @@ describe('the ten workflow contracts', () => {
       revise: 'workflow-revisions',
       fork: 'workflow-definitions',
       publish: 'workflow-revisions',
-      assign: 'workflow-bindings',
       checkpoint: 'workflow-runs',
       assignStep: 'workflow-runs',
       skip: 'workflow-runs',
@@ -157,10 +154,11 @@ describe('the ten workflow contracts', () => {
       const contract = WORKFLOW_CONTRACTS[name as WorkflowContractName]
       expect([name, contract.visibility]).toEqual([name, visibilityClassOf(row)])
     }
-    // All four rows are REACHED. Without this, a typo in a row id above would
+    // All three rows are REACHED (the bindings' row is the binding record's
+    // since POD-6676). Without this, a typo in a row id above would
     // resolve to the default-closed `personal` backstop and match anyway —
     // which is the failure mode `visibilityClassOf` being total creates.
-    expect(new Set(Object.values(writesInto)).size).toBe(4)
+    expect(new Set(Object.values(writesInto)).size).toBe(3)
     for (const row of new Set(Object.values(writesInto))) {
       expect([row, isDeclaredMatrixRow(row)]).toEqual([row, true])
     }
@@ -203,7 +201,7 @@ describe('the advance partition', () => {
   })
 
   it('leaves library CRUD with no advance declaration — the absence is the claim', () => {
-    for (const name of ['create', 'revise', 'fork', 'publish', 'assign'] as const) {
+    for (const name of ['create', 'revise', 'fork', 'publish'] as const) {
       expect([name, workflowAdvanceOf(name)]).toEqual([name, undefined])
     }
   })

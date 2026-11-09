@@ -2,6 +2,7 @@
 
 import type { Cursor, EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
+import type { StoreTranscriptCache } from '../../transcript-store/cache'
 import type {
   Replica,
   ReplicaAddressedBatch,
@@ -10,7 +11,6 @@ import type {
   ReplicaRows,
   UiState,
 } from '../contract'
-import type { StoreTranscriptCache } from '../../transcript-store/cache'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
 import { IssueRefIndex } from './issue-ref-index'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
@@ -120,6 +120,12 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'userPreferences',
   'userReadPositions',
   'superagentThreads',
+  'agentProfiles',
+  'workflows',
+  'workflowRevisions',
+  'workflowBindings',
+  'workflowRuns',
+  'subscriptions',
 ]
 
 /** Shared identity for an empty kind so engine snapshots do not churn
@@ -307,7 +313,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       reconcile(kind, state)
     }
     if (state.rows === null) {
-      state.rows = [...state.byId.values()].sort((a, b) => keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)))
+      state.rows = [...state.byId.values()].sort((a, b) =>
+        keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)),
+      )
     }
     return state.rows as ReplicaRows[K][]
   }
@@ -436,7 +444,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     dirtyRows.delete(kind)
     for (const id of dirty) {
       let next: unknown
-      try { next = cache.read(entityForKind(kind), id)?.value } catch { next = undefined }
+      try {
+        next = cache.read(entityForKind(kind), id)?.value
+      } catch {
+        next = undefined
+      }
       if (next === null || typeof next !== 'object') next = undefined
       const previous = state.byId.get(id)
       if (previous === next) continue
@@ -501,6 +513,12 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         userPreferences: project('userPreferences'),
         userReadPositions: project('userReadPositions'),
         superagentThreads: project('superagentThreads'),
+        agentProfiles: project('agentProfiles'),
+        workflows: project('workflows'),
+        workflowRevisions: project('workflowRevisions'),
+        workflowBindings: project('workflowBindings'),
+        workflowRuns: project('workflowRuns'),
+        subscriptions: project('subscriptions'),
         cursor: facade.getCursor(),
         feedCursor: facade.getFeedCursor(),
         // ADR 2 D7 rung 6 is the LEGACY blob's version check. This path has no

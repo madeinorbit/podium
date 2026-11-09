@@ -40,8 +40,10 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(88)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(88)
+    // 88 less `subscriptionRemove` and `subscriptionSetEnabled`, which became
+    // the subscription record's generic edits (POD-6676).
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(86)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(86)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // The name list IS the table's keys: a restated list is a second place a command
     // name can live (moved from the deleted issue audit's
@@ -160,13 +162,12 @@ describe('transport exposure', () => {
     'resolveRefs',
     'searchNormalized',
     'setTucked',
-    'subscriptionSetEnabled',
   ]
 
   it('tRPC and relay serve every contract; CLI and MCP serve the public subset', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(74)
+    expect(onCli).toHaveLength(73)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -321,7 +322,7 @@ describe('redaction', () => {
       cmd += 1
       expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
     }
-    expect(cmd).toBe(24)
+    expect(cmd).toBe(22)
   })
 
   it('every command declares a class, mutations a real one and reads `n/a`', () => {
@@ -344,7 +345,7 @@ describe('redaction', () => {
 
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
-    expect(mutations.length).toBe(55)
+    expect(mutations.length).toBe(53)
     expect(nonMutating.length).toBe(33)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')

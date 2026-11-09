@@ -282,36 +282,6 @@ async function ownSubscriberOrRefuse(
   })
 }
 
-/** Refuse a remove or toggle of a subscription that is not the caller's own:
- *  a person's own subscriber (above), or an agent's derived subscriber. */
-async function assertOwnSubscription(
-  ctx: IssueCommandCtx,
-  id: string,
-  verb: 'remove' | 'toggle',
-): Promise<void> {
-  const human = personHuman(ctx)
-  let owned: boolean
-  if (human !== undefined) {
-    const sub = await ctx.attention.subscriptionGet(id)
-    owned =
-      sub !== undefined &&
-      (sub.subscriberKind === 'session'
-        ? await sessionOwnedBy(ctx, sub.subscriberId, human)
-        : (await ctx.reports.getMeta(sub.subscriberId).catch(() => null))?.ownerUserId === human)
-  } else {
-    const subscriber = ctx.deriveSubscriber()
-    owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-      (s) => s.id === id,
-    )
-  }
-  if (!owned) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `not allowed to ${verb} a subscription you do not own`,
-    })
-  }
-}
-
 /** The human starting a session on a task (POD-6283): the person, or the human
  *  at the root of an agent's delegation. That session is theirs, whoever owns
  *  the task. A system job has no human, and the task's owner stands in. */
@@ -2120,7 +2090,7 @@ const defs = {
         // subtree, so they are always in-scope.
         if (input.source.kind !== 'relationship') await ctx.assertSourceInSubtree(input.source)
       }
-      return await ctx.attention.subscriptionAdd({
+      return await ctx.attention.subscriptionAdd(ctx.writer, {
         subscriberKind: subscriber.kind,
         subscriberId: subscriber.id,
         event: input.event,
@@ -2131,25 +2101,9 @@ const defs = {
       })
     },
   }),
-  subscriptionRemove: def('subscriptionRemove', {
-    kind: 'mutation',
-    handler: async (ctx, input) => {
-      // Every caller may only remove their OWN subscriptions.
-      await assertOwnSubscription(ctx, input.id, 'remove')
-      return await ctx.attention.subscriptionRemove(input.id)
-    },
-  }),
-  /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
-   *  subscriptions only affect the additive dispatcher pass, so disabling one never
-   *  touches the built-in handlers — safe and reversible. */
-  subscriptionSetEnabled: def('subscriptionSetEnabled', {
-    kind: 'mutation',
-    handler: async (ctx, input) => {
-      // Every caller may only toggle their OWN subscriptions.
-      await assertOwnSubscription(ctx, input.id, 'toggle')
-      return ctx.attention.subscriptionSetEnabled(input.id, input.enabled)
-    },
-  }),
+  // `subscriptionRemove` and `subscriptionSetEnabled` are the synced record's
+  // generic edits since POD-6676 (`records.subscription.*`,
+  // `subscription-record.ts`), under the same own-subscriber rule.
   subscriptionList: def('subscriptionList', {
     kind: 'query',
     // The input is optional, so `query()` (no args) stays valid on every client.

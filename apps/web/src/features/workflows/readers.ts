@@ -8,10 +8,11 @@ const EMPTY_MACHINES: ReturnType<typeof workflowMachines> = { views: [], pending
 export function useWorkflowMachines() {
   return useWorklistPoolProjection(workflowMachines, EMPTY_MACHINES)
 }
-export function useWorkflowSubject(run: WorkflowRunWire) {
+export function useWorkflowSubject(run: Pick<WorkflowRunWire, 'id' | 'subjectKind' | 'subjectId'>) {
   const read = useCallback(
-    (pool: Parameters<typeof workflowSubject>[0]) => workflowSubject(pool, run),
-    [run],
+    (pool: Parameters<typeof workflowSubject>[0]) =>
+      workflowSubject(pool, { subjectKind: run.subjectKind, subjectId: run.subjectId }),
+    [run.subjectKind, run.subjectId],
   )
   return useWorklistPoolProjection(read, LOADING)
 }

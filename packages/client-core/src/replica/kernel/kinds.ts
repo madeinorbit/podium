@@ -24,8 +24,10 @@ import {
   readPositionRowId,
   sessionUserStateRowId,
   superagentThreadRowId,
+  subscriptionRowIdOf,
   tabOrderRowId,
   userPreferencesRowId,
+  workflowBindingRowId,
 } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
@@ -75,6 +77,13 @@ const ENTITY_TO_KIND = {
   userReadPosition: 'userReadPositions',
   // POD-6675: my superagent threads.
   superagentThread: 'superagentThreads',
+  // POD-6676: profiles, workflows and trigger subscriptions.
+  agentProfile: 'agentProfiles',
+  workflow: 'workflows',
+  workflowRevision: 'workflowRevisions',
+  workflowBinding: 'workflowBindings',
+  workflowRun: 'workflowRuns',
+  subscription: 'subscriptions',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -145,5 +154,12 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
     const thread = row as ReplicaRows['superagentThreads']
     return superagentThreadRowId(thread.ownerUserId, thread.threadId)
   }
+  // POD-6676: a binding is keyed by its target, a subscription carries its
+  // subscriber in its feed id.
+  if (kind === 'workflowBindings') {
+    const binding = row as ReplicaRows['workflowBindings']
+    return workflowBindingRowId(binding.targetKind, binding.targetId)
+  }
+  if (kind === 'subscriptions') return subscriptionRowIdOf(row as ReplicaRows['subscriptions'])
   return (row as ReplicaRows['issueProjections']).id
 }

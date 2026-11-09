@@ -30,6 +30,9 @@ import {
   normalizeOriginUrl,
   parseIssueUserStateRowId,
   parseSessionUserStateRowId,
+  subscriptionRowId,
+  type WorkflowBindingTarget,
+  workflowBindingRowId,
   repoNameFromOrigin,
   type PinKind,
   pinRowId,
@@ -131,6 +134,7 @@ export type RepaintKind =
   | 'session'
   | 'issue'
   | 'effect'
+  | 'subscription'
   | 'pin'
   | 'tabOrder'
   | 'userPreferences'
@@ -182,6 +186,13 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'userReadPositions',
   // POD-6675: my superagent threads.
   'superagentThreads',
+  // POD-6676: profiles, workflows and trigger subscriptions.
+  'agentProfiles',
+  'workflows',
+  'workflowRevisions',
+  'workflowBindings',
+  'workflowRuns',
+  'subscriptions',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -195,7 +206,47 @@ const OVERLAID: readonly OverlayTarget[] = [
   // A human gate's decision, painted on its effect record (POD-6674).
   'effects',
   'superagentThreads',
+  // A trigger subscription's toggle or removal (POD-6676).
+  'subscriptions',
 ]
+
+/**
+ * POD-6676: agent profiles, workflows and trigger subscriptions, each a pool row
+ * of its own keyed by its FEED id, the id a generic edit names: a binding's is
+ * its target (`workflowBindingRowId`), a subscription's carries its subscriber
+ * (`subscriptionRowId`; its stored `sub_…` id is `subscriptionId`).
+ */
+const RECORD_COMPANIONS = {
+  agentProfile: 'agentProfiles',
+  workflow: 'workflows',
+  workflowRevision: 'workflowRevisions',
+  workflowBinding: 'workflowBindings',
+  workflowRun: 'workflowRuns',
+  subscription: 'subscriptions',
+} as const satisfies Record<string, ReplicaKind>
+export type RecordCompanion = keyof typeof RECORD_COMPANIONS
+const RECORD_COMPANION_KINDS = Object.keys(RECORD_COMPANIONS) as RecordCompanion[]
+const RECORD_COMPANION_BY_REPLICA = new Map<string, RecordCompanion>(
+  RECORD_COMPANION_KINDS.map((kind) => [RECORD_COMPANIONS[kind], kind]),
+)
+const isRecordCompanion = (kind: string): kind is RecordCompanion =>
+  Object.hasOwn(RECORD_COMPANIONS, kind)
+const BINDING_TARGETS: ReadonlySet<string> = new Set(['global', 'repository', 'issue', 'session'])
+
+/** A record companion's feed id, from its replica row. */
+function recordFeedIdOf(kind: RecordCompanion, row: AnyRow): string | undefined {
+  if (kind === 'workflowBinding') {
+    return BINDING_TARGETS.has(String(row.targetKind)) && typeof row.targetId === 'string'
+      ? workflowBindingRowId(row.targetKind as WorkflowBindingTarget, row.targetId)
+      : undefined
+  }
+  if (kind === 'subscription') {
+    if (typeof row.id !== 'string' || typeof row.subscriberId !== 'string') return undefined
+    if (row.subscriberKind !== 'session' && row.subscriberKind !== 'issue') return undefined
+    return subscriptionRowId(row.subscriberKind, row.subscriberId, row.id)
+  }
+  return idOf(row) ?? undefined
+}
 
 /**
  * POD-6673: each per-user record kind as the pool's entity. A record is a row
@@ -469,6 +520,7 @@ export function createRowSource(
       userReadPositions: pooled.byRow('userReadPositions'),
       effects: pooled.byRow('effects'),
       superagentThreads: pooled.byRow('superagentThreads'),
+      subscriptions: pooled.byRow('subscriptions'),
     }
   }
 
@@ -757,6 +809,32 @@ export function createRowSource(
     return effectRow(folded('effects', id, pending))
   }
 
+  /**
+   * One profile, workflow or subscription row as the pool holds it (POD-6676):
+   * server truth, a subscription with this device's pending toggle or removal
+   * folded on, keyed and stamped with its feed id.
+   */
+  function recordRow(kind: RecordCompanion, feedId: string, pending: PendingByRow | null): AnyRow | undefined {
+    const raw = authority(RECORD_COMPANIONS[kind], feedId)
+    if (kind === 'subscription') {
+      const value = foldRowOverlays(raw, pending?.subscriptions.get(feedId) ?? NO_OVERLAYS)
+      return value === undefined ? undefined : { ...value, id: feedId, subscriptionId: raw?.id ?? value.id }
+    }
+    if (raw === undefined) return undefined
+    return kind === 'workflowBinding' ? { ...raw, id: feedId } : raw
+  }
+
+  /** Every resident row of one record companion. */
+  function recordRows(kind: RecordCompanion, pending: PendingByRow | null): RowRecord[] {
+    return replica.rows(RECORD_COMPANIONS[kind]).flatMap((raw) => {
+      const id = recordFeedIdOf(kind, raw as AnyRow)
+      if (id === undefined) return []
+      stats.rowsVisited += 1
+      const value = recordRow(kind, id, pending)
+      return value === undefined ? [] : [{ kind, id, value }]
+    })
+  }
+
   function effectRow(raw: AnyRow | undefined): AnyRow | undefined {
     if (!raw) return undefined
     // Whether the viewer is one it is routed to (POD-6674): an approval reaches
@@ -987,6 +1065,12 @@ export function createRowSource(
         byKey.set(`effect:${address.id}`, { kind: 'effect', id: address.id, value: effectOf(address.id, readPending()) })
         continue
       }
+      const record = RECORD_COMPANION_BY_REPLICA.get(address.kind)
+      if (record !== undefined) {
+        stats.rowsVisited += 1
+        byKey.set(`${record}:${address.id}`, { kind: record, id: address.id, value: recordRow(record, address.id, readPending()) })
+        continue
+      }
       if (address.kind === 'automations' || address.kind === 'automationRuns') {
         const kind = address.kind === 'automations' ? 'automation' : 'automationRun'
         stats.rowsVisited += 1
@@ -1111,6 +1195,7 @@ export function createRowSource(
     // Message and interaction rows belong to NoticeSource; this source only
     // enumerates its own core records when the generic pool asks for a kind.
     const rows = isPerUserKind(kind) ? perUserRows(kind, readPending())
+      : isRecordCompanion(kind) ? recordRows(kind, readPending())
       : kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' || kind === 'effect' ? companions(kind)
       : kind === 'worktree' ? allLanes()
       : kind === 'issue' || kind === 'session' ? enumerate(kind, readPending()) : []
@@ -1183,8 +1268,10 @@ export function createRowSource(
     // attached over a replica that already holds them (a warm start, a seeded
     // fixture) paints them from its first publication, not only after the next
     // replace.
+    // POD-6676's profiles, workflows and subscriptions likewise.
     companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect'),
-      ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, readPending()))],
+      ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, readPending())),
+      ...RECORD_COMPANION_KINDS.flatMap((kind) => snapshot(kind))],
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind
@@ -1246,6 +1333,13 @@ export function createRowSource(
         if (value !== held) byKey.set(key, { kind, id, value })
         continue
       }
+      // A subscription's toggle or removal (POD-6676).
+      if (kind === 'subscription') {
+        const held = published.has(key) ? published.get(key) : recordRow(kind, id, null)
+        const value = retain(key, recordRow(kind, id, pending))
+        if (value !== held) byKey.set(key, { kind, id, value })
+        continue
+      }
       const held = published.has(key) ? published.get(key) : resolve(kind, id, null)
       const value = retain(key, resolve(kind, id, pending))
       if (value !== held) byKey.set(key, { kind, id, value })
@@ -1287,6 +1381,8 @@ export function createRowSource(
         return authority(entity, id)
       case 'effects':
         return authority('effects', id)
+      case 'subscriptions':
+        return authority('subscriptions', id)
     }
   }
 
@@ -1306,6 +1402,10 @@ export function createRowSource(
       for (const id of pending[kind].keys()) {
         if (kind === 'effects') {
           published.set(`effect:${id}`, effectOf(id, pending))
+          continue
+        }
+        if (kind === 'subscriptions') {
+          published.set(`subscription:${id}`, recordRow('subscription', id, pending))
           continue
         }
         const row = kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue'

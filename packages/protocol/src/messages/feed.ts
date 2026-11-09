@@ -51,6 +51,7 @@
  */
 
 import {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
@@ -65,6 +66,11 @@ import {
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
+  SubscriptionWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -112,6 +118,12 @@ export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('machine'), MachineProjection),
   feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
   feedChangeArm(z.literal('effect'), EffectRecordWire),
+  feedChangeArm(z.literal('agentProfile'), AgentProfileWire),
+  feedChangeArm(z.literal('workflow'), WorkflowWire),
+  feedChangeArm(z.literal('workflowRevision'), WorkflowRevisionWire),
+  feedChangeArm(z.literal('workflowBinding'), WorkflowBindingWire),
+  feedChangeArm(z.literal('workflowRun'), WorkflowRunRecord),
+  feedChangeArm(z.literal('subscription'), SubscriptionWire),
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 

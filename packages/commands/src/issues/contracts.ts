@@ -121,10 +121,6 @@ const repoScoped = z.object({ repoPath: z.string().optional() })
  */
 const byIssueId = z.object({ id: IssueIdField })
 
-/** UNBRANDED: a SUBSCRIPTION id, not an issue id — see {@link byIssueId}. The
- *  subscription table has its own id space and no brand in `packages/model`. */
-const bySubscriptionId = z.object({ id: z.string() })
-
 // ---------------------------------------------------------------------------
 // THE INPUT SCHEMAS — moved from `registry.ts`, byte-for-byte where they were
 // literals and by alias where they were the shared fragments above. These are the
@@ -743,16 +739,6 @@ export const subscriptionAddInput = z.object({
   // explicit subscriber (which issue/session to notify). Ignored for constrained
   // agents, who always subscribe themselves via deriveSubscriber.
   subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
-})
-
-export const subscriptionRemoveInput = bySubscriptionId
-
-export const subscriptionSetEnabledInput = z.object({
-  /** UNBRANDED: a SUBSCRIPTION id. `IssueService.subscriptionSetEnabled` passes
-   *  it to `store.events.setSubscriptionEnabled`, which resolves it in the
-   *  subscription table — this is not the enclosing tenant.s entity. */
-  id: z.string(),
-  enabled: z.boolean(),
 })
 
 /** The operator's listing, one keyset page at a time: `after` is the last row
@@ -2077,38 +2063,6 @@ export const issueSubscriptionAddContract = {
   conflict: 'append',
 } as const satisfies MutatingCommandContract
 
-export const issueSubscriptionRemoveContract = {
-  name: 'issues.subscriptionRemove',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: subscriptionRemoveInput,
-  policy: ADDITIVE_POLICY,
-  exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: TARGETED_ERRORS,
-  conflict: 'cmd',
-  conflictRule: 'own-row delete; guarded by the ownership check, not an issue revision',
-} as const satisfies MutatingCommandContract
-
-export const issueSubscriptionSetEnabledContract = {
-  name: 'issues.subscriptionSetEnabled',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: subscriptionSetEnabledInput,
-  policy: ADDITIVE_POLICY,
-  exposure: SERVED_ON_WIRE,
-  delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: TARGETED_ERRORS,
-  conflict: 'cmd',
-  conflictRule: 'own-row flag toggle; guarded by the ownership check, not an issue revision',
-} as const satisfies MutatingCommandContract
-
 // ---------------------------------------------------------------------------
 // THE TWO THAT ARE THEIR OWN CLASS
 //
@@ -2314,8 +2268,6 @@ export const ISSUE_CONTRACTS = {
   stop: issueStopContract,
   subscriptionAdd: issueSubscriptionAddContract,
   subscriptionList: issueSubscriptionListContract,
-  subscriptionRemove: issueSubscriptionRemoveContract,
-  subscriptionSetEnabled: issueSubscriptionSetEnabledContract,
   supersede: issueSupersedeContract,
   unshare: issueUnshareContract,
   textRevisions: issueTextRevisionsContract,

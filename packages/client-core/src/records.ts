@@ -25,6 +25,7 @@
 
 import type * as Declarations from '@podium/commands/records'
 import type {
+  AGENT_PROFILE_RECORD,
   EFFECT_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
@@ -34,11 +35,13 @@ import type {
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SUPERAGENT_THREAD_RECORD,
+  SUBSCRIPTION_RECORD,
   SyncedKindDeclaration,
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
   USER_PREFERENCES_RECORD,
   USER_READ_POSITION_RECORD,
+  WORKFLOW_BINDING_RECORD,
 } from '@podium/commands/records'
 import {
   type DeviceIdPrefix,
@@ -124,6 +127,10 @@ interface RecordKindTable {
   readonly userReadPosition: typeof USER_READ_POSITION_RECORD
   // My superagent threads (POD-6675): title, archive, model and effort.
   readonly superagentThread: typeof SUPERAGENT_THREAD_RECORD
+  // Agent profiles, trigger subscriptions and workflow bindings (POD-6676).
+  readonly agentProfile: typeof AGENT_PROFILE_RECORD
+  readonly subscription: typeof SUBSCRIPTION_RECORD
+  readonly workflowBinding: typeof WORKFLOW_BINDING_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -148,6 +155,9 @@ export function recordKinds(): RecordKindTable {
     userReadPosition: d.USER_READ_POSITION_RECORD,
     effect: d.EFFECT_RECORD,
     superagentThread: d.SUPERAGENT_THREAD_RECORD,
+    agentProfile: d.AGENT_PROFILE_RECORD,
+    subscription: d.SUBSCRIPTION_RECORD,
+    workflowBinding: d.WORKFLOW_BINDING_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -282,6 +292,7 @@ export const RECORD_HOMES: {
       | 'userReadPositions'
       | 'effects'
       | 'superagentThreads'
+      | 'subscriptions'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -304,12 +315,20 @@ export const RECORD_HOMES: {
   userReadPosition: { target: 'userReadPositions', row: (id) => id },
   // POD-6675: a superagent thread, keyed by its feed id.
   superagentThread: { target: 'superagentThreads', row: (id) => id },
+  // POD-6676: a subscription's toggle and removal paint on its pool row, keyed
+  // by its feed id. A profile and a binding are answered now (`submitNow`), so
+  // nothing queues or paints for them.
+  subscription: { target: 'subscriptions', row: (id) => id },
+  agentProfile: null,
+  workflowBinding: null,
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one
  *  and holds it to the declaration's own `newId` shape. */
 const NEW_ID_PREFIX: Partial<Record<RecordKind, DeviceIdPrefix>> = {
   issueProjection: 'iss_',
+  // An agent profile's id (POD-6676); the CLI mints it the same way.
+  agentProfile: 'agp_',
 }
 
 /** A caller's mistake the server would refuse: refused before anything paints. */

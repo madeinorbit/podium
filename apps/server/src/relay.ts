@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { HumanCeiling } from '@podium/commands'
+import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type {
   AgentKind,
@@ -159,6 +159,7 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
 import { registerIssueStartEffect } from './modules/issues/start-effect'
+import { reconcileSubscriptionRecords } from './modules/issues/subscription-record'
 import {
   finishSelfStop,
   issueWorkEffectPort,
@@ -200,7 +201,6 @@ import { AccountQuotaTopic, AccountUsageTopic } from './modules/quota-history/qu
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { registerRecordCommands } from './modules/records/register'
-import { reconcileUserRecords } from './modules/user-records/reconcile'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
@@ -276,6 +276,8 @@ import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { readUsageSummary } from './modules/usage-summary'
+import { reconcileUserRecords } from './modules/user-records/reconcile'
+import { reconcileWorkflowRecords } from './modules/workflows/records'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { privateResourceAccess } from './private-resources'
@@ -714,6 +716,17 @@ export class SessionRegistry {
     // Superagent threads (POD-6675): every member's global thread, the running
     // flag from the pending turns, and every thread onto the log.
     await reconcileSuperagentThreads(this.writes.system('boot.reconcile'), this.store)
+    // Agent profiles, workflows and trigger subscriptions (POD-6676): every
+    // stored row onto the log, the same back-fill.
+    {
+      const synced = this.writes.system('boot.reconcile')
+      await synced.reconcile(
+        'agentProfile',
+        (await this.store.agentProfiles.list()).map((value) => ({ id: value.id, value })),
+      )
+      await reconcileWorkflowRecords(synced, this.store.workflows)
+      await reconcileSubscriptionRecords(synced, this.store.events)
+    }
     await this.writes
       .system('boot.reconcile')
       .reconcile('machine', await this.modules.machines.projectionRows())
@@ -2397,17 +2410,13 @@ export class SessionRegistry {
         // session's last state is not replayed, as the live path above already
         // suppresses notices for stopped sessions.
         sessionStates: async () =>
-          (
-            await sessionsSvc.readSessionFactsWithStatuses([
-              'starting',
-              'live',
-              'hibernated',
-            ])
-          ).map((s) => ({
-            info: noticeInfo(s),
-            state: s.agentState,
-            ownerUserId: s.ownerUserId,
-          })),
+          (await sessionsSvc.readSessionFactsWithStatuses(['starting', 'live', 'hibernated'])).map(
+            (s) => ({
+              info: noticeInfo(s),
+              state: s.agentState,
+              ownerUserId: s.ownerUserId,
+            }),
+          ),
         notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
@@ -3079,6 +3088,10 @@ export class SessionRegistry {
         },
         repoIdForPath: async (path) => await this.store.repos.resolveRepoIdForPath(path),
         agentProfile: async (ref) => await agentProfiles.find(ref),
+        // A run a spawn starts commits on the feed's mirror origin, inside
+        // whichever operation spawned the session; a workflow command commits
+        // on the command's own writer (POD-6676).
+        changes: writes.system('feed.workflows'),
         notifyCoordinator: async (sessionId, text) => {
           await messagesSvc.send(
             writes.system('messages.server'),
@@ -3521,17 +3534,27 @@ export class SessionRegistry {
           // transport uses (POD-732) — the deleted `publish`/`assign` shims were
           // its only other way in, and a server op that skipped the contract's
           // parse would be the one caller whose input nobody validated.
-          const revision = await workflows.execute(caller, 'publish', {
-            revisionId: op.revisionId,
-          })
+          const revision = await workflows.execute(
+            caller,
+            'publish',
+            { revisionId: op.revisionId },
+            // Its rows and their change entries commit on the approval's origin.
+            { writer: writes.system('approvals.execute') },
+          )
           return `published workflow revision ${revision.id}`
         }
         if (op.kind === 'workflow-set-default') {
-          const binding = await workflows.execute(caller, 'assign', {
-            targetKind: op.targetKind,
-            targetId: op.targetId,
-            revisionId: op.revisionId,
-          })
+          // The binding's generic edit runs the same assign (POD-6676); a server
+          // op parses its input like every caller of it.
+          const binding = await workflows.assign(
+            caller,
+            workflowAssignInput.parse({
+              targetKind: op.targetKind,
+              targetId: op.targetId,
+              revisionId: op.revisionId,
+            }),
+            writes.system('approvals.execute'),
+          )
           return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
         }
         if (op.kind === 'automation-schedule') {

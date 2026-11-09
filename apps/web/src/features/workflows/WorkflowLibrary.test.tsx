@@ -56,15 +56,11 @@ function source(
     profiles: [],
     runs: [],
     loading: false,
-    refreshing: false,
     error: null,
     notice: null,
     showHistory: false,
-    hasMoreRuns: false,
     select: vi.fn(),
     setShowHistory: vi.fn(),
-    refresh: vi.fn(),
-    loadMoreRuns: vi.fn(),
     dispatch,
   }
 }

@@ -499,6 +499,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    */
   decideApproval: (id: string, decision: 'approve' | 'deny', revision: number) => Promise<void>
   /**
+   * Turn one of my trigger subscriptions on or off (POD-6676): `enabled` on its
+   * `subscription` record, by its feed id. Resolves once the edit is durable in
+   * the outbox; a refusal shows in the outbox's notices.
+   */
+  setSubscriptionEnabled: (id: string, enabled: boolean) => Promise<void>
+  /** Remove one of my trigger subscriptions: its record, by its feed id. */
+  removeSubscription: (id: string) => Promise<void>
+  /**
    * Send one chat message to a session through the durable outbox (POD-4762),
    * keyed by `mutationId` — the message id the composer minted, minted here when
    * absent. `wake` sends to a parked (hibernated/exited) session, waking it

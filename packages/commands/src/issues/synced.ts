@@ -60,8 +60,6 @@ export const STRUCTURE_ISSUE_COMMANDS = [
   'dismissSuggestion',
   'panelApply',
   'subscriptionAdd',
-  'subscriptionRemove',
-  'subscriptionSetEnabled',
 ] as const satisfies readonly IssueContractName[]
 
 /**

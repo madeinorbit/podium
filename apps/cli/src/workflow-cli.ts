@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
+import { type WorkflowBindingTarget, workflowBindingRowId } from '@podium/model'
 import {
   type ApprovalOp,
   type SyncSubmitTransport,
@@ -280,6 +281,24 @@ async function call(
   })
 }
 
+/**
+ * Make a target run a revision: the binding's generic edit on the sync write
+ * entry point (POD-6676; it replaced `workflows.assign`). A binding is keyed by
+ * its target, so the edit sets it whether or not one was set before.
+ */
+async function bind(
+  client: WorkflowClient,
+  targetKind: WorkflowBindingTarget,
+  targetId: string,
+  revisionId: string,
+): Promise<{ targetKind: WorkflowBindingTarget; targetId: string; revisionId: string }> {
+  await submitNow(client, 'records.workflowBinding.edit', {
+    id: workflowBindingRowId(targetKind, targetId),
+    patch: { revisionId },
+  })
+  return { targetKind, targetId, revisionId }
+}
+
 async function approved(deps: WorkflowCliDeps, op: ApprovalOp): Promise<string> {
   if (!deps.relayEndpoint)
     throw new WorkflowCliError('this workflow change requires an agent relay')
@@ -372,7 +391,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
         'assign target must be issue or session; use default for shared defaults',
       )
     }
-    result = await call(deps.client, 'assign', { targetKind, targetId, revisionId })
+    result = await bind(deps.client, targetKind, targetId, revisionId)
   } else if (command === 'default') {
     const [targetKind, first, second] = positionals
     if (targetKind === 'global' && first && !second) {
@@ -384,11 +403,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
           revisionId: first,
         })
       }
-      result = await call(deps.client, 'assign', {
-        targetKind: 'global',
-        targetId: '',
-        revisionId: first,
-      })
+      result = await bind(deps.client, 'global', '', first)
     } else if (targetKind === 'repository' && first && second) {
       if (deps.relayEndpoint) {
         return approved(deps, {
@@ -398,11 +413,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
           revisionId: second,
         })
       }
-      result = await call(deps.client, 'assign', {
-        targetKind: 'repository',
-        targetId: first,
-        revisionId: second,
-      })
+      result = await bind(deps.client, 'repository', first, second)
     } else {
       throw new WorkflowCliError(
         'usage: workflow default global <revision> | repository <repo-id> <revision>',

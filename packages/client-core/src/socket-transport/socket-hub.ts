@@ -14,12 +14,7 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import {
-  asMachineId,
-  interactionRowId,
-  layoutRowId,
-  messageRecordRowId,
-} from '@podium/model'
+import { asMachineId, interactionRowId, layoutRowId, messageRecordRowId } from '@podium/model'
 import {
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
@@ -2326,6 +2321,13 @@ export class SocketHub {
         case 'userReadPosition':
         // POD-6675: my superagent threads.
         case 'superagentThread':
+        // POD-6676: profiles, workflows and trigger subscriptions.
+        case 'agentProfile':
+        case 'workflow':
+        case 'workflowRevision':
+        case 'workflowBinding':
+        case 'workflowRun':
+        case 'subscription':
           // These rows belong to the Replica. Session, conversation and
           // automation consumers read synced data without a hub projection.
           break

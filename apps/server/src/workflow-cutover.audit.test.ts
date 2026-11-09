@@ -128,9 +128,6 @@ describe('POD-732 workflow cutover gate', () => {
     expect(parse('revise', { workflowId: 'wf_1', instructions: '', steps: [] }).success).toBe(true)
     expect(parse('publish', { revisionId: 'wfr_1' }).success).toBe(true)
     expect(
-      parse('assign', { targetKind: 'global', targetId: '', revisionId: 'wfr_1' }).success,
-    ).toBe(true)
-    expect(
       parse('skip', { runId: 'wrun_1', stepId: 'build', reason: 'Skipped by operator' }).success,
     ).toBe(true)
     expect(parse('retry', { runId: 'wrun_1', stepId: 'build' }).success).toBe(true)

@@ -34,9 +34,14 @@ export interface FeedVisibilityStore {
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
   readonly effects: Pick<SessionStore['effects'], 'audiencesOf' | 'liveOnTargets'>
+  /** The owners workflow-family rows are decided by (POD-6676). */
+  readonly workflows: Pick<SessionStore['workflows'], 'visibilityFacts'>
   /** Admins read every instance-wide effect record (POD-6358). */
   readonly users: Pick<SessionStore['users'], 'activeAdminIds'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>
+  readonly grants: Pick<
+    SessionStore['grants'],
+    'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
+  >
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
 }
 export type DeliveryMessages = Pick<

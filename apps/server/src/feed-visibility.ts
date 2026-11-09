@@ -45,8 +45,10 @@ import {
   parseReadPositionRowId,
   parseSessionUserStateRowId,
   parseSuperagentThreadRowId,
+  parseSubscriptionRowId,
   parseTabOrderRowId,
   parseUserPreferencesRowId,
+  parseWorkflowBindingRowId,
   type RepoId,
   shipLaneId,
   type UserId,
@@ -66,6 +68,7 @@ import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kind
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
 import type { EffectAudience } from './store/effects'
+import type { WorkflowVisibilityFacts } from './store/workflows'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -84,6 +87,9 @@ type BootstrapReadPhase =
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
   | 'visibility.grants.listForResources'
+  | 'visibility.workflow.facts'
+  | 'visibility.workflow.adminIds'
+  | 'visibility.workflow.grants'
 
 interface BootstrapReadTrace {
   readonly phases: Map<BootstrapReadPhase, number>
@@ -121,6 +127,27 @@ type BootstrapVisibilityPrefetch = {
   readonly effectAudiences: ReadonlyMap<string, EffectAudience>
   /** The admins who can act, read only when an instance-wide effect is asked (POD-6358). */
   readonly adminIds: ReadonlySet<string>
+  /** The owners the workflow kinds are decided by (POD-6676), every asked id
+   *  present when it has a row. */
+  readonly workflowFacts: WorkflowVisibilityFacts
+  /** `user\0kind\0id` for every READ grant on an asked workflow-family row. */
+  readonly workflowReadGrants: ReadonlySet<string>
+  /** The active admins, read only when a workflow-family row is asked: an admin
+   *  reads every one, as `workflowDecision`'s last arm. */
+  readonly workflowAdminIds: ReadonlySet<string>
+}
+
+/** The ownership entity a workflow is decided as: a global one is a library
+ *  entry (`WorkflowAccess.entityFor`). */
+const workflowEntityKind = (scope: string): 'workflow-library-entry' | 'workflow-definition' =>
+  scope === 'global' ? 'workflow-library-entry' : 'workflow-definition'
+
+/** A pass with no workflow-family row reads none of their facts. */
+const NO_WORKFLOW_FACTS: WorkflowVisibilityFacts = {
+  workflows: new Map(),
+  revisions: new Map(),
+  bindings: new Map(),
+  runs: new Map(),
 }
 
 type IssueDepSubject = {
@@ -241,6 +268,43 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     snapshot: BootstrapVisibilityPrefetch,
   ): boolean => snapshot.issueIds.has(issueId) && snapshot.issues.has(issueId)
 
+  /**
+   * MAY THIS PERSON READ THIS WORKFLOW-FAMILY ROW (POD-6676): today's read rule,
+   * `workflowDecision`'s, from one pass's facts. Its owner, a person holding an
+   * explicit read grant on it, or an admin; a row with no owner is the admins'
+   * alone (fail closed, ADR 9 D4). A revision is read as its workflow is.
+   * Workflow rows are never deleted (a workflow archives), so an absent row is
+   * denied.
+   */
+  const mayReadWorkflowRow = (
+    userId: string,
+    entity: 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun',
+    id: string,
+    snapshot: BootstrapVisibilityPrefetch,
+  ): boolean => {
+    const facts = snapshot.workflowFacts
+    let owner: string | null | undefined
+    let grant: string
+    if (entity === 'workflow' || entity === 'workflowRevision') {
+      const found = entity === 'workflow' ? facts.workflows.get(id) : facts.revisions.get(id)
+      if (found === undefined) return false
+      owner = found.ownerUserId
+      const workflowId = 'workflowId' in found ? found.workflowId : id
+      grant = `${workflowEntityKind(found.scope)}\u0000${workflowId}`
+    } else if (entity === 'workflowBinding') {
+      if (!facts.bindings.has(id)) return false
+      owner = facts.bindings.get(id)
+      grant = `workflow-binding\u0000${id}`
+    } else {
+      if (!facts.runs.has(id)) return false
+      owner = facts.runs.get(id)
+      grant = `workflow-run\u0000${id}`
+    }
+    if (owner != null && owner === userId) return true
+    if (snapshot.workflowReadGrants.has(`${userId}\u0000${grant}`)) return true
+    return snapshot.workflowAdminIds.has(userId)
+  }
+
   /** The facts the execution-private rule reads for one prepared pass. */
   const executionFactsOf = (snapshot: BootstrapVisibilityPrefetch): IssueExecutionFacts => ({
     custodianOf: (machineId) => snapshot.machineCustodians.get(machineId) ?? null,
@@ -264,6 +328,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return {
       classOf: (entity) => {
         if (entity === 'repo' || entity === 'machine') return 'deployment-substrate'
+        // Agent profiles are instance substrate (POD-6676, matrix row
+        // `agent-profiles`): every member reads every profile.
+        if (entity === 'agentProfile') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'
@@ -306,7 +373,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'automationRun' ||
           // A one-shot effect (POD-6357). `personal`: readable by its creator and
           // by whoever may read its target, the `mayRead` arm below.
-          entity === 'effect'
+          entity === 'effect' ||
+          // Workflows and trigger subscriptions (POD-6676): `personal`, decided by
+          // their owner (workflows) or their subscriber (subscriptions), below.
+          entity === 'workflow' ||
+          entity === 'workflowRevision' ||
+          entity === 'workflowBinding' ||
+          entity === 'workflowRun' ||
+          entity === 'subscription'
         )
           return 'personal'
         return null
@@ -402,6 +476,27 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }
           if (audience.targetKind === 'session') return maySeeSession(userId, audience.targetId)
           return false
+        }
+        if (ref.entity === 'subscription') {
+          // Its SUBSCRIBER's audience (design §1.11): a session's owner, or
+          // whoever may read the task (every member). Read from the id, so a
+          // removal is scoped like the row it removes.
+          try {
+            const { subscriberKind, subscriberId } = parseSubscriptionRowId(ref.entityId)
+            return subscriberKind === 'session'
+              ? maySeeSession(userId, subscriberId)
+              : mayReadIssueFromSnapshot(userId, subscriberId, prefetch)
+          } catch {
+            return false
+          }
+        }
+        if (
+          ref.entity === 'workflow' ||
+          ref.entity === 'workflowRevision' ||
+          ref.entity === 'workflowBinding' ||
+          ref.entity === 'workflowRun'
+        ) {
+          return mayReadWorkflowRow(userId, ref.entity, ref.entityId, prefetch)
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         return false
@@ -528,6 +623,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
     const effectIds = new Set<string>()
+    const workflowIds = new Set<string>()
+    const workflowRevisionIds = new Set<string>()
+    const workflowBindingIds = new Set<string>()
+    const workflowRunIds = new Set<string>()
     for (const ref of refs) {
       if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
@@ -571,6 +670,24 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         automationRunIds.add(ref.entityId)
       } else if (ref.entity === 'effect') {
         effectIds.add(ref.entityId)
+      } else if (ref.entity === 'subscription') {
+        // The subscriber is in the id: its session or its task is read with the
+        // rest of the pass (POD-6676).
+        try {
+          const { subscriberKind, subscriberId } = parseSubscriptionRowId(ref.entityId)
+          if (subscriberKind === 'session') sessionIds.add(subscriberId)
+          else issueIds.add(subscriberId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
+      } else if (ref.entity === 'workflow') {
+        workflowIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowRevision') {
+        workflowRevisionIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowBinding') {
+        workflowBindingIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowRun') {
+        workflowRunIds.add(ref.entityId)
       }
     }
     // Effects resolve to their targets before the issue, session and grant reads,
@@ -662,6 +779,61 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       'visibility.automationRun.runOwnerOf',
       (ids) => store.automations.runOwnersOf(ids),
     )
+    // The workflow kinds (POD-6676): one read per kind for their owners, one
+    // grouped read of their READ grants, and the admins, only for a batch that
+    // holds a workflow-family row.
+    const anyWorkflowRow =
+      workflowIds.size + workflowRevisionIds.size + workflowBindingIds.size + workflowRunIds.size >
+      0
+    const workflowFacts: WorkflowVisibilityFacts = anyWorkflowRow
+      ? await measure(
+          'visibility.workflow.facts',
+          async () =>
+            await store.workflows.visibilityFacts({
+              workflowIds: [...workflowIds],
+              revisionIds: [...workflowRevisionIds],
+              bindings: [...workflowBindingIds].flatMap((id) => {
+                const key = parseWorkflowBindingRowId(id)
+                return key === undefined ? [] : [key]
+              }),
+              runIds: [...workflowRunIds],
+            }),
+        )
+      : NO_WORKFLOW_FACTS
+    const workflowReadGrants = new Set<string>()
+    let workflowAdminIds: ReadonlySet<string> = new Set()
+    if (anyWorkflowRow) {
+      const definitions = new Set<string>()
+      const libraryEntries = new Set<string>()
+      for (const [id, row] of workflowFacts.workflows) {
+        ;(row.scope === 'global' ? libraryEntries : definitions).add(id)
+      }
+      for (const row of workflowFacts.revisions.values()) {
+        ;(row.scope === 'global' ? libraryEntries : definitions).add(row.workflowId)
+      }
+      const asked: Record<string, string[]> = {
+        'workflow-definition': [...definitions],
+        'workflow-library-entry': [...libraryEntries],
+        'workflow-binding': [...workflowFacts.bindings.keys()],
+        'workflow-run': [...workflowFacts.runs.keys()],
+      }
+      const grants = await measure(
+        'visibility.workflow.grants',
+        async () => await store.grants.loadForResourcesOfKinds(asked),
+      )
+      for (const [kind, byId] of grants) {
+        for (const [id, edges] of byId) {
+          for (const edge of edges) {
+            if (edge.verb === 'read')
+              workflowReadGrants.add(`${edge.grantee}\u0000${kind}\u0000${id}`)
+          }
+        }
+      }
+      workflowAdminIds = await measure(
+        'visibility.workflow.adminIds',
+        async () => await store.users.activeAdminIds(),
+      )
+    }
     // One grouped read for the whole batch (POD-6217): the custody edges of
     // the machines the batch's tasks are homed on. Through the operation's
     // loader (POD-6189). Issue edges are not read: tasks are shared, so a legacy
@@ -701,6 +873,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       automationRunOwners,
       effectAudiences,
       adminIds,
+      workflowFacts,
+      workflowReadGrants,
+      workflowAdminIds,
     })
   }
 

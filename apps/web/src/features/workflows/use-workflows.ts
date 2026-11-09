@@ -1,285 +1,217 @@
 /**
- * THE WORKFLOWS SOURCE (POD-647) — one hook that owns fetching, dispatching and
- * failure, so the components own none of it.
+ * THE WORKFLOWS SOURCE (POD-647; synced records since POD-6676): the one hook
+ * the workflow screen reads, so the components own no fetching, dispatch or
+ * failure.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS IS A HOOK AND NOT A `SliceDefinition`
+ * EVERY RECORD IS THE POOL'S SHARED MODEL
  * ---------------------------------------------------------------------------
  *
- * Every published slice in `@podium/client-core/values` derives from the
- * replica snapshot. Workflows are not replicated — they arrive over RPC — and
- * whether they SHOULD be replicated is POD-1127's open decision, which this
- * issue must not settle. So the derivations live in the platform-neutral
- * `slices/workflows.ts` where any source can drive them, and this hook is the
- * source they have TODAY. When POD-1127 lands, the derivations do not move; only
- * what feeds them does.
+ * Agent profiles, workflow definitions, every revision, the bindings and the
+ * runs are synced records (ADR 12 D1, design POD-5620 §1.9-1.10): the feed
+ * delivers what this principal may read, so a change made on another device, by
+ * an agent, or by the server advancing a run shows here without a request, and
+ * the saved copy answers offline. This hook only selects and orders them
+ * (`workflowRecords`). The one request left is a run's HISTORY, which grows and
+ * stays an answer (`useRunHistory`).
  *
  * ---------------------------------------------------------------------------
- * A DENIED WRITE ROLLS BACK AND IS SURFACED. IT IS NOT RETRIED.
+ * A DENIED WRITE IS SURFACED. IT IS NOT RETRIED.
  * ---------------------------------------------------------------------------
  *
- * ADR 3 D8 re-authorizes every write at apply, so a denial is ROUTINE now rather
- * than exceptional: rights can change between render and apply, and an outbox
- * replay can arrive after they changed. `dispatch` therefore treats a refusal as
- * a terminal outcome — it surfaces the message and refetches so the surface
- * shows what the authority actually holds — and never re-sends. A retry loop
- * against a denial is an unbounded loop by construction, and it is also how a
- * UI turns one refusal into a rate-limit incident.
- *
- * The refetch is what performs the rollback: nothing on this surface writes an
- * optimistic overlay of its own, so re-reading the authority IS restoring truth.
- * The success sentence is shown only AFTER the apply resolves, never
- * optimistically, so a denial never has a success message to take back.
+ * ADR 3 D8 re-authorizes every write at apply, so a denial is routine. `dispatch`
+ * answers each command now on the sync write entry point and treats a refusal as
+ * terminal: it surfaces the message and never re-sends. Nothing here paints
+ * optimistically, so there is nothing to roll back: the records move when the
+ * authority's change reaches the feed. The success sentence is shown only after
+ * the apply resolves, so a denial never has a success message to take back.
  *
  * ---------------------------------------------------------------------------
  * EVICTION LEAVES QUIETLY, AND NEVER HEALS
  * ---------------------------------------------------------------------------
  *
- * Under POD-1077 the open workflow can lose visibility with no revision moving.
- * The refresh notices only that the open id is no longer among the rows it can
- * see, and CLEARS the selection: no tombstone, no toast, no deletion affordance.
- * Crucially it does not re-request the vanished id, which is the heal loop the
- * old code would have entered — its detail effect fetched whatever `selectedId`
- * held and surfaced the failure as an error banner, forever.
+ * Under POD-1077 the open workflow can lose visibility with no revision moving:
+ * its record simply leaves the pool. The selection then moves on, with no
+ * tombstone, no toast and no re-request of the vanished id.
  */
 
 import { useStoreHandle } from '@podium/client-core/react'
-import type { AgentProfileWire } from '@podium/model/browser'
+import { type WorkflowRecords, workflowRecords } from '@podium/client-graph/workflow-views'
 import type {
+  AgentProfileWire,
   WorkflowBindingWire,
-  WorkflowDetailWire,
-  WorkflowRunWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
   WorkflowWire,
-} from '@podium/protocol'
+} from '@podium/model/browser'
+import type { WorkflowRunEventWire } from '@podium/protocol'
 import { submitNow } from '@podium/protocol'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import type { WorkflowCommand } from './workflow-commands'
 
-/** An agent profile as `agentProfiles.list` serves it: the row plus the name of
- *  its machine (POD-6114 — workflow steps name these). */
-export type AgentProfileRow = AgentProfileWire & { machineName: string | null }
+/*
+ * What the screen reads of each record: its stored fields and the few derived
+ * ones it shows. The pool's shared models (`@podium/client-graph/models`) are
+ * these, by structure; a test hands plain rows.
+ */
+export type WorkflowRow = Readonly<WorkflowWire>
+export type WorkflowRevisionRow = Readonly<WorkflowRevisionWire>
+/** A binding, with its feed id (`workflowBindingRowId`). */
+export type WorkflowBindingRow = Readonly<WorkflowBindingWire> & { readonly id: string }
+/** A profile, with the name of its machine when it is known. */
+export type AgentProfileRow = Readonly<AgentProfileWire> & { readonly machineName: string | null }
+/** A run, with its revision when this principal holds it. */
+export type WorkflowRunRow = Readonly<WorkflowRunRecord> & {
+  readonly revision?: Pick<WorkflowRevisionWire, 'version'> | undefined
+}
+
+/** The open workflow and its revisions, newest first. */
+export interface WorkflowDetail {
+  readonly workflow: WorkflowRow
+  readonly revisions: readonly WorkflowRevisionRow[]
+}
 
 export interface WorkflowsSource {
-  readonly workflows: WorkflowWire[]
-  readonly bindings: WorkflowBindingWire[]
-  readonly profiles: AgentProfileRow[]
-  readonly runs: WorkflowRunWire[]
-  readonly detail: WorkflowDetailWire | null
+  readonly workflows: readonly WorkflowRow[]
+  readonly bindings: readonly WorkflowBindingRow[]
+  readonly profiles: readonly AgentProfileRow[]
+  /** Live runs, or every run when {@link showHistory} is on; newest first. */
+  readonly runs: readonly WorkflowRunRow[]
+  readonly detail: WorkflowDetail | null
   readonly selectedId: string | null
+  /** The pool is still loading (the first paint). */
   readonly loading: boolean
-  readonly refreshing: boolean
   readonly error: string | null
   readonly notice: string | null
+  /** Show finished and superseded runs too. */
   readonly showHistory: boolean
-  /** The history has runs older than the last one shown. */
-  readonly hasMoreRuns: boolean
   select(id: string | null): void
   setShowHistory(next: boolean): void
-  refresh(includeTerminal?: boolean): Promise<void>
-  /** Append the next page of the history, older than the last run shown. */
-  loadMoreRuns(): Promise<void>
-  /** Dispatch one command contract. Resolves `true` when the authority applied
-   *  it, `false` when it refused — never throws, and never retries. */
+  /** Dispatch one command. Resolves `true` when the authority applied it,
+   *  `false` when it refused — never throws, and never retries. */
   dispatch<TInput>(command: WorkflowCommand<TInput>, input: TInput): Promise<boolean>
 }
 
-/** The tRPC arm that serves the workflow contracts, indexed by the same bare
- *  name `registry.ts` joins each contract to its handler under. Typed loosely
- *  HERE and only here: the contract's own schema is the validator, and a
- *  per-name union would restate it in a second place. */
-type WorkflowProcs = Record<string, { mutate(input: unknown): Promise<unknown> }>
-
-/** The run history is read one page at a time, newest first (POD-6209); a
- *  refresh re-reads as many runs as are shown, up to the server's largest page. */
-const RUN_PAGE = 50
-const RUN_PAGE_MAX = 500
+const EMPTY: readonly never[] = Object.freeze([])
+const NO_RECORDS: WorkflowRecords = {
+  profiles: EMPTY,
+  workflows: EMPTY,
+  revisionsOf: () => EMPTY,
+  bindings: EMPTY,
+  runs: EMPTY,
+}
 
 export function useWorkflows(): WorkflowsSource {
-  // A service handle, not replicated data. This hook remains the one RPC
-  // source in both startup arms and does not subscribe to store publications.
+  // A service handle for the writes: the records themselves come from the pool.
   const trpc = useStoreHandle<Trpc>().access.trpc
-  const [workflows, setWorkflows] = useState<WorkflowWire[]>([])
-  const [bindings, setBindings] = useState<WorkflowBindingWire[]>([])
-  const [profiles, setProfiles] = useState<AgentProfileRow[]>([])
-  const [runs, setRuns] = useState<WorkflowRunWire[]>([])
-  const [detail, setDetail] = useState<WorkflowDetailWire | null>(null)
+  const pool = useWorklistPool()
+  const records = useWorklistPoolProjection(workflowRecords, NO_RECORDS)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
-  const [hasMoreRuns, setHasMoreRuns] = useState(false)
-  const shownRuns = useRef(RUN_PAGE)
-  const refreshLock = useRef(false)
-  // Bumped by every completed refresh so the open workflow's DETAIL re-reads
-  // too. The old code re-fetched detail inline at the end of each action, which
-  // meant a refresh triggered from anywhere else left the editor showing the
-  // revision list from before the write.
-  const [detailNonce, setDetailNonce] = useState(0)
-  // The id the detail read is allowed to answer for. Read at RESOLVE time so a
-  // selection that changed (or was evicted) mid-flight discards the late reply
-  // instead of painting a row the principal no longer has.
-  const wanted = useRef<string | null>(null)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trpc is a stable store singleton.
-  const refresh = useCallback(
-    async (includeTerminal = showHistory): Promise<void> => {
-      if (refreshLock.current) return
-      refreshLock.current = true
-      setRefreshing(true)
-      setError(null)
-      if (!includeTerminal) shownRuns.current = RUN_PAGE
-      const limit = Math.min(RUN_PAGE_MAX, Math.max(RUN_PAGE, shownRuns.current))
-      try {
-        const [workflowRows, bindingRows, profileRows, runRows] = await Promise.all([
-          trpc.workflows.list.query({}),
-          trpc.workflows.bindings.query({}),
-          trpc.agentProfiles.list.query({}),
-          trpc.workflows.runs.query(
-            includeTerminal ? { includeTerminal, limit } : { includeTerminal },
-          ),
-        ])
-        setWorkflows(workflowRows)
-        setBindings(bindingRows)
-        setProfiles(profileRows)
-        setRuns(runRows)
-        setHasMoreRuns(includeTerminal && runRows.length === limit)
+  // The open row, re-decided against what is visible NOW. An id that left the
+  // pool has been evicted as far as this client can tell: the selection moves
+  // on, with no announcement and no re-request of the id.
+  const open =
+    selectedId !== null && records.workflows.some((workflow) => workflow.id === selectedId)
+      ? selectedId
+      : (records.workflows[0]?.id ?? null)
+  useEffect(() => {
+    if (open !== selectedId) setSelectedId(open)
+  }, [open, selectedId])
 
-        // The open row, re-decided against what is visible NOW. An id that is no
-        // longer in the list has been EVICTED as far as this client can tell,
-        // and eviction is not a deletion: the selection simply moves on, with no
-        // announcement and no re-request of the id.
-        const visible = new Set(workflowRows.map((row) => row.id))
-        setSelectedId((current) => {
-          if (current !== null && visible.has(current)) return current
-          const next = workflowRows[0]?.id ?? null
-          if (current !== null && current !== next) setDetail(null)
-          return next
-        })
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
-      } finally {
-        refreshLock.current = false
-        setRefreshing(false)
-        setLoading(false)
-        setDetailNonce((n) => n + 1)
-      }
-    },
-    [showHistory],
+  const detail = useMemo((): WorkflowDetail | null => {
+    const workflow = records.workflows.find((row) => row.id === open)
+    return workflow ? { workflow, revisions: records.revisionsOf(workflow.id) } : null
+  }, [records, open])
+
+  const runs = useMemo(
+    (): readonly WorkflowRunRow[] =>
+      showHistory ? records.runs : records.runs.filter((run) => run.live),
+    [records.runs, showHistory],
   )
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on selection only; trpc is a stable store singleton.
-  useEffect(() => {
-    wanted.current = selectedId
-    if (!selectedId) {
-      setDetail(null)
-      return
-    }
-    let cancelled = false
-    void trpc.workflows.get
-      .query({ id: selectedId })
-      .then((next) => {
-        if (!cancelled && wanted.current === selectedId) setDetail(next)
-      })
-      .catch((cause) => {
-        if (cancelled || wanted.current !== selectedId) return
-        // A detail read that fails for an id we still want is a real error and
-        // is surfaced ONCE. It is never re-issued: an id that is gone from our
-        // world would otherwise be requested forever.
-        setDetail(null)
-        setError(cause instanceof Error ? cause.message : String(cause))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedId, detailNonce])
 
   const dispatch = useCallback(
     async <TInput>(command: WorkflowCommand<TInput>, input: TInput): Promise<boolean> => {
       setError(null)
       setNotice(null)
-      const procs = trpc.workflows as unknown as WorkflowProcs
       try {
-        const proc = procs[command.contract]
-        // A contract name with no proc behind it is a BUILD-TIME mistake, not a
-        // runtime condition — but it must not reach the transport as
-        // `undefined.mutate`, whose failure would read like a denial.
-        if (!proc) throw new Error(`no transport for workflow contract ${command.contract}`)
-        // On the sync write entry point (ADR 12 D2, POD-6418), answered now.
-        // LEGACY(remove-after: 2027-03): an older server, without `sync.submit`
-        // or without this command on it, takes the command's own route.
-        const body = command.build(input)
-        await submitNow(trpc, `workflows.${command.contract}`, body, {
-          legacy: async () => await proc.mutate(body),
-        })
+        // On the sync write entry point (ADR 12 D2), answered now.
+        await submitNow(trpc, command.wire, command.build(input))
       } catch (cause) {
         // TERMINAL. The authority refused (or the transport failed) and this
-        // path does not decide which — both are surfaced identically, and
-        // neither is retried. The refresh restores what the authority actually
-        // holds; that IS the rollback.
-        //
-        // ORDER MATTERS, and it cost a test to find: `refresh` clears the error
-        // region on entry (a fresh read is a fresh verdict), so setting the
-        // refusal BEFORE refreshing would wipe it and leave a denial silent.
-        // The message is therefore held and written after the re-read settles.
-        const message = cause instanceof Error ? cause.message : String(cause)
-        await refresh()
-        setError(message)
+        // path does not decide which: both are surfaced, neither is retried.
+        setError(cause instanceof Error ? cause.message : String(cause))
         return false
       }
       setNotice(command.success)
-      await refresh()
       return true
     },
-    [refresh, trpc],
+    [trpc],
   )
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trpc is a stable store singleton.
-  const loadMoreRuns = useCallback(async (): Promise<void> => {
-    const last = runs.at(-1)
-    if (!showHistory || !last) return
-    try {
-      const page = await trpc.workflows.runs.query({
-        includeTerminal: true,
-        before: { startedAt: last.startedAt, id: last.id },
-        limit: RUN_PAGE,
-      })
-      const next = [...runs, ...page]
-      shownRuns.current = next.length
-      setRuns(next)
-      setHasMoreRuns(page.length === RUN_PAGE)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }, [runs, showHistory])
 
   const select = useCallback((id: string | null): void => {
     setSelectedId(id)
   }, [])
 
   return {
-    workflows,
-    bindings,
-    profiles,
+    workflows: records.workflows,
+    bindings: records.bindings,
+    profiles: records.profiles,
     runs,
     detail,
-    selectedId,
-    loading,
-    refreshing,
+    selectedId: open,
+    loading: pool === null,
     error,
     notice,
     showHistory,
-    hasMoreRuns,
     select,
     setShowHistory,
-    refresh,
-    loadMoreRuns,
     dispatch,
   }
+}
+
+/** One run's recorded acts, as the server answers them. */
+export interface RunHistory {
+  readonly events: readonly WorkflowRunEventWire[] | null
+  readonly loading: boolean
+  readonly error: string | null
+}
+
+/**
+ * A RUN'S HISTORY, ASKED FOR WHEN SHOWN (design §1.10): its acts grow without
+ * bound, so they are not on the synced run; the view that shows them asks the
+ * server (`workflows.status`) and drops the answer when it closes. It asks again
+ * when the run moves, so a new act shows.
+ */
+export function useRunHistory(runId: string, open: boolean, revision: unknown): RunHistory {
+  const trpc = useStoreHandle<Trpc>().access.trpc
+  const [state, setState] = useState<RunHistory>({ events: null, loading: false, error: null })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` re-asks when the run moves; trpc is a stable store singleton.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setState((prior) => ({ ...prior, loading: true, error: null }))
+    trpc.workflows.status
+      .query({ runId })
+      .then((run) => {
+        if (!cancelled) setState({ events: run.history, loading: false, error: null })
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return
+        setState({
+          events: null,
+          loading: false,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [runId, open, revision])
+  return state
 }

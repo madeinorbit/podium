@@ -1485,19 +1485,21 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     sites: [
       '`subscriptions`',
       'apps/server/src/store/events.ts',
-      'apps/server/src/modules/issues/service/crud.ts (`subscriptionSetEnabled`)',
+      'apps/server/src/modules/issues/subscription-record.ts (`records.subscription.edit/remove`, POD-6676)',
     ],
     home: 'server',
     idMinting: 'Server id',
     writers: ['operator', 'agent-session', 'system'],
     replication: 'server-to-clients',
-    conflict: 'cmd',
+    replicationNote:
+      'The synced `subscription` kind since POD-6676, keyed `subscriptionRowId(subscriber, id)` so the feed scopes a row and its removal by its subscriber.',
+    conflict: 'single-writer',
     conflictNote:
-      'Subscribe / unsubscribe / enable are commands against a row keyed by its subscriber; nothing merges.',
+      'One writer per row, its subscriber (POD-6288): `enabled` and the removal are generic edits that only the subscriber may make, applied in commit order. Subscribe is `issues.subscriptionAdd`.',
     tombstone: 'hard-delete',
     tombstoneNote:
       'Unsubscribe removes the row; `enabled = 0` is the softer state and is a different act.',
-    offline: 'online-only',
+    offline: 'offline-eligible',
     secret: 'public',
     owner: {
       kind: 'user',
@@ -2532,7 +2534,10 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     idMinting: 'Composite key — `(target_kind, target_id)`, no minted id',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    replicationNote: 'The synced `workflowBinding` kind since POD-6676, keyed `workflowBindingRowId`.',
+    conflict: 'field-LWW',
+    conflictNote:
+      'One binding per target, last writer wins by the Authority commit clock (design POD-5620 §1.10): each target is one group with one field, independent of every other target; `records.workflowBinding.edit` sets the revision it runs, whatever it ran before.',
     tombstone: 'remove',
     tombstoneNote: 'Rebinding replaces the row; there is no binding history.',
     offline: 'offline-eligible',
@@ -2571,10 +2576,10 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     writers: ['operator'],
     replication: 'server-to-clients',
     replicationNote:
-      'Read through `agentProfiles.list`; not a synced feed entity yet (the profile UI is POD-6098).',
-    conflict: 'cmd',
+      'The synced `agentProfile` kind since POD-6676: every member receives every profile on the feed; the CLI, which has no replica, reads `agentProfiles.list`.',
+    conflict: 'field-LWW',
     conflictNote:
-      'Online replace: a save replaces the whole profile and the later Authority commit wins outright. Edits are rare and made by people, so no revision is carried.',
+      'Field-level last writer wins by the Authority commit clock (design POD-5620 §1.9): each field is an independent group, and `records.agentProfile.edit` writes the fields it names over the stored row. The one invariant across fields, a unique name, is checked inside the write. Edits are rare and made by people, so no revision is carried.',
     tombstone: 'hard-delete',
     tombstoneNote:
       'A delete removes the row, refused while an open issue points at it. Sessions keep the id and the launch values they actually ran with, so history never depends on the row.',
@@ -3458,6 +3463,11 @@ export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   ROW.sessionLabels,
   // ADR 12 D1/D3 (POD-6675): a superagent thread's spec fields, each its own group.
   ROW.superagentThreadFields,
+  // ADR 12 D3 (POD-6676, design POD-5620 §1.9-1.10, approved 2026-11-08): an
+  // agent profile's fields, each its own group, and a workflow binding, one
+  // group per target.
+  ROW.agentProfiles,
+  ROW.workflowBindings,
 ]
 
 /**

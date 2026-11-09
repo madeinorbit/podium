@@ -23,6 +23,7 @@ import {
   type SelectableMachine,
   type SessionId,
   structuralEligibility,
+  subscriptionRowIdOf,
   type UserId,
 } from '@podium/model'
 import {
@@ -570,6 +571,43 @@ async function setIssuePin(
     await submitNow(transport, 'records.pin.remove', { id })
   }
   return { id: issue.id, seq: issue.seq, pinned }
+}
+
+/** One of the caller's own subscriptions, as `issues.subscriptionList` lists it. */
+type OwnSubscription = {
+  id: string
+  subscriberKind: 'session' | 'issue'
+  subscriberId: string
+  event: string
+  sourceKind: string
+  sourceRef: string
+  enabled: boolean
+  deliverNudge: boolean
+  deliverNotify: boolean
+  createdAt: string
+}
+
+/**
+ * Every one of the caller's own subscriptions. The operator's listing comes one
+ * page at a time (POD-6209); a caller that lists only its own gets all of it at
+ * once, so a page that adds no new row ends the walk too.
+ */
+async function ownSubscriptions(c: IssueTrpc): Promise<OwnSubscription[]> {
+  const PAGE = 500
+  const byId = new Map<string, OwnSubscription>()
+  let after: { createdAt: string; id: string } | undefined
+  for (;;) {
+    const page = (await c.issues.subscriptionList.query({
+      ...(after ? { after } : {}),
+      limit: PAGE,
+    })) as OwnSubscription[]
+    const before = byId.size
+    for (const row of page) byId.set(row.id, row)
+    const last = page.at(-1)
+    if (page.length < PAGE || byId.size === before || !last) break
+    after = { createdAt: last.createdAt, id: last.id }
+  }
+  return [...byId.values()]
 }
 
 export const ISSUE_COMMANDS: IssueCommand[] = [
@@ -1463,43 +1501,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         }
         case 'remove': {
           if (!a.ref) throw new Error('subscription remove needs an id: subscription remove <id>')
-          const r = (await c.issues.subscriptionRemove.mutate({ id: a.ref as string })) as {
-            removed: boolean
-          }
-          return {
-            text: r.removed ? `removed ${a.ref}` : `no such subscription: ${a.ref}`,
-            data: r,
-          }
+          // A subscription is a synced record keyed by its subscriber (POD-6676):
+          // find it among the caller's own, then remove it as a generic record.
+          const id = a.ref as string
+          const own = await ownSubscriptions(c)
+          const found = own.find((row) => row.id === id)
+          if (!found) return { text: `no such subscription: ${id}`, data: { removed: false } }
+          await submitNow(c as unknown as SyncSubmitTransport, 'records.subscription.remove', {
+            id: subscriptionRowIdOf(found),
+          })
+          return { text: `removed ${id}`, data: { removed: true } }
         }
         case 'list': {
-          type Row = {
-            id: string
-            event: string
-            sourceKind: string
-            sourceRef: string
-            enabled: boolean
-            deliverNudge: boolean
-            deliverNotify: boolean
-            createdAt: string
-          }
-          // The operator's listing comes one page at a time (POD-6209); a
-          // caller that lists only its own gets all of it at once, so a page
-          // that adds no new row ends the walk too.
-          const PAGE = 500
-          const byId = new Map<string, Row>()
-          let after: { createdAt: string; id: string } | undefined
-          for (;;) {
-            const page = (await c.issues.subscriptionList.query({
-              ...(after ? { after } : {}),
-              limit: PAGE,
-            })) as Row[]
-            const before = byId.size
-            for (const row of page) byId.set(row.id, row)
-            const last = page.at(-1)
-            if (page.length < PAGE || byId.size === before || !last) break
-            after = { createdAt: last.createdAt, id: last.id }
-          }
-          const rows = [...byId.values()]
+          const rows = await ownSubscriptions(c)
           const fmt = (s: (typeof rows)[number]) => {
             const deliver =
               [s.deliverNudge && 'nudge', s.deliverNotify && 'notify'].filter(Boolean).join(',') ||

@@ -12,6 +12,7 @@ import { AutomationsRepository } from '../store/automations'
 import { EffectsRepository } from '../store/effects'
 import { UsersRepository } from '../store/users'
 import { GrantsRepository } from '../store/grants'
+import { WorkflowsRepository } from '../store/workflows'
 
 const unsupported = (): never => { throw new Error('snapshot cannot use writer state') }
 
@@ -44,6 +45,7 @@ export function bootstrapVisibility(database: SqlDatabase) {
       shipping: new ShippingRepository(q),
       automations: new AutomationsRepository(q),
       effects: new EffectsRepository(q),
+      workflows: new WorkflowsRepository(q),
       users: new UsersRepository(q),
       grants,
       sync,

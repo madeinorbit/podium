@@ -61,8 +61,17 @@ async function harness() {
 /** Single-candidate profiles, so no probing decides the pick and each is recognisable. */
 async function withProfiles(agentProfiles: AgentProfileService) {
   const admin = { userId: firstAdminMemberId(), actorSessionId: null }
+  // A profile's record write (POD-6676), on a writer that only runs the write.
+  const writer = {
+    commit: async <T>(op: { write: (scope: never) => Promise<T> }) => ({
+      result: await op.write(undefined as never),
+    }),
+  }
   const make = async (name: string, harness: 'claude-code' | 'codex', effort: string) =>
-    await agentProfiles.create(admin, { name, candidates: [{ harness, model: 'auto', effort }] })
+    await agentProfiles.createRecord(admin, writer as never, `agp_${name}`, {
+      name,
+      candidates: [{ harness, model: 'auto', effort }],
+    })
   return {
     own: await make('p-own', 'claude-code', 'low'),
     parent: await make('p-parent', 'codex', 'medium'),
