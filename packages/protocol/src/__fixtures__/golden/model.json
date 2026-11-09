@@ -6566,13 +6566,12 @@
         "userId": "userId",
         "entityId": "entityId",
         "readAt": null,
-        "tuckedAt": null,
-        "pinnedAt": null
+        "tuckedAt": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null,\"pinnedAt\":null}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null}"
     },
     {
       "schema": "IssueUserState",
@@ -6582,7 +6581,6 @@
         "entityId": "entityId",
         "readAt": "readAt",
         "tuckedAt": "tuckedAt",
-        "pinnedAt": "pinnedAt",
         "joinedAt": "joinedAt",
         "joinedVia": "start",
         "assignedAt": "assignedAt",
@@ -6591,7 +6589,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"pinnedAt\":\"pinnedAt\",\"joinedAt\":\"joinedAt\",\"joinedVia\":\"start\",\"assignedAt\":\"assignedAt\",\"assignedBy\":\"assignedBy\"}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"joinedAt\":\"joinedAt\",\"joinedVia\":\"start\",\"assignedAt\":\"assignedAt\",\"assignedBy\":\"assignedBy\"}"
     },
     {
       "schema": "IssueUserStateWire",
@@ -6600,13 +6598,12 @@
         "userId": "userId",
         "entityId": "entityId",
         "readAt": null,
-        "tuckedAt": null,
-        "pinned": true
+        "tuckedAt": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null,\"pinned\":true}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null}"
     },
     {
       "schema": "IssueUserStateWire",
@@ -6619,13 +6616,12 @@
         "joinedAt": "joinedAt",
         "joinedVia": "start",
         "assignedAt": "assignedAt",
-        "assignedBy": "assignedBy",
-        "pinned": true
+        "assignedBy": "assignedBy"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"joinedAt\":\"joinedAt\",\"joinedVia\":\"start\",\"assignedAt\":\"assignedAt\",\"assignedBy\":\"assignedBy\",\"pinned\":true}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"joinedAt\":\"joinedAt\",\"joinedVia\":\"start\",\"assignedAt\":\"assignedAt\",\"assignedBy\":\"assignedBy\"}"
     },
     {
       "schema": "IssueWorkspace",

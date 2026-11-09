@@ -2036,7 +2036,6 @@ type Input_issues_update = {
         machineId?: null | string | undefined;
         parentBranch?: string | undefined;
         parentId?: string | undefined;
-        pinned?: boolean | undefined;
         priority?: number | undefined;
         sortKey?: string | undefined;
         stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
@@ -4832,7 +4831,6 @@ type Output_issues_get = (null) | ({
     };
     parentBranch: string;
     parentId?: (string & z.BRAND<"IssueId">) | undefined;
-    pinned: boolean;
     prUrl?: string | undefined;
     prefix?: string;
     priority: number;
