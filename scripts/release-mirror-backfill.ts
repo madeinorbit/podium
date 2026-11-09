@@ -308,6 +308,32 @@ export function desktopSignatureText(text: string): string {
   return decoded
 }
 
+/** Retry only temporary GitHub transport failures; missing or rejected assets stay fatal. */
+export function retryGithubTransfer<T>(
+  transfer: () => T,
+  sleep: (ms: number) => void = (ms) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  },
+): T {
+  const waits = [5_000, 15_000, 30_000]
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return transfer()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (
+        attempt >= waits.length ||
+        !/HTTP (?:429|5\d{2})\b|connection reset|tls handshake timeout|i\/o timeout|unexpected EOF|temporary failure in name resolution/i.test(
+          message,
+        )
+      )
+        throw error
+      console.warn(`[release-mirror-backfill] GitHub transfer retry ${attempt + 1}/${waits.length}`)
+      sleep(waits[attempt]!)
+    }
+  }
+}
+
 function cliDeps(): BackfillDeps {
   const repo = 'madeinorbit/podium'
   const desktopVerifier = process.env.PODIUM_MIRROR_DESKTOP_VERIFIER
@@ -321,29 +347,33 @@ function cliDeps(): BackfillDeps {
         tag === 'latest'
           ? `repos/${repo}/releases/latest`
           : `repos/${repo}/releases/tags/${encodeURIComponent(tag)}`
-      const result = spawnSync('gh', ['api', endpoint], { encoding: 'utf8' })
-      if (result.status !== 0) {
-        if (/\bHTTP 404\b/.test(result.stderr)) return undefined
-        throw new Error(`release inventory unavailable: ${result.stderr.trim()}`)
-      }
-      return JSON.parse(result.stdout) as PublishedRelease
+      return retryGithubTransfer(() => {
+        const result = spawnSync('gh', ['api', endpoint], { encoding: 'utf8' })
+        if (result.status !== 0) {
+          if (/\bHTTP 404\b/.test(result.stderr)) return undefined
+          throw new Error(`release inventory unavailable: ${result.stderr.trim()}`)
+        }
+        return JSON.parse(result.stdout) as PublishedRelease
+      })
     },
     download: (tag, asset, path) =>
-      execFileSync(
-        'gh',
-        [
-          'release',
-          'download',
-          tag,
-          '--repo',
-          repo,
-          '--pattern',
-          asset.name,
-          '--dir',
-          dirname(path),
-          '--clobber',
-        ],
-        { stdio: 'pipe' },
+      retryGithubTransfer(() =>
+        execFileSync(
+          'gh',
+          [
+            'release',
+            'download',
+            tag,
+            '--repo',
+            repo,
+            '--pattern',
+            asset.name,
+            '--dir',
+            dirname(path),
+            '--clobber',
+          ],
+          { stdio: 'pipe' },
+        ),
       ),
     verifyHeadless: (path, signature) => {
       if (!verifyTarball(readFileSync(path), signature))

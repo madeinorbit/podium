@@ -12,6 +12,7 @@ import {
   desktopSignatureText,
   githubAssetLocation,
   type PublishedRelease,
+  retryGithubTransfer,
 } from './release-mirror-backfill'
 
 const scratch: string[] = []
@@ -244,5 +245,38 @@ describe('desktop signature transport encoding', () => {
     expect(desktopSignatureText(Buffer.from(text).toString('base64'))).toBe(text)
     expect(desktopSignatureText(text)).toBe(text)
     expect(() => desktopSignatureText('not-a-signature')).toThrow('encoding')
+  })
+})
+
+describe('GitHub backfill transfer recovery', () => {
+  it('retries an HTTP 500 for the same asset without restarting the inventory', () => {
+    const transfer = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('HTTP 500 (asset)')
+      })
+      .mockReturnValue('verified bytes')
+    const sleep = vi.fn()
+    expect(retryGithubTransfer(transfer, sleep)).toBe('verified bytes')
+    expect(transfer).toHaveBeenCalledTimes(2)
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(5_000)
+  })
+  it('caps temporary failures at four attempts with bounded waits', () => {
+    const transfer = vi.fn(() => {
+      throw new Error('HTTP 503 (asset)')
+    })
+    const sleep = vi.fn()
+    expect(() => retryGithubTransfer(transfer, sleep)).toThrow('HTTP 503')
+    expect(transfer).toHaveBeenCalledTimes(4)
+    expect(sleep.mock.calls).toEqual([[5_000], [15_000], [30_000]])
+  })
+  it.each([403, 404])('does not retry a permanent HTTP %s', (status) => {
+    const transfer = vi.fn(() => {
+      throw new Error(`HTTP ${status} (asset)`)
+    })
+    const sleep = vi.fn()
+    expect(() => retryGithubTransfer(transfer, sleep)).toThrow(`HTTP ${status}`)
+    expect(transfer).toHaveBeenCalledOnce()
+    expect(sleep).not.toHaveBeenCalled()
   })
 })
