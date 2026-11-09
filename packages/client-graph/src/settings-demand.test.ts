@@ -189,7 +189,7 @@ it('loads only the settings window from first demand and does no work while clos
         })
         current()
       })
-      expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 1 })
+      expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 0 })
       const changed = await f.measure('settings tab changed', () => f.tab('updates'))
       expect(value).toEqual({ settingsTab: 'updates' })
       expect(changed).toMatchObject({ ids: 0, rows: 0, locals: 1 })

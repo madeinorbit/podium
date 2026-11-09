@@ -357,6 +357,7 @@ function fixture(scale = 1, bootOnly = false) {
     withKeyedInputs({
       getSnapshot: () => ({ repos: [], machines: [] }),
       subscribe: () => () => {},
+      replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
     }) as never,
   )
   return { pool, index: cold({}), load, rows, values }

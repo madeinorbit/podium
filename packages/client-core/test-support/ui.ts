@@ -11,6 +11,7 @@ import { createMemoryRouterWindow, createRouter, type RoutedUiState } from '../s
 import { emptyWorkspace, focusPane, leafPaneIds, openTab, splitPane } from '../src/values'
 import { workspaceKeyForState } from '../src/ui/state'
 import { fixtureNavigation } from './navigation'
+import { observable, runInAction } from 'mobx'
 
 const refreshers = new WeakMap<object, () => void>()
 /** Publish hand-held render inputs before a provider-free render. Source
@@ -22,22 +23,46 @@ export function refreshFixtureUi(owner: object): void {
 /** UI fixture for snapshot-era test doubles. The product never uses this adapter. */
 export function fixtureUi(keys?: RoutedUiState): UiStore {
   const values = new Map<string, string>()
-  return new UiStore({
+  const source: RoutedUiState = keys ?? {
+    get: (key) => values.get(key) ?? null,
+    set: (key, value) => {
+      if (value === null) values.delete(key)
+      else values.set(key, value)
+    },
+    subscribe: () => () => {},
+  }
+  // Runtime keys are observable. Plain storage fakes publish addressed keys;
+  // make those notifications visible to the real UiStore's derived fields.
+  const revisions = observable.map<string, number>()
+  let stopKeys: (() => void) | undefined
+  const bump = (changed: ReadonlySet<string>) => runInAction(() => {
+    for (const key of changed) revisions.set(key, (revisions.get(key) ?? 0) + 1)
+  })
+  const ui = new UiStore({
     api: {} as PodiumClientApi,
     hub: { reportTabRelease: () => {} } as unknown as SocketHub,
     notices: { error: () => {}, info: () => {} },
-    keys: keys ?? {
-      get: (key) => values.get(key) ?? null,
-      set: (key, value) => {
-        if (value === null) values.delete(key)
-        else values.set(key, value)
+    keys: {
+      get: (key) => {
+        stopKeys ??= source.subscribe(bump)
+        revisions.get(key)
+        return source.get(key)
       },
-      subscribe: () => () => {},
+      set: (key, value) => {
+        if (source.get(key) === value) return
+        const before = revisions.get(key)
+        source.set(key, value)
+        if (revisions.get(key) === before) bump(new Set([key]))
+      },
+      subscribe: (notify) => source.subscribe(notify),
     },
     router: createRouter({ win: createMemoryRouterWindow() }),
     repositories: () => [],
     isVisible: () => true,
   })
+  const dispose = ui.dispose
+  Object.defineProperty(ui, 'dispose', { configurable: true, writable: true, value: () => { stopKeys?.(); dispose() } })
+  return ui
 }
 export function addFixtureUi(
   fake: { getSnapshot(): object; subscribe(notify: () => void): () => void } & Record<
