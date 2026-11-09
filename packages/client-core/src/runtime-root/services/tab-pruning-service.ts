@@ -1,4 +1,6 @@
 import type { SessionId } from '@podium/model'
+import { compareStructural, reaction } from 'mobx'
+import type { NavigationProvider } from '../../navigation-provider'
 import type { SessionView } from '../../session-values'
 import {
   knownTabIds,
@@ -12,7 +14,6 @@ import {
 } from '../../ui/state'
 import { allTabIds, pruneWorkspace, type TabId } from '../../values'
 import { ServiceLifetime } from './lifetime'
-import { observeNavigation } from './observe-navigation'
 
 export const WORKSPACE_PRUNE_GRACE_MS = 20_000
 
@@ -56,6 +57,10 @@ function pruningState(state: ScreenState): PruningState {
 
 export class TabPruningService {
   private readonly lifetime = new ServiceLifetime()
+  private stopRead: (() => void) | undefined
+  private watchProvider: NavigationProvider | undefined
+  private queued = false
+  private stopTopology: (() => void) | undefined
   private readonly unknownSince = new Map<TabId, number>()
   private pruneTimer: ReturnType<typeof setTimeout> | null = null
   private readonly pruneGraceMs: number
@@ -65,34 +70,61 @@ export class TabPruningService {
   start(): void {
     if (!this.lifetime.start()) return
     this.lifetime.add(
-      observeNavigation(
-        () => this.ports.state().navigation,
+      reaction(
         () => {
-          const state = pruningState(this.ports.state())
-          return [
-            this.ports.ready?.() ?? true,
-            state.workspaces,
-            state.fileTabs,
-            state.sessions.map((s) => [s.sessionId, s.cwd, s.issueId]),
-            [...state.pendingSpawnIds],
-            Object.keys(state.workspaces).map((key) => [...knownTabIdsForWorkspace(state, key)]),
-          ]
+          const state = this.ports.state()
+          // Local documents change by identity; never put them into the pool's
+          // structural comparer. The addressed pool watch below reads scalars.
+          return [state.navigation, state.workspaces, state.fileTabs, this.ports.ready?.() ?? true]
         },
-        () => this.queuePrune(),
+        () => this.refreshWatch(),
+        { fireImmediately: true },
       ),
     )
-    // A topology batch follows the session before pruning its origin.
+  }
+  private refreshWatch(): void {
+    const provider = this.ports.state().navigation
+    if (provider !== this.watchProvider) {
+      this.stopTopology?.()
+      this.watchProvider = provider
+      this.stopTopology = provider.onTopology?.(() => this.queuePrune())
+    }
+    const read = () => {
+      const state = pruningState(this.ports.state())
+      return [
+        state.sessions.map((session) => [session.sessionId, session.cwd, session.issueId]),
+        [...state.pendingSpawnIds],
+      ]
+    }
+    const previous = this.stopRead
+    this.stopRead = provider.watch
+      ? provider.watch(read, () => this.queuePrune())
+      : reaction(read, () => this.queuePrune(), { equals: compareStructural })
+    previous?.()
+    // Layout changes and topology both require one membership pass, after
+    // FollowService has opened any destination. Never evaluate it in read().
+    this.queuePrune()
   }
   private queuePrune(): void {
+    if (this.queued || !this.lifetime.active) return
+    this.queued = true
     const current = this.lifetime.guard()
     queueMicrotask(() =>
       queueMicrotask(() => {
-        if (current()) this.pruneWorkspaces()
+        if (!current()) return
+        this.queued = false
+        this.pruneWorkspaces()
       }),
     )
   }
   stop(): void {
     this.lifetime.stop()
+    this.stopRead?.()
+    this.stopRead = undefined
+    this.watchProvider = undefined
+    this.queued = false
+    this.stopTopology?.()
+    this.stopTopology = undefined
     if (this.pruneTimer !== null) clearTimeout(this.pruneTimer)
     this.pruneTimer = null
     this.unknownSince.clear()

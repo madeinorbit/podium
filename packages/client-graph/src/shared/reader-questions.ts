@@ -4,7 +4,7 @@ import { issueStatusOf, machinePathAncestors, machinePathKey, machinePathSeparat
 import { parseSessionRef } from '@podium/protocol'
 import { createIssueMentionIndex, type IssueMentionQuestion } from './issue-mention-question'
 import { isFinished } from './predicates'
-import { referenceKey, sessionReferenceKey } from './session-reference'
+import { directSessionReferenceKey, referenceKey, sessionReferenceKey } from './session-reference'
 import type { RowSourceEvent } from './source'
 
 export type ReaderQuestion =
@@ -116,7 +116,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const prefixRepos = new Map<string, Set<string>>()
   const referenceKeys = (ref: string) => {
     const prefix = parseSessionRef(ref)?.prefix
-    return prefix ? [...(prefixRepos.get(prefix) ?? [])].map(id => `session:ref:${referenceKey(id, ref)}`) : []
+    return prefix ? [`session:ref:${directSessionReferenceKey(ref)}`, ...[...(prefixRepos.get(prefix) ?? [])].map(id => `session:ref:${referenceKey(id, ref)}`)] : []
   }
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
@@ -239,7 +239,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         else out.delete('session:host')
       }
       if (!previous || row.refRepoId !== previous.refRepoId || row.refSeq !== previous.refSeq ||
-        row.refLetter !== previous.refLetter || row.refDraft !== previous.refDraft) {
+        row.refLetter !== previous.refLetter || row.refDraft !== previous.refDraft || row.displayRef !== previous.displayRef) {
         const beforeRef = previous && sessionReferenceKey(previous)
         if (beforeRef) out.delete(`session:ref:${beforeRef}`)
         const reference = sessionReferenceKey(row)

@@ -19,7 +19,7 @@ import {
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { SessionQuestionFacts, SessionQuestions } from './shared/session-questions'
-import { referenceKey } from './shared/session-reference'
+import { directSessionReferenceKey, referenceKey } from './shared/session-reference'
 import type { RowSourceEvent } from './shared/source'
 import { createWorktreeQuestions } from './shared/worktree-questions'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -79,7 +79,7 @@ export class ReaderQueries {
   private readonly referenceTokens = new Map<string, Set<string>>()
   private readonly sessionReferenceAtoms = new Map<
     string,
-    { atom: IAtom; value: string | undefined; keys: readonly string[] }
+    { atom: IAtom; value: string | undefined; ready: boolean; keys: readonly string[] }
   >()
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
@@ -491,11 +491,13 @@ export class ReaderQueries {
   }
   private referenceKeys(ref: string): string[] {
     const prefix = parseSessionRef(ref)?.prefix
-    return prefix
-      ? this.issueIdentities()
-          .repoIds(prefix)
-          .map((id) => referenceKey(id, ref)!)
-      : []
+    if (!prefix) return []
+    return [
+      directSessionReferenceKey(ref)!,
+      ...this.issueIdentities()
+        .repoIds(prefix)
+        .map((id) => referenceKey(id, ref)!),
+    ]
   }
   private releaseReference(ref: string): void {
     for (const key of this.sessionReferenceAtoms.get(ref)?.keys ?? []) {
@@ -509,7 +511,7 @@ export class ReaderQueries {
     const parsed = parseSessionRef(ref)
     if (!parsed) return undefined
     const ids = this.issueIdentities().repoIds(parsed.prefix)
-    let first: string | undefined
+    let first = questions.referenceId(directSessionReferenceKey(ref)!)
     for (const repoId of ids) {
       const id = questions.referenceId(referenceKey(repoId, ref)!)
       if (
@@ -534,7 +536,7 @@ export class ReaderQueries {
       )
       if (atom.reportObserved()) {
         const keys = this.referenceKeys(ref)
-        this.sessionReferenceAtoms.set(ref, { atom, value, keys })
+        this.sessionReferenceAtoms.set(ref, { atom, value, ready: this.index().version > 0, keys })
         for (const key of keys) {
           let tokens = this.referenceTokens.get(key)
           if (!tokens) {
@@ -580,8 +582,10 @@ export class ReaderQueries {
       }
     }
     const value = this.referenceWinner(ref, this.sessionQuestions())
-    if (value === state.value) return
+    const ready = this.index().version > 0
+    if (value === state.value && ready === state.ready) return
     state.value = value
+    state.ready = ready
     state.atom.reportChanged()
   }
   private sourceOnly(question: ReaderQuestion): boolean {
@@ -1052,7 +1056,8 @@ export class ReaderQueries {
   }
   publish(event: RowSourceEvent): void {
     const index = this.index()
-    const fresh = this.sourceSeen !== undefined && this.sourceSeen !== index
+    const initial = this.sourceSeen === undefined
+    const fresh = !initial && this.sourceSeen !== index
     this.sourceSeen = index
     // A replacement carries every new identity. Compare those addressed
     // records against the prior persistent roots before forking the new roots;
@@ -1142,6 +1147,8 @@ export class ReaderQueries {
           this.publishIssueScope(row.id)
         }
       }
+    if (initial && event.type !== 'replace' && !fresh)
+      for (const ref of this.sessionReferenceAtoms.keys()) this.publishSessionReference(ref)
     if (event.type === 'replace' || fresh) {
       for (const id of this.issueScopeAtoms.keys()) this.publishIssueScope(id)
       for (const id of this.issueCloseAtoms.keys()) this.publishIssueClose(id)

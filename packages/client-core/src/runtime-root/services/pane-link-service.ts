@@ -4,6 +4,7 @@ import type { StoreNotices } from '../../engine/types'
 import type { NavigationIntent } from '../../ui/navigation'
 import { sessionLinkProblem, sessionLinkSelection } from '../../ui/session-link'
 import {
+  NAVIGATION_LOADING,
   navigationSession,
   overlayState,
   type ScreenState,
@@ -64,8 +65,13 @@ export class PaneLinkService {
     const previous = this.stopWatch
     this.stopWatch = observeNavigation(
       () => this.ports.state().navigation,
-      () =>
-        this.pendingFull ? [this.ports.state().navigation.session(this.pendingFull.sessionId)] : [],
+      () => {
+        if (!this.pendingFull) return []
+        const session = this.ports.state().navigation.session(this.pendingFull.sessionId)
+        return session && session !== NAVIGATION_LOADING
+          ? [session.sessionId, session.issueId, session.cwd]
+          : [session]
+      },
       () => this.retry(),
     )
     previous?.()

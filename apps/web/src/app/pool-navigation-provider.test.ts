@@ -823,16 +823,13 @@ describe('web pool navigation', () => {
   })
 
   it('watches read activity without waking for display metadata', async () => {
-    const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
+    const ctx = await startScenarioEngine(1, { ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
     referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
-    runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
-    runtime.start()
-    const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
-    await turn()
+    const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+    const navigation = createPoolNavigationProvider(handle.pool)
     const markRead = runtime.root.services.markRead
     if (!markRead) throw new Error('Mark-read service is not installed')
     const spies = [
@@ -841,6 +838,14 @@ describe('web pool navigation', () => {
       'updateMarkReadTimer',
     ].map((name) => vi.spyOn(markRead, name as keyof typeof markRead))
     try {
+      runtime.setNavigationProvider(navigation)
+      const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
+      await vi.waitFor(() => {
+        handle.pool.hydrate()
+        expect(typeof tracked(() => navigation.activityAt(target))).toBe('string')
+      })
+      await turn()
+      for (const spy of spies) spy.mockClear()
       const row = tracked(() => omitGone(handle.pool.row('issue', target))) as SliceIssue
       handle.pool.apply({
         type: 'update',
@@ -850,7 +855,7 @@ describe('web pool navigation', () => {
       expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0])
       // Advance the roll-up the service actually watches, past all child and
       // session activity, instead of changing an older issue timestamp.
-      const current = tracked(() => createPoolNavigationProvider(handle.pool).activityAt(target))
+      const current = tracked(() => navigation.activityAt(target))
       if (typeof current !== 'string') throw new Error('Expected foreground activity')
       handle.pool.apply({
         type: 'update',

@@ -66,7 +66,8 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     session(id) {
       const token = id.trim()
       const key = parseSessionRef(token) ? pool.queries.sessionReferenceId(token) : id
-      if (!key) return undefined
+      // No publication means the reference index cannot establish absence yet.
+      if (!key) return pool.coldIndex().version === 0 ? NAVIGATION_LOADING : undefined
       const row = omitGone(pool.row('session', key))
       return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },

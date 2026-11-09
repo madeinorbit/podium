@@ -326,7 +326,7 @@ function makeEngine(
 describe('addressed topology navigation', () => {
   function addressed(engine: ReturnType<typeof makeEngine>['engine']) {
     const rows = new Map<string, SessionView>()
-    let changed: ((delta?: NavigationTopologyDelta) => void) | undefined
+    const changed = new Set<(delta?: NavigationTopologyDelta) => void>()
     const watched = new Set<() => void>()
     let labelLoading = false
     const summaries = vi.fn((id: string) => (labelLoading ? NAVIGATION_LOADING : rows.get(id)))
@@ -348,9 +348,9 @@ describe('addressed topology navigation', () => {
         return row ? { cwd: row.cwd, order: id } : undefined
       },
       onTopology: (fn) => {
-        changed = fn
+        changed.add(fn)
         return () => {
-          changed = undefined
+          changed.delete(fn)
         }
       },
       watch: (read, wake) => {
@@ -366,7 +366,9 @@ describe('addressed topology navigation', () => {
     return {
       rows,
       summaries,
-      publish: (delta: NavigationTopologyDelta) => changed?.(delta),
+      publish: (delta: NavigationTopologyDelta) => {
+        for (const fn of [...changed]) fn(delta)
+      },
       loading: (value: boolean) => {
         labelLoading = value
       },

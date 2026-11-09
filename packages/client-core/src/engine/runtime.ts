@@ -355,10 +355,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       },
       readPending: () => {
         const pending = this.pendingNavigation
+        const session = this.pendingSessionNavigation
+          ? this.state.navigation.session(this.pendingSessionNavigation)
+          : undefined
         return [
-          this.pendingSessionNavigation
-            ? this.state.navigation.session(this.pendingSessionNavigation)
-            : undefined,
+          session && session !== NAVIGATION_LOADING
+            ? [session.sessionId, session.issueId, session.cwd]
+            : session,
           pending
             ? resolvedWorkspaceKey(
                 overlayState(this.state, {
