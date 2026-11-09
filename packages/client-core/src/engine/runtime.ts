@@ -691,6 +691,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts.start()
     const offs = this.offs
 
+    // Restartable cleanup drops a pending full-id link's grace timer. Re-arm
+    // it before selection can mirror out, including StrictMode's second mount.
+    if (!this.paneLink && !this.pendingPaneLink) this.followPaneLink(this.router.current())
     this.uiPersistence.start()
     this.urlMirror.start()
     // The outbox publishes local recovery state; PoolTransactions owns paint.

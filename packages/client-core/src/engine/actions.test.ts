@@ -12,6 +12,7 @@ import {
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
+import { observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplicatedLayoutController } from '../../test-support/legacy-layout'
 import { fixtureNavigation } from '../../test-support/navigation'
@@ -214,6 +215,15 @@ function harness(
     userId: ME,
     seed: layout.seed,
   })
+  const layoutRevision = observable.box(0)
+  controller.subscribe(() => runInAction(() => layoutRevision.set(layoutRevision.get() + 1)))
+  const reactiveController = {
+    ...controller,
+    get: (key: string) => {
+      layoutRevision.get()
+      return controller.get(key)
+    },
+  }
   const values = new Map<string, string>()
   const keys = createRoutedUiState({
     local: {
@@ -224,7 +234,7 @@ function harness(
       },
       subscribe: () => () => {},
     },
-    replicated: controller,
+    replicated: reactiveController,
   })
   const revealTranscript = vi.fn()
   const ui = new UiStore({

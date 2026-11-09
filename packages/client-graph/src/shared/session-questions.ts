@@ -53,6 +53,7 @@ interface Seed {
   closeMembers: KeyedAnswer<CloseMember>
   closeCounts: KeyedAnswer<IssueCloseMemberCounts>
   references: KeyedAnswer<Bucket<ReferenceSession>>
+  workspaceMembers: KeyedAnswer<Bucket<ReferenceSession>>
   setupAgents: KeyedAnswer<SetupAgent>
   setupMembers: KeyedAnswer<boolean>
   setupCount: number
@@ -86,6 +87,8 @@ export interface SessionQuestions {
   issueCloseCounts(issueId: string): IssueCloseMemberCounts
   referenceId(ref: string): string | undefined
   hasWithin(path: string): boolean
+  /** One unarchived, non-headless workspace fallback, preferring the shown tab. */
+  firstWithin(path: string, preferred?: string | null): string | undefined
   present(id: string): boolean
   setupAgent(): string | undefined
   setupCount(): number
@@ -138,6 +141,7 @@ export function createSessionQuestions(
   let closeMembers = seed?.closeMembers.fork() ?? createKeyedAnswer<CloseMember>()
   let closeCounts = seed?.closeCounts.fork() ?? createKeyedAnswer<IssueCloseMemberCounts>()
   let references = seed?.references.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
+  let workspaceMembers = seed?.workspaceMembers.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
   let setupAgents = seed?.setupAgents.fork() ?? createKeyedAnswer<SetupAgent>(compareSetupAgent)
   let setupMembers = seed?.setupMembers.fork() ?? createKeyedAnswer<boolean>()
   let setupCount = seed?.setupCount ?? 0
@@ -215,6 +219,17 @@ export function createSessionQuestions(
     const presence = !before || !value
     const membership = presence || visibilityChanged
     const visible = value !== undefined && !collapsed(id)
+    if (membership || before.cwd !== value.cwd || before.order !== value.order ||
+        before.archived !== value.archived || before.headless !== value.headless) {
+      const previousPaths = before?.activityPaths.filter(key => key.startsWith('activity:within:')) ?? []
+      const nextPaths = value?.activityPaths.filter(key => key.startsWith('activity:within:')) ?? []
+      const nextKeys = new Set(nextPaths)
+      for (const key of previousPaths) if (!nextKeys.has(key))
+        bucket(workspaceMembers, key, id, undefined, compareReference)
+      for (const key of nextPaths)
+        bucket(workspaceMembers, key, id, visible && value && !value.archived && !value.headless
+          ? { id, order: value.order } : undefined, compareReference)
+    }
     if (membership || before.issueId !== value.issueId ||
       before.closeOffers !== value.closeOffers || before.closeWorking !== value.closeWorking)
       fileClose(id, value)
@@ -297,6 +312,11 @@ export function createSessionQuestions(
   const api: SessionQuestions = {
     updates,
     hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
+    firstWithin(path, preferred) {
+      visits++
+      const answer = workspaceMembers.get(`activity:within:${machinePathKey(path)}`)?.answer
+      return preferred && answer?.has(preferred) ? preferred : answer?.first()?.id
+    },
     present(id) {
       return setupMembers.has(id)
     },
@@ -307,7 +327,7 @@ export function createSessionQuestions(
     get activityVisits() { return activityVisits },
     get activityPathsBuilt() { return activityPathsBuilt },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
-      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references,
+      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, workspaceMembers,
         setupAgents, setupMembers, setupCount, version, replacement }, setupOrder),
     clear() {
       facts = newAnswer<FiledSessionFacts>()
@@ -321,6 +341,7 @@ export function createSessionQuestions(
       closeMembers = newAnswer<CloseMember>()
       closeCounts = newAnswer<IssueCloseMemberCounts>()
       references = newAnswer<Bucket<ReferenceSession>>()
+      workspaceMembers = newAnswer<Bucket<ReferenceSession>>()
       setupAgents = newAnswer<SetupAgent>(compareSetupAgent)
       setupMembers = newAnswer<boolean>()
       setupCount = 0
@@ -339,10 +360,11 @@ export function createSessionQuestions(
         for (const bucket of machines.snapshot()) bucket.answer = bucket.answer.fork()
         for (const bucket of activities.snapshot()) bucket.answer = bucket.answer.fork()
         for (const bucket of references.snapshot()) bucket.answer = bucket.answer.fork()
+        for (const bucket of workspaceMembers.snapshot()) bucket.answer = bucket.answer.fork()
         facts = facts.fork(); triage = triage.fork(); recent = recent.fork()
         machines = machines.fork(); activities = activities.fork(); revisions = revisions.fork()
         future = future.fork(); expired = expired.fork()
-        closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork()
+        closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork(); workspaceMembers = workspaceMembers.fork()
         setupAgents = setupAgents.fork(); setupMembers = setupMembers.fork()
       }
     },

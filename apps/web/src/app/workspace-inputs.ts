@@ -1,6 +1,6 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { allTabIds, orphanSessionFor } from '@podium/client-core/values'
+import { allTabIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback } from 'react'
@@ -47,24 +47,16 @@ export function workspaceSessions(
   })
 }
 
-/** Only the missing-worktree fallback needs source-order discovery. Keeping
- * it in the fallback's own subscription leaves normal issue switches addressed. */
+/** The missing-worktree fallback asks the maintained path index for one winner.
+ * It never loads a session catalogue to choose the single pane it displays. */
 export function readOrphanWorkspaceSession(
   pool: MobxPool,
   selectedWorktree: string | null,
   paneA: string | null,
 ): SessionView | null {
   if (!selectedWorktree) return null
-  const ids = pool.queries.ids({ kind: 'shellSessions' }).sort((a, b) => {
-    const left = pool.queries.orderKey(a),
-      right = pool.queries.orderKey(b)
-    return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
-  })
-  return orphanSessionFor({
-    selectedWorktree,
-    paneA,
-    sessions: workspaceSessions(pool, new Set(), ids),
-  })
+  const id = pool.queries.workspaceSessionWithin(selectedWorktree, paneA)
+  return id ? (workspaceSessions(pool, new Set(), [id])[0] ?? null) : null
 }
 
 export function useOrphanWorkspaceSession(selectedWorktree: string | null, paneA: string | null) {

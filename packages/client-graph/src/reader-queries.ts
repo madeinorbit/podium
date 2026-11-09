@@ -25,7 +25,7 @@ import { createWorktreeQuestions } from './shared/worktree-questions'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 type SessionAtomKind = 'collapsed' | 'order' | 'presence' | 'archived' |
-  `activity:${'all' | 'agents'}:${'within' | 'exact'}`
+  `activity:${'all' | 'agents'}:${'within' | 'exact'}` | 'workspace:within'
 
 interface IdentityResult {
   question: ReaderQuestion
@@ -189,6 +189,12 @@ export class ReaderQueries {
     }
     this.counts.scalarVisits++
     return value
+  }
+  /** The deleted-worktree pane asks for one source-order winner, never its catalogue. */
+  workspaceSessionWithin(path: string, preferred: string | null): string | undefined {
+    this.observeSession('workspace:within', machinePathKey(path))
+    this.counts.scalarVisits++
+    return this.sessionQuestions().firstWithin(path, preferred)
   }
   private publishSessionPath(path: string): void {
     const state = this.sessionPathAtoms.get(path)
@@ -747,10 +753,13 @@ export class ReaderQueries {
   ): void {
     const at = (value: SessionQuestionFacts | undefined) => Date.parse(value?.activity ?? '') || 0
     if (beforeVisible === afterVisible && before?.cwd === after?.cwd &&
-      at(before) === at(after) && (before?.agentKind === 'shell') === (after?.agentKind === 'shell')) return
+      at(before) === at(after) && (before?.agentKind === 'shell') === (after?.agentKind === 'shell') &&
+      before?.archived === after?.archived && before?.headless === after?.headless && before?.order === after?.order) return
     const keys = new Set<string>()
     const add = (value: SessionQuestionFacts | undefined, visible: boolean) => {
       if (!value || !visible) return
+      keys.add(`workspace:within:${machinePathKey(value.cwd)}`)
+      for (const ancestor of machinePathAncestors(value.cwd)) keys.add(`workspace:within:${machinePathKey(ancestor)}`)
       for (const kind of value.agentKind === 'shell' ? ['all'] : ['all', 'agents']) {
         keys.add(`activity:${kind}:exact:${machinePathKey(value.cwd)}`)
         keys.add(`activity:${kind}:within:${machinePathKey(value.cwd)}`)

@@ -573,6 +573,8 @@ describe('saved device screen and cold links', () => {
     })
     engine.start()
     expect(rw.url()).toContain(`pane=${pane}`)
+    engine.dispose()
+    engine.start()
     await settle()
     expect(engine.ui.paneA).toBe(pane)
     expect(rw.url()).toContain(`pane=${pane}`)

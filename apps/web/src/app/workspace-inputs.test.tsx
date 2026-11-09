@@ -2,7 +2,6 @@ import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 
 import { LOADING, MobxPool } from '@podium/client-graph'
-import { sessionPaneFixture } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createColdIndex } from '@podium/client-graph/shared/cold-index'
 import { SCHEMA } from '@podium/client-graph/shared/schema'
@@ -13,6 +12,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
+import { sessionPaneFixture } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
 
 vi.mock('./store-worklist-pool', () => ({ useWorklistPoolProjection: () => null }))
 const { workspaceSessions, readOrphanWorkspaceSession, pendingWorkspaceIssueHasSession } =
@@ -202,6 +202,36 @@ it('discovers deleted-worktree orphans in source order, with the current pane pr
   expect(readOrphanWorkspaceSession(f.pool, '/synthetic/gone-other', null)).toBeNull()
 })
 
+it('reads only the winning orphan while unrelated session history grows', () => {
+  const f = fixture(512)
+  f.publish([f.session('a', { cwd: '/synthetic/gone' })])
+  const read = vi.spyOn(f.pool, 'row'),
+    ids = vi.spyOn(f.pool.queries, 'ids')
+  expect(readOrphanWorkspaceSession(f.pool, '/synthetic/gone', null)?.sessionId).toBe('a')
+  expect(read.mock.calls.map((call) => call[1])).toEqual(['a'])
+  expect(ids).not.toHaveBeenCalled()
+})
+it('updates the orphan winner when its cwd or eligibility changes', () => {
+  const f = fixture()
+  f.publish([
+    f.session('a', { cwd: '/synthetic/gone' }),
+    f.session('b', { cwd: '/synthetic/gone' }),
+  ])
+  const projection = createPoolProjection(
+    f.pool,
+    (pool) => readOrphanWorkspaceSession(pool, '/synthetic/gone', null)?.sessionId,
+  )
+  const stop = projection.subscribe(() => {})
+  try {
+    expect(projection.getSnapshot()).toBe('a')
+    f.publish([f.session('a', { cwd: '/synthetic/gone', archived: true })])
+    expect(projection.getSnapshot()).toBe('b')
+    f.publish([f.session('b', { cwd: '/synthetic/elsewhere' })])
+    expect(projection.getSnapshot()).toBeUndefined()
+  } finally {
+    stop()
+  }
+})
 it('checks pending launch membership outside the tab roster, including shell seats', () => {
   const f = fixture(),
     ids = vi.spyOn(f.pool.queries, 'ids')
