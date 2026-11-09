@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
-import { issueBoardStats } from '../../../../../tests/worklist/harness/src/perf/issue-board'
 import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { EMPTY_BOARD, readBoardCatalog, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
+import { issueBoardStats } from '../../../../../tests/worklist/harness/src/perf/issue-board'
+import {
+  EMPTY_BOARD,
+  readBoardCatalog,
+  useBoardBase,
+  useBoardCatalog,
+  useBoardData,
+} from './board-pool-data'
 import { useBoardCloseGuard } from './board-pool-row'
 import { IssueBulkCloseDialog } from './issue-lifecycle'
 import { DEFAULT_DISPLAY } from './issues-display'
@@ -32,7 +38,11 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return ({}) } }),
+  useClientRuntime: () => ({
+    get access() {
+      return {}
+    },
+  }),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => null,
@@ -64,16 +74,32 @@ afterEach(() => {
 })
 it('keeps card time and addressed interaction state out of layout keys and defers catalog demand', () => {
   state.attached = true
-  const board = renderHook(({ now, id }) => useBoardData({
-    display: DEFAULT_DISPLAY, filter: {}, expanded: [], isMobile: false,
-    now, openIssueId: id, addressed: id ? [id] : [], menu: !!id,
-  }), { initialProps: { now: 0, id: null as import('@podium/model/browser').IssueId | null } })
+  const board = renderHook(
+    ({ now, id }) =>
+      useBoardData({
+        display: DEFAULT_DISPLAY,
+        filter: {},
+        expanded: [],
+        isMobile: false,
+        now,
+        openIssueId: id,
+        addressed: id ? [id] : [],
+        menu: !!id,
+      }),
+    { initialProps: { now: 0, id: null as import('@podium/model/browser').IssueId | null } },
+  )
   const demand = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardModel')?.[1]
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
   state.poolReads.mockClear()
   board.rerender({ now: 60_000, id: 'one' as import('@podium/model/browser').IssueId })
-  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardModel').every(([, key]) => key === demand)).toBe(true)
-  const catalog = renderHook(({ open }) => useBoardCatalog(open, false), { initialProps: { open: false } })
+  expect(
+    state.poolReads.mock.calls
+      .filter(([entity]) => entity === 'issueBoardModel')
+      .every(([, key]) => key === demand),
+  ).toBe(true)
+  const catalog = renderHook(({ open }) => useBoardCatalog(open, false), {
+    initialProps: { open: false },
+  })
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
   catalog.rerender({ open: true })
   expect(state.poolReads).toHaveBeenCalledWith('issueBoardCatalog', 'false')
@@ -82,7 +108,12 @@ it('keeps card time and addressed interaction state out of layout keys and defer
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
 })
 it('uses the same closed-menu reader in the hook and structural harness, and reads an open catalogue', () => {
-  const choices = { scope: ['one'], projectPaths: ['/fixture'], assignees: ['owner'], labels: ['bug'] }
+  const choices = {
+    scope: ['one'],
+    projectPaths: ['/fixture'],
+    assignees: ['owner'],
+    labels: ['bug'],
+  }
   const row = vi.fn(() => choices)
   const pool = { row } as unknown as import('@podium/client-graph').MobxPool
   expect(readBoardCatalog(pool, false, false)).toBeUndefined()

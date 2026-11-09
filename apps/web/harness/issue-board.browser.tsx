@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
@@ -91,7 +91,7 @@ document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 
 function Fixture() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   owner = runtime
   const currentPool = useWorklistPool()
   pool = currentPool

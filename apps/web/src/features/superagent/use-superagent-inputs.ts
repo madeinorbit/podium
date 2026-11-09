@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { loadedPaneSession } from '@podium/client-graph/session-pane'
@@ -34,7 +34,7 @@ function access(s: Store): SuperagentAccess {
   }
 }
 export function useSuperagentAccess() {
-  return access(useStoreHandle().access as Store)
+  return access(useClientRuntime().access as Store)
 }
 export function useSuperagentThread(id: string) {
   const read = useCallback((pool: MobxPool) => superagentThread(pool, id), [id])

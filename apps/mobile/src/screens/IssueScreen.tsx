@@ -1,9 +1,8 @@
-import { withoutShells } from '@podium/client-core/focus'
+import { useChatSends, useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { issueRepoName, resolveIssueEdge } from '@podium/client-core/values'
+import { issueRepoName } from '@podium/client-core/values'
 import { issueActivity } from '@podium/client-graph/issue-activity'
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -16,13 +15,14 @@ import {
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
-import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
+import { useConnected, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import {
   resolveEdgeFromPool,
@@ -30,10 +30,7 @@ import {
   useIssueModel,
   useIssueTargets,
 } from '../client/use-issue-model'
-import {
-  useSessionContextBooting as useBooting,
-  useSessionContextIssue as useIssue,
-} from '../client/use-session-context'
+import { useSessionContextBooting as useBooting } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -48,7 +45,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
 import { ErrorNote } from '../components/task-detail/chrome'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
-import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
 import {
@@ -64,8 +60,7 @@ import {
   PhoneProperties,
   PhoneTimeline,
 } from '../components/task-detail/IssueModelSections'
-import { IssueNow } from '../components/task-detail/IssueNow'
-import { IssueProperties, PropertyBar } from '../components/task-detail/IssueProperties'
+import { PropertyBar } from '../components/task-detail/IssueProperties'
 import { IssueSharedSection } from '../components/task-detail/IssueSharedSection'
 import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
@@ -76,7 +71,6 @@ import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
-import { useIssueActivity } from '../lib/use-issue-detail'
 import { color, space } from '../theme/theme'
 
 /**
@@ -216,9 +210,11 @@ const IssueContent = observer(function IssueContent({
   const trpc = useTrpc()
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.
-  const actions = useStoreActions()
+  const actions = useCommands<MobileTrpc>()
+  const conversationSends = useChatSends()
+
   const hasCloseBlockers = useIssueCloseGuard()
-  const { sendChat } = actions
+  const sendChat = conversationSends.sendChat
   const pool = useMobilePool()
   // The task page owns the roster's demand while shown: on a shared instance
   // it names the assignee and other members' sessions (POD-6297).
@@ -269,7 +265,18 @@ const IssueContent = observer(function IssueContent({
     issue,
     hasCloseBlockers,
     run,
-    actions,
+    actions: {
+      updateIssue: actions.issues.update,
+      setPinned: actions.preferences.setPinned,
+      deleteIssue: actions.issues.delete,
+      closeIssue: actions.issues.close,
+      deferIssue: actions.issues.defer,
+      undeferIssue: actions.issues.undefer,
+      setIssueLabels: actions.issues.setLabels,
+      restoreIssue: actions.issues.restore,
+      startIssueSession: actions.sessions.startIssueSession,
+      issueAction: actions.sessions.issueAction,
+    },
     pool,
     // Only reached when the shared derivation found something to say; a clean
     // close never gets this far (POD-1129).
@@ -598,7 +605,7 @@ const IssueContent = observer(function IssueContent({
         busy={busy}
         onConfirm={(reason) => {
           if (sheet?.kind === 'confirm-child-close') {
-            void run(() => actions.closeIssue(sheet.child.id, reason))
+            void run(() => actions.issues.close(sheet.child.id, reason))
             setSheet(null)
             return
           }
@@ -691,14 +698,14 @@ const IssueContent = observer(function IssueContent({
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
-      void run(() => actions.updateIssue(child.id, { stage: intent.stage }))
+      void run(() => actions.issues.update(child.id, { stage: intent.stage }))
       return
     }
     if (hasCloseBlockers(child.id)) {
       setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
       return
     }
-    void run(() => actions.closeIssue(child.id, intent.reason))
+    void run(() => actions.issues.close(child.id, intent.reason))
   }
 })
 

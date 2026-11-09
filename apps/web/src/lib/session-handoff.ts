@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 /**
  * MOVING A SESSION TO ANOTHER MACHINE, FROM A MENU (POD-6422).
  *
@@ -9,7 +10,7 @@
  * (the server leaves the session where it was).
  */
 
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { awaitEffect, effectShortfall } from '@podium/client-graph/write/await-effect'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { useCallback } from 'react'
@@ -35,12 +36,14 @@ export function useSessionHandoff(): (
   names: HandoffNames,
 ) => void {
   // The action owner, as the menus' other actions; never a store subscription.
-  const owner = useStoreHandle<Trpc>()
+  const owner = useClientRuntime<Trpc>()
+  const commandModules = useCommands<Trpc>()
+
   const pool = useWorklistPool()
   return useCallback(
     (sessionId, machineId, names) => {
       const failed = (why: string) => toast.error(`Handover to ${names.machine} failed — ${why}`)
-      void owner.access.handoffSession(sessionId, machineId).then(
+      void commandModules.sessions.handoff(sessionId, machineId).then(
         async (effectId) => {
           if (!pool) return
           const effect = await awaitEffect(pool, effectId, {

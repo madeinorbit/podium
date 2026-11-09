@@ -1,10 +1,9 @@
-import { useCurrentPrincipal } from '@podium/client-core/react'
+import { useCommands, useCurrentPrincipal } from '@podium/client-core/react'
 import type { SubscriptionModel } from '@podium/client-graph/models'
 import { mySubscriptions } from '@podium/client-graph/workflow-views'
 import { Bell, CircleCheck, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
-import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
@@ -107,7 +106,10 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
     [viewer],
   )
   const subs = useWorklistPoolProjection(read, NO_SUBSCRIPTIONS)
-  const { setSubscriptionEnabled, removeSubscription } = useRuntimeActions(TRIGGER_ACTIONS)
+  const { setSubscriptionEnabled, removeSubscription } = {
+    setSubscriptionEnabled: useCommands<Trpc>().automations.setSubscriptionEnabled,
+    removeSubscription: useCommands<Trpc>().automations.removeSubscription,
+  }
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
 

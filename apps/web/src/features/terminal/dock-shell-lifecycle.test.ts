@@ -1,7 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
-
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, render, waitFor } from '@testing-library/react'
@@ -15,7 +14,7 @@ vi.mock('@/app/store', () => ({
   },
 }))
 const owner = withKeyedInputs({ getSnapshot: () => store.value, subscribe: () => () => {} })
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => owner }))
+vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => owner }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T) =>
     read({
@@ -62,9 +61,7 @@ describe('dock shell lifecycle', () => {
     expect(dockShellIsDead(session({ sessionId: 'archived', archived: true }))).toBe(true)
     expect(dockShellIsDead(session({ sessionId: 'starting', status: 'starting' }))).toBe(false)
     // Reconnecting (its machine's link down) is still `live` (ADR 12 D1).
-    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'live' }))).toBe(
-      false,
-    )
+    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'live' }))).toBe(false)
   })
 
   it('selects only dead, unarchived shells owned by the dock mapping', () => {

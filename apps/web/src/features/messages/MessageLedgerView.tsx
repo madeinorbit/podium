@@ -1,9 +1,10 @@
-import { useOpeningView } from '@podium/client-graph/react/opening-view'
+import { useRequestClient, useUi } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
+import { isGone, LOADING } from '@podium/client-graph'
+import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
 import { MessageLedger } from '@podium/client-graph/message-ledger'
 import { currentMessageRecord } from '@podium/client-graph/message-models'
-import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
-import { LOADING, isGone } from '@podium/client-graph'
+import { useOpeningView } from '@podium/client-graph/react/opening-view'
 import { observer } from 'mobx-react-lite'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 /**
@@ -15,7 +16,6 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
  */
 
 import type { IssueId, SessionId } from '@podium/model'
-import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
@@ -24,9 +24,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { LedgerAge } from './LedgerAge'
 import { useLedgerVisibility } from './ledger-visibility'
-import {
-  type LedgerStatusTone,
-} from './message-ledger'
+import type { LedgerStatusTone } from './message-ledger'
 
 const STATUS_CHIP: Record<LedgerStatusTone, string> = {
   queued: 'bg-amber-400/15 text-amber-500 dark:text-amber-300',
@@ -106,22 +104,38 @@ const LedgerRow = observer(function LedgerRow({ row }: { row: LedgerEntry }): JS
 
 /** Document and deck visibility both suspend polling while this view is hidden. */
 export const MessageLedgerView = observer(function MessageLedgerView({
-  issueId, sessionId,
-}: { issueId?: IssueId; sessionId?: SessionId }): JSX.Element {
-  const { trpc, replica } = useStoreHandle<Trpc>().access
+  issueId,
+  sessionId,
+}: {
+  issueId?: IssueId
+  sessionId?: SessionId
+}): JSX.Element {
+  const trpc = useRequestClient<Trpc>(),
+    { replica } = useUi()
   const pool = useWorklistPool()
-  const createLedger = useCallback((pool: MobxPool) => new MessageLedger(pool, {
-    ledger: () => issueId || sessionId ? trpc.messages.ledger.query({
-      ...(issueId ? { issueId } : {}), ...(sessionId ? { sessionId } : {}),
-    }) : Promise.resolve([]),
-    records: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-    currentRecord: id => currentMessageRecord(pool, replica, id),
-  }), [trpc, replica, issueId, sessionId])
+  const createLedger = useCallback(
+    (pool: MobxPool) =>
+      new MessageLedger(pool, {
+        ledger: () =>
+          issueId || sessionId
+            ? trpc.messages.ledger.query({
+                ...(issueId ? { issueId } : {}),
+                ...(sessionId ? { sessionId } : {}),
+              })
+            : Promise.resolve([]),
+        records: (ids) =>
+          trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
+        currentRecord: (id) => currentMessageRecord(pool, replica, id),
+      }),
+    [trpc, replica, issueId, sessionId],
+  )
   const ledger = useOpeningView(pool, createLedger)
   useLedgerVisibility(ledger)
   const rows = ledger?.ids ?? null
   const error = ledger?.error
-  const refresh = () => { void ledger?.refresh() }
+  const refresh = () => {
+    void ledger?.refresh()
+  }
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2.5"
@@ -149,14 +163,22 @@ export const MessageLedgerView = observer(function MessageLedgerView({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {rows.map(id => <PooledLedgerRow key={id} ledger={ledger!} id={id} />)}
+          {rows.map((id) => (
+            <PooledLedgerRow key={id} ledger={ledger!} id={id} />
+          ))}
         </div>
       )}
     </div>
   )
 })
 
-const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id }: { ledger: MessageLedger; id: string }) {
+const PooledLedgerRow = observer(function PooledLedgerRow({
+  ledger,
+  id,
+}: {
+  ledger: MessageLedger
+  id: string
+}) {
   const message = ledger.pool.model('messageRecord', id)
   if (message === LOADING) return <div className="text-xs">Loading…</div>
   if (isGone(message)) return null

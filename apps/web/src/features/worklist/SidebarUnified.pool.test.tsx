@@ -1,14 +1,9 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { refreshClocks } from '@podium/mobx-helpers'
-import {
-  asIssueId,
-  asSessionId,
-  asUserId,
-  issueUserStateRowId,
-} from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId, issueUserStateRowId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
@@ -78,7 +73,7 @@ vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({
 let runtime: ClientRuntime
 let pool: ReturnType<typeof useWorklistPool> = null
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   return null
 }

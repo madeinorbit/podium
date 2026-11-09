@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { checkoutRefresh, replicaAnswerMachines } from '@podium/client-graph/answer-refresh'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
@@ -32,7 +32,7 @@ export const GitReviewSection = observer(function GitReviewSection({
     hub,
     replica,
     access: { gitStatus, readFileScoped, gitDiffFile },
-  } = useStoreHandle()
+  } = useClientRuntime()
   const refreshSignal = useMemo(
     () => (changed: () => void) => {
       const stop = checkoutRefresh(hub, replicaAnswerMachines(replica), machineId, root)(changed)

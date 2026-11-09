@@ -1,10 +1,10 @@
+import { useRequestClient } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { useStoreHandle } from '@podium/client-core/react'
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, observableRef, reaction } from 'mobx'
 import { useEffect, useState } from 'react'
-import type { Trpc } from './trpc'
 import type { WaterfallActivitySample } from './flight-deck-waterfall'
+import type { Trpc } from './trpc'
 
 /** Explicit visible-session request input. Membership equality belongs to the
  * ID list, rather than a signature of record payloads or the retained crew. */
@@ -23,7 +23,7 @@ class ActivityWindow {
 export function useWaterfallActivity(
   sessions: readonly SessionView[],
 ): ReadonlyMap<string, WaterfallActivitySample[]> {
-  const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
+  const query = useRequestClient<Trpc>().sessions?.activityHistory?.query
   const [window] = useState(() => new ActivityWindow())
   const [samples, setSamples] = useState<ReadonlyMap<string, WaterfallActivitySample[]>>(
     () => new Map(),

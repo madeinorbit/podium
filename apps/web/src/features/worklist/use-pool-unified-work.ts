@@ -1,5 +1,5 @@
 import { beginSwitch } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allTabIds, pickPaneSession, workspaceKeyFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -162,12 +162,13 @@ function poolArchiveBatch(
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox' | 'ui'>,
+  runtime: Pick<ReturnType<typeof useClientRuntime>, 'root' | 'batch' | 'ui'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null
-  const batch = (fn: () => void) =>
-    (runtime.access as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(fn)
+  const batch = (fn: () => void) => runtime.batch(fn)
+  const commands = runtime.root.commands
+  const outbox = runtime.root.services.outbox.queue
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== runtime.ui.paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
@@ -180,7 +181,6 @@ export function createPoolWorkActions(
     if (rootId === undefined || rootId === LOADING) return
     const issueIds = mission.members(rootId)
     if (issueIds === LOADING) return
-    const store = runtime.access
     const members = new Map<string, SessionView>()
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
@@ -236,9 +236,9 @@ export function createPoolWorkActions(
       const commandKey = JSON.stringify([id, paneSession, clicked.issue.updatedAt])
       if (!changed && lastIssueNavigation === commandKey) return
       lastIssueNavigation = commandKey
-      void store.markIssueRead(id)
-      if (clicked.returnedFromDefer) void store.deferIssue(id, null)
-      if (paneSession) void store.markSessionRead(paneSession)
+      void commands.issues.markRead(id)
+      if (clicked.returnedFromDefer) void commands.issues.defer(id, null)
+      if (paneSession) void commands.sessions.markRead(paneSession)
     })
     focus(id)
   }
@@ -248,21 +248,20 @@ export function createPoolWorkActions(
     selectPanelForIssue: (id: string, sessionId: SessionId) =>
       allowImperativeRead(() => selectIssue(id, sessionId)),
     openIssuePage: (id: IssueId) => {
-      const store = runtime.access
       runtime.ui.setOpenIssueId(id)
       runtime.ui.setView('issues')
     },
     renameIssue: (id: string, title: string) => {
-      void runtime.access.updateIssue(id, { title })
+      void commands.issues.update(id, { title })
     },
-    archiveIssue: (id: string) => runtime.access.archiveIssue(id),
+    archiveIssue: (id: string) => commands.issues.archive(id),
     captureArchiveBatch: (rootIds: readonly string[]) =>
       allowImperativeRead(() => poolArchiveBatch(pool, rootIds)),
-    subscribeArchiveChanges: (notify: () => void) => runtime.outbox.subscribe(notify),
+    subscribeArchiveChanges: (notify: () => void) => outbox.subscribe(notify),
     archiveBatchPending: (trees: readonly ArchiveIssueTree[]) =>
       trees.length > 0 &&
       (trees.some((tree) => !tree.queued) ||
-        runtime.outbox.pending().some(
+        outbox.pending().some(
           // An archive is a plain-field edit of the issue record (POD-6405).
           (entry) =>
             entry.kind === 'recordEdit' &&
@@ -273,21 +272,21 @@ export function createPoolWorkActions(
     unarchiveBatch: (trees: readonly ArchiveIssueTree[]) =>
       Promise.all(
         trees.flatMap((tree) =>
-          tree.ids.map((id) => runtime.access.updateIssue(id, { archived: false })),
+          tree.ids.map((id) => commands.issues.update(id, { archived: false })),
         ),
       ),
-    deleteIssue: (id: string) => runtime.access.deleteIssue(id),
+    deleteIssue: (id: string) => commands.issues.delete(id),
     // A drag across the Pinned edge also pins or unpins: my pin record
     // (POD-6692), beside the issue's own order key.
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(
         patches.flatMap(({ id, sortKey, pinned }) => [
-          runtime.access.updateIssue(id, { sortKey }),
-          ...(pinned === undefined ? [] : [runtime.access.setPinned('issue', id, pinned)]),
+          commands.issues.update(id, { sortKey }),
+          ...(pinned === undefined ? [] : [commands.preferences.setPinned('issue', id, pinned)]),
         ]),
       ),
-    undeferIssue: (id: string) => runtime.access.undeferIssue(id),
-    setIssueTucked: (id: string, tucked: boolean) => runtime.access.setIssueTucked(id, tucked),
+    undeferIssue: (id: string) => commands.issues.undefer(id),
+    setIssueTucked: (id: string, tucked: boolean) => commands.issues.setTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData =>
       allowImperativeRead(() => {
         const inputs = readMissionActionInputs(missionView(pool), [id])
@@ -306,7 +305,7 @@ export function createPoolWorkActions(
 export type PoolWorkActions = ReturnType<typeof createPoolWorkActions>
 
 export function usePoolUnifiedWork(pool: MobxPool): PoolWorkActions {
-  const runtime = useStoreHandle()
+  const runtime = useClientRuntime()
   const { setFocusedIssueId } = useOperatorFocus()
   const focus = useRef(setFocusedIssueId)
   focus.current = setFocusedIssueId

@@ -1,4 +1,4 @@
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useUi, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allTabIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -78,7 +78,20 @@ export function pendingWorkspaceIssueHasSession(pool: MobxPool, issueId: string)
 }
 
 export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingIssueId = '') {
-  const actions = useRuntimeActions(ACTIONS)
+  const actions = {
+    closeFileTab: useUi().closeFileTab,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
+    workspaceKey: useUi().workspaceKey,
+    openSessionTab: useUi().openSessionTab,
+    promoteWorkspaceTab: useUi().promoteWorkspaceTab,
+    activateWorkspaceTab: useUi().activateWorkspaceTab,
+    closeWorkspaceTab: useUi().closeWorkspaceTab,
+    moveWorkspaceTab: useUi().moveWorkspaceTab,
+    splitWorkspacePane: useUi().splitWorkspacePane,
+    closeWorkspacePane: useUi().closeWorkspacePane,
+    focusWorkspacePane: useUi().focusWorkspacePane,
+    resizeWorkspaceSplit: useUi().resizeWorkspaceSplit,
+  }
   const selectedWorktree = useUiValue('selectedWorktree')
   const paneA = useUiValue('paneA')
   const selectedIssueId = useUiValue('selectedIssueId')

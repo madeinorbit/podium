@@ -2,7 +2,14 @@
  * their existing owner and API. Missing pool facts retain loading values. */
 import type { Store } from '@podium/client-core/engine'
 import type { LiveStore } from '@podium/client-core/live'
-import { useStoreHandle } from '@podium/client-core/react'
+import {
+  useClientRuntime,
+  useDeviceState,
+  useReplica as useCoreReplica,
+  useHttpOrigin as useCoreHttpOrigin,
+  useRequestClient,
+  useSocketHub,
+} from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -29,72 +36,30 @@ export {
 
 type MobileStore = Store<MobileTrpc>
 
-/**
- * THE MUTATION SURFACE the phone's screens use, picked once. Every field is an
- * identity-stable engine action. Acquire them from the current owner without a
- * snapshot subscription; a principal/provider rebuild supplies a new owner.
- */
-const pickActions = (s: MobileStore) => ({
-  markIssueRead: s.markIssueRead,
-  markIssueUnread: s.markIssueUnread,
-  setIssueTucked: s.setIssueTucked,
-  setIssuePlacement: s.setIssuePlacement,
-  updateIssue: s.updateIssue,
-  // My pin of a task is my `pin` record (POD-6692).
-  setPinned: s.setPinned,
-  closeIssue: s.closeIssue,
-  deleteIssue: s.deleteIssue,
-  restoreIssue: s.restoreIssue,
-  deferIssue: s.deferIssue,
-  undeferIssue: s.undeferIssue,
-  setIssueLabels: s.setIssueLabels,
-  setSnooze: s.setSnooze,
-  clearSnooze: s.clearSnooze,
-  setWorkState: s.setWorkState,
-  sendChat: s.sendChat,
-  resurrectSession: s.resurrectSession,
-  continueSession: s.continueSession,
-  archiveSession: s.archiveSession,
-  killSession: s.killSession,
-  dismissOffer: s.dismissOffer,
-  spawnDraftAgent: s.spawnDraftAgent,
-  startIssueSession: s.startIssueSession,
-  issueAction: s.issueAction,
-  answerSession: s.answerSession,
-  spawnIssueAgent: s.spawnIssueAgent,
-})
-
-export type StoreActions = ReturnType<typeof pickActions>
-
-export function useStoreActions(): StoreActions {
-  const owner = useStoreHandle<MobileTrpc>()
-  return useMemo(() => pickActions(owner.access), [owner])
-}
-
 /** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): MobileStore['replica'] {
-  return useStoreHandle<MobileTrpc>().access.replica
+  return useCoreReplica()
 }
 
 /** The server this app is talking to, e.g. `http://ludovico:18787`. */
 export function useHttpOrigin(): string {
-  return useStoreHandle<MobileTrpc>().access.httpOrigin
+  return useCoreHttpOrigin()
 }
 
 export function useTrpc(): MobileTrpc {
-  return useStoreHandle<MobileTrpc>().access.trpc
+  return useRequestClient<MobileTrpc>()
 }
 
 /** The app-wide transport hub; terminal views share it instead of opening a
  *  second socket. */
 export function useHub(): SocketHub {
-  return useStoreHandle<MobileTrpc>().access.hub
+  return useSocketHub()
 }
 
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
-  return useStoreHandle<MobileTrpc>().deviceState
+  return useDeviceState()
 }
 
 /**
@@ -128,7 +93,7 @@ const serverBuildOf = (live: LiveStore): string | undefined => live.connection.s
  * only when `read`'s answer changes. `read` must be a stable function.
  */
 function useLiveValue<T>(read: (live: LiveStore) => T): T {
-  const live = useStoreHandle<MobileTrpc>().live
+  const live = useClientRuntime<MobileTrpc>().live
   const [value, setValue] = useState(() => read(live))
   useEffect(() => reaction(() => read(live), setValue, { fireImmediately: true }), [live, read])
   return value

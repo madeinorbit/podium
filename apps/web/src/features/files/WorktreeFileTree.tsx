@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useRequestClient, useUi } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
@@ -171,7 +171,9 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   machineId?: MachineId
 }): JSX.Element {
   const refreshSignal = useCheckoutSignal(machineId, root)
-  const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().access
+  const { list: listDir } = useCommands<Trpc>().files,
+    { openFileInWorktree } = useUi(),
+    trpc = useRequestClient<Trpc>()
   const view = useMemo(
     () => new FileTreeView(root, machineId, { listDir, trpc, refreshSignal }),
     [root, machineId, listDir, trpc, refreshSignal],

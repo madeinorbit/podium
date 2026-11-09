@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -121,7 +121,7 @@ it('matches scoped placement and cold issue/session targets through the one read
   })
   const { result } = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       machines: useWorkflowMachines(),
       issue: useWorkflowSubject(fixture.runs[1]!),
@@ -182,7 +182,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
   const inputs = { profiles: fixture.profiles, runs: [...fixture.runs, ...twins] }
   const { result } = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       machines: useWorkflowMachines(),
       suppressed: useWorkflowSubject(twins[0]!),
@@ -215,7 +215,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
 it('batches observed machine demand and returns LOADING before the shared source settles', async () => {
   const { fixture, Wrapper } = setup()
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }),
+    () => ({ owner: useClientRuntime<Trpc>(), pool: useWorklistPool() }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
@@ -248,7 +248,7 @@ it('batches observed machine demand and returns LOADING before the shared source
 it('bounds diagnostic summary reads and releases its tracking scope even inside an action', async () => {
   const { fixture, Wrapper } = setup()
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }),
+    () => ({ owner: useClientRuntime<Trpc>(), pool: useWorklistPool() }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
@@ -285,9 +285,9 @@ it('bounds diagnostic summary reads and releases its tracking scope even inside 
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {
   const { fixture, Wrapper, fatal } = setup()
-  let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
+  let owner: ReturnType<typeof useClientRuntime<Trpc>> | undefined
   function Surface() {
-    owner = useStoreHandle<Trpc>()
+    owner = useClientRuntime<Trpc>()
     const source = useWorkflows()
     return (
       <>

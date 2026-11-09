@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
@@ -273,7 +273,7 @@ function pageReplica(issues: IssueProjection[]) {
   })
 }
 function OpenPage() {
-  state.runtime = useStoreHandle<MobileTrpc>() as ClientRuntime<MobileTrpc>
+  state.runtime = useClientRuntime<MobileTrpc>() as ClientRuntime<MobileTrpc>
   useMobilePool()
   const [open, setOpen] = useState(false)
   return open ? (

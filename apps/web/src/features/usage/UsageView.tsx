@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient } from '@podium/client-core/react'
 import {
   formatCostWeightRatio,
   formatCount,
@@ -55,7 +55,7 @@ import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsag
  * Reopening the sheet skips even that — see useUsageFeed.
  */
 export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const feed = useUsageFeed()
   const ledger = useQuotaLedger(trpc)
   const tasks = useTaskCosts(trpc)

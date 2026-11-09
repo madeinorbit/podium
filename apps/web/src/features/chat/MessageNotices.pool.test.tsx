@@ -1,10 +1,10 @@
 import '../../../test/shared-notice-model-fixture'
-import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
 import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import type { JSX, ReactNode } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
 import { OutboxRecoveryIndicator } from '../machines/OutboxRecovery'
 import { MessageNoticeIndicator } from './MessageNotices'
 import { PendingInteractionBar } from './PendingInteractionBar'
@@ -19,11 +19,15 @@ const mock = vi.hoisted(() => ({
   discard: vi.fn(),
   retry: vi.fn(),
   edit: vi.fn(),
-  owner: { get access() { return mock.state } },
+  owner: {
+    get access() {
+      return mock.state
+    },
+  },
   rows: vi.fn(),
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => mock.owner,
+  useClientRuntime: () => mock.owner,
   useOutboxRecovery: () => mock.state.recoverOutbox,
 }))
 vi.mock('@/app/store', () => ({
@@ -33,7 +37,8 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPoolProjection: (read: (pool: unknown) => unknown, empty: unknown, active = true) => active ? read(mock.pool) : empty,
+  useWorklistPoolProjection: (read: (pool: unknown) => unknown, empty: unknown, active = true) =>
+    active ? read(mock.pool) : empty,
 }))
 vi.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -58,17 +63,17 @@ beforeEach(() => {
     deadLetters: data.deadLetters.map((row) => row.entry.mutationId),
   }
   mock.rows.mockReset().mockImplementation((entity: string, id: string) => {
-      if (entity === 'noticeCatalog') return catalog
-      if (entity === 'noticeAttention') return { count: 3, newest: 'notice-message-2' }
-      if (entity === 'noticeMessageCatalog') return { messages: catalog.messages.slice(0, 3) }
-      if (entity === 'noticeRecoveryCatalog') return { deadLetters: catalog.deadLetters }
-      if (entity === 'noticeSession')
-        return { messages: catalog.messages, interactions: catalog.interactions }
-      if (entity === 'messageRecord') return data.messages.find((row) => row.id === id)
-      if (entity === 'session') return data.sessions.find((row) => row.sessionId === id)
-      if (entity === 'pendingInteraction') return data.interactions.find((row) => row.id === id)
-      if (entity === 'outboxDeadLetter')
-        return data.deadLetters.find((row) => row.entry.mutationId === id)
+    if (entity === 'noticeCatalog') return catalog
+    if (entity === 'noticeAttention') return { count: 3, newest: 'notice-message-2' }
+    if (entity === 'noticeMessageCatalog') return { messages: catalog.messages.slice(0, 3) }
+    if (entity === 'noticeRecoveryCatalog') return { deadLetters: catalog.deadLetters }
+    if (entity === 'noticeSession')
+      return { messages: catalog.messages, interactions: catalog.interactions }
+    if (entity === 'messageRecord') return data.messages.find((row) => row.id === id)
+    if (entity === 'session') return data.sessions.find((row) => row.sessionId === id)
+    if (entity === 'pendingInteraction') return data.interactions.find((row) => row.id === id)
+    if (entity === 'outboxDeadLetter')
+      return data.deadLetters.find((row) => row.entry.mutationId === id)
   })
   mock.pool = { row: mock.rows }
   mock.state = {
@@ -120,7 +125,10 @@ const click = async (label: string) => {
     button.click()
   })
 }
-const openNotices = () => act(() => (container.querySelector('[data-testid="message-notice-chip"]') as HTMLButtonElement).click())
+const openNotices = () =>
+  act(() =>
+    (container.querySelector('[data-testid="message-notice-chip"]') as HTMLButtonElement).click(),
+  )
 
 it('uses zero legacy selectors and derivations and retains open, dismiss, answer and discard actions', async () => {
   render()
@@ -163,7 +171,8 @@ it('preserves saved notice, interaction and recovery output', () => {
 it('says when older notices stay in their chats', () => {
   const base = mock.rows.getMockImplementation()!
   mock.rows.mockImplementation((entity: string, id: string) => {
-    if (entity === 'noticeAttention') return { count: NOTICE_MESSAGE_WINDOW + 1, newest: 'notice-message-2' }
+    if (entity === 'noticeAttention')
+      return { count: NOTICE_MESSAGE_WINDOW + 1, newest: 'notice-message-2' }
     return base(entity, id)
   })
   act(() => root.render(<MessageNoticeIndicator />))
@@ -180,5 +189,9 @@ it('reads only the count with the list closed and releases list reads after open
   expect(mock.rows.mock.calls.filter(([entity]) => entity === 'messageRecord')).toHaveLength(3)
   mock.rows.mockClear()
   await click('Open chat')
-  expect(mock.rows.mock.calls.some(([entity]) => entity === 'noticeMessageCatalog' || entity === 'messageRecord')).toBe(false)
+  expect(
+    mock.rows.mock.calls.some(
+      ([entity]) => entity === 'noticeMessageCatalog' || entity === 'messageRecord',
+    ),
+  ).toBe(false)
 })

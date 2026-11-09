@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import {
   createRoutedUiState,
   DIFF_SHEET_WRAP_KEY,
@@ -153,7 +153,7 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
   let owner!: ClientRuntime,
     pool: MobxPool | null = null
   function Surfaces() {
-    owner = useStoreHandle() as ClientRuntime
+    owner = useClientRuntime() as ClientRuntime
     owners.add(owner)
     pool = useWorklistPool()
     return (

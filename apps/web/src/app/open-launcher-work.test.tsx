@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import { requireHere } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -68,13 +68,13 @@ it.each([
     // Machines and repositories are records; online is the live condition (POD-6644).
     fixture.putMachinesAndRepos({ machines, repos })
     let pool: MobxPool | null = null
-    let owner!: ReturnType<typeof useStoreHandle<Trpc>>
+    let owner!: ReturnType<typeof useClientRuntime<Trpc>>
     let choose!: (path: string) => void
     let show!: (open: boolean) => void
     const fatal = vi.fn()
     function Host() {
       pool = useWorklistPool()
-      owner = useStoreHandle<Trpc>()
+      owner = useClientRuntime<Trpc>()
       const [path, setPath] = useState('/synthetic/project')
       const [open, setOpen] = useState(false)
       choose = setPath

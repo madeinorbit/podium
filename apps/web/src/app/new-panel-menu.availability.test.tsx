@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asRepoId, asUserId, type GitRepositoryWire } from '@podium/model/browser'
@@ -57,12 +57,12 @@ it.each([
   // Machines and repositories are records; online is the live condition (POD-6644).
   fixture.putMachinesAndRepos({ machines: machines(), repos: repositories })
   let pool: MobxPool | null = null
-  let owner!: ReturnType<typeof useStoreHandle<Trpc>>
+  let owner!: ReturnType<typeof useClientRuntime<Trpc>>
   const opened = vi.fn()
   const fatal = vi.fn()
   function Host() {
     pool = useWorklistPool()
-    owner = useStoreHandle<Trpc>()
+    owner = useClientRuntime<Trpc>()
     return (
       <NewPanelMenu
         worktree={{ path, repoPath: '/home/mgw/nulldisk', isMain: path === '/home/mgw/nulldisk' }}

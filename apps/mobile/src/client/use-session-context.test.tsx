@@ -1,13 +1,11 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
@@ -20,6 +18,8 @@ import { asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ComponentProps, type ReactNode, StrictMode, useEffect, useRef } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import type { PendingTurn } from '../components/TranscriptList'
@@ -369,7 +369,7 @@ async function mount(
     ) : null
   }
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
 
     seen.push(useMobilePool())
     return screen === 'probe' ? (
@@ -488,7 +488,9 @@ it('renders the same six phone readers through real late attachment with no Reac
   const enabled = await mount()
   const roster = () => {
     const screen = enabled.view.getByRole('heading', { name: 'Agents' }).closest('section')!
-    return [...screen.querySelectorAll('[data-session]')].map((row) => row.getAttribute('data-session'))
+    return [...screen.querySelectorAll('[data-session]')].map((row) =>
+      row.getAttribute('data-session'),
+    )
   }
   expect(roster()[0]).toBe('synthetic-session-1')
   // 54fc47e122 enlarged the initial list batch; the snapshot now includes
@@ -523,7 +525,7 @@ it('updates conversation ports without a whole-record store or whole-kind reads'
   expect(enabled.runtime).not.toHaveProperty('getSnapshot')
   await act(async () => {
     enabled.data.activity(1)
-    enabled.runtime.services.setSessionDraft(SID, 'Changed draft')
+    enabled.runtime.root.commands.sessions.setSessionDraft(SID, 'Changed draft')
   })
   await waitFor(() =>
     expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'),

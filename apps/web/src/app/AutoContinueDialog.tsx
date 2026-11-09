@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -20,7 +20,7 @@ import { useShellActions } from './shell-data'
  */
 export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.Element | null {
   const { setPreferences, closeAutoContinuePrompt } = useShellActions()
-  const autoContinuePromptSessionId = useStoreHandle().autoContinueDialog.sessionId
+  const autoContinuePromptSessionId = useClientRuntime().autoContinueDialog.sessionId
   const [pendingAction, setPendingAction] = useState<'dismiss' | 'enable' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const busy = pendingAction !== null

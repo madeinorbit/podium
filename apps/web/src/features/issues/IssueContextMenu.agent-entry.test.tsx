@@ -16,26 +16,27 @@ const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  useStoreHandle: () => withKeyedInputs({
-    subscribe: () => () => {},
-    getSnapshot: () => ({
-      trpc: {
-        issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
-      },
-      markIssueRead: vi.fn(),
-      markIssueUnread: vi.fn(),
-      startIssueSession,
-      get sessions() {
-        throw new Error('Task menu read legacy sessions')
-      },
-      get repos() {
-        throw new Error('Task menu read legacy repos')
-      },
-      get machines() {
-        throw new Error('Task menu read legacy machines')
-      },
+  useClientRuntime: () =>
+    withKeyedInputs({
+      subscribe: () => () => {},
+      getSnapshot: () => ({
+        trpc: {
+          issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
+        },
+        markIssueRead: vi.fn(),
+        markIssueUnread: vi.fn(),
+        startIssueSession,
+        get sessions() {
+          throw new Error('Task menu read legacy sessions')
+        },
+        get repos() {
+          throw new Error('Task menu read legacy repos')
+        },
+        get machines() {
+          throw new Error('Task menu read legacy machines')
+        },
+      }),
     }),
-  }),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {

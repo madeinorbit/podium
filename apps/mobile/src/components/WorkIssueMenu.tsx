@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { discoveredPlacement } from '@podium/client-core/values'
@@ -10,8 +11,8 @@ import {
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
-import { useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { useIssueModel } from '../client/use-issue-model'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
@@ -57,7 +58,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
   initialSheet?: WorkMenuSheet
 }) {
   // Actions retain their owner; displayed facts follow the shared issue.
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const hasCloseBlockers = useIssueCloseGuard()
   const [sheet, setSheet] = useState<MenuSheet>(initialSheet ?? { kind: 'menu' })
   const issue = target.issue
@@ -110,7 +111,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         multiline={false}
         onConfirm={(title) => {
           if (title && title !== issue.title) {
-            finish(store.updateIssue(issue.id, { title }))
+            finish(store.issues.update(issue.id, { title }))
           } else {
             finish()
           }
@@ -130,11 +131,11 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
             const intent = parseIssueStatusValue(entry.value)
             if (!intent) return
             if (intent.kind === 'stage') {
-              finish(store.updateIssue(issue.id, { stage: intent.stage }))
+              finish(store.issues.update(issue.id, { stage: intent.stage }))
             } else if (hasCloseBlockers(issue.id)) {
               setSheet({ kind: 'confirm-close', reason: intent.reason })
             } else {
-              finish(store.closeIssue(issue.id, intent.reason))
+              finish(store.issues.close(issue.id, intent.reason))
             }
           },
         }))}
@@ -149,7 +150,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
           {
             label: 'Delete',
             destructive: true,
-            onPress: () => finish(store.deleteIssue(issue.id)),
+            onPress: () => finish(store.issues.delete(issue.id)),
           },
         ]}
         onClose={closeIf('confirm-delete')}
@@ -158,7 +159,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
       <IssueCloseSheet
         issue={issue}
         reason={sheet?.kind === 'confirm-close' ? sheet.reason : null}
-        onConfirm={(reason) => finish(store.closeIssue(issue.id, reason))}
+        onConfirm={(reason) => finish(store.issues.close(issue.id, reason))}
         onClose={closeIf('confirm-close')}
       />
     </>
@@ -172,7 +173,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         return {
           label: unread ? 'Mark as read' : 'Mark as unread',
           onPress: () =>
-            finish(unread ? store.markIssueRead(issue.id) : store.markIssueUnread(issue.id)),
+            finish(unread ? store.issues.markRead(issue.id) : store.issues.markUnread(issue.id)),
         }
       case 'status':
         return { label: 'Set status', onPress: () => setSheet({ kind: 'status' }) }
@@ -187,7 +188,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
               : `Move into ${originRef ?? 'the task that found it'}`,
           onPress: () =>
             finish(
-              store.setIssuePlacement(
+              store.issues.setPlacement(
                 issue.id,
                 placement.placement === 'mission' ? 'own' : 'mission',
                 originId,
@@ -201,10 +202,10 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
           ...(target.canBringBack === false
             ? { disabled: true, hint: 'The fold keeps closures older than a day' }
             : {}),
-          onPress: () => finish(store.setIssueTucked(issue.id, false)),
+          onPress: () => finish(store.issues.setTucked(issue.id, false)),
         }
       case 'undefer':
-        return { label: 'Unsnooze', onPress: () => finish(store.undeferIssue(issue.id)) }
+        return { label: 'Unsnooze', onPress: () => finish(store.issues.undefer(issue.id)) }
       case 'delete':
         return {
           label: 'Delete…',

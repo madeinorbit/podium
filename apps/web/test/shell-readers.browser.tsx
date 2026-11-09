@@ -2,7 +2,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -11,7 +11,6 @@ import { observable, runInAction } from 'mobx'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { ApprovalDialog } from '../src/app/ApprovalDialog'
@@ -207,7 +206,7 @@ const DockContext = observer(function DockContext() {
   )
 })
 function Surfaces() {
-  const owner = useStoreHandle() as ClientRuntime,
+  const owner = useClientRuntime() as ClientRuntime,
     graph = useWorklistPool()
   useEffect(() => {
     runtime = owner

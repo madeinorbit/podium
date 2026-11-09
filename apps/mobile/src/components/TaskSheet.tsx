@@ -1,18 +1,13 @@
-import { issueWrites } from '@podium/commands/issues-synced'
 import { relativeTime } from '@podium/client-core/focus'
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  groupRelations,
-  operationalState,
-  presenceNote,
-  sessionTitle,
-  subIssuesOf,
-} from '@podium/client-core/values'
+import { operationalState, sessionTitle } from '@podium/client-core/values'
 import type { DetailSession } from '@podium/client-graph/issue-page'
 import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -25,13 +20,14 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { useHttpOrigin, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobilePool } from '../client/mobile-pool'
 import { useOptionalServerProfile } from '../client/server-profile-context'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
@@ -110,7 +106,9 @@ export const TaskSheet = observer(function TaskSheet({
 
   const post = (body: string) => {
     if (!issue) return
-    void issueWrites(trpc).addComment.mutate({ id: issue.id, body }).catch(() => {})
+    void issueWrites(trpc)
+      .addComment.mutate({ id: issue.id, body })
+      .catch(() => {})
   }
 
   /**
@@ -143,9 +141,7 @@ export const TaskSheet = observer(function TaskSheet({
           mode="detented"
           testID="task-sheet"
           head={
-            issue ? (
-              <SheetHead pool={pool} issue={issue} onOpenSession={onOpenSession} />
-            ) : null
+            issue ? <SheetHead pool={pool} issue={issue} onOpenSession={onOpenSession} /> : null
           }
           footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
           footerRule={false}
@@ -189,7 +185,8 @@ const SheetHead = observer(function SheetHead({
   issue: IssueViewModel
   onOpenSession: (session: SessionView) => void
 }) {
-  const { updateIssue, closeIssue, startIssueSession } = useStoreActions()
+  const { update: updateIssue, close: closeIssue } = useCommands<MobileTrpc>().issues,
+    { startIssueSession } = useCommands<MobileTrpc>().sessions
   const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)

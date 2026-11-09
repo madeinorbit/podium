@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
 import { AutomationSource } from '@podium/client-graph/automation-source'
@@ -141,7 +141,7 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
   }
   const { result } = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       targets: useAutomationTargets('/synthetic/offline'),
     }),
@@ -220,7 +220,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   }
   const result = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       list: useAutomationList(),
       targets: useAutomationTargets('/synthetic/missing'),
@@ -354,7 +354,7 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
     )
   }
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool(), list: useAutomationList() }),
+    () => ({ owner: useClientRuntime<Trpc>(), pool: useWorklistPool(), list: useAutomationList() }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.list.pending).toBe(0))

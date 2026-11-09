@@ -1,21 +1,22 @@
-import { issueWrites } from '@podium/commands/issues-synced'
-import { observer } from 'mobx-react-lite'
+import { AUTO, issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
+import { useCommands } from '@podium/client-core/react'
+import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
-import { useMyCodingHarness } from '../client/my-preferences'
-import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
+import { issueWrites } from '@podium/commands/issues-synced'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useStoreActions, useTrpc } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
+import { useMyCodingHarness } from '../client/my-preferences'
 import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
-import { AUTO, issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import {
   type LaunchConfiguration,
   type LaunchPlan,
@@ -45,7 +46,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   // inset here).
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
-  const { spawnIssueAgent } = useStoreActions()
+  const { spawnIssueAgent } = useCommands<MobileTrpc>().sessions
   const repositoryPaths = useLaunchRepositoryPaths()
   const repositoriesLoading = repositoryPaths === LOADING
   const repositoriesGone = isGone(repositoryPaths)
@@ -64,7 +65,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const configuredHarness = useMyCodingHarness()
   const configuredAgent = configuredHarness ? issueAgentKind(configuredHarness) : undefined
   useEffect(() => {
-    if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)
+    if (configuredAgent)
+      setLaunch((current) =>
+        current.inheritAgent ? { ...current, agentKind: configuredAgent } : current,
+      )
   }, [configuredAgent])
 
   useEffect(() => {
@@ -131,7 +135,13 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <SectionHeader label="Where" />
-        {repositoriesLoading ? <Text>Loading repositories…</Text> : repositoriesGone ? <Text>Repositories are unavailable.</Text> : repos.length === 0 ? <Text>No repositories registered.</Text> : null}
+        {repositoriesLoading ? (
+          <Text>Loading repositories…</Text>
+        ) : repositoriesGone ? (
+          <Text>Repositories are unavailable.</Text>
+        ) : repos.length === 0 ? (
+          <Text>No repositories registered.</Text>
+        ) : null}
         <View style={styles.chipWrap} accessibilityRole="radiogroup">
           {repos.map((repo) => {
             const name = machinePathBasename(repo)

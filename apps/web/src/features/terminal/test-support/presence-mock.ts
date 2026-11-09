@@ -40,7 +40,7 @@ vi.mock('../../../../../../packages/client-core/src/react/provider', async (impo
   ...(await importOriginal<
     typeof import('../../../../../../packages/client-core/src/react/provider')
   >()),
-  useStoreHandle: () => fixtureOwner ?? paneOwner,
+  useClientRuntime: () => fixtureOwner ?? paneOwner,
 }))
 
 export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unknown> {
@@ -50,7 +50,7 @@ export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unkno
     useConversation,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
-    useStoreHandle: () => fixtureOwner ?? paneOwner,
+    useClientRuntime: () => fixtureOwner ?? paneOwner,
     useModelCatalog: () => ({}),
     useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' as const }),
     // Served harness descriptors (POD-4475): provider-free suites render

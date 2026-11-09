@@ -1,4 +1,12 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import {
+  useClientRuntime,
+  useCommands,
+  useDeviceState,
+  useHttpOrigin,
+  useRequestClient,
+  useSocketHub,
+  useUi,
+} from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import type { EffectModel } from '@podium/client-graph/models'
@@ -21,45 +29,37 @@ function shellView(pool: MobxPool): ReturnType<typeof shellViews> {
 
 /** Identity-stable actions/transports only; the existing runtime remains the
  * mutation owner. Live values never come from this one-time acquisition. */
-const ACTIONS = [
-  'trpc',
-  'hub',
-  'httpOrigin',
-  'uiState',
-  'navigateToSession',
-  'closeAutoContinuePrompt',
-  'setPreferences',
-  'setSelectedIssueId',
-  'setView',
-  'setSuperOpen',
-  'setPaletteOpen',
-  'setOpenIssueId',
-  'openArtifact',
-  'openFileInWorktree',
-  'closeFileTab',
-  'closeWorkspaceTab',
-  'setSettingsTab',
-  'decideApproval',
-] as const satisfies readonly (keyof Store)[]
-export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
-  const owner = useStoreHandle<Trpc>()
-  return useMemo(() => {
-    const state = owner.access
-    return Object.fromEntries(
-      ACTIONS.map((key) => [
-        key,
-        key === 'uiState'
-          ? owner.deviceState
-          : key === 'setPaletteOpen'
-            ? owner.palette.setOpen
-            : key === 'closeAutoContinuePrompt'
-              ? owner.autoContinueDialog.close
-              : key in owner.ui
-                ? Reflect.get(owner.ui, key)
-                : state[key],
-      ]),
-    ) as Pick<Store, (typeof ACTIONS)[number]>
-  }, [owner])
+export function useShellActions() {
+  const owner = useClientRuntime<Trpc>()
+  const commands = useCommands<Trpc>()
+  const ui = useUi()
+  const trpc = useRequestClient<Trpc>()
+  const hub = useSocketHub()
+  const httpOrigin = useHttpOrigin()
+  const deviceState = useDeviceState()
+  return useMemo(
+    () => ({
+      trpc: trpc,
+      hub: hub,
+      httpOrigin: httpOrigin,
+      uiState: deviceState,
+      navigateToSession: ui.navigateToSession,
+      closeAutoContinuePrompt: owner.autoContinueDialog.close,
+      setPreferences: commands.preferences.setPreferences,
+      setSelectedIssueId: ui.setSelectedIssueId,
+      setView: ui.setView,
+      setSuperOpen: ui.setSuperOpen,
+      setPaletteOpen: owner.palette.setOpen,
+      setOpenIssueId: ui.setOpenIssueId,
+      openArtifact: ui.openArtifact,
+      openFileInWorktree: ui.openFileInWorktree,
+      closeFileTab: ui.closeFileTab,
+      closeWorkspaceTab: ui.closeWorkspaceTab,
+      setSettingsTab: ui.setSettingsTab,
+      decideApproval: commands.automations.decideApproval,
+    }),
+    [commands, ui, trpc, hub, httpOrigin, deviceState, owner],
+  )
 }
 /** The right dock's routing view: an observer reads each field where it is
  * shown (`dock.active`, `dock.gitIssue`, `dock.mailIssueId`, `dock.scope`). */
@@ -78,7 +78,7 @@ export function useShellShipping() {
 
 export function useShellWindow() {
   if (import.meta.env.DEV) assertReactiveRead('useShellWindow')
-  const owner = useStoreHandle<Trpc>(),
+  const owner = useClientRuntime<Trpc>(),
     ui = owner.ui
   return {
     get view() {
@@ -188,7 +188,7 @@ export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).chrome() : LOADING
-  const owner = useStoreHandle<Trpc>(),
+  const owner = useClientRuntime<Trpc>(),
     ui = owner.ui
   return {
     ...(value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME),

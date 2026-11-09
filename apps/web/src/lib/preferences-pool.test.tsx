@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createRoutedUiState, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -142,7 +142,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     pool: MobxPool | null = null
   const failures: string[] = []
   function Probe() {
-    owner = useStoreHandle() as ClientRuntime
+    owner = useClientRuntime() as ClientRuntime
     pool = useWorklistPool()
     const [value, set] = usePersistedUiState(STICKY, parse, serialize)
     return (

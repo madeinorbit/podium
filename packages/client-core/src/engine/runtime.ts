@@ -76,9 +76,12 @@ import {
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import { action, actionBound, reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
+import { type Commands, createCommands } from '../commands'
 import type { ConversationCache, ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
+import { createChatSends } from '../conversation/sends'
 import type { LiveStore } from '../live/live-store'
+import { createNotices } from '../notices'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
@@ -106,7 +109,6 @@ import {
   type RouteState,
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
-import { createEngineActions, type EngineActions } from './actions'
 import {
   createKeyedInputs,
   type KeyedInputStats,
@@ -135,13 +137,7 @@ import {
   workspacesPatch,
   workspaceWritePatch,
 } from './state'
-import {
-  defaultFormatError,
-  NOOP_NOTICES,
-  type Store,
-  type StoreNotices,
-  type StoreServerConfig,
-} from './types'
+import { defaultFormatError, NOOP_NOTICES, type Store, type StoreNotices } from './types'
 
 /**
  * The pool's transaction log as the runtime's actions reach it (POD-5432).
@@ -150,10 +146,10 @@ import {
  * that commit fails.
  */
 export interface PoolWriter {
-  spawnDraftAgent?: Store['spawnDraftAgent']
-  launchSession?: Store['launchSession']
-  startIssueSession?: Store['startIssueSession']
-  spawnIssueAgent?: Store['spawnIssueAgent']
+  spawnDraftAgent?: Commands['sessions']['spawnDraftAgent']
+  launchSession?: Commands['sessions']['launch']
+  startIssueSession?: Commands['sessions']['startIssueSession']
+  spawnIssueAgent?: Commands['sessions']['spawnIssueAgent']
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
   /** A failed draft start's Remove (POD-6408). */
   dismissLaunch?: (id: SessionId) => boolean
@@ -421,8 +417,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
-      markSessionRead: (sessionId, readAt) => this.services.markSessionRead(sessionId, readAt),
-      markIssueRead: (issueId, readAt) => this.services.markIssueRead(issueId, readAt),
+      markSessionRead: (sessionId, readAt) =>
+        this.root.commands.sessions.markRead(sessionId, readAt),
+      markIssueRead: (issueId, readAt) => this.root.commands.issues.markRead(issueId, readAt),
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
         : {}),
@@ -449,8 +446,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       persistDebounceMs: init.draftPersistDebounceMs,
     })
     this.inputs = createKeyedInputs(() => this.state, false, [])
-    const actions = this.createActions()
-    this.services = this.buildStatics(actions)
+    this.root.installCommands(
+      this.createCommands(),
+      createChatSends({
+        outbox: this.root.services.outbox.queue,
+        outboxSettlements: this.root.services.outbox.settlements,
+        waitForSpawnConfirmed: (id) => this.requirePoolWriter().waitForSpawnConfirmed!(id),
+      }),
+    )
+    this.services = this.buildStatics()
     this.access = Object.defineProperties(
       { ...this.services },
       {
@@ -1307,8 +1311,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  private createActions(): EngineActions<TApi> {
-    return createEngineActions({
+  private createCommands(): Commands<TApi> {
+    return createCommands({
       palette: this.palette,
       autoContinueDialog: this.autoContinueDialog,
       api: this.api,
@@ -1330,13 +1334,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)
           : Promise.reject(new Error('Pool transactions are not attached')),
-      spawnDraftAgent: (args: Parameters<Store<TApi>['spawnDraftAgent']>[0]) =>
+      spawnDraftAgent: (args: Parameters<Commands<TApi>['sessions']['spawnDraftAgent']>[0]) =>
         this.requirePoolWriter().spawnDraftAgent!(args),
-      launchSession: (args: Parameters<Store<TApi>['launchSession']>[0]) =>
+      launchSession: (args: Parameters<Commands<TApi>['sessions']['launch']>[0]) =>
         this.requirePoolWriter().launchSession!(args),
-      startIssueSession: (args: Parameters<Store<TApi>['startIssueSession']>[0]) =>
+      startIssueSession: (args: Parameters<Commands<TApi>['sessions']['startIssueSession']>[0]) =>
         this.requirePoolWriter().startIssueSession!(args),
-      spawnIssueAgent: (args: Parameters<Store<TApi>['spawnIssueAgent']>[0]) =>
+      spawnIssueAgent: (args: Parameters<Commands<TApi>['sessions']['spawnIssueAgent']>[0]) =>
         this.requirePoolWriter().spawnIssueAgent!(args),
       waitForSpawnConfirmed: (sessionId) =>
         this.requirePoolWriter().waitForSpawnConfirmed!(sessionId),
@@ -1360,7 +1364,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
-  private buildStatics(actions: EngineActions<TApi>): EngineStatics<TApi> {
+  private buildStatics(): EngineStatics<TApi> {
     return {
       // Plumbing forwarded to the runtime root (POD-6681) until POD-6682.
       hub: this.hub,
@@ -1371,7 +1375,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       httpOrigin: this.root.httpOrigin,
       // The ONE key resolver, published so no view re-derives it (POD-710).
       recoverOutbox: this.root.services.outbox.recovery,
-      ...actions,
+      batchGesture: (fn: () => void) => this.batch(fn),
+      setPaletteOpen: this.palette.setOpen,
+      closeAutoContinuePrompt: this.autoContinueDialog.close,
       navigateWorkspace: this.ui.navigateWorkspace,
       setView: this.ui.setView,
       setSettingsTab: this.ui.setSettingsTab,
@@ -1444,13 +1450,15 @@ export function createClientRuntime<TApi extends PodiumClientApi = PodiumClientA
   // The runtime root first (POD-6681): the replica, the LiveStore, the socket
   // and the queue, in that order, exactly as this store used to build them.
   // Both in the one action the store was always built in.
-  const notices = init.notices ?? NOOP_NOTICES
+  let runtime: ClientRuntime<TApi>
+  const notices = createNotices(() => runtime.ui)
   return runInAction(() => {
     const root = createRuntimeRoot<TApi>({
       ...init,
       formatError: init.formatError ?? defaultFormatError,
       notices: { error: (m) => notices.error(m), info: (m, d) => notices.info(m, d) },
     })
-    return new ClientRuntime(init, root)
+    runtime = new ClientRuntime({ ...init, notices }, root)
+    return runtime
   })
 }

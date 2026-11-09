@@ -1,7 +1,7 @@
+import { useDeviceState } from '@podium/client-core/react'
 import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import { useMemo } from 'react'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
   parseTerminalAppearance,
   TERMINAL_APPEARANCE_KEY,
@@ -21,7 +21,7 @@ export interface UseTerminalAppearanceResult {
  *  appearance.ts). All native panels and the settings section share this, so a
  *  change applies everywhere, live — including across tabs. */
 export function useTerminalAppearance(): UseTerminalAppearanceResult {
-  const ui = useStoreHandle().access.uiState
+  const ui = useDeviceState()
   const settings = usePersistedUiValue(TERMINAL_APPEARANCE_KEY, parseTerminalAppearance)
   const appearance = useMemo(() => toTerminalAppearance(settings), [settings])
   return {

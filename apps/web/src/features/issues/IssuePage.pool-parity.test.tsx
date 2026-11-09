@@ -6,8 +6,8 @@ import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/orac
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { storeStats } from '@podium/client-core/perf'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
@@ -532,7 +532,7 @@ describe('issue page rendered pool parity', () => {
     const issue = legacyIssues.find((row) => row.id === 'root')!
     let attach: (() => void) | undefined, stop: (() => void) | undefined
     function AttachAfterRender() {
-      const owner = useStoreHandle()
+      const owner = useClientRuntime()
       const first = useRef(startupHost!.usePool())
       useEffect(() => {
         initial(first.current)

@@ -1,12 +1,11 @@
-import { useStoreHandle } from '@podium/client-core/react'
-import { observer } from 'mobx-react-lite'
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { asSessionId } from '@podium/model'
-import { createSidebarFixture } from '../../test/sidebar-fixture'
+import { useClientRuntime } from '@podium/client-core/react'
+import { asSessionId, asUserId } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
@@ -24,7 +23,9 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 
 const fakeTrpc = {
   sync: { changesSince: { query: () => new Promise(() => {}) } },
-  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
+  discovery: {
+    refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) },
+  },
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },
@@ -32,7 +33,7 @@ const fakeTrpc = {
 }
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
-const { StoreProvider,  useRuntimeSelector } = await import('./store')
+const { StoreProvider, useRuntimeSelector } = await import('./store')
 const { Workspace } = await import('./Workspace')
 const { CommandPalette } = await import('./CommandPalette')
 const { HostIndicators } = await import('@/features/machines/HostIndicators')
@@ -58,18 +59,18 @@ function ViewProbe(): null {
 let selectedDraft = ''
 const DraftsProbe = observer(function DraftsProbe(): null {
   renders.drafts = (renders.drafts ?? 0) + 1
-  selectedDraft = useStoreHandle().drafts.get(asSessionId('s1'))
+  selectedDraft = useClientRuntime().drafts.get(asSessionId('s1'))
   return null
 })
 function CompatProbe(): null {
   renders.compat = (renders.compat ?? 0) + 1
-  latestStore = useRuntimeSelector(s => s)
+  latestStore = useRuntimeSelector((s) => s)
   return null
 }
 let selectedLocals: { view: string; pane: string | null } | undefined
 function StructuredProbe(): null {
   renders.structured = (renders.structured ?? 0) + 1
-  selectedLocals = useRuntimeSelector(s => ({ view: s.view, pane: s.paneA }))
+  selectedLocals = useRuntimeSelector((s) => ({ view: s.view, pane: s.paneA }))
   return null
 }
 
@@ -210,5 +211,4 @@ describe('selector-scoped store', () => {
     await settle()
     expect(commits.workspace ?? 0).toBeGreaterThan(before.workspace ?? 0)
   })
-
 })

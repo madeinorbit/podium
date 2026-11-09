@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
@@ -207,7 +207,7 @@ async function mount(
   let runtime!: ClientRuntime,
     pool: MobxPool | null = null
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
 
     pool = useMobilePool()
     seen.push(pool)

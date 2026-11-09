@@ -3,13 +3,12 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { LiveIssueReference } from '../src/components/IssueReference'
 import { RefMiniviewHost } from '../src/components/RefMiniview'
@@ -66,7 +65,7 @@ const failures: string[] = []
 const transcriptListeners = new Set<Parameters<ClientRuntime['hub']['subscribeTranscript']>[2]>()
 
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const attached = useWorklistPool()
   const [shown, setShown] = useState(false)
   const [root, setRoot] = useState<HTMLDivElement | null>(null)

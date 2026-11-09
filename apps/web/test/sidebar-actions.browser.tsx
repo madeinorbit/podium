@@ -1,7 +1,7 @@
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
@@ -53,7 +53,7 @@ let runtime: ClientRuntime | undefined
 let pool: MobxPool | null = null
 let ready = false
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const graph = useWorklistPool()
   useEffect(() => {
     runtime = owner

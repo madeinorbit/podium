@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useRequestClient } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   discoveredPlacement,
@@ -27,7 +27,6 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { useMyCodingHarness } from '@/lib/my-preferences'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
 import {
@@ -43,6 +42,7 @@ import {
   MENU_SECTION,
   MENU_SUBTEXT,
 } from '@/lib/menu-surface'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import {
   type ContextMenuAnchor,
   handoffBlockerText,
@@ -148,21 +148,21 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   )
   const origins = useWorklistPoolProjection(readOrigins, undefined)
   const allIssues = origins ?? suppliedIssues
-  const {
-    trpc,
-    markIssueRead,
-    markIssueUnread,
-    updateIssue,
-    setPinned,
-    deleteIssue,
-    closeIssue,
-    deferIssue,
-    undeferIssue,
-    setIssueLabels,
-    setIssuePlacement,
-    restoreIssue,
-    startIssueSession,
-  } = useStoreHandle<Trpc>().access
+  const trpc = useRequestClient<Trpc>(),
+    {
+      markRead: markIssueRead,
+      markUnread: markIssueUnread,
+      update: updateIssue,
+      delete: deleteIssue,
+      close: closeIssue,
+      defer: deferIssue,
+      undefer: undeferIssue,
+      setLabels: setIssueLabels,
+      setPlacement: setIssuePlacement,
+      restore: restoreIssue,
+    } = useCommands<Trpc>().issues,
+    { setPinned } = useCommands<Trpc>().preferences,
+    { startIssueSession } = useCommands<Trpc>().sessions
   const handOff = useSessionHandoff()
   const codingHarness = useMyCodingHarness()
   const { sessions, repos, machines } = poolInputs
@@ -558,8 +558,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
       return <PriorityGlyph priority={Number(option.value)} />
     if (entry.id === 'agent')
       return issueAgentIcon(
-        option.value ||
-          issueDefaultAgentKind(first.defaultAgent, codingHarness),
+        option.value || issueDefaultAgentKind(first.defaultAgent, codingHarness),
       )
     return option.icon ? renderIcon(option.icon) : null
   }

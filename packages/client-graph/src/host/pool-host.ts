@@ -1,6 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
@@ -157,7 +157,7 @@ export function createPoolHost({
   }
 
   function usePool(): MobxPool | null {
-    const runtime = useStoreHandle()
+    const runtime = useClientRuntime()
     const slot = slotFor(runtime)
     return useSyncExternalStore(
       (listener) => {
@@ -177,7 +177,7 @@ export function createPoolHost({
    * answer's record) is not re-rendered when the pool attaches.
    */
   function usePoolNow(): () => MobxPool | null {
-    const runtime = useStoreHandle()
+    const runtime = useClientRuntime()
     return useCallback(() => {
       const slot = slotFor(runtime)
       return slot.error === null ? (slot.handle?.pool ?? null) : null
@@ -195,7 +195,7 @@ export function createPoolHost({
     active = true,
     retainWhileInactive = false,
   ): T {
-    const runtime = useStoreHandle()
+    const runtime = useClientRuntime()
     const pool = usePool()
     const project = slotFor(runtime).project
     const reader = useRef(read)

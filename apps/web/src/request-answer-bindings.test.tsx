@@ -17,7 +17,7 @@ const trpc = {
   files: { search: { query: f.files } },
 }
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ access: { readFileScoped: f.read, writeFileScoped: f.write, trpc } }),
+  useClientRuntime: () => ({ access: { readFileScoped: f.read, writeFileScoped: f.write, trpc } }),
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (s: unknown) => unknown) => read({ trpc }),

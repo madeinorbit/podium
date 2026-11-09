@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands } from '@podium/client-core/react'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
 import { compareShallow, reaction } from 'mobx'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
@@ -43,7 +43,7 @@ function useDocumentChanges(view: FileDocumentView): void {
 /** Bind one document owner to the opening; editors and previews read that
  * same buffer. The hook subscribes existing non-observer editor roots. */
 export function useFileDocument(scope: FileScope, path: string): FileDocumentView {
-  const { readFileScoped, writeFileScoped } = useStoreHandle<Trpc>().access
+  const { read: readFileScoped, write: writeFileScoped } = useCommands<Trpc>().files
   const key = scopeKey(scope)
   // The scope key includes its machine/artifact identity; object churn is not a new opening.
   // biome-ignore lint/correctness/useExhaustiveDependencies: key is the canonical identity of scope.

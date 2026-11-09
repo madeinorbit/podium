@@ -23,7 +23,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  useStoreHandle: () => ({
+  useClientRuntime: () => ({
     access: {
       trpc: {
         repos: { setDefaultParentBranch: { mutate: f.setBase } },

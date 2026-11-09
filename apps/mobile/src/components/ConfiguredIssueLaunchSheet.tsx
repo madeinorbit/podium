@@ -1,23 +1,23 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { observer } from 'mobx-react-lite'
-
+import type { IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { observer } from 'mobx-react-lite'
 import { useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import type { IssueId } from '@podium/model'
-import { useStoreActions, useTrpc } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
 import { useMyCodingHarness } from '../client/my-preferences'
+import type { MobileTrpc } from '../client/trpc'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
-import {
-  type LaunchPlan,
-  launchPlanCanSubmit,
-} from '../lib/launch-configuration'
+import { type LaunchPlan, launchPlanCanSubmit } from '../lib/launch-configuration'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import { PressableScale } from './PressableScale'
 
-export function ConfiguredIssueLaunchSheet(props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0]) {
+export function ConfiguredIssueLaunchSheet(
+  props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0],
+) {
   return <ConfiguredIssueLaunchSheetBody key={props.issue?.id ?? 'closed'} {...props} />
 }
 
@@ -31,11 +31,21 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   onClose: () => void
 }) {
   const trpc = useTrpc()
-  const { startIssueSession } = useStoreActions()
+  const { startIssueSession } = useCommands<MobileTrpc>().sessions
   const codingHarness = useMyCodingHarness()
   const harnessRef = useRef(codingHarness)
   harnessRef.current = codingHarness
-  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => harnessRef.current) : null, [issue, trpc])
+  const form = useMemo(
+    () =>
+      issue
+        ? new IssueLaunchForm(
+            issue,
+            (patch) => trpc.issues.update.mutate({ id: issue.id, patch }),
+            () => harnessRef.current,
+          )
+        : null,
+    [issue, trpc],
+  )
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

@@ -4,7 +4,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { DRAFTS_UI_KEY } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
@@ -114,7 +114,7 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const Surface = observer(function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime,
+  const runtime = useClientRuntime() as ClientRuntime,
     pool = useWorklistPool()
   const session = useChatSession(id),
     machines = useChatMachines(),

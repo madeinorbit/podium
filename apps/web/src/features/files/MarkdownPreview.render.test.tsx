@@ -12,7 +12,7 @@ const access = vi.hoisted(() => ({
 
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ access }),
+  useClientRuntime: () => ({ access }),
 }))
 
 const { MarkdownPreview } = await import('./MarkdownPreview')

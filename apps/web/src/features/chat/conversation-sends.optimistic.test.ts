@@ -20,9 +20,15 @@ import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
+import {
+  type ModelSendOptions,
+  type ModelSendResult,
+  useModelSend,
+} from './test-support/model-send'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
-import { type ModelSendOptions, type ModelSendResult, useModelSend } from './test-support/model-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'queued' }) as never)
 /** A DEFINITIVE refusal — the outbox parks it at once instead of retrying it
@@ -37,7 +43,9 @@ let messageRecords: MessageRecordWire[] = []
 const storeListeners = new Set<() => void>()
 const subscribeRecords = (listener: () => void) => {
   storeListeners.add(listener)
-  return () => { storeListeners.delete(listener) }
+  return () => {
+    storeListeners.delete(listener)
+  }
 }
 vi.mock('./test-support/conversation-ports', () => ({
   useChatConversationPorts: () => ({
@@ -79,9 +87,11 @@ function opts(
     sendChat: chatSend.sendChat,
     chatSendsFor: chatSend.chatSendsFor,
     discardChat: chatSend.discardChat,
-    dismissOffer: vi.fn() as unknown as Store['dismissOffer'],
+    dismissOffer:
+      vi.fn() as unknown as import('@podium/client-core/commands').Commands['issues']['dismissOffer'],
     setPanelMode: vi.fn() as unknown as Store['setPanelMode'],
-    setSessionDraft: vi.fn() as unknown as Store['setSessionDraft'],
+    setSessionDraft:
+      vi.fn() as unknown as import('@podium/client-core/commands').Commands['sessions']['setSessionDraft'],
     initialDraft: '',
     getUserFocus: (() => ({})) as unknown as Store['getUserFocus'],
     attachedSessionId: null as unknown as Store['attachedSessionId'],
@@ -172,13 +182,23 @@ describe('useModelSend optimistic window', () => {
     expect(result.current.justSent).toBe(true)
   })
 
-  it.each([false, true])('releases the host-held seed when its first record takes over, alreadyPresent=%s', async alreadyPresent => {
+  it.each([
+    false,
+    true,
+  ])('releases the host-held seed when its first record takes over, alreadyPresent=%s', async (alreadyPresent) => {
     const onInitialPendingSettled = vi.fn()
-    const record = { ...queuedRecord('msg_first', 'Plan the release'), initialPrompt: true as const }
+    const record = {
+      ...queuedRecord('msg_first', 'Plan the release'),
+      initialPrompt: true as const,
+    }
     if (alreadyPresent) messageRecords = [record]
-    const { result } = renderHook(() => useModelSend({
-      ...opts(undefined), initialPendingText: 'Plan the release', onInitialPendingSettled,
-    }))
+    const { result } = renderHook(() =>
+      useModelSend({
+        ...opts(undefined),
+        initialPendingText: 'Plan the release',
+        onInitialPendingSettled,
+      }),
+    )
     if (!alreadyPresent) {
       expect(onInitialPendingSettled).not.toHaveBeenCalled()
       await act(async () => {
@@ -187,7 +207,7 @@ describe('useModelSend optimistic window', () => {
       })
     }
     expect(onInitialPendingSettled).toHaveBeenCalledOnce()
-    expect(result.current.pending.map(bubble => bubble.deliveryId)).toEqual(['msg_first'])
+    expect(result.current.pending.map((bubble) => bubble.deliveryId)).toEqual(['msg_first'])
   })
 
   it('releases a recordless host-held first prompt after its transcript echo arrives', async () => {

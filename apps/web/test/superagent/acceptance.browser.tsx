@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -23,7 +23,7 @@ let runtime: ClientRuntime,
   firstPool: unknown
 storeStats.enable()
 function Surface() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   if (firstPool === undefined) firstPool = pool
   const [header, setHeader] = useState<HTMLElement | null>(null)

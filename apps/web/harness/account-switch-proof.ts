@@ -1,4 +1,3 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Focused Chromium proof over the ordinary synthetic full-screen fixture.
  * Run on flatblock: bun apps/web/harness/account-switch-proof.ts
  * --plant-stale-handler retains the first real close-tab closure and must fail. */
@@ -113,7 +112,7 @@ await build({
       import { useCurrentPrincipal as lifetimeCurrentPrincipal } from '@podium/client-core/react';
       const lifetimeBlurWrites: { principal: string; writingPrincipal: string; actualPrincipal: string; destroyed: boolean; value: string }[] = [];
       function AccountBlurWriter() {
-        const principal = lifetimeCurrentPrincipal()!, handle = useStoreHandle();
+        const principal = lifetimeCurrentPrincipal()!, handle = useClientRuntime();
         const write = useRuntimeSelector(s => s.setSessionDraft);
         return <input data-account-blur-writer tabIndex={-1} aria-hidden="true"
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}

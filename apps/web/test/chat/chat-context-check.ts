@@ -101,7 +101,7 @@ export function checkChatContext(
     )
     const serialSends = (
       sends:
-        | ReturnType<Store['chatSendsFor']>
+        | ReturnType<import('@podium/client-core/conversation').ChatCommands['chatSendsFor']>
         | readonly import('@podium/client-core/engine').OutboxChatSend[],
     ) =>
       sends.map((send) => ({

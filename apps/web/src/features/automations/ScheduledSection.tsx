@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient, useUi } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import type { AutomationId } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
@@ -289,7 +289,7 @@ const RunHistory = observer(function RunHistory({
 }: {
   automation: Automation
 }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const pool = useWorklistPool()
   const history = useMemo(
     () => new AutomationHistory(automation.id, (input) => trpc.automations.runs.query(input), pool),
@@ -344,7 +344,7 @@ const RunHistory = observer(function RunHistory({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 const RunRow = observer(function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const navigateToSession = useStoreHandle<Trpc>().ui.navigateToSession
+  const navigateToSession = useUi().navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
   const session = useAutomationRunSession(run.sessionId ?? undefined)

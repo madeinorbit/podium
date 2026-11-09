@@ -1,5 +1,6 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { fixtureCommands } from '../../test-support/commands'
 import { fixtureNavigation } from '../../test-support/navigation'
 import { fixtureUi } from '../../test-support/ui'
 import type { SessionView } from '../session-values'
@@ -7,7 +8,6 @@ import { planNavigation } from '../ui/navigation'
 import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
-import { createEngineActions } from './actions'
 import { Reactions } from './reactions'
 import {
   loadingNavigationProvider,
@@ -580,7 +580,7 @@ describe('navigation with an injected pool provider', () => {
       waitForSessionNavigation,
     })
     ui.patch(st)
-    const actions = createEngineActions({
+    const actions = fixtureCommands({
       ui,
       palette: new PaletteViewModel(),
       autoContinueDialog: new AutoContinueDialogModel(),

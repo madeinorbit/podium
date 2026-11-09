@@ -1,9 +1,9 @@
+import { useDeviceState } from '@podium/client-core/react'
 // apps/web/src/features/files/JsonFilePanel.tsx
 
 import { codeFolding, foldAll, unfoldAll } from '@codemirror/language'
 import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
   JSON_MODE_MAP_KEY,
   readFilePanelMode,
@@ -77,7 +77,7 @@ export function JsonFilePanel({
   onClose: () => void
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
-  const { uiState } = useStoreHandle().access
+  const uiState = useDeviceState()
   const saveFeedbackId = useId()
   const tabId = `file:${scopeKey(scope)}:${path}`
   // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed (POD-540). A file

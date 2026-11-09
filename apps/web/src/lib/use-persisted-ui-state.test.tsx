@@ -30,7 +30,7 @@ vi.mock('@podium/client-core/react', () => ({
     store.legacyReads()
     return select({ uiState: store.available.value ? store.uiState : undefined })
   },
-  useStoreHandle: () => ({ deviceState: store.uiState }),
+  useClientRuntime: () => ({ deviceState: store.uiState }),
 }))
 
 vi.mock('@/app/store-worklist-pool', async () => {

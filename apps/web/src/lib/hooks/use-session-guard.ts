@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime, useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { isSessionWorking } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
@@ -32,9 +32,11 @@ function useSessionGuardInputs(
   knownWorking: boolean | undefined,
   supplied: readonly SessionView[],
 ) {
-  const owner = useStoreHandle<Trpc>()
+  const owner = useClientRuntime<Trpc>()
+  const commandModules = useCommands<Trpc>()
+
   const actions = useMemo(() => {
-    const { killSession, archiveSession, endSession } = owner.access
+    const { killSession, archive: archiveSession, stop: endSession } = commandModules.sessions
     return { killSession, archiveSession, endSession }
   }, [owner])
   const scoped = supplied.find((session) => session.sessionId === scopedSessionId)

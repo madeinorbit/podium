@@ -1,25 +1,32 @@
-import { MobileConversation } from '../lib/mobile-conversation'
-import { MobileChatViewModel } from '../lib/chat-view-model'
-import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
-import { here } from '@podium/client-graph/lookup'
 import {
-  PHONE_WARM_CONVERSATIONS,
   type ConversationPendingTurn,
   hubConnection,
+  PHONE_WARM_CONVERSATIONS,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { useConversation, useStoreHandle } from '@podium/client-core/react'
+import {
+  useChatSends,
+  useClientRuntime,
+  useCommands,
+  useConversation,
+  useHttpOrigin,
+  useReplica,
+  useRequestClient,
+} from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
-import { sessionTransition, sessionTransitionLabel } from '@podium/client-core/values'
 import {
   composerState,
   defaultChatCapable,
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
+  sessionTransition,
+  sessionTransitionLabel,
 } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   asMutationId,
   asSessionId,
@@ -27,27 +34,29 @@ import {
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
+import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
-import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import {
+  mobileConversationPorts,
   useSessionContextIssue,
   useSessionContextMachine,
   useSessionContextMachineHome,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
-  mobileConversationPorts,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { chatSendTransport } from '../lib/chat-send-transport'
+import { MobileChatViewModel } from '../lib/chat-view-model'
 import { interruptSession } from '../lib/interrupt-session'
+import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
@@ -184,7 +193,11 @@ const SessionComposer = observer(function SessionComposer({
 export function SessionConversation(
   props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'pool'>,
 ) {
-  const owner = useStoreHandle<MobileTrpc>()
+  const owner = useClientRuntime<MobileTrpc>()
+  const requestClient = useRequestClient<MobileTrpc>()
+  const conversationSends = useChatSends()
+  const commandModules = useCommands<MobileTrpc>()
+
   const pool = useMobilePool()
   const sessionId = props.session.sessionId
   const readiness = useSessionConversationPorts(sessionId)
@@ -199,150 +212,170 @@ export function SessionConversation(
   )
   const model = useConversation(
     sessionId,
-    (drafts) => new MobileConversation({
-      sessionId,
-      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
-      readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-      hub: owner.hub,
-      connection: hubConnection(owner.hub),
-      scheduler: {
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-        onVisibilityChange: (listener) => {
-          const subscription = AppState.addEventListener('change', listener)
-          return () => subscription.remove()
-        },
-      },
-      transcript: {
-        initialLimit: 80,
-        pageLimit: 80,
-        source: {
-          read: (request) =>
-            when(() => recognized.get()).then(() =>
-              owner.access.trpc.sessions.transcriptRead.query(request),
-            ),
-          subscribe: (id, since, listener) => {
-            let off = () => {}
-            const stop = reaction(
-              () => recognized.get(),
-              (ready) => {
-                off()
-                off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+    (drafts) =>
+      new MobileConversation(
+        {
+          sessionId,
+          drafts: {
+            get: (id) => pool!.sessionObject(id).messageDraft,
+            set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
+          },
+          readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
+          hub: owner.hub,
+          connection: hubConnection(owner.hub),
+          scheduler: {
+            visible: () =>
+              AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+            onVisibilityChange: (listener) => {
+              const subscription = AppState.addEventListener('change', listener)
+              return () => subscription.remove()
+            },
+          },
+          transcript: {
+            initialLimit: 80,
+            pageLimit: 80,
+            source: {
+              read: (request) =>
+                when(() => recognized.get()).then(() =>
+                  requestClient.sessions.transcriptRead.query(request),
+                ),
+              subscribe: (id, since, listener) => {
+                let off = () => {}
+                const stop = reaction(
+                  () => recognized.get(),
+                  (ready) => {
+                    off()
+                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+                  },
+                  { fireImmediately: true },
+                )
+                return () => {
+                  stop()
+                  off()
+                }
               },
-              { fireImmediately: true },
-            )
-            return () => {
-              stop()
-              off()
-            }
+            },
+            ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
+          },
+          sends: {
+            records: ports.records,
+            messageRecords: {
+              read: (id) => (pool ? here(pool.model('messageRecord', id)) : undefined),
+              ingest: (records) => {
+                if (pool)
+                  ingestMessageRecords(pool, records, (id) =>
+                    currentMessageRecord(pool, owner.replica, id),
+                  )
+              },
+            },
+            outbox: ports.outbox,
+            initialPending: [
+              ...(props.initialPendingText
+                ? [
+                    {
+                      id: 'pending-first-turn',
+                      deliveryId: 'pending-first-turn',
+                      text: props.initialPendingText,
+                      wire: props.initialPendingText,
+                      at: Date.now(),
+                      state: 'sent' as const,
+                      kind: 'message' as const,
+                      reconcile: 'next-user-item' as const,
+                    },
+                  ]
+                : []),
+              ...ports.outbox.held().map(
+                (send, index): ConversationPendingTurn => ({
+                  id: `outbox-${index}-${send.mutationId}`,
+                  deliveryId: send.mutationId,
+                  text: send.text,
+                  wire: send.text,
+                  at: send.queuedAt,
+                  state: send.state,
+                  kind: 'message',
+                  ...(send.failure
+                    ? {
+                        error: send.failure.message,
+                        ...(send.failure.retryable ? {} : { retryable: false }),
+                      }
+                    : {}),
+                }),
+              ),
+            ],
+            initialJustSent: props.initialPendingText !== undefined,
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            lookupRecords: (ids) =>
+              requestClient.messages.records
+                .query({ ids: [...ids] })
+                .then((answer) => answer.records),
+            deliver: async (turn) => {
+              try {
+                const session = pool ? here(pool.model('session', sessionId)) : undefined
+                const composer = composerState({
+                  session: session ?? props.session,
+                  headless: false,
+                  turnRunning: false,
+                  compact: false,
+                })
+                const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
+                const transport = held
+                  ? { kind: 'send' as const, wake: false }
+                  : chatSendTransport(composer)
+                if (transport.kind === 'refused') throw new Error(transport.reason)
+                return await conversationSends.sendChat(
+                  {
+                    sessionId,
+                    text: turn.wire,
+                    wake: transport.wake,
+                    ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+                  },
+                  asMutationId(turn.deliveryId),
+                )
+              } catch (error) {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
+                  () => {},
+                )
+                throw error
+              }
+            },
+            retract: (id) =>
+              requestClient.messages.cancel
+                .mutate({ id })
+                .then(
+                  (message) =>
+                    (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+                ),
+            discard: (id) => conversationSends.discardChat(asMutationId(id)),
+            dismissNotice: (id) =>
+              requestClient.messages.dismissNotice.mutate({ id }).then(() => {}),
+            dismissOffer: (at) => commandModules.issues.dismissOffer(sessionId, at),
+            optimisticDismissOffer: false,
+            interrupt: (id) =>
+              interruptSession(
+                owner.access,
+                pool ? here(pool.model('session', sessionId)) : undefined,
+                sessionId,
+                id,
+              ),
+            optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
           },
         },
-        ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
-      },
-      sends: {
-        records: ports.records,
-        messageRecords: {
-          read: id => pool ? here(pool.model('messageRecord', id)) : undefined,
-          ingest: records => { if (pool) ingestMessageRecords(pool, records, id => currentMessageRecord(pool, owner.replica, id)) },
-        },
-        outbox: ports.outbox,
-        initialPending: [
-          ...(props.initialPendingText
-            ? [
-                {
-                  id: 'pending-first-turn',
-                  deliveryId: 'pending-first-turn',
-                  text: props.initialPendingText,
-                  wire: props.initialPendingText,
-                  at: Date.now(),
-                  state: 'sent' as const,
-                  kind: 'message' as const,
-                  reconcile: 'next-user-item' as const,
-                },
-              ]
-            : []),
-          ...ports.outbox
-            .held()
-            .map(
-              (send, index): ConversationPendingTurn => ({
-                id: `outbox-${index}-${send.mutationId}`,
-                deliveryId: send.mutationId,
-                text: send.text,
-                wire: send.text,
-                at: send.queuedAt,
-                state: send.state,
-                kind: 'message',
-                ...(send.failure
-                  ? {
-                      error: send.failure.message,
-                      ...(send.failure.retryable ? {} : { retryable: false }),
-                    }
-                  : {}),
-              }),
-            ),
-        ],
-        initialJustSent: props.initialPendingText !== undefined,
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        lookupRecords: (ids) =>
-          owner.access.trpc.messages.records
-            .query({ ids: [...ids] })
-            .then((answer) => answer.records),
-        deliver: async (turn) => {
-          try {
-            const session = (pool ? here(pool.model('session', sessionId)) : undefined)
-            const composer = composerState({
-              session: session ?? props.session,
-              headless: false,
-              turnRunning: false,
-              compact: false,
-            })
-            const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
-            const transport = held
-              ? { kind: 'send' as const, wake: false }
-              : chatSendTransport(composer)
-            if (transport.kind === 'refused') throw new Error(transport.reason)
-            return await owner.access.sendChat(
-              {
-                sessionId,
-                text: turn.wire,
-                wake: transport.wake,
-                ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
-              },
-              asMutationId(turn.deliveryId),
-            )
-          } catch (error) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-            throw error
-          }
-        },
-        retract: (id) =>
-          owner.access.trpc.messages.cancel
-            .mutate({ id })
-            .then(
-              (message) =>
-                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
-            ),
-        discard: (id) => owner.access.discardChat(asMutationId(id)),
-        dismissNotice: (id) =>
-          owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-        dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
-        optimisticDismissOffer: false,
-        interrupt: (id) =>
-          interruptSession(
-            owner.access,
-            pool ? here(pool.model('session', sessionId)) : undefined,
-            sessionId,
-            id,
-          ),
-        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      },
-    }, { hidePendingQuestion: true }),
+        { hidePendingQuestion: true },
+      ),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
-  const view = useMemo(() => model && pool ? new MobileChatViewModel(model, pool) : undefined, [model, pool])
+  const view = useMemo(
+    () => (model && pool ? new MobileChatViewModel(model, pool) : undefined),
+    [model, pool],
+  )
   useEffect(() => view?.open(), [view])
   return view ? (
-    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} />
+    <SessionConversationBody
+      {...props}
+      pool={pool}
+      session={view.session ?? props.session}
+      model={view}
+    />
   ) : (
     <TranscriptSkeleton />
   )
@@ -375,21 +408,27 @@ const SessionConversationBody = observer(function SessionConversationBody({
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
 }) {
-  const storeHandle = useStoreHandle<MobileTrpc>()
+  const storeHandle = useClientRuntime<MobileTrpc>()
+  const requestClient = useRequestClient<MobileTrpc>()
+  const replica = useReplica()
+  const conversationSends = useChatSends()
+  const commandModules = useCommands<MobileTrpc>()
+  const serverOrigin = useHttpOrigin()
+
   const store = useMemo(() => {
     const s = storeHandle.access
     return {
-      trpc: s.trpc,
-      replica: s.replica,
-      sendChat: s.sendChat,
-      discardChat: s.discardChat,
-      dismissOffer: s.dismissOffer,
-      resurrectSession: s.resurrectSession,
-      killSession: s.killSession,
-      endSession: s.endSession,
-      hibernateSession: s.hibernateSession,
-      dismissEffect: s.dismissEffect,
-      httpOrigin: s.httpOrigin,
+      trpc: requestClient,
+      replica: replica,
+      sendChat: conversationSends.sendChat,
+      discardChat: conversationSends.discardChat,
+      dismissOffer: commandModules.issues.dismissOffer,
+      resurrectSession: commandModules.sessions.resume,
+      killSession: commandModules.sessions.killSession,
+      endSession: commandModules.sessions.stop,
+      hibernateSession: commandModules.sessions.hibernate,
+      dismissEffect: commandModules.sessions.dismissEffect,
+      httpOrigin: serverOrigin,
     }
   }, [storeHandle])
   const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
@@ -491,7 +530,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
               files: attached.map((file) => ({
                 ...file,
                 path: file.path ?? file.name,
-                ...(!file.path && file.ref ? { attachmentId: file.ref.id, kind: file.ref.kind } : {}),
+                ...(!file.path && file.ref
+                  ? { attachmentId: file.ref.id, kind: file.ref.kind }
+                  : {}),
               })),
             }
           : {}),
@@ -606,9 +647,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   )
   const pendingQuestion = transcriptQuestion ?? pendingAsk
   const askAnswerable =
-    pendingAsk !== null ||
-    session.status === 'live' ||
-    session.status === 'starting'
+    pendingAsk !== null || session.status === 'live' || session.status === 'starting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
@@ -668,7 +707,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   )
   const tailState = useMemo(
     () => ({
-      label: activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
+      label:
+        activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
       tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
         | 'working'
         | 'attention'
@@ -1010,7 +1050,12 @@ function MobileLifecycleTransition({
         {sessionTransitionLabel(transition)}
       </Text>
       {retry ? (
-        <Pressable onPress={retry.run} accessibilityRole="button" testID="lifecycle-retry" hitSlop={8}>
+        <Pressable
+          onPress={retry.run}
+          accessibilityRole="button"
+          testID="lifecycle-retry"
+          hitSlop={8}
+        >
           <Text style={styles.transitionAction}>{retry.label}</Text>
         </Pressable>
       ) : null}

@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime, useCommands } from '@podium/client-core/react'
 import { GitView } from '@podium/client-graph/git-view'
 import { observer } from '@podium/client-graph/react'
 import type { IssueGitState, MachineId } from '@podium/model/browser'
@@ -101,8 +101,16 @@ export const GitPanelView = observer(function GitPanelView({
   issue?: GitPanelIssue | undefined
 }): JSX.Element {
   const refreshSignal = useCheckoutSignal(machineId, cwd)
-  const access = useStoreHandle().access
-  const { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped } = access
+  const access = useClientRuntime().access
+  const commandModules = useCommands()
+
+  const {
+    status: gitStatus,
+    log: gitLog,
+    commitFiles: gitCommitFiles,
+    diff: gitDiffFile,
+    read: readFileScoped,
+  } = commandModules.files
   const view = useMemo(
     () =>
       new GitView(cwd, machineId, {

@@ -103,14 +103,17 @@ vi.mock('@/app/store-worklist-pool', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   // My access rows (POD-6644): none here, so no machine hosts the server.
-  useStoreHandle: () => ({ access: store, hub: processTopic.hub, replica: noAccessRows }),
+  useClientRuntime: () => ({ access: store, hub: processTopic.hub, replica: noAccessRows }),
 }))
 vi.mock('@/app/store', () => ({
   useStore: () => store,
   useRuntimeSelector: (read: (current: typeof store) => unknown) => read(store),
 }))
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { state: 'online', pingMs: 10, since: 0 }, visible: false }),
+  useStableConnection: () => ({
+    health: { state: 'online', pingMs: 10, since: 0 },
+    visible: false,
+  }),
   useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
   connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),

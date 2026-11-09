@@ -1,6 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -27,7 +27,7 @@ it.each([
     pool: MobxPool | null = null
   const failures: (Error | string)[] = []
   const Surface = observer(function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     pool = useMobilePool()
     const row = useSessionContextSession(sid),
       draft = runtime.drafts.get(sid)

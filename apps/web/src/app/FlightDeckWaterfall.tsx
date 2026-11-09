@@ -1,14 +1,5 @@
-/**
- * THE WATERFALL VIEW IS DORMANT (POD-2027). The flight deck redesign draws Full
- * only and has no view selector, so nothing mounts this component any more. The
- * code and its tests stay so the view can come back; to bring it back, render
- * `FlightDeckWaterfall` from `FlightDeckContent` (FlightDeck.tsx) with the
- * mission screen, the deck scroller ref and the deck's selection handlers. The
- * Timeline view that sat beside it was deleted outright.
- */
-import { asIssueId, isFinished } from '@podium/model/browser'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -21,7 +12,20 @@ import {
   sessionAsksOnIssue,
   sessionUnreadEmphasized,
 } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
+import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import { settled } from '@podium/client-graph/mission-view'
 import type { IssueId } from '@podium/model/browser'
+/**
+ * THE WATERFALL VIEW IS DORMANT (POD-2027). The flight deck redesign draws Full
+ * only and has no view selector, so nothing mounts this component any more. The
+ * code and its tests stay so the view can come back; to bring it back, render
+ * `FlightDeckWaterfall` from `FlightDeckContent` (FlightDeck.tsx) with the
+ * mission screen, the deck scroller ref and the deck's selection handlers. The
+ * Timeline view that sat beside it was deleted outright.
+ */
+import { asIssueId, isFinished } from '@podium/model/browser'
 import {
   ChevronDown,
   ChevronLeft,
@@ -32,6 +36,7 @@ import {
   MoveVertical,
   Plus,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type {
   CSSProperties,
   JSX,
@@ -45,26 +50,14 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  useLayoutEffect,
 } from 'react'
-import { observer } from 'mobx-react-lite'
-import type { MissionScreen } from '@podium/client-graph/mission-screen'
-import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
-import { settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/loading'
-import { WaterfallLiveEdge } from './waterfall-live-edge'
-import {
-  WaterfallView,
-  type WaterfallRow,
-  type WaterfallSession,
-  type WaterfallSessionModel,
-} from './waterfall-view'
-import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
+import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
@@ -95,6 +88,13 @@ import {
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
 import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
+import { WaterfallLiveEdge } from './waterfall-live-edge'
+import {
+  type WaterfallRow,
+  type WaterfallSession,
+  type WaterfallSessionModel,
+  WaterfallView,
+} from './waterfall-view'
 
 const WATERFALL_ROW_ZOOM_MIN = 0.72
 const WATERFALL_ROW_ZOOM_MAX = 1.55
@@ -1090,7 +1090,7 @@ const WaterfallIssue = observer(function WaterfallIssue({
 export const FlightDeckWaterfall = observer(function FlightDeckWaterfall(
   props: FlightDeckWaterfallProps,
 ): JSX.Element {
-  const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
+  const query = useRequestClient<Trpc>().sessions?.activityHistory?.query
   const view = useMemo(() => new WaterfallView(props.screen, query), [props.screen, query])
   useLayoutEffect(() => {
     view.resume()

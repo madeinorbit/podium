@@ -2,7 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -79,7 +79,7 @@ let owner: ClientRuntime,
   commitMs = 0
 storeStats.enable()
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
+  owner = useClientRuntime() as ClientRuntime
   const currentPool = useWorklistPool()
   pool = currentPool
   useEffect(() => {

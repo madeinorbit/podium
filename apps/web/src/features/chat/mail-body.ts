@@ -1,3 +1,4 @@
+import { useRequestClient } from '@podium/client-core/react'
 /**
  * A MESSAGE BODY THE TRANSCRIPT DOES NOT HOLD, BY ID (POD-2143).
  *
@@ -11,7 +12,7 @@
  * same hook.
  */
 
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -48,8 +49,10 @@ export function fetchMailBody(handle: object, trpc: Trpc, id: string): Promise<s
 
 /** The body of message `id`, fetched on first mount and cached. */
 export function useMailBody(id: string): MailBody {
-  const handle = useStoreHandle<Trpc>()
-  const { trpc } = handle.access
+  const handle = useClientRuntime<Trpc>()
+  const requestClient = useRequestClient<Trpc>()
+
+  const trpc = requestClient
   const [state, setState] = useState<MailBody>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the retry trigger.

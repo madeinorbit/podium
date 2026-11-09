@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useDeviceState } from '@podium/client-core/react'
 import {
   type RoutedUiState,
   requireReplicatedLayoutKey,
@@ -82,6 +82,6 @@ const pendingLog: AccountTipLogContract = {
 /** Readiness follows the same addressed pool records as the tip values. */
 export function useAccountTipLog(): AccountTipLogContract {
   const pool = useWorklistPool()
-  const ui = useStoreHandle().deviceState
+  const ui = useDeviceState()
   return pool?.sources.view('account-tip-log', () => new AccountTipLog(pool, ui)) ?? pendingLog
 }

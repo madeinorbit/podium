@@ -1,10 +1,10 @@
-import { Conversation, DraftStore, ConversationCache } from '@podium/client-core/conversation'
+import { Conversation, ConversationCache, DraftStore } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import type { ChatBlock, ComposerState, SuperThreadRef } from '@podium/client-core/values'
 import { OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import { asMutationId, type SessionId, type SessionOffer } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import { computed, compareStructural, observable, reaction, runInAction } from 'mobx'
+import { compareStructural, computed, observable, reaction, runInAction } from 'mobx'
 import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
 import type { Store } from '@/app/store'
@@ -17,12 +17,12 @@ export interface ModelSendOptions {
   /** The socket hub, when the surface has one: back online is when the chat
    *  catches up on its own messages by id (POD-4811). */
   hub?: Store['hub']
-  sendChat: Store['sendChat']
-  chatSendsFor?: Store['chatSendsFor']
-  discardChat: Store['discardChat']
-  dismissOffer: Store['dismissOffer']
+  sendChat: import('@podium/client-core/conversation').ChatCommands['sendChat']
+  chatSendsFor?: import('@podium/client-core/conversation').ChatCommands['chatSendsFor']
+  discardChat: import('@podium/client-core/conversation').ChatCommands['discardChat']
+  dismissOffer: import('@podium/client-core/commands').Commands['issues']['dismissOffer']
   setPanelMode: Store['setPanelMode']
-  setSessionDraft: Store['setSessionDraft']
+  setSessionDraft: import('@podium/client-core/commands').Commands['sessions']['setSessionDraft']
   initialDraft?: string
   /** The chat shell reads drafts in its composer leaf instead of this subscription. */
   observeDraft?: boolean
@@ -91,70 +91,151 @@ export interface ModelSendResult {
   interruptError: string | null
 }
 
-
 const owners = new Set<{ cache: ConversationCache; drafts: DraftStore }>()
-afterEach(() => { for (const owner of owners) { owner.cache.dispose(); owner.drafts.dispose() } owners.clear() })
+afterEach(() => {
+  for (const owner of owners) {
+    owner.cache.dispose()
+    owner.drafts.dispose()
+  }
+  owners.clear()
+})
 
 /** Probe the real model with controllable record/outbox and session ports. */
 export function useModelSend(options: ModelSendOptions): ModelSendResult {
   const ports = useChatConversationPorts(options.sessionId)
   const latest = useMemo(() => observable.box(options, { deep: false }), [options.sessionId])
-  useLayoutEffect(() => { runInAction(() => latest.set(options)) })
+  useLayoutEffect(() => {
+    runInAction(() => latest.set(options))
+  })
   const owner = useMemo(() => {
     const drafts = new DraftStore({
       storage: { get: () => null, set: () => {} },
-      hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never,
+      hub: {
+        on: () => () => {},
+        sendDraftEdit: () => {},
+        connectionHealth: () => ({ status: 'ok' }),
+      } as never,
       onChange: (id, text) => latest.get().setSessionDraft(id, text),
     })
-    const cache = new ConversationCache({ create: id => {
-      const input = latest.get()
-      drafts.values.set(id, input.initialDraft ?? ports.draft)
-      const held = input.headless ? [] : ports.held(id).map((send, index) => ({
-        id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId, text: send.text,
-        wire: send.text, at: send.queuedAt, state: send.state, kind: 'message' as const,
-      }))
-      const initialPending = input.initialPendingText ? [{
-        id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: input.initialPendingText,
-        wire: input.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
-        reconcile: input.headless ? 'next-user-item' as const : 'initial-prompt' as const,
-      }, ...held] : held
-      return new Conversation({
-        sessionId: id, drafts,
-        transcript: { source: { read: async () => ({ items: latest.get().blocks.map(b => b.item), hasMore: false }), subscribe: () => () => {} } },
-        readContext: () => {
-          const p = latest.get()
-          return { agentSince: p.session?.agentState?.since, agentPhase: p.session?.agentState?.phase,
-            agentError: p.session?.agentState?.error, offer: p.session?.offer,
-            canInterrupt: p.canInterrupt, latestOperatorPrompt: p.latestOperatorPrompt }
-        },
-        sends: {
-          records: ports.records, outbox: ports.outbox,
-          initialPending, initialJustSent: input.initialPendingText !== undefined && !input.headless,
-          createDeliveryId: () => `msg_${randomUUID()}`,
-          optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-          optimisticDismissOffer: false,
-          deliver: turn => latest.get().sendChat({ sessionId: id, text: turn.wire, wake: latest.get().composer.canResume }, asMutationId(turn.deliveryId)),
-          discard: deliveryId => latest.get().discardChat(asMutationId(deliveryId)),
-          dismissNotice: messageId => latest.get().trpc.messages.dismissNotice.mutate({ id: messageId }).then(() => undefined),
-          dismissOffer: at => latest.get().dismissOffer(id, at),
-          retract: messageId => latest.get().trpc.messages.cancel.mutate({ id: messageId }).then(message => message.deliveryStatus),
-          interrupt: async messageId => { await latest.get().trpc.sessions.interrupt.mutate({ sessionId: id, messageId }) },
-        },
-      })
-    } })
-    const owner = { cache, drafts }; owners.add(owner); return owner
+    const cache = new ConversationCache({
+      create: (id) => {
+        const input = latest.get()
+        drafts.values.set(id, input.initialDraft ?? ports.draft)
+        const held = input.headless
+          ? []
+          : ports.held(id).map((send, index) => ({
+              id: `outbox-${index}-${send.mutationId}`,
+              deliveryId: send.mutationId,
+              text: send.text,
+              wire: send.text,
+              at: send.queuedAt,
+              state: send.state,
+              kind: 'message' as const,
+            }))
+        const initialPending = input.initialPendingText
+          ? [
+              {
+                id: 'pending-first-turn',
+                deliveryId: 'pending-first-turn',
+                text: input.initialPendingText,
+                wire: input.initialPendingText,
+                at: Date.now(),
+                state: 'sent' as const,
+                kind: 'message' as const,
+                reconcile: input.headless
+                  ? ('next-user-item' as const)
+                  : ('initial-prompt' as const),
+              },
+              ...held,
+            ]
+          : held
+        return new Conversation({
+          sessionId: id,
+          drafts,
+          transcript: {
+            source: {
+              read: async () => ({ items: latest.get().blocks.map((b) => b.item), hasMore: false }),
+              subscribe: () => () => {},
+            },
+          },
+          readContext: () => {
+            const p = latest.get()
+            return {
+              agentSince: p.session?.agentState?.since,
+              agentPhase: p.session?.agentState?.phase,
+              agentError: p.session?.agentState?.error,
+              offer: p.session?.offer,
+              canInterrupt: p.canInterrupt,
+              latestOperatorPrompt: p.latestOperatorPrompt,
+            }
+          },
+          sends: {
+            records: ports.records,
+            outbox: ports.outbox,
+            initialPending,
+            initialJustSent: input.initialPendingText !== undefined && !input.headless,
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
+            optimisticDismissOffer: false,
+            deliver: (turn) =>
+              latest
+                .get()
+                .sendChat(
+                  { sessionId: id, text: turn.wire, wake: latest.get().composer.canResume },
+                  asMutationId(turn.deliveryId),
+                ),
+            discard: (deliveryId) => latest.get().discardChat(asMutationId(deliveryId)),
+            dismissNotice: (messageId) =>
+              latest
+                .get()
+                .trpc.messages.dismissNotice.mutate({ id: messageId })
+                .then(() => undefined),
+            dismissOffer: (at) => latest.get().dismissOffer(id, at),
+            retract: (messageId) =>
+              latest
+                .get()
+                .trpc.messages.cancel.mutate({ id: messageId })
+                .then((message) => message.deliveryStatus),
+            interrupt: async (messageId) => {
+              await latest.get().trpc.sessions.interrupt.mutate({ sessionId: id, messageId })
+            },
+          },
+        })
+      },
+    })
+    const owner = { cache, drafts }
+    owners.add(owner)
+    return owner
   }, [options.sessionId, ports.ready])
   const lease = useMemo(() => owner.cache.acquire(options.sessionId), [owner, options.sessionId])
   const conversation = lease.conversation
   const sends = conversation.sends
   useEffect(() => lease.release, [lease])
-  useLayoutEffect(() => conversation.transcript.merge(options.blocks.map(b => b.item), { reset: false }), [conversation, options.blocks])
-  const snapshot = useMemo(() => computed(() => ({
-    pending: sends.bubbles, justSent: sends.justSent, interruptError: sends.interruptError,
-    interruptMessageId: sends.interruptMessageId, dismissedOfferAt: sends.dismissedOfferAt,
-    offer: sends.offer, canInterrupt: sends.canInterrupt,
-    draft: options.observeDraft === false ? '' : conversation.draft,
-  }), { equals: compareStructural }), [conversation, options.observeDraft])
+  useLayoutEffect(
+    () =>
+      conversation.transcript.merge(
+        options.blocks.map((b) => b.item),
+        { reset: false },
+      ),
+    [conversation, options.blocks],
+  )
+  const snapshot = useMemo(
+    () =>
+      computed(
+        () => ({
+          pending: sends.bubbles,
+          justSent: sends.justSent,
+          interruptError: sends.interruptError,
+          interruptMessageId: sends.interruptMessageId,
+          dismissedOfferAt: sends.dismissedOfferAt,
+          offer: sends.offer,
+          canInterrupt: sends.canInterrupt,
+          draft: options.observeDraft === false ? '' : conversation.draft,
+        }),
+        { equals: compareStructural },
+      ),
+    [conversation, options.observeDraft],
+  )
   const source = useMemo(() => {
     let current = snapshot.get()
     return {
@@ -166,25 +247,64 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
       },
     }
   }, [snapshot])
-  const hadInitialPending = useMemo(() => sends.pending.some(turn => turn.id === 'pending-first-turn'), [sends])
+  const hadInitialPending = useMemo(
+    () => sends.pending.some((turn) => turn.id === 'pending-first-turn'),
+    [sends],
+  )
   useEffect(() => {
     const onSettled = options.onInitialPendingSettled
     if (!hadInitialPending || !onSettled) return
     let settled = false
-    return reaction(() => sends.pending.some(turn => turn.id === 'pending-first-turn' && turn.reconcile !== 'record'), pending => {
-      if (!pending && !settled) { settled = true; onSettled() }
-    }, { fireImmediately: true })
+    return reaction(
+      () =>
+        sends.pending.some(
+          (turn) => turn.id === 'pending-first-turn' && turn.reconcile !== 'record',
+        ),
+      (pending) => {
+        if (!pending && !settled) {
+          settled = true
+          onSettled()
+        }
+      },
+      { fireImmediately: true },
+    )
   }, [sends, hadInitialPending, options.onInitialPendingSettled])
   const state = useSyncExternalStore(source.subscribe, source.getSnapshot)
   return {
-    conversation, ...state, ready: ports.ready, ctxSeq: null,
-    get draft() { return conversation.draft },
-    pending: state.pending.map(b => b.error === undefined ? b : { ...b, failure: b.error.startsWith('not sent') || b.notice !== undefined ? b.error : `not delivered — ${b.error}` }),
-    setDraft: text => { conversation.draft = text },
-    send: async (text, tags, toolPaths, attachments) => { options.pinToBottom(); await sends.submit({ text, wire: text, tags, toolPaths, attachments }) },
-    sendOfferPrompt: async (prompt, at) => { await sends.sendOffer(prompt, at) }, dismissOffer: sends.dismissOffer.bind(sends),
-    retryPending: sends.retry.bind(sends), discardPending: sends.discard.bind(sends),
-    sendAgain: sends.sendAgain.bind(sends), retractQueuedMessage: sends.retract.bind(sends),
-    markInterrupted: sends.markInterrupted.bind(sends), interrupt: sends.interrupt.bind(sends),
+    conversation,
+    ...state,
+    ready: ports.ready,
+    ctxSeq: null,
+    get draft() {
+      return conversation.draft
+    },
+    pending: state.pending.map((b) =>
+      b.error === undefined
+        ? b
+        : {
+            ...b,
+            failure:
+              b.error.startsWith('not sent') || b.notice !== undefined
+                ? b.error
+                : `not delivered — ${b.error}`,
+          },
+    ),
+    setDraft: (text) => {
+      conversation.draft = text
+    },
+    send: async (text, tags, toolPaths, attachments) => {
+      options.pinToBottom()
+      await sends.submit({ text, wire: text, tags, toolPaths, attachments })
+    },
+    sendOfferPrompt: async (prompt, at) => {
+      await sends.sendOffer(prompt, at)
+    },
+    dismissOffer: sends.dismissOffer.bind(sends),
+    retryPending: sends.retry.bind(sends),
+    discardPending: sends.discard.bind(sends),
+    sendAgain: sends.sendAgain.bind(sends),
+    retractQueuedMessage: sends.retract.bind(sends),
+    markInterrupted: sends.markInterrupted.bind(sends),
+    interrupt: sends.interrupt.bind(sends),
   }
 }

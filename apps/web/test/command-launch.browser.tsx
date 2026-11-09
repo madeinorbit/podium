@@ -1,13 +1,13 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { NewPanelMenu } from '../src/app/NewPanelMenu'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
@@ -88,7 +88,7 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   owner = runtime
   pool = useWorklistPool()
   const [newIssue, setNewIssue] = useState(false),
@@ -153,7 +153,8 @@ root.render(
 )
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const driver = {
-  ready: () => booted && pool !== null && typeof omitGone(pool.row('commandWindow', 'window')) === 'object',
+  ready: () =>
+    booted && pool !== null && typeof omitGone(pool.row('commandWindow', 'window')) === 'object',
   reset() {
     storeStats.reset()
     commits = 0
@@ -179,7 +180,10 @@ const driver = {
     }
   },
   calls: () => calls,
-  selection: () => ({ issueId: referenceState(owner).openIssueId, view: referenceState(owner).view }),
+  selection: () => ({
+    issueId: referenceState(owner).openIssueId,
+    view: referenceState(owner).view,
+  }),
   async check() {
     if (!pool) return null
     const { poolCommandLaunchSnapshot } = await import(

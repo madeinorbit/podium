@@ -1,7 +1,7 @@
 /**
  * THE DECK HARNESS'S STORE HANDLE (POD-2027).
  *
- * The pool-backed deck reads its mission through `useStoreHandle`, which throws
+ * The pool-backed deck reads its mission through `useClientRuntime`, which throws
  * outside a real `StoreProvider` ("useStore outside StoreProvider"). The vite
  * deck config redirects the provider module here: everything else is the real
  * provider, and the handle is the same fixture owner `FlightDeck.test.tsx`
@@ -32,6 +32,6 @@ const owner = withKeyedInputs({
   subscribe: () => () => {},
 })
 
-export function useStoreHandle(): never {
+export function useClientRuntime(): never {
   return owner as never
 }

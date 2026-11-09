@@ -24,7 +24,7 @@ vi.mock('@/app/store', () => ({
     select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
 }))
 
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture }))
+vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => fixture }))
 
 function LivenessBeforeHost(): JSX.Element {
   const [host, setHost] = useState<HTMLDivElement | null>(null)

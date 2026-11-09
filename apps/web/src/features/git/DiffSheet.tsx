@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands } from '@podium/client-core/react'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
@@ -469,7 +469,11 @@ function useDiffs({
   commit?: { sha: string }
 }): DiffView {
   const refreshSignal = useCheckoutSignal(machineId, cwd)
-  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
+  const {
+    diff: gitDiffFile,
+    commitDiffFile: gitCommitDiffFile,
+    read: readFileScoped,
+  } = useCommands<Trpc>().files
   const commitSha = commit?.sha
   // biome-ignore lint/correctness/useExhaustiveDependencies: the inventory is part of this opening's identity.
   const view = useMemo(

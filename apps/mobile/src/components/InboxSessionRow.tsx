@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/values'
@@ -5,11 +6,10 @@ import { readPageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/loading'
 import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMobilePool } from '../client/mobile-pool'
 import { issueObserver } from '../client/issue-observer'
-import { useStoreActions } from '../client/hooks'
-import { menuAnswer, useAnswerSession } from '../lib/answer-session'
+import { useMobilePool } from '../client/mobile-pool'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
@@ -31,7 +31,7 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
 }) {
   const router = useRouter()
   const answerSession = useAnswerSession()
-  const continueSession = useStoreActions().continueSession
+  const continueSession = useCommands<MobileTrpc>().sessions.continueSession
   const needsQuestion = session.agentState?.phase === 'needs_user'
   const fromTranscript = usePendingQuestion(
     session.sessionId,

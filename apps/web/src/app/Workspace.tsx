@@ -1,5 +1,5 @@
 import { beginSwitch } from '@podium/client-core/perf'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
@@ -38,6 +38,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
@@ -52,7 +53,7 @@ import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
-import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
+import { useRuntimeUiValue } from './keyed-runtime'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -1575,7 +1576,7 @@ function SortableTab({
   onKeepOpen: () => void
   onSplit?: (axis: SplitAxis) => void
 }): JSX.Element {
-  const { renameSession } = useRuntimeActions(RENAME_ACTIONS)
+  const { renameSession } = { renameSession: useCommands<Trpc>().sessions.rename }
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const isDragging = drag?.isDragging === true

@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
+
+import type { MobxPool } from '@podium/client-graph/pool'
+import { refreshClocks } from '@podium/mobx-helpers'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { refreshClocks } from '@podium/mobx-helpers'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
-import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
-import { projectWaterfallLane } from './waterfall-live-edge'
 import * as old from './flight-deck-waterfall.legacy.test.fixture'
+import { projectWaterfallLane } from './waterfall-live-edge'
+import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
@@ -26,7 +27,7 @@ const owner = {
 }
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => owner,
+  useClientRuntime: () => owner,
 }))
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
@@ -240,7 +241,8 @@ describe('elements waterfall viewport', () => {
         history.mockClear()
         const liveLane = root.querySelector<HTMLElement>('[data-waterfall-live="true"]')!
         expect(liveLane).not.toBeNull()
-        const liveTailRatio = () => Number(liveLane.style.getPropertyValue('--waterfall-duration-ratio'))
+        const liveTailRatio = () =>
+          Number(liveLane.style.getPropertyValue('--waterfall-duration-ratio'))
         const ratioBefore = liveTailRatio()
         const widthBefore = liveLane.style.getPropertyValue('--waterfall-width')
         const nowBefore = root.style.getPropertyValue('--waterfall-now')

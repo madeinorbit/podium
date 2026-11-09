@@ -5,6 +5,7 @@ import {
   demoEnabled,
   publishDemoSlice,
 } from '@podium/client-core/demo'
+import { useSocketHub } from '@podium/client-core/react'
 
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
@@ -48,7 +49,7 @@ import {
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   parseReplicaNamespaceKey,
@@ -488,7 +489,7 @@ function MobileHubAttach({
   /** How this client follows a moved server (POD-5921); absent in demo mode. */
   follow: FollowPorts | undefined
 }): null {
-  const hub = useStoreHandle<MobileTrpc>().access.hub
+  const hub = useSocketHub()
   useEffect(() => {
     if (!follow) return
     return followHub(hub, follow, {

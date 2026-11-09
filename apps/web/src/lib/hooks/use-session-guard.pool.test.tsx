@@ -5,6 +5,7 @@ import { asSessionId } from '@podium/model/browser'
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const f = vi.hoisted(() => ({
@@ -14,7 +15,9 @@ const f = vi.hoisted(() => ({
   actions: {
     killSession: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
-    endSession: vi.fn<Store['endSession']>(async () => ({ ok: true })),
+    endSession: vi.fn<import('@podium/client-core/commands').Commands['sessions']['stop']>(
+      async () => ({ ok: true }),
+    ),
   },
   confirm: vi.fn(async () => true),
 }))
@@ -25,8 +28,12 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@podium/client-core/react', () => {
-  const owner = { get access() { return f.actions } }
-  return { useStoreHandle: () => owner }
+  const owner = {
+    get access() {
+      return f.actions
+    },
+  }
+  return { useClientRuntime: () => owner }
 })
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/client-core/values', async (importOriginal) => {

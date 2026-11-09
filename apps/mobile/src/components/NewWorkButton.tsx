@@ -21,7 +21,7 @@ import {
   spawnSelection,
 } from '@podium/client-core/agent-models'
 import { relativeTime } from '@podium/client-core/focus'
-import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
+import { useCommands, useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
   LAST_LAUNCH_PICK_KEY,
   NEW_WORK_EFFORT_KEY,
@@ -59,7 +59,7 @@ import {
   useState,
 } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useStoreActions, useUiState } from '../client/hooks'
+import { useUiState } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
@@ -209,7 +209,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { spawnDraftAgent } = useStoreActions()
+  const { spawnDraftAgent } = useCommands<MobileTrpc>().sessions
   const uiState = useUiState()
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)

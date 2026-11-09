@@ -1,13 +1,12 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createSuperagentFixture } from '../../../web/test/superagent/fixture'
 import type { MobilePool } from '../client/mobile-pool'
 
@@ -102,7 +101,7 @@ async function mount() {
     seen: unknown[] = []
   let runtime!: ClientRuntime
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     seen.push(useMobilePool())
 
     return <SuperagentScreen />

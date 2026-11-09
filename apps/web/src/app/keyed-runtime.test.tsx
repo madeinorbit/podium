@@ -24,7 +24,7 @@ import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => f.owner,
+  useClientRuntime: () => f.owner,
   useUiValue: (key: string) => {
     const ui = (f.owner as { ui: object }).ui
     const read = () => Reflect.get(ui, key)

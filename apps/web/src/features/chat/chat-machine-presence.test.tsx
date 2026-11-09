@@ -4,6 +4,8 @@ import { headerView } from '@podium/client-graph/header-views'
 import { headerEntities } from '@podium/client-graph/header-entities'
 // @vitest-environment happy-dom
 import type { SessionView } from '@podium/client-core/session-values'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { MachineWire } from '@podium/model/browser'
@@ -22,7 +24,7 @@ const transports = vi.hoisted(() => ({ trpc: {}, hub: {}, httpOrigin: 'http://of
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: typeof transports) => unknown) => read(transports),
 }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ access: transports }) }))
+vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => ({ access: transports }) }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const view = useMemo(() => createPoolProjection(f.pool!, read), [read])
@@ -98,13 +100,16 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         { pool },
       )
     let view:
-      | ReturnType<typeof renderHook<{ presenceOfflineMachineName: string | null }, { active: boolean }>>
+      | ReturnType<
+          typeof renderHook<{ presenceOfflineMachineName: string | null }, { active: boolean }>
+        >
       | undefined
     try {
       const closedBefore = await measure(() => {
         view = renderHook<{ presenceOfflineMachineName: string | null }, { active: boolean }>(
-          ({ active }: { active: boolean }) =>
-            ({ presenceOfflineMachineName: useChatMachinePresence(f.session, active) }),
+          ({ active }: { active: boolean }) => ({
+            presenceOfflineMachineName: useChatMachinePresence(f.session, active),
+          }),
           { initialProps: { active: false } },
         )
       })

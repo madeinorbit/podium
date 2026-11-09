@@ -1,3 +1,5 @@
+import { useCommands } from '@podium/client-core/react'
+import type { MobileTrpc } from '../client/trpc'
 /**
  * ANSWERING AN AGENT'S QUESTION FROM THE PHONE (POD-6415), the web's
  * `features/chat/answer-session.ts`.
@@ -12,7 +14,6 @@ import type { SessionAnswer } from '@podium/client-core/spawn-agent'
 import { awaitAnswer } from '@podium/client-graph/write/await-effect'
 import type { SessionId } from '@podium/model'
 import { useCallback } from 'react'
-import { useStoreActions } from '../client/hooks'
 import { useMobilePoolNow } from '../client/mobile-pool'
 import type { AskQuestionAnswer } from '../components/AskQuestionCard'
 
@@ -36,7 +37,7 @@ export function useAnswerSession(): (
   sessionId: SessionId,
   answer: SessionAnswer,
 ) => Promise<AnswerSessionReply> {
-  const { answerSession } = useStoreActions()
+  const { answer: answerSession } = useCommands<MobileTrpc>().sessions
   // Read at answer time: the screens that answer do not re-render on the
   // pool's attachment for it.
   const poolNow = useMobilePoolNow()

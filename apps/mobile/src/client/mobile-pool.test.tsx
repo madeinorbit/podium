@@ -119,7 +119,7 @@ async function launch(preferences = false, withRow = false) {
     { MobileClientProvider },
     { useMobilePool },
     { AuthStatusContext },
-    { useStoreHandle },
+    { useClientRuntime },
     { usePersistedUiState },
     { useCollapsed },
     { useCollapsedSet },
@@ -164,7 +164,7 @@ async function launch(preferences = false, withRow = false) {
     )
   }
   function Probe() {
-    seen.runtime = useStoreHandle() as unknown as ClientRuntime
+    seen.runtime = useClientRuntime() as unknown as ClientRuntime
     seen.pool = useMobilePool()
     seen.attached.push(seen.pool !== null)
     return (

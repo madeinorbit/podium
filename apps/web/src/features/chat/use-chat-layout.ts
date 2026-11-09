@@ -1,3 +1,4 @@
+import { useHttpOrigin, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   isCodexAsyncQuestion,
@@ -10,7 +11,7 @@ import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/b
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
-import { useRuntimeActions } from '@/app/keyed-runtime'
+import type { Trpc } from '@/app/trpc'
 import type { MediaLightboxItem } from '@/components/MediaLightbox'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useAnswerSession } from './answer-session'
@@ -67,7 +68,12 @@ const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'clearAttachedSession'
 
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
-  const { trpc, openFile, httpOrigin, clearAttachedSession } = useRuntimeActions(LAYOUT_ACTIONS)
+  const { trpc, openFile, httpOrigin, clearAttachedSession } = {
+    trpc: useRequestClient<Trpc>(),
+    openFile: useUi().openFile,
+    httpOrigin: useHttpOrigin(),
+    clearAttachedSession: useUi().clearAttachedSession,
+  }
   const answerSession = useAnswerSession()
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.

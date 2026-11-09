@@ -1,8 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { EXISTING_PODIUM_CLIENT_DRAFT_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -24,7 +23,11 @@ const ports = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return ({ uiState: ports.ui }) } }),
+  useClientRuntime: () => ({
+    get access() {
+      return { uiState: ports.ui }
+    },
+  }),
   useRuntimeSelector: () => {
     throw new Error('Preference consumers must use the pool')
   },

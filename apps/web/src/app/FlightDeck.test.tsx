@@ -173,12 +173,12 @@ const owner = withKeyedInputs({
 vi.mock('../../../../packages/client-core/src/react/provider', async (original) => ({
   ...(await original<typeof import('../../../../packages/client-core/src/react/provider')>()),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useStoreHandle: () => owner,
+  useClientRuntime: () => owner,
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  useStoreHandle: () => owner,
+  useClientRuntime: () => owner,
 }))
 
 vi.mock('./store', () => ({

@@ -2,8 +2,9 @@ import { type ClientRuntime } from '@podium/client-core/engine'
 import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import {
   emptyWorkspace,
   missionIssueIds,
@@ -17,7 +18,6 @@ import {
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { liveFixture } from '@podium/client-graph/live-fixture'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueUserStateRowId, pinRowId, spreadSortKeys } from '@podium/model'
@@ -86,7 +86,7 @@ let requests: Request[]
 let outcomes: OutboxOutcome[]
 
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   focused = useOperatorFocus().focusedIssueId
   return pool ? <CaptureActions pool={pool} /> : null

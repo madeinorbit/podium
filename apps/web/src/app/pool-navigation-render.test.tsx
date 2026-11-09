@@ -58,7 +58,7 @@ vi.mock('./operator-focus', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => workspaceOwner),
-  useStoreHandle: () => workspaceOwner,
+  useClientRuntime: () => workspaceOwner,
   useHarnessDescriptors: () => ({ served: [] }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))

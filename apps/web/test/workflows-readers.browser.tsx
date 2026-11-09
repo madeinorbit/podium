@@ -1,6 +1,6 @@
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
 import { createRoot } from 'react-dom/client'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
@@ -16,7 +16,7 @@ import { createWorkflowsFixture } from './workflows-fixture'
 import '../src/index.css'
 
 const fixture = createWorkflowsFixture(5600, 5014)
-let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
+let owner: ReturnType<typeof useClientRuntime<Trpc>> | undefined
 let pool: ReturnType<typeof useWorklistPool>
 const failures: string[] = []
 const runtimeOwners = new Set<object>()
@@ -25,7 +25,7 @@ let capture: ReturnType<typeof storeStats.begin>
 // in the app. Choosing by pool availability would change hook order here.
 storeStats.enable()
 function Surface() {
-  owner = useStoreHandle<Trpc>()
+  owner = useClientRuntime<Trpc>()
   pool = useWorklistPool()
   const source = useWorkflows()
   return (

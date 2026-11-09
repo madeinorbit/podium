@@ -1,43 +1,48 @@
-import { useStoreHandle } from '@podium/client-core/react'
-import type { Store } from '@/app/store'
+import {
+  useClientRuntime,
+  useCommands,
+  useDeviceState,
+  useHttpOrigin,
+  useRequestClient,
+  useSocketHub,
+  useUi,
+} from '@podium/client-core/react'
+import { useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'
 
-interface SettingsClient extends Pick<Store,
-  'trpc' | 'uiState' | 'navigateToSession' | 'setSettingsTab' |
-  'renameMachine' | 'setMachineUpdateChannel' |
-  'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'startIssueSession' |
-  'setSelectedIssueId' |
-  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId' |
-  'setPreferences' | 'setInstancePreferences'> {
-  readonly owner: { readonly access: Store }
+export function useSettingsClient() {
+  const owner = useClientRuntime<Trpc>()
+  const commands = useCommands<Trpc>()
+  const ui = useUi()
+  const trpc = useRequestClient<Trpc>()
+  const hub = useSocketHub()
+  const httpOrigin = useHttpOrigin()
+  const deviceState = useDeviceState()
+  return useMemo(
+    () => ({
+      owner,
+      trpc: trpc,
+      uiState: deviceState,
+      navigateToSession: ui.navigateToSession,
+      setSettingsTab: ui.setSettingsTab,
+      focusIssueSession: ui.focusIssueSession,
+      spawnDraftAgent: commands.sessions.spawnDraftAgent,
+      spawnIssueAgent: commands.sessions.spawnIssueAgent,
+      startIssueSession: commands.sessions.startIssueSession,
+      setSelectedIssueId: ui.setSelectedIssueId,
+      setSelectedWorktree: ui.setSelectedWorktree,
+      setPane: ui.setPane,
+      setPanelMode: ui.setPanelMode,
+      setView: ui.setView,
+      setOpenIssueId: ui.setOpenIssueId,
+      setPreferences: commands.preferences.setPreferences,
+      setInstancePreferences: commands.preferences.setInstancePreferences,
+    }),
+    [commands, ui, trpc, hub, httpOrigin, deviceState, owner],
+  )
 }
 
-/** Acquire the existing transport and mutation owner without subscribing to
- * snapshots. Entity and preference reads belong to the declared pool hooks. */
-export function useSettingsClient(): SettingsClient {
-  const owner = useStoreHandle<Trpc>()
-  const state = owner.access
-  return {
-    owner,
-    trpc: state.trpc,
-    uiState: state.uiState,
-    navigateToSession: state.navigateToSession,
-    renameMachine: state.renameMachine,
-    setMachineUpdateChannel: state.setMachineUpdateChannel,
-    setSettingsTab: state.setSettingsTab,
-    focusIssueSession: state.focusIssueSession,
-    spawnDraftAgent: state.spawnDraftAgent,
-    spawnIssueAgent: state.spawnIssueAgent,
-    startIssueSession: state.startIssueSession,
-    setSelectedIssueId: state.setSelectedIssueId,
-    setSelectedWorktree: state.setSelectedWorktree,
-    setPane: state.setPane,
-    setPanelMode: state.setPanelMode,
-    setView: state.setView,
-    setOpenIssueId: state.setOpenIssueId,
-    setPreferences: state.setPreferences,
-    setInstancePreferences: state.setInstancePreferences,
-  }
+export type SettingsClient = ReturnType<typeof useSettingsClient>
+export function useSettingsTrpc(): Trpc {
+  return useRequestClient<Trpc>()
 }
-
-export function useSettingsTrpc(): Trpc { return useSettingsClient().trpc }

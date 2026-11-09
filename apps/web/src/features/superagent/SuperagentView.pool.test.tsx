@@ -4,7 +4,7 @@ import { referenceState } from '../../../../../tests/worklist/diagnostics/refere
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -42,7 +42,7 @@ async function mount() {
     pool: ReturnType<typeof useWorklistPool> = null
   const header = document.createElement('div')
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     pool = useWorklistPool()
     before.push(pool)
     return (

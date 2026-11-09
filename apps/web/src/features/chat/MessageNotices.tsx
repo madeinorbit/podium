@@ -1,4 +1,3 @@
-import { observer } from 'mobx-react-lite'
 /**
  * MESSAGES THAT DID NOT ARRIVE (POD-4764) — the header chip and its list.
  *
@@ -8,10 +7,11 @@ import { observer } from 'mobx-react-lite'
  * notice. "Send again" lives in the chat, beside the words it puts back into
  * the composer. Appears only when there is something to say.
  */
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient, useUi } from '@podium/client-core/react'
 import type { MessageNotice } from '@podium/client-core/values'
 import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import { MessageSquareWarning } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -27,8 +27,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { usePoolMessageNoticeCount, usePoolMessageNotices } from './use-pool-notices'
 
-const NoticeRow = observer(function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
-  const { trpc, openSessionTab } = useStoreHandle<Trpc>().access
+const NoticeRow = observer(function NoticeRow({
+  notice,
+  onOpen,
+}: {
+  notice: MessageNotice
+  onOpen: () => void
+}): JSX.Element {
+  const trpc = useRequestClient<Trpc>(),
+    { openSessionTab } = useUi()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (

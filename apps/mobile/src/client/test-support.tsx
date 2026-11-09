@@ -19,7 +19,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { type StoreNotices, StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
@@ -198,7 +198,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
-    const store = useStoreHandle<MobileTrpc>()
+    const store = useClientRuntime<MobileTrpc>()
     runtimeHandle = store
     hub = store.access.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
     return (

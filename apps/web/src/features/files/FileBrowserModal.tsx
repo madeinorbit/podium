@@ -1,6 +1,5 @@
+import { useCommands, useUi } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
-import { FileBrowserView } from './file-browser-view'
-import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { isMachinePathWithinRoot, joinMachinePath, machinePathDirname } from '@podium/model'
 import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
@@ -10,6 +9,7 @@ import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { FileBrowserView } from './file-browser-view'
 import { FileTypeIcon } from './file-icon'
 
 export const FileBrowserModal = observer(function FileBrowserModal({
@@ -23,7 +23,8 @@ export const FileBrowserModal = observer(function FileBrowserModal({
   title: string
   onClose: () => void
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().access
+  const { list: listDir } = useCommands<Trpc>().files,
+    { openFileInWorktree } = useUi()
   const isMobile = useIsMobile()
   const view = useMemo(
     () => new FileBrowserView(root, machineId, listDir),

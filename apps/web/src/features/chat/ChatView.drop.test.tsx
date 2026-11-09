@@ -24,14 +24,14 @@ import { resetFakeStore } from './test-support/fake-store-handle'
  * attached every file twice, which no screen would have shown).
  *
  * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `conversation layout` takes
- * `useStoreHandle` straight from `@podium/client-core/react` rather than through
+ * `useClientRuntime` straight from `@podium/client-core/react` rather than through
  * the `@/app/store` seam this file mocks, so the real provider is required and
  * throws. The sibling ChatView suites no longer need a stub for it — whatever
  * repaired them landed on main separately — but this one still does: remove the
  * mock below and all three tests fail at first render. Checked, not assumed.
  *
  * POD-1614 is repairing the seam properly (`store.tsx` re-exports a Trpc-typed
- * `useStoreHandle`; `conversation layout` imports it from `@/app/store`). That has
+ * `useClientRuntime`; `conversation layout` imports it from `@/app/store`). That has
  * NOT landed here yet — `conversation layout.ts:1` still imports from the package.
  * The moment it does, delete the mock: a stub held over a seam that no longer
  * leaks is how a suite starts testing its own scaffolding.

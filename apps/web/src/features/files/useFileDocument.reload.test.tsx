@@ -5,7 +5,7 @@ import { useFileDocument } from './useFileDocument'
 
 const { read, write } = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ access: { readFileScoped: read, writeFileScoped: write } }),
+  useClientRuntime: () => ({ access: { readFileScoped: read, writeFileScoped: write } }),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 

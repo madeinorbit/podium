@@ -1,20 +1,19 @@
-import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { useHasFirstTask } from './mobile-handoff'
 
 const mode = vi.hoisted(() => ({ value: 'pool' as 'legacy' | 'pool', legacyReads: 0 }))
-
 
 const NOW = Date.parse('2026-10-01T08:00:00Z')
 const pools: MobxPool[] = []
@@ -174,7 +173,7 @@ describe('first-task startup switch', () => {
     let runtime: ClientRuntime | undefined
     let pool: MobxPool | null = null
     function Capture() {
-      runtime = useStoreHandle() as ClientRuntime
+      runtime = useClientRuntime() as ClientRuntime
       pool = useWorklistPool()
       return null
     }

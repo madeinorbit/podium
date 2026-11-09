@@ -51,7 +51,7 @@ const store = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({
+  useClientRuntime: () => ({
     get access() {
       return store
     },

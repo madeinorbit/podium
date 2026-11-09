@@ -2,7 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import { asMutationId, asSessionId, asUserId } from '@podium/model'
@@ -163,7 +163,7 @@ async function mount() {
   const seen: ReturnType<MobilePool['host']['usePool']>[] = []
   const configured = new WeakSet<ClientRuntime>()
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     if (!configured.has(runtime)) {
       const subscribeHealth = runtime.hub.onConnectionHealth.bind(runtime.hub)
       fixture.bindHub(runtime.hub, undefined, runtime.live)

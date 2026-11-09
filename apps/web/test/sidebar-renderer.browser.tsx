@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
@@ -37,7 +37,7 @@ const failures: string[] = []
 const root = createRoot(document.getElementById('root')!)
 
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
   useEffect(() => {
     runtime = owner

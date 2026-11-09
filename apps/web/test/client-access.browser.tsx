@@ -3,10 +3,10 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   StoreProvider,
+  useClientRuntime,
   useHarnessDescriptors,
   useModelCatalogState,
   usePresenceRoom,
-  useStoreHandle,
 } from '@podium/client-core/react'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
@@ -51,7 +51,7 @@ function CurrentReaders() {
   )
 }
 function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const currentPool = useWorklistPool()
   owner = runtime
   pool = currentPool

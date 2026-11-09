@@ -1,4 +1,4 @@
-import { useStoreHandle, useUiValue } from '@podium/client-core/react'
+import { useClientRuntime, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FlightDeckMode } from '@podium/client-core/values'
@@ -43,7 +43,7 @@ const IssueContextMenu = lazy(() =>
 export default observer(function PoolFlightDeck(props: FlightDeckProps): JSX.Element {
   const selectedIssueId = useUiValue('selectedIssueId')
   const pool = useWorklistPool()
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const readRoot = useCallback(
     (pool: MobxPool) => measurePoolMission(owner, () => missionRootId(pool, selectedIssueId)),
     [owner, selectedIssueId],
@@ -66,7 +66,7 @@ const MissionOpening = observer(function MissionOpening({
 }): JSX.Element {
   // The opening outlives renders: it reaches the store's writers when it
   // writes, never by being rebuilt when the handle's access object changes.
-  const handle = useStoreHandle<Trpc>()
+  const handle = useClientRuntime<Trpc>()
   const handleRef = useRef(handle)
   handleRef.current = handle
   const screen = useMemo(
@@ -122,7 +122,7 @@ const PoolArchivedSessions = observer(function PoolArchivedSessions(props: {
   mode: FlightDeckMode
   children: (sessions: readonly SessionView[]) => ReactNode
 }) {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const sessions = measurePoolMission(owner, () =>
     props.screen.reader.archive(props.rootId, props.mode),
   )
@@ -130,7 +130,7 @@ const PoolArchivedSessions = observer(function PoolArchivedSessions(props: {
 })
 
 function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const handoffEnabled = useFeature('session-handoff')
   const ids = props.issues.map((issue) => issue.id).join('\n')
   const read = useCallback(

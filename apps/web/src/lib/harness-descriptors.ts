@@ -1,12 +1,9 @@
-import {
-  parseServedDescriptors,
-  resolveDescriptors,
-} from '@podium/harness/browser'
-import type { HarnessDescriptorWire } from '@podium/protocol'
+import { useRequestClient } from '@podium/client-core/react'
+import { parseServedDescriptors, resolveDescriptors } from '@podium/harness/browser'
 import type { MachineId } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
-import { useStoreHandle } from '@podium/client-core/react'
 
 /**
  * Resolved harness descriptors for components (POD-4475): the served
@@ -23,7 +20,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 export function useResolvedDescriptors(
   machineIds: readonly (MachineId | undefined)[],
 ): HarnessDescriptorWire[] {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const [served, setServed] = useState<HarnessDescriptorWire[][]>([])
   const key = machineIds.join(',')
   // The transport is read through a ref: some test stores hand out a fresh
@@ -41,9 +38,17 @@ export function useResolvedDescriptors(
       return
     }
     void (async () => {
-      const query = (trpcRef.current as unknown as
-        | { machines?: { descriptors?: { query: (input: { machineId: MachineId }) => Promise<HarnessDescriptorWire[]> } } }
-        | undefined)?.machines?.descriptors?.query
+      const query = (
+        trpcRef.current as unknown as
+          | {
+              machines?: {
+                descriptors?: {
+                  query: (input: { machineId: MachineId }) => Promise<HarnessDescriptorWire[]>
+                }
+              }
+            }
+          | undefined
+      )?.machines?.descriptors?.query
       if (!query) {
         if (live) setServed([])
         return

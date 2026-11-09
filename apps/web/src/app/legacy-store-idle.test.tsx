@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
@@ -67,7 +67,7 @@ it.each([
     pool: MobxPool | null = null
   const failures: (Error | string)[] = []
   function Inputs() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     pool = useWorklistPool()
     return (
       <output data-testid="locals">

@@ -1,5 +1,5 @@
 import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
-import { useHarnessDescriptors } from '@podium/client-core/react'
+import { useCommands, useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { useMissionOpening, useStoreActions } from '../client/hooks'
+import { useMissionOpening } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -59,7 +59,7 @@ export const MissionScreen = observer(function MissionScreen() {
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const hasCloseBlockers = useIssueCloseGuard()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
@@ -114,15 +114,15 @@ export const MissionScreen = observer(function MissionScreen() {
   const closeAndTuckRoot = useCallback(() => {
     if (!root) return
     setFileRootPending(false)
-    void store
-      .closeIssue(root.id, 'done')
-      .then(() => store.setIssueTucked(root.id, true))
+    void store.issues
+      .close(root.id, 'done')
+      .then(() => store.issues.setTucked(root.id, true))
       .catch(() => {})
   }, [root, store])
   const fileRoot = useCallback(() => {
     if (!root) return
     if (isFinished(root)) {
-      void store.setIssueTucked(root.id, true).catch(() => {})
+      void store.issues.setTucked(root.id, true).catch(() => {})
       return
     }
     if (hasCloseBlockers(root.id)) {
@@ -149,7 +149,7 @@ export const MissionScreen = observer(function MissionScreen() {
         label: headerIssue?.pinned ? 'Unpin' : 'Pin',
         onPress: () => {
           if (!headerIssue) return
-          void store.setPinned('issue', headerIssue.id, !headerIssue.pinned)
+          void store.preferences.setPinned('issue', headerIssue.id, !headerIssue.pinned)
         },
       },
       { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },

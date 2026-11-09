@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useHttpOrigin } from '@podium/client-core/react'
 import type { FileScope } from '@podium/client-core/values'
 import { machinePathBasename } from '@podium/model'
 import { Maximize2, Minus, Plus, X } from 'lucide-react'
@@ -29,7 +29,7 @@ export function AssetFilePanel({
   kind: AssetKind
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin } = useStoreHandle().access
+  const httpOrigin = useHttpOrigin()
   const origin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
   const url = rawFileUrl({ httpOrigin: origin, scope, path })
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)

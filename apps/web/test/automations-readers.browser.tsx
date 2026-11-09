@@ -1,14 +1,14 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/values'
-import { checkAutomations } from '../../../tests/worklist/diagnostics/automation-check'
-import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { checkAutomations } from '../../../tests/worklist/diagnostics/automation-check'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import type { Trpc } from '../src/app/trpc'
 import { AutomationsView } from '../src/features/automations/AutomationsView'
@@ -20,14 +20,14 @@ import { createAutomationsFixture } from './automations-fixture'
 import '../src/index.css'
 
 const fixture = createAutomationsFixture(5600, 5014)
-let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
+let owner: ReturnType<typeof useClientRuntime<Trpc>> | undefined
 let pool: ReturnType<typeof useWorklistPool>,
   commits = 0,
   commitMs = 0
 const failures: string[] = []
 storeStats.enable()
 function Surface() {
-  owner = useStoreHandle<Trpc>()
+  owner = useClientRuntime<Trpc>()
   pool = useWorklistPool()
   const [dialog, setDialog] = useState(false)
   useEffect(() => {

@@ -1,13 +1,14 @@
 // @vitest-environment happy-dom
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -19,7 +20,7 @@ let runtime: ClientRuntime
 let pool: ReturnType<typeof useWorklistPool>
 
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   return null
 }
@@ -43,8 +44,14 @@ async function mount() {
       api={fixture.api}
       createReplicaFn={() => fixture.replica}
       networkEnabled={false}
-      onFatalError={message => { throw new Error(message) }}
-      attachRuntime={owner => attachWorklistPool(owner, error => { throw error })}
+      onFatalError={(message) => {
+        throw new Error(message)
+      }}
+      attachRuntime={(owner) =>
+        attachWorklistPool(owner, (error) => {
+          throw error
+        })
+      }
     >
       <ConfirmProvider>
         <Capture />
@@ -63,7 +70,11 @@ function row(id: string) {
   return body!.closest('[data-testid="unified-issue-row"]')!
 }
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 it('updates a mounted ancestor status when a grandchild session asks', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -76,7 +87,9 @@ it('updates a mounted ancestor status when a grandchild session asks', async () 
       agentState: { phase: 'idle', idle: { kind: 'question' }, since: new Date(NOW).toISOString() },
     })
   })
-  await waitFor(() => expect(ancestor.querySelector('[title^="Waiting since"]')?.textContent).toBe('now'))
+  await waitFor(() =>
+    expect(ancestor.querySelector('[title^="Waiting since"]')?.textContent).toBe('now'),
+  )
   expect(ancestor.querySelector('[data-phase="waiting"]')).not.toBeNull()
   expect(row('synthetic-0')).toBe(ancestor)
 })

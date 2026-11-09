@@ -6,9 +6,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { IssueChipLiveness } from './IssueChipLiveness'
 
 const fixture = vi.hoisted(() => ({ pool: null as unknown, owner: {} }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture.owner }))
-vi.mock('@/app/store', () => ({
-}))
+vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => fixture.owner }))
+vi.mock('@/app/store', () => ({}))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => fixture.pool }))
 
 describe('pool chip DOM boundary', () => {
@@ -19,23 +18,33 @@ describe('pool chip DOM boundary', () => {
       pool.apply({
         type: 'replace',
         rows: [
-          { kind: 'worktree' as const, id: '/synthetic', value: { path: '/synthetic', repoId: 'r', prefix: 'POD', repoPath: '/synthetic', repoName: 'Fixture' } as never },
+          {
+            kind: 'worktree' as const,
+            id: '/synthetic',
+            value: {
+              path: '/synthetic',
+              repoId: 'r',
+              prefix: 'POD',
+              repoPath: '/synthetic',
+              repoName: 'Fixture',
+            } as never,
+          },
           ...Array.from({ length: count }, (_, index) => ({
-          kind: 'issue' as const,
-          id: `iss_${index}`,
-          value: {
+            kind: 'issue' as const,
             id: `iss_${index}`,
-            seq: index + 1,
-            prefix: 'POD',
-            title: `Task ${index + 1}`,
-            stage: 'review',
-            repoPath: '/synthetic',
-            repoId: 'r',
-            createdAt: '2026-01-01',
-            updatedAt: '2026-01-01',
-            deps: [],
-          } as never,
-        })),
+            value: {
+              id: `iss_${index}`,
+              seq: index + 1,
+              prefix: 'POD',
+              title: `Task ${index + 1}`,
+              stage: 'review',
+              repoPath: '/synthetic',
+              repoId: 'r',
+              createdAt: '2026-01-01',
+              updatedAt: '2026-01-01',
+              deps: [],
+            } as never,
+          })),
         ],
       })
       fixture.pool = pool
@@ -105,8 +114,22 @@ describe('pool chip DOM boundary', () => {
     pool.apply({
       type: 'replace',
       rows: [
-        { kind: 'worktree', id: '/r', value: { path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture' } as never },
-        ...[1, 2, 3].map((id) => ({ kind: 'issue' as const, id: `iss_${id}`, value: row(id) as never })),
+        {
+          kind: 'worktree',
+          id: '/r',
+          value: {
+            path: '/r',
+            repoId: 'r',
+            prefix: 'POD',
+            repoPath: '/r',
+            repoName: 'Fixture',
+          } as never,
+        },
+        ...[1, 2, 3].map((id) => ({
+          kind: 'issue' as const,
+          id: `iss_${id}`,
+          value: row(id) as never,
+        })),
       ],
     })
     fixture.pool = pool

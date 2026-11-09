@@ -1,4 +1,3 @@
-import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 /**
  * POD-647 — the seams the OLD WorkflowsView had NO test for, and which a
  * refactor therefore does not inherit coverage of.
@@ -16,6 +15,7 @@ import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
  *     OPAQUE REFERENCE rather than as loading or deleted.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import '@/test-support/mock-screen-pool'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,7 +30,7 @@ const testHandle = vi.hoisted(() => ({
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => testHandle,
+  useClientRuntime: () => testHandle,
 }))
 
 /*
@@ -75,10 +75,7 @@ const revisionOf = (id: string) => ({
 type RunRow = Record<string, unknown> & { id: string; status: string }
 
 /** The records the screen sees now, as the pool would hand them over. */
-function setRecords(next: {
-  workflows?: ReturnType<typeof workflow>[]
-  runs?: RunRow[]
-}): void {
+function setRecords(next: { workflows?: ReturnType<typeof workflow>[]; runs?: RunRow[] }): void {
   const workflows = next.workflows ?? []
   const revisions = workflows.map((row) => revisionOf(row.id))
   const runs = (next.runs ?? []).map((run) => ({

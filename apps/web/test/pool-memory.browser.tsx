@@ -7,7 +7,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime, useRuntimeSelector } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
@@ -121,7 +121,7 @@ async function assemble(name: string) {
 const assembly = await assemble('acceptance-alice')
 
 function Fixture() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
   const selected = useRuntimeSelector((s) => s.selectedIssueId)
   owner = runtime

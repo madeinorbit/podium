@@ -1,10 +1,18 @@
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import {
+  useChatSends,
+  useClientRuntime,
+  useCommands,
+  useDeviceState,
+  useRequestClient,
+  useSocketHub,
+  useUi,
+} from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
-import { observe, reaction } from 'mobx'
-import { readSessions } from '@/app/command-launch-readers'
 import type { MobxPool } from '@podium/client-graph'
 import { paneHandingOffTo } from '@podium/client-graph/session-pane'
+import { observe, reaction } from 'mobx'
+import { readSessions } from '@/app/command-launch-readers'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useConversation } from '@/features/chat/use-conversation'
@@ -39,7 +47,7 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { usePendingSpawnPrompt, useRuntimeActions } from '@/app/keyed-runtime'
+import { usePendingSpawnPrompt } from '@/app/keyed-runtime'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -53,9 +61,9 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
-import { SessionModelChip } from '@/features/chat/SessionModelChip'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
+import { SessionModelChip } from '@/features/chat/SessionModelChip'
 import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
@@ -85,9 +93,9 @@ import { usePanelSurface } from './use-panel-surface'
 import {
   usePaneIssueOutcome,
   usePaneMachines,
+  usePaneReconnecting,
   usePaneReferenceStages,
   usePaneSelectedIssueId,
-  usePaneReconnecting,
   usePaneSession,
   usePaneSpawnConfirmed,
 } from './use-session-pane-inputs'
@@ -133,7 +141,18 @@ export function AgentPanel({
     openFile,
     uiState,
     navigateToSession,
-  } = useRuntimeActions(PANEL_ACTIONS)
+  } = {
+    hub: useSocketHub(),
+    trpc: useRequestClient<Trpc>(),
+    startBtw: useCommands<Trpc>().sessions.startBtw,
+    setSessionDraft: useCommands<Trpc>().sessions.setSessionDraft,
+    hibernateSession: useCommands<Trpc>().sessions.hibernate,
+    dismissOffer: useCommands<Trpc>().issues.dismissOffer,
+    sendChat: useChatSends().sendChat,
+    openFile: useUi().openFile,
+    uiState: useDeviceState(),
+    navigateToSession: useUi().navigateToSession,
+  }
   const session = usePaneSession(sessionId)
   const reconnecting = usePaneReconnecting(sessionId)
   // A session its issue's closing stopped ends with that outcome (POD-2151).
@@ -307,7 +326,11 @@ export function AgentPanel({
   // screen. (The arbitration hook reads the same query for the mode default; that
   // one is a MODE input, this one is a layout one, so they stay separate.)
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-  const snoozeNow = useDeadlineNow(session?.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
+  const snoozeNow = useDeadlineNow(
+    session?.snoozedUntil && session.snoozedUntil !== 'forever'
+      ? Date.parse(session.snoozedUntil)
+      : undefined,
+  )
   // Offer snooze in the full view when the session is in (or already snoozed out
   // of) the attention surface — not for actively-working or parked sessions.
   const showSnooze =
@@ -421,9 +444,22 @@ export function AgentPanel({
   // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
-  const conversation = useConversation(sessionId, { deferInitialTranscript: !spawnConfirmed, initialPendingText: optimisticFirstPrompt })
-  const runtime = useStoreHandle<Trpc>()
-  useEffect(() => reaction(() => runtime.drafts.get(sessionId), text => { draftRef.current = text }, { fireImmediately: true }), [runtime, sessionId])
+  const conversation = useConversation(sessionId, {
+    deferInitialTranscript: !spawnConfirmed,
+    initialPendingText: optimisticFirstPrompt,
+  })
+  const runtime = useClientRuntime<Trpc>()
+  useEffect(
+    () =>
+      reaction(
+        () => runtime.drafts.get(sessionId),
+        (text) => {
+          draftRef.current = text
+        },
+        { fireImmediately: true },
+      ),
+    [runtime, sessionId],
+  )
   // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
   // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
   // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
@@ -501,7 +537,9 @@ export function AgentPanel({
     test: E2E,
     testSessions: () => {
       const rows = testPool ? readSessions(testPool) : undefined
-      return Array.isArray(rows) ? rows.map(row => ({ sessionId: row.sessionId, title: row.title })) : []
+      return Array.isArray(rows)
+        ? rows.map((row) => ({ sessionId: row.sessionId, title: row.title }))
+        : []
     },
     echoLatencyEnabled,
     // Applied synchronously in onMounted below. Passing it here would make
@@ -667,26 +705,34 @@ export function AgentPanel({
     if (!conversation) return
     const paths = fileLinkPathsRef.current
     const log = conversation.transcript
-    const publish = () => mountedRef.current?.view.setFileLinks({
-      cwd: session?.cwd ?? '/', knownPaths: paths.knownPaths,
-      onOpen: abs => openFile(sessionId, abs),
-    })
+    const publish = () =>
+      mountedRef.current?.view.setFileLinks({
+        cwd: session?.cwd ?? '/',
+        knownPaths: paths.knownPaths,
+        onOpen: (abs) => openFile(sessionId, abs),
+      })
     paths.reset()
     paths.add(log.items)
     publish()
-    const stopItems = observe(log.byId, change => {
+    const stopItems = observe(log.byId, (change) => {
       if (change.type === 'delete') return
       paths.add([change.newValue])
       publish()
     })
-    const stopOrder = reaction(() => log.ids.slice(), (ids, before) => {
-      if (before.some(id => !log.byId.has(id))) {
-        paths.reset()
-        paths.add(log.items)
-        publish()
-      }
-    })
-    return () => { stopItems(); stopOrder() }
+    const stopOrder = reaction(
+      () => log.ids.slice(),
+      (ids, before) => {
+        if (before.some((id) => !log.byId.has(id))) {
+          paths.reset()
+          paths.add(log.items)
+          publish()
+        }
+      },
+    )
+    return () => {
+      stopItems()
+      stopOrder()
+    }
   }, [conversation, mountedRef, sessionId, session?.cwd, openFile])
 
   // Keep the provider's cwd and open callback current even when the session's
@@ -1352,7 +1398,16 @@ export function AgentPanel({
 }
 
 /** Only this visible wait label observes time; the terminal panel stays still. */
-function TerminalStartupOverlay({ ready, outputSeen, createdAt, agentKind, attachWaitSince, awaitingSince, active, termBg }: {
+function TerminalStartupOverlay({
+  ready,
+  outputSeen,
+  createdAt,
+  agentKind,
+  attachWaitSince,
+  awaitingSince,
+  active,
+  termBg,
+}: {
   ready: boolean
   outputSeen: boolean
   createdAt?: string
@@ -1364,78 +1419,78 @@ function TerminalStartupOverlay({ ready, outputSeen, createdAt, agentKind, attac
 }) {
   const silenceNow = useClock(1_000, active && (!ready || !outputSeen || awaitingSince !== 0))
   const overlay = startupOverlay({
-    ready, outputSeen,
+    ready,
+    outputSeen,
     ageMs: sessionAgeMs(createdAt, silenceNow),
     attachWaitMs: attachWaitSince === 0 ? null : Math.max(0, silenceNow - attachWaitSince),
     awaitingMachineMs: awaitingSince === 0 ? null : Math.max(0, silenceNow - awaitingSince),
   })
-return overlay.kind === 'hidden' ? null : (
-                  <div
-                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
-                    style={{ backgroundColor: termBg }}
-                    data-testid="terminal-startup-overlay"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {/* The spinner is a CLAIM that something is still happening, so
+  return overlay.kind === 'hidden' ? null : (
+    <div
+      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+      style={{ backgroundColor: termBg }}
+      data-testid="terminal-startup-overlay"
+      role="status"
+      aria-live="polite"
+    >
+      {/* The spinner is a CLAIM that something is still happening, so
                     it is dropped the moment that claim stops being credible
                     [POD-2290] — a stalled mount says so in words instead of
                     animating over a wait that is not going to end. */}
-                    {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
-                      <span
-                        className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <span data-testid="startup-headline">
-                      {overlay.kind === 'awaiting-machine'
-                        ? 'Waiting for this machine'
-                        : overlay.kind === 'stalled'
-                          ? `${agentKind ? panelLabel(agentKind) : 'This session'} hasn’t started`
-                          : `Starting ${agentKind ? panelLabel(agentKind) : 'session'}…`}
-                    </span>
-                    {/* The one overlay arm that names a cause, because here the
+      {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
+        <span
+          className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+          aria-hidden="true"
+        />
+      )}
+      <span data-testid="startup-headline">
+        {overlay.kind === 'awaiting-machine'
+          ? 'Waiting for this machine'
+          : overlay.kind === 'stalled'
+            ? `${agentKind ? panelLabel(agentKind) : 'This session'} hasn’t started`
+            : `Starting ${agentKind ? panelLabel(agentKind) : 'session'}…`}
+      </span>
+      {/* The one overlay arm that names a cause, because here the
                     panel actually knows it: the session is reconnecting (its
                     machine is offline) and no driver fact has arrived, so what is missing is the
                     MACHINE, not the harness. Saying "Starting OpenCode…" over
                     this is the round-two bug in miniature — a claim about a
                     process nobody is talking to. [POD-2290] */}
-                    {overlay.kind === 'awaiting-machine' && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}.
-                        The session is still here — it will pick up again once the machine
-                        reconnects.
-                      </span>
-                    )}
-                    {/* What the operator can actually do about it. Deliberately
+      {overlay.kind === 'awaiting-machine' && (
+        <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+          Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}. The session is
+          still here — it will pick up again once the machine reconnects.
+        </span>
+      )}
+      {/* What the operator can actually do about it. Deliberately
                     silent on the CAUSE: nothing here can tell a spawn that
                     failed from a machine that went away, and naming the wrong
                     one is worse than naming none. */}
-                    {overlay.kind === 'stalled' && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}.
-                        The session may have failed to start — check its status, or spawn it again.
-                      </span>
-                    )}
-                    {/* Machine voice, mono and tabular so the digits don't jitter.
+      {overlay.kind === 'stalled' && (
+        <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+          Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}. The session may
+          have failed to start — check its status, or spawn it again.
+        </span>
+      )}
+      {/* Machine voice, mono and tabular so the digits don't jitter.
                     aria-hidden: a per-second counter inside a live region would
                     re-announce itself every tick; the lines around it carry the
                     meaning a screen reader needs. */}
-                    {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
-                      <span
-                        className="font-mono text-[11px] text-zinc-500 tabular-nums"
-                        data-testid="startup-silence"
-                        aria-hidden="true"
-                      >
-                        no output yet · {formatClock(overlay.elapsedMs)}
-                      </span>
-                    )}
-                    {overlay.kind === 'silent' && overlay.hint && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Still attached — some CLIs update themselves or run first-time setup before
-                        printing anything.
-                      </span>
-                    )}
-                  </div>
-                )
+      {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
+        <span
+          className="font-mono text-[11px] text-zinc-500 tabular-nums"
+          data-testid="startup-silence"
+          aria-hidden="true"
+        >
+          no output yet · {formatClock(overlay.elapsedMs)}
+        </span>
+      )}
+      {overlay.kind === 'silent' && overlay.hint && (
+        <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+          Still attached — some CLIs update themselves or run first-time setup before printing
+          anything.
+        </span>
+      )}
+    </div>
+  )
 }

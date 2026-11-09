@@ -21,7 +21,7 @@ const state: {
 const handoffSession = vi.fn(async () => 'eff_handoff')
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({
+  useClientRuntime: () => ({
     access: {
       setPinned: vi.fn(),
       setSnooze: vi.fn(),

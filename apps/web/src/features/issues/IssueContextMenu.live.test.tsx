@@ -3,7 +3,6 @@ import type { SessionView, SessionViewInput } from '@podium/client-core/session-
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
-  asIssueId,
   asMachineId,
   asRepoId,
   asSessionId,
@@ -69,7 +68,7 @@ const markIssueUnread = vi.fn(async () => {})
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({
+  useClientRuntime: () => ({
     access: {
       handoffSession,
       markIssueRead,

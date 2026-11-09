@@ -30,7 +30,7 @@ const fixture = vi.hoisted(() => {
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ access: fixture.access }),
+  useClientRuntime: () => ({ access: fixture.access }),
 }))
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/lib/use-persisted-ui-state', () => ({

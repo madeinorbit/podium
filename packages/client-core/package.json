@@ -284,6 +284,16 @@
       "@podium/source": "./test-support/react.ts",
       "types": "./test-support/react.ts",
       "import": "./test-support/react.ts"
+    },
+    "./commands": {
+      "@podium/source": "./src/commands/index.ts",
+      "types": "./src/commands/index.ts",
+      "import": "./src/commands/index.ts"
+    },
+    "./notices": {
+      "@podium/source": "./src/notices.ts",
+      "types": "./src/notices.ts",
+      "import": "./src/notices.ts"
     }
   },
   "scripts": {

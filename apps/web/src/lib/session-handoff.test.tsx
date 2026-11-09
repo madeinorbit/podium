@@ -17,7 +17,7 @@ const held = vi.hoisted(() => {
   return observable.map<string, Record<string, unknown>>({}, { deep: false })
 })
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ access: { handoffSession } }),
+  useClientRuntime: () => ({ access: { handoffSession } }),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => ({

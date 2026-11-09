@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
@@ -51,7 +51,7 @@ async function mount(roster = false) {
     return <AgentConcurrencyHistory working={workingCount} />
   }
   function Header() {
-    const owner = useStoreHandle() as ClientRuntime
+    const owner = useClientRuntime() as ClientRuntime
     const pool = useWorklistPool()
     useEffect(() => {
       runtime = owner

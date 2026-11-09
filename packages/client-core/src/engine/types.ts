@@ -7,7 +7,6 @@ import type { NavigationIntent } from '../ui/navigation'
  * client).
  */
 
-import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   ArtifactId,
   IssueId,
@@ -15,38 +14,23 @@ import type {
   MutationId,
   SessionId,
   ThreadId,
-  UpdateChannel,
-  WorkState,
 } from '@podium/model'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { ReadPositionPort } from '../read-position'
-import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { SocketHub } from '../socket-transport'
-import type {
-  IssueWorkAction,
-  LaunchSessionArgs,
-  SessionAnswer,
-  SpawnDraftAgentArgs,
-  SpawnIssueAgentArgs,
-  StartIssueSession,
-  TaskSpawnOutcome,
-} from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
-  FileScope,
   FileTab,
   PaneId,
-  PinKind,
   RecentFileEntry,
   SplitAxis,
   TabId,
   WorkspaceKey,
   WorkspaceMap,
 } from '../values'
-import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from '../conversation/sends'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {
@@ -133,11 +117,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  durable storage is unusable (private mode) the same collections run in
    *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
-  /** Pin or unpin a session, issue, worktree or repo: my `pin` record
-   *  (POD-6673). Readers read the pool's pin models. */
-  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
-  /** My manual session order of one worktree: my `tabOrder` record (POD-6673). */
-  setTabOrder: (worktree: string, sessionIds: SessionId[]) => Promise<void>
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
   setView: (view: MainView) => void
@@ -159,9 +138,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockTab: DockTab
   setDockTab: (tab: DockTab) => void
   setSuperOpen: (open: boolean) => void
-  /** "Ask superagent (BTW)": open the dock and attach this session's transcript
-   *  to the next turn (POD-1069). See {@link attachedSessionId}. */
-  startBtw: (sessionId: SessionId) => Promise<void>
   /** The session attached to the NEXT superagent turn, or null. Spent by the
    *  send that carries it; the composer shows it so an attachment is never a
    *  silent one. Not persisted. */
@@ -298,88 +274,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     worktreePath?: string
   }) => void
   closeFileTab: (id: string) => void
-  readFileScoped: (
-    scope: FileScope,
-    path: string,
-  ) => Promise<Awaited<ReturnType<TApi['files']['read']['query']>>>
-  writeFileScoped: (args: {
-    scope: FileScope
-    path: string
-    content: string
-    baseHash?: string
-  }) => Promise<Awaited<ReturnType<TApi['files']['write']['mutate']>>>
-  listDir: (args: {
-    machineId?: MachineId
-    root: string
-    path?: string
-  }) => Promise<Awaited<ReturnType<TApi['files']['list']['query']>>>
-  /** Git dock panel [POD-114] — read-only checkout inspection (raw git output;
-   *  parsing lives in the web viewmodels). */
-  gitStatus: (args: {
-    machineId?: MachineId
-    root: string
-  }) => Promise<Awaited<ReturnType<TApi['git']['status']['query']>>>
-  gitLog: (args: {
-    machineId?: MachineId
-    root: string
-  }) => Promise<Awaited<ReturnType<TApi['git']['log']['query']>>>
-  gitDiffFile: (args: {
-    machineId?: MachineId
-    root: string
-    path: string
-  }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
-  /** Unfolding a commit [POD-1289] — the files it touched, and one file's diff
-   *  INSIDE it. Not `gitDiffFile`: that asks about the working tree, which
-   *  answers "nothing" for anything already committed. */
-  gitCommitFiles: (args: {
-    machineId?: MachineId
-    root: string
-    sha: string
-  }) => Promise<Awaited<ReturnType<TApi['git']['commitFiles']['query']>>>
-  gitCommitDiffFile: (args: {
-    machineId?: MachineId
-    root: string
-    sha: string
-    path: string
-  }) => Promise<Awaited<ReturnType<TApi['git']['commitDiffFile']['query']>>>
   split: boolean
   /** Split the focused pane in two, or — when the layout is already split —
    *  collapse it back to one pane, merging every pane's tabs into the first.
    *  A derived-mirror-safe adapter over `splitWorkspacePane`/`closeWorkspacePane`;
    *  `split` itself is read-only state derived from the layout's leaf count. */
   toggleSplit: () => void
-  /** Start a new agent optimistically (#119): mints client ids, paints a
-   *  'starting' session + its draft-issue vessel INSTANTLY (an overlay over the
-   *  server rows), then fires `sessions.create` in the background reusing those
-   *  ids so the broadcast reconciles by id — and rolls the optimistic rows back
-   *  if the create never lands. Returns the ids synchronously so the caller
-   *  navigates without waiting on the round-trip. */
-  spawnDraftAgent: (args: SpawnDraftAgentArgs) => {
-    sessionId: SessionId
-    issueId: IssueId
-    settled: Promise<boolean>
-  }
-  /** Start a session in a folder, joining the panel's task when it has one
-   *  (POD-6523): a `session.launch` effect record under a session id minted
-   *  here, painted from that record (and its queued create) until the row
-   *  lands. Returns the id synchronously so the caller opens its panel. */
-  launchSession: (args: LaunchSessionArgs) => {
-    sessionId: SessionId
-    settled: Promise<boolean>
-  }
-  /** Start a named task optimistically, including its first chat turn. */
-  spawnIssueAgent: (args: SpawnIssueAgentArgs) => {
-    sessionId: SessionId
-    issueId: IssueId
-    mutationId: MutationId
-    settled: Promise<boolean>
-    outcome: Promise<TaskSpawnOutcome>
-    /** True once the task was filed as a proposal (no agent comes). */
-    proposed: Promise<boolean>
-  }
-  killSession: (sessionId: SessionId) => Promise<void>
-  /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
-  continueSession: (sessionId: SessionId) => Promise<void>
   /** Session whose first manual Continue should raise the auto-continue popup,
    *  or null when the popup is closed. */
   autoContinuePromptSessionId: SessionId | null
@@ -398,234 +298,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     issueId: IssueId,
     opts?: { timeoutMs?: number; excludeSessionIds?: readonly SessionId[] },
   ) => Promise<SessionId | null>
-  renameSession: (sessionId: SessionId, name: string) => Promise<void>
-  /** My superagent thread's model and effort, as the prompt box picked them
-   *  (POD-6675): a queued edit of its record; `auto` follows the settings role. */
-  setSuperagentBackend: (
-    threadId: string,
-    choice: { readonly model?: string; readonly effort?: string },
-  ) => Promise<void>
-  /** Rename a machine: an edit of its `machine` record (POD-6644). */
-  renameMachine: (machineId: MachineId, name: string) => Promise<void>
-  /** Pin a machine's update channel, or `null` to follow the fleet default. */
-  setMachineUpdateChannel: (machineId: MachineId, channel: UpdateChannel | null) => Promise<void>
-  hibernateSession: (sessionId: SessionId) => Promise<void>
-  /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,
-   *  KEEPING the branch, the transcript and the session row, so Resume can
-   *  rebuild the checkout from the branch. The middle of the lifecycle between
-   *  hibernate (which keeps the worktree) and kill (which tombstones the row) —
-   *  and until POD-1077 the only surface that could reach it was the CLI.
-   *
-   *  Refuses rather than throws on a dirty/conflicted tree; the refusal is
-   *  returned so the caller can offer `force`. */
-  endSession: (sessionId: SessionId, force?: boolean) => Promise<SessionEndResult>
-  /**
-   * Stop the turn the person saw (POD-6397): a `session.interrupt` effect
-   * record naming that turn (`turn`: the session's `agentState.turnStartedAt`)
-   * and the send it retracts if it has not reached the agent. Resolves once the
-   * record is durably queued, with its id; the session model reads its progress
-   * (`interrupting`, `interruptStuck`) from the record, on every device.
-   */
-  interruptTurn: (
-    sessionId: SessionId,
-    args: { turn?: string; messageId?: string },
-  ) => Promise<string>
-  /**
-   * Change a running session's model or effort (POD-6523): a
-   * `session.configure` effect record with the patch. Resolves once it is
-   * durably queued, with its id; the session model reads its progress and the
-   * driver's answer (`configureChange`) from the record, on every device.
-   */
-  configureSession: (
-    sessionId: SessionId,
-    patch: { model?: string; effort?: string },
-  ) => Promise<string>
-  /**
-   * Move a session to another machine (POD-6422): a `session.handoff` effect
-   * record. Resolves once it is durably queued, with its id; the session model
-   * reads its progress (`handoff`, `handingOffTo`) from the record, on every
-   * device, and the caller that says how it ended waits for it (`awaitEffect`).
-   */
-  handoffSession: (sessionId: SessionId, machineId: MachineId) => Promise<string>
-  /** Take an ended effect record off the feed (`effects.dismiss`). */
-  dismissEffect: (id: string) => Promise<void>
-  /**
-   * Start a session on an existing issue (POD-6526): its first, with its
-   * worktree (`issue.begin`), or one more agent or a shell
-   * (`issue.addSession`), as an effect record under a session id minted here.
-   * The session is painted on the issue from its queued create and then from
-   * its record (also while the machine is offline) until the row lands; a
-   * failure is told once on this device. Returns synchronously.
-   */
-  startIssueSession: StartIssueSession
-  /**
-   * Stop, clean up, ship or refresh the assistant of an issue (POD-6526): its
-   * `issue.stop`, `issue.cleanup`, `issue.ship` or `issue.assistant` effect
-   * record. Resolves once it is durably queued, with its id; the issue model
-   * reads its progress (`workAction`) from the record, on every device, and a
-   * caller that says how it ended waits for it (`awaitEffect`).
-   */
-  issueAction: (
-    issueId: IssueId,
-    action: IssueWorkAction,
-    opts?: { force?: boolean },
-  ) => Promise<string>
-  /**
-   * Answer a session's question (POD-6415): a `session.answer` effect record,
-   * created at once (never queued; an answer is online-only). Resolves with its
-   * id once the server holds it; how the delivery went is the record's
-   * `result`, which a caller waits for (`awaitAnswer`).
-   */
-  answerSession: (sessionId: SessionId, answer: SessionAnswer) => Promise<string>
-  resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
-  /**
-   * Approve or deny an agent's request (POD-6674): `decision` on its `approval`
-   * effect record, against the record `revision` the person saw. Resolves once
-   * the edit is durable in the outbox; a refusal (decided elsewhere first)
-   * shows on the record and in the outbox's notices.
-   */
-  decideApproval: (id: string, decision: 'approve' | 'deny', revision: number) => Promise<void>
-  /**
-   * Turn one of my trigger subscriptions on or off (POD-6676): `enabled` on its
-   * `subscription` record, by its feed id. Resolves once the edit is durable in
-   * the outbox; a refusal shows in the outbox's notices.
-   */
-  setSubscriptionEnabled: (id: string, enabled: boolean) => Promise<void>
-  /** Remove one of my trigger subscriptions: its record, by its feed id. */
-  removeSubscription: (id: string) => Promise<void>
-  /**
-   * Send one chat message to a session through the durable outbox (POD-4762),
-   * keyed by `mutationId` — the message id the composer minted, minted here when
-   * absent. `wake` sends to a parked (hibernated/exited) session, waking it
-   * first. Resolves with the server's answer; rejects with `ChatNotSentError`
-   * when the outbox gives up. Calling it again with the same id never sends a
-   * second message: it waits on, re-issues or re-confirms the one entry.
-   */
-  sendChat: (input: ChatSendInput, mutationId?: MutationId) => Promise<ChatSendOutcome>
-  /** The chat messages the outbox still holds for one session — the bubbles a
-   *  reloaded conversation must show again. Read on call, not reactive. */
-  chatSendsFor: (sessionId: SessionId) => OutboxChatSend[]
-  /** Let a failed chat message go: the outbox drops its copy, so nothing sends
-   *  it later. The "discard" beside "not sent — retry". */
-  discardChat: (mutationId: MutationId) => Promise<void>
-  archiveSession: (sessionId: SessionId, archived: boolean) => Promise<void>
-  /** Decline the standing offer without answering it [spec:SP-c7f1] — the third
-   *  exit, next to pressing a button and letting the next turn clear it.
-   *
-   *  SHARED state, not a local hide: the offer is a fact about the session, so
-   *  the dismissal leaves every surface and every viewer. OUTBOXED since
-   *  POD-1110 (`offline: 'eligible'`) — it survives an offline gap like every
-   *  other row edit, and the queued entry paints the offer away while it waits.
-   *  A replay is safe by construction: the write names ONE offer by its
-   *  `offerCreatedAt`, and the server refuses a dismissal whose stamp no longer
-   *  matches the standing offer.
-   *
-   *  Callers need no optimistic hide and no rollback of their own: the entry is
-   *  the optimistic apply, and a definitive refusal drops the paint and toasts. */
-  dismissOffer: (sessionId: SessionId, offerCreatedAt: string) => Promise<void>
-  setWorkState: (sessionId: SessionId, workState: WorkState | null) => Promise<void>
-  /** Snooze a session out of the attention surface. `until` = null → until next
-   *  message; ISO string → timed. Orthogonal to agent state. */
-  setSnooze: (sessionId: SessionId, until: string | null) => Promise<void>
-  /** Un-snooze a session (return it to the normal attention flow). */
-  clearSnooze: (sessionId: SessionId) => Promise<void>
-  /** Mark a session read. Automatic receipts pass the observed activity;
-   * explicit gestures omit it to acknowledge current server activity. Outboxed. */
-  markSessionRead: (sessionId: SessionId, readAt?: string) => Promise<void>
-  /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
-   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
-  markSessionUnread: (sessionId: SessionId) => Promise<void>
-  /** Mark an issue read. Automatic receipts pass the observed activity;
-   * explicit gestures omit it for a covering server cursor. Outboxed. */
-  markIssueRead: (id: string, readAt?: string) => Promise<void>
-  /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
-   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
-  markIssueUnread: (id: string) => Promise<void>
-  /** Tuck a finished issue into the sidebar's Closed fold, or bring it back
-   *  (POD-333): stamp tuckedAt = now / null. Optimistic + outboxed, so the row
-   *  folds on the press and the dismissal is SERVER state — it survives a
-   *  different browser and every other client folds the same row. */
-  setIssueTucked: (id: string, tucked: boolean) => Promise<void>
-  /**
-   * PATCH AN ISSUE — the generic curation write (POD-781). Optimistic +
-   * outboxed: the row repaints on the press instead of after the round trip,
-   * which is what an inline rename, a colour, a pin, a stage move and a
-   * drag-reorder all needed and none of them had.
-   *
-   * One action for one command. `patch` is the contract's own patch type, so
-   * every field `issues.update` accepts is reachable here without this signature
-   * growing a case per field.
-   */
-  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<void>
-  /**
-   * GENERIC SYNCED EDITS (ADR 12 D3, POD-6392): create, edit and remove any
-   * declared record kind. Each paints at once and is confirmed by receipt like
-   * every other write; the promise settles when the outbox entry is durable and
-   * rejects, painting nothing, for an input the kind's declaration refuses.
-   */
-  records: RecordsApi
-  /**
-   * DISMISS an issue — `issues.archive`, the sidebar's one-way archive.
-   *
-   * Distinct from `updateIssue(id, { archived })` ON PURPOSE: they are two
-   * commands, and the sidebar's dismiss has always called this one while the
-   * context menu's archive/unarchive TOGGLE calls the patch. Collapsing them
-   * here would silently re-route one surface's writes through the other's
-   * contract.
-   */
-  archiveIssue: (id: string) => Promise<void>
-  /**
-   * TOMBSTONE an issue and, server-side, every session on it. Optimistic +
-   * outboxed: the row and its nested sessions leave the sidebar on the press.
-   * Soft: `issues.restore` brings both back.
-   */
-  deleteIssue: (id: string) => Promise<void>
-  /**
-   * CLOSE an issue — `issues.close`, the menu's Done / Won't fix pair.
-   *
-   * Not `updateIssue(id, {stage:'done', closedReason})` even though that is what
-   * the server's close does internally: the close command also carries the acting
-   * session into `issue.closed` (so the steward does not nudge the session that
-   * asked for the close) and refuses a proposed issue for an agent caller.
-   * Optimistic + outboxed — the row reaches the Closed fold on the press.
-   */
-  closeIssue: (id: string, reason?: string) => Promise<void>
-  /** SNOOZE an issue until an instant, a bare date, or `next-message` — `null`
-   *  clears quietly. Optimistic + outboxed. */
-  deferIssue: (id: string, until: string | null) => Promise<void>
-  /** END a snooze the loud way (issue #133): backdates `deferUntil` so the row
-   *  floats to the top of WORK wearing "Unsnoozed", rather than clearing it the
-   *  way `deferIssue(id, null)` does. Optimistic + outboxed. */
-  undeferIssue: (id: string) => Promise<void>
-  /** REWRITE an issue's whole label set — `issues.setLabels`, `manage` authority.
-   *  The caller sends the set it wants, not a delta. Optimistic + outboxed. */
-  setIssueLabels: (id: string, labels: string[]) => Promise<void>
-  /**
-   * MOVE discovered work between "part of the mission" and "its own thing"
-   * (POD-679) — `issues.setPlacement`, one command so the parent link and the
-   * provenance edge can never disagree.
-   *
-   * Optimistic + outboxed: the row leaves or joins the mission on the press. The
-   * overlay paints the parent link only — the edge is derived server-side — so
-   * the placement CHIP settles a round trip behind the row it describes.
-   */
-  setIssuePlacement: (id: string, placement: 'own' | 'mission', originId: string) => Promise<void>
-  /** UNDO a delete — `issues.restore`, `manage` authority: the issue comes back
-   *  and, server-side, the exact sessions its delete tombstoned. Optimistic +
-   *  outboxed, and a delete still QUEUED collapses against it, so the undo of a
-   *  fresh mistake never reaches the server at all. */
-  restoreIssue: (id: string) => Promise<void>
-  /** Per-session chat composer draft, shared across every view of that session
-   *  (chat panes, split view) and preserved across chat/native mode switches.
-   *  The native PTY input line is opaque bytes we can't read back, so this is the
-   *  one input state we *can* synchronize. */
-  setSessionDraft: (sessionId: SessionId, text: string) => void
-  /** Change my personal settings, by leaf path (`sidebar.repoOrder`,
-   *  `roles.coding.model`): an edit of my `userPreferences` record (POD-6673),
-   *  shown at once and on every device of mine. `undefined` resets a leaf. */
-  setPreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
-  /** Change instance settings by leaf path, through its synced admin-owned record. */
-  setInstancePreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
   /** Keyed access routes device preferences to UiStore and synced layout to the pool. */
   uiState: RoutedUiState
   /** This person's event-stream read positions (POD-1380). Its own port, not a

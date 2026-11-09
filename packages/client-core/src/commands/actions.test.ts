@@ -13,11 +13,15 @@ import {
   userPreferencesRowId,
 } from '@podium/model'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { COMMAND_ACTIONS, fixtureCommands, UI_LOCAL_ACTIONS } from '../../test-support/commands'
 import { layoutFixture } from '../../test-support/layout'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
+import type { RuntimeState } from '../engine/state'
+import type { StoreNotices } from '../engine/types'
 import type { OutboxEntry } from '../outbox'
 import { loadRecordDeclarations } from '../records'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
@@ -26,15 +30,7 @@ import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
 import { createRoutedUiState } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
-import {
-  COMMAND_ACTIONS,
-  createEngineActions,
-  type EngineActionRuntime,
-  UI_LOCAL_ACTIONS,
-} from './actions'
-import type { RuntimeState } from './state'
-import type { StoreNotices } from './types'
-import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
+import type { CommandDeps } from './context'
 
 beforeAll(loadRecordDeclarations)
 const sessionId = asSessionId('session-1')
@@ -164,7 +160,7 @@ function harness(
     waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
     ...extra,
-  } as unknown as EngineActionRuntime<PodiumClientApi>
+  } as unknown as CommandDeps<PodiumClientApi>
   const navigation = fixtureNavigation({
     issues: () => state.issueProjections as IssueProjection[],
     sessions: () => state.sessions as SessionView[],
@@ -223,7 +219,7 @@ function harness(
     }
   }
   Object.assign(runtime, { ui })
-  const actions = createEngineActions(runtime)
+  const actions = fixtureCommands(runtime)
   return {
     actions,
     ui,

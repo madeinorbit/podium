@@ -302,6 +302,20 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       }
     }
   }, [runtime])
+  useEffect(() => {
+    if (!runtime) return
+    return reaction(
+      () => runtime.ui.notices.slice(),
+      (pending) => {
+        for (const notice of pending) {
+          if (notice.kind === 'error') latest.current.notices.error(notice.message)
+          else latest.current.notices.info(notice.message, notice.description)
+          runtime.ui.dismissNotice(notice.id)
+        }
+      },
+      { fireImmediately: true },
+    )
+  }, [runtime])
   if (runtime === null || principal === null) {
     // FAIL CLOSED: no runtime means no transport, no replica read, no outbox —
     // and no children, because a child that rendered here would necessarily be
@@ -363,7 +377,9 @@ export function useCurrentPrincipal(): ClientPrincipal | null {
  *  HANDLE rather than a snapshot: the slice publisher is keyed on handle
  *  identity so the whole tree shares one, and a new principal — a new handle —
  *  gets a new publisher holding nothing. */
-export function useStoreHandle<TApi extends PodiumClientApi>(): StoreHandle<TApi> {
+export function useClientRuntime<
+  TApi extends PodiumClientApi = PodiumClientApi,
+>(): StoreHandle<TApi> {
   const s = useContext(Ctx)
   if (!s) throw new Error('useStore outside StoreProvider')
   return s as unknown as StoreHandle<TApi>
@@ -375,7 +391,7 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
   selector: (access: Store<TApi>) => T,
   isEqual: (a: T, b: T) => boolean = Object.is,
 ): T {
-  const owner = useStoreHandle<TApi>()
+  const owner = useClientRuntime<TApi>()
   const current = useRef({ selector, isEqual })
   current.current = { selector, isEqual }
   const view = useMemo(() => {
@@ -460,10 +476,10 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
 
 /** Screen state belongs to this device's MobX UiStore. Read fields in observers. */
 export function useUi(): import('../ui/ui-store').UiStore {
-  return useStoreHandle().ui
+  return useClientRuntime().ui
 }
 export function useDeviceState(): import('../ui-state').RoutedUiState {
-  return useStoreHandle().deviceState
+  return useClientRuntime().deviceState
 }
 
 /** Bind one MobX screen field for a leaf that is not an observer. */

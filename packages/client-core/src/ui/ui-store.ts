@@ -74,6 +74,7 @@ export interface Notice {
   readonly id: string
   readonly message: string
   readonly kind: 'error' | 'info'
+  readonly description?: string
 }
 export interface UiStorePorts {
   api: PodiumClientApi
@@ -412,9 +413,7 @@ export class UiStore {
   }
 
   @actionBound
-  async startBtw(...parameters: Parameters<Store['startBtw']>): ReturnType<Store['startBtw']> {
-    const [sessionId] = parameters
-
+  async startBtw(sessionId: SessionId): Promise<void> {
     this.patch({ attachedSessionId: sessionId, superOpen: true, dockTab: 'superagent' })
   }
 

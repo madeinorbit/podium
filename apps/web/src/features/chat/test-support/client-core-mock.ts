@@ -10,7 +10,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
     ...(
       await import('@podium/client-core/test-support/react')
     ).fixtureUiHooks(() => fakeStoreHandle),
-    useStoreHandle: () => fakeStoreHandle,
+    useClientRuntime: () => fakeStoreHandle,
   }))),
   useModelCatalog: () => ({}),
   // Served harness descriptors (POD-4475): provider-free suites render
@@ -27,6 +27,6 @@ vi.mock('../../../../../../packages/client-core/src/react/provider', async (impo
     ...(
       await import('@podium/client-core/test-support/react')
     ).fixtureUiHooks(() => fakeStoreHandle),
-    useStoreHandle: () => fakeStoreHandle,
+    useClientRuntime: () => fakeStoreHandle,
   }))),
 }))

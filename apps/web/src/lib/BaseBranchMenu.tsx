@@ -1,3 +1,4 @@
+import { useRequestClient } from '@podium/client-core/react'
 /**
  * THE BRANCH PICKER FOR A REPOSITORY'S BASE BRANCH AND A TASK'S PARENT [POD-2065].
  *
@@ -10,7 +11,6 @@
  * exists); the task page's edit is queued, so it rejects only on enqueue.
  */
 
-import { useStoreHandle } from '@podium/client-core/react'
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -204,7 +204,7 @@ export const RepoBaseBranchMenu = observer(function RepoBaseBranchMenu({
   anchor?: Element | null
 }): JSX.Element {
   const pool = useWorklistPool()
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const podiumDefault = usePodiumDefaultParentBranch()
   const scan = pool ? repositoryScanOf(pool, repoId, path) : undefined
   const repo = pool ? here(pool.model('repo', repoId)) : undefined

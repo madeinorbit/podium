@@ -1,3 +1,4 @@
+import { useRequestClient } from '@podium/client-core/react'
 /**
  * THE WORKFLOWS SOURCE (POD-647; synced records since POD-6676): the one hook
  * the workflow screen reads, so the components own no fetching, dispatch or
@@ -35,7 +36,6 @@
  * tombstone, no toast and no re-request of the vanished id.
  */
 
-import { useStoreHandle } from '@podium/client-core/react'
 import { type WorkflowRecords, workflowRecords } from '@podium/client-graph/workflow-views'
 import type {
   AgentProfileWire,
@@ -105,7 +105,7 @@ const NO_RECORDS: WorkflowRecords = {
 
 export function useWorkflows(): WorkflowsSource {
   // A service handle for the writes: the records themselves come from the pool.
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const pool = useWorklistPool()
   const records = useWorklistPoolProjection(workflowRecords, NO_RECORDS)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -189,7 +189,7 @@ export interface RunHistory {
  * when the run moves, so a new act shows.
  */
 export function useRunHistory(runId: string, open: boolean, revision: unknown): RunHistory {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const [state, setState] = useState<RunHistory>({ events: null, loading: false, error: null })
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` re-asks when the run moves; trpc is a stable store singleton.
   useEffect(() => {

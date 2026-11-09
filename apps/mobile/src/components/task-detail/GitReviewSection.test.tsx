@@ -1,6 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +25,7 @@ describe('GitReviewSection accessibility', () => {
     const owners = new Set<ClientRuntime>(),
       machineId = asMachineId('remote-host')
     function CaptureOwner() {
-      owners.add(useStoreHandle() as ClientRuntime)
+      owners.add(useClientRuntime() as ClientRuntime)
       return null
     }
     storeStats.enable()

@@ -53,7 +53,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useHarnessDescriptors: () => ({ served: [] }),
   ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => fixtureOwner()),
-  useStoreHandle: () => fixtureOwner(),
+  useClientRuntime: () => fixtureOwner(),
 }))
 
 vi.mock('@/lib/use-feature', () => ({

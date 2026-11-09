@@ -316,7 +316,9 @@ export class ChatViewModel {
   private saveBackend(choice: { model?: string; effort?: string }): void {
     const thread = this.conversation.thread
     if (this.superThread === undefined || thread === undefined) return
-    void this.conversation.runtime.access.setSuperagentBackend(thread.id, choice).catch(() => {})
+    void this.conversation.runtime.root.commands.threads
+      .setBackend(thread.id, choice)
+      .catch(() => {})
   }
   @actionBound captureContext(): void {
     if (!this.compact) return

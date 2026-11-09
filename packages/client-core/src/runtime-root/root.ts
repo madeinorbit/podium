@@ -29,7 +29,9 @@
  */
 
 import type { PodiumClientApi } from '../api'
+import type { Commands } from '../commands'
 import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
+import type { ChatCommands } from '../conversation/sends'
 import type { StoreNotices, StoreServerConfig } from '../engine/types'
 import { LiveFrameQueue } from '../live/frame-queue'
 import { LiveFeed } from '../live/live-feed'
@@ -138,6 +140,8 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly frames: LiveFrameQueue
   private readonly networkEnabled: boolean
   private conversationCache: ConversationCache | undefined
+  private commandModules: Commands<TApi> | undefined
+  private conversationSends: ChatCommands | undefined
   private started = false
   private disposed = false
 
@@ -220,6 +224,23 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The conversation cache, once the pool supplied its ports; undefined before. */
   get conversations(): ConversationCache | undefined {
     return this.conversationCache
+  }
+
+  /** Installed once by the composition root, over its existing pool write path. */
+  installCommands(commands: Commands<TApi>, sends: ChatCommands): void {
+    if (this.commandModules) throw new Error('Commands already installed')
+    this.commandModules = commands
+    this.conversationSends = sends
+  }
+
+  get commands(): Commands<TApi> {
+    if (!this.commandModules) throw new Error('Commands are not installed')
+    return this.commandModules
+  }
+
+  get chatSends(): ChatCommands {
+    if (!this.conversationSends) throw new Error('Conversation sends are not installed')
+    return this.conversationSends
   }
 
   /** The provider supplies addressed pool ports once, for this principal. */

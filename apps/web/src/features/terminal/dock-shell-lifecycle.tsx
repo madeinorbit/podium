@@ -1,11 +1,11 @@
-import { useUiValue } from '@podium/client-core/react'
+import { useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 
 type DockShellLifecycleSession = Pick<
   SessionView,
@@ -79,7 +79,7 @@ export function useStaleDockShellIds(): SessionId[] {
 }
 
 export function DockShellLifecycle(): null {
-  const { trpc } = useRuntimeActions(ACTIONS)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
   const staleIds = useStaleDockShellIds()
   const requested = useRef(new Set<SessionId>())
 

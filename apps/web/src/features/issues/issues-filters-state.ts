@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useDeviceState } from '@podium/client-core/react'
 import {
   ISSUES_DISPLAY_KEY,
   ISSUES_FILTERS_KEY,
@@ -26,7 +26,7 @@ export function useIssuesFilters(): [
   IssuesFilterPreference,
   (next: Omit<IssuesFilterPreference, 'source'>) => void,
 ] {
-  const ui = useStoreHandle().access.uiState as RoutedUiState | undefined
+  const ui = useDeviceState() as RoutedUiState | undefined
   const raw = usePersistedUiValue(ISSUES_FILTERS_KEY, rawOf)
   const legacyDisplay = usePersistedUiValue(ISSUES_DISPLAY_KEY, rawOf)
   const filters = useMemo(() => readIssuesFilters(raw, legacyDisplay), [raw, legacyDisplay])

@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
@@ -30,9 +31,10 @@ import { Stack, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useStoreActions } from '../client/hooks'
+import { useBooting } from '../client/hooks'
 import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet } from '../components/ActionSheet'
 import { AssigneeName } from '../components/AssigneeName'
@@ -80,7 +82,7 @@ const NO_FILTER: BoardFilter = {}
  */
 export const IssuesScreen = observer(function IssuesScreen() {
   const router = useRouter()
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const hasCloseBlockers = useIssueCloseGuard()
   const [searchOpen, setSearchOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -261,13 +263,15 @@ export const IssuesScreen = observer(function IssuesScreen() {
                 {
                   label: rowMenu.issue.pinned ? 'Unpin' : 'Pin',
                   onPress: () =>
-                    runAction(store.setPinned('issue', rowMenu.issue.id, !rowMenu.issue.pinned)),
+                    runAction(
+                      store.preferences.setPinned('issue', rowMenu.issue.id, !rowMenu.issue.pinned),
+                    ),
                 },
                 {
                   label: rowMenu.issue.archived ? 'Unarchive task' : 'Archive task',
                   onPress: () =>
                     runAction(
-                      store.updateIssue(rowMenu.issue.id, { archived: !rowMenu.issue.archived }),
+                      store.issues.update(rowMenu.issue.id, { archived: !rowMenu.issue.archived }),
                     ),
                 },
               ]
@@ -298,7 +302,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
           reason={closeIntent.reason}
           busy={false}
           onConfirm={(reason) => {
-            runAction(store.closeIssue(closeIntent.issue.id, reason))
+            runAction(store.issues.close(closeIntent.issue.id, reason))
             setCloseIntent(null)
           }}
           onClose={() => setCloseIntent(null)}
@@ -325,11 +329,11 @@ export const IssuesScreen = observer(function IssuesScreen() {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
-      runAction(store.updateIssue(issue.id, { stage: intent.stage }))
+      runAction(store.issues.update(issue.id, { stage: intent.stage }))
     } else if (hasCloseBlockers(issue.id)) {
       setCloseIntent({ issue, reason: intent.reason })
     } else {
-      runAction(store.closeIssue(issue.id, intent.reason))
+      runAction(store.issues.close(issue.id, intent.reason))
     }
     setRowMenu(null)
   }

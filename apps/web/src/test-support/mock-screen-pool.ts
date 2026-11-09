@@ -79,7 +79,7 @@ afterEach(() => {
 type Inputs = Partial<Store> & {
   openIssueId?: string | null
   issues?: Store['issueProjections']
-  chatSendsFor?: Store['chatSendsFor']
+  chatSendsFor?: import('@podium/client-core/conversation').ChatCommands['chatSendsFor']
   /** The gesture context the suite declares for its selection (R-GROUP 5):
    * true when the row was folded when clicked, false/undefined otherwise. */
   selectedIssueWasFolded?: boolean | null

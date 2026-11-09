@@ -64,7 +64,7 @@ let answer: TaskCostWire = wire()
 // The chip reads the store handle's keyed runtime access (since 01e6852ef5).
 // One stable handle, as the app's: readers key their models on `trpc` identity.
 const storeHandle = vi.hoisted(() => ({ access: { trpc: {} as Record<string, unknown> } }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => storeHandle }))
+vi.mock('@podium/client-core/react', () => ({ useClientRuntime: () => storeHandle }))
 storeHandle.access.trpc = {
   cost: {
     task: { query: () => Promise.resolve(answer) },

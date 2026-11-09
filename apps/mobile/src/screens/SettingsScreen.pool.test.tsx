@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { settingsView } from '@podium/client-graph/settings-views'
@@ -177,7 +177,7 @@ async function mount(count = 8, scale?: number) {
   let runtime!: ClientRuntime
   let show!: (shown: boolean) => void
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     const [shown, setShown] = useState(true)
     show = setShown
     seen.push(useMobilePool())

@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -5,8 +6,9 @@ import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useState } from 'react'
-import { useMissionOpening, useStoreActions } from '../client/hooks'
+import { useMissionOpening } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
@@ -28,7 +30,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const router = useRouter()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const menuIssueId = menuIssue?.id
@@ -58,12 +60,12 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
           onOpenTaskMenu={setMenuIssue}
           onLaunchAgent={() => setLaunchIssue(root)}
           onTuckRoot={() => {
-            void store.setIssueTucked(root.id, true).catch(() => {})
+            void store.issues.setTucked(root.id, true).catch(() => {})
           }}
           onFileRoot={() => {
-            void store
-              .closeIssue(root.id, 'done')
-              .then(() => store.setIssueTucked(root.id, true))
+            void store.issues
+              .close(root.id, 'done')
+              .then(() => store.issues.setTucked(root.id, true))
               .catch(() => {})
           }}
           onOpenDeparture={(issueId) =>

@@ -1,6 +1,6 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -21,7 +21,7 @@ vi.mock('@podium/client-core/react', () => {
       throw new Error('Menu reader reached the old store')
     },
   }
-  return { useStoreHandle: () => owner }
+  return { useClientRuntime: () => owner }
 })
 vi.mock('./SessionContextMenu', () => ({
   SessionContextMenu: (props: SessionContextMenuProps) => {
@@ -174,9 +174,7 @@ it('batches the addressed cold session and supplies pool inputs with equal click
       expect(pool.hydrate()).toBe(1)
     })
     expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
-    expect(load.mock.calls).toEqual([
-      ['session', 'chosen-session'],
-    ])
+    expect(load.mock.calls).toEqual([['session', 'chosen-session']])
     expect(
       read.mock.calls
         .filter(([entity]) => entity === 'session')

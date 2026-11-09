@@ -1,17 +1,19 @@
-import { issueWrites } from '@podium/commands/issues-synced'
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { ProposalScreening } from '@podium/client-graph/mobile-triage'
-import { LOADING } from '@podium/client-graph/loading'
-import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
-import { issueObserver } from '../client/issue-observer'
 import { issueRepoName } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
+import { ProposalScreening } from '@podium/client-graph/mobile-triage'
+import { issueWrites } from '@podium/commands/issues-synced'
+import type { IssueId } from '@podium/model'
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { IssueId } from '@podium/model'
-import { useStoreActions, useTrpc } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
+import { issueObserver } from '../client/issue-observer'
+import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -50,7 +52,8 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const router = useRouter()
   const pool = useMobilePool()
   const trpc = useTrpc()
-  const { closeIssue, startIssueSession } = useStoreActions()
+  const { close: closeIssue } = useCommands<MobileTrpc>().issues,
+    { startIssueSession } = useCommands<MobileTrpc>().sessions
   const insets = useSafeAreaInsets()
   const deck = useMemo(() => (pool ? new ProposalScreening(pool) : null), [pool])
   useEffect(() => deck?.open(), [deck])

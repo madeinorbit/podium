@@ -805,7 +805,7 @@ describe('session resurrection (POD-6399)', () => {
     api.sessions.resurrect = { mutate: resurrect }
     const { engine, errors } = makeEngine({ api })
 
-    const result = await engine.access.resurrectSession(asSessionId('sleeping'))
+    const result = await engine.root.commands.sessions.resume(asSessionId('sleeping'))
 
     expect(resurrect).not.toHaveBeenCalled()
     // This fixture attaches no pool writer: the edit is refused, and says so.
@@ -945,13 +945,13 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
     } as const
-    await engine.access.readFileScoped(scope, 'index.html')
+    await engine.root.commands.files.read(scope, 'index.html')
     expect(reads).toEqual([
       { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' },
     ])
     // Immutable snapshot: the write API is never called.
     await expect(
-      engine.access.writeFileScoped({ scope, path: 'index.html', content: 'x' }),
+      engine.root.commands.files.write({ scope, path: 'index.html', content: 'x' }),
     ).rejects.toThrow('artifact snapshots are read-only')
     expect(api.files.write.mutate).not.toHaveBeenCalled()
     engine.dispose()
@@ -1130,7 +1130,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.access.setSessionDraft(SID, 'typed with the socket down')
+    engine.root.commands.sessions.setSessionDraft(SID, 'typed with the socket down')
 
     expect(draftOf(engine)).toBe('typed with the socket down')
     engine.dispose()
@@ -1144,7 +1144,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.access.setSessionDraft(SID, 'hello world')
+    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
 
     expect(draftOf(engine)).toBe('hello world')
@@ -1157,7 +1157,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.access.setSessionDraft(SID, 'hello world')
+    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
     await settle()
 
@@ -1178,7 +1178,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.access.setSessionDraft(SID, 'hello world')
+    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello')
 
     expect(draftOf(engine)).toBe('hello world')
@@ -1238,7 +1238,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.access.setSessionDraft(SID, 'hello world')
+    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
     await settle()
     const sentBeforeEcho = hub.draftEdits.length
 
@@ -1259,7 +1259,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.access.setSessionDraft(SID, 'typed during the outage')
+    engine.root.commands.sessions.setSessionDraft(SID, 'typed during the outage')
     await settle()
     expect(hub.draftEdits).toEqual([])
 
@@ -1281,7 +1281,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const storage = memoryStorage()
     const first = makeEngine({ storage, draftPersistDebounceMs: 60_000 })
     first.hub.connected = false
-    first.engine.access.setSessionDraft(SID, 'the last unsent keystroke')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'the last unsent keystroke')
     await first.engine.prepareReload()
     const restored = makeEngine({ storage })
     expect(restored.engine.drafts.get(SID)).toBe('the last unsent keystroke')
@@ -1299,9 +1299,9 @@ describe('offline-first composer drafts (POD-2045)', () => {
       release = resolve
     })
     first.engine.outbox.flushLocalWrites = () => commit
-    first.engine.access.setSessionDraft(SID, 'before commit')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'before commit')
     const prepared = first.engine.prepareReload()
-    first.engine.access.setSessionDraft(SID, 'typed during commit')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'typed during commit')
     release()
     await prepared
     const restored = makeEngine({ storage })
@@ -1316,7 +1316,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.access.setSessionDraft(SID, 'survives the reload')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'survives the reload')
     await settle(40)
     first.engine.dispose()
     await settle()
@@ -1335,7 +1335,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.access.setSessionDraft(SID, 'never reached the server')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'never reached the server')
     await settle(40)
     first.engine.dispose()
     await settle()
@@ -1391,11 +1391,11 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const first = makeEngine({ storage, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
-    first.engine.access.setSessionDraft(SID, 'temporary')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'temporary')
     await settle(30)
     first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
     await settle(30)
-    first.engine.access.setSessionDraft(SID, '')
+    first.engine.root.commands.sessions.setSessionDraft(SID, '')
     await settle(30)
     first.hub.emit('sessionDraft', SID, '', { rev: 8 })
     await settle(30)
@@ -1409,8 +1409,8 @@ describe('offline-first composer drafts (POD-2045)', () => {
     second.hub.emit('connectionHealth', second.hub.health)
     await settle()
     expect(second.hub.draftEdits).toEqual([])
-    second.engine.access.setSessionDraft(SID, 'new draft')
-    second.engine.access.setSessionDraft(SID, '')
+    second.engine.root.commands.sessions.setSessionDraft(SID, 'new draft')
+    second.engine.root.commands.sessions.setSessionDraft(SID, '')
     expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 8, text: '' })
     second.engine.dispose()
     await settle()
@@ -1425,7 +1425,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const off = observe(engine.drafts.values, (change) => {
       if (change.name === SID) published.push(engine.drafts.get(SID))
     })
-    engine.access.setSessionDraft(SID, '')
+    engine.root.commands.sessions.setSessionDraft(SID, '')
     expect(published).toEqual([''])
     expect(engine.drafts.get(SID)).toBe('')
     hub.emit('sessionDraft', SID, '', { rev: 6 })
@@ -1442,7 +1442,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
-    first.engine.access.setSessionDraft(SID, 'previous message')
+    first.engine.root.commands.sessions.setSessionDraft(SID, 'previous message')
     await settle(30)
     first.hub.emit('sessionDraft', SID, 'previous message', { rev: 7 })
     await settle(30)

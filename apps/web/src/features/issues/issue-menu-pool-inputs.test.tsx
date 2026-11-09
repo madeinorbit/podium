@@ -1,6 +1,6 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -27,7 +27,7 @@ vi.mock('./IssueContextMenu', () => ({
   },
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({
+  useClientRuntime: () => ({
     getSnapshot: () => {
       throw new Error('Task reader borrowed the old store')
     },

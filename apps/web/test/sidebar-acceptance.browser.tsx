@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime, useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   createKernelReplica,
@@ -174,7 +174,7 @@ function MeasurementBinding() {
 }
 
 function Fixture() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
   const selected = useRuntimeSelector((s) => s.selectedIssueId)
   const [pageTargets, setPageTargets] = useState<string[]>([])

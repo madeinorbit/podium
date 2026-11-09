@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { asUserId } from '@podium/model/browser'
@@ -11,16 +11,16 @@ import { createRoot } from 'react-dom/client'
 import { AuthStatusContext } from '../src/client/auth-context'
 import { attachMobilePool, useMobilePool } from '../src/client/mobile-pool'
 import { MobileShellProvider } from '../src/client/shell'
+import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
 import { followPodiumLink } from '../src/lib/podium-link'
-import { WorkScreen } from '../src/screens/WorkScreen'
-import { IssuesScreen } from '../src/screens/IssuesScreen'
-import { SessionsScreen } from '../src/screens/SessionsScreen'
-import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
 import { InboxScreen } from '../src/screens/InboxScreen'
+import { IssuesScreen } from '../src/screens/IssuesScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
+import { SessionsScreen } from '../src/screens/SessionsScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
+import { WorkScreen } from '../src/screens/WorkScreen'
 import { createInboxFixture } from './inbox-fixture'
 import { navigation } from './inbox-platform'
 
@@ -33,15 +33,23 @@ if (new URLSearchParams(location.search).has('scrollScreen')) {
   for (let index = 12; index < 600; index++) {
     const issueKey = `issueProjection:synthetic-${index}`
     const issue = fixture.records.get(issueKey)!
-    fixture.records.set(issueKey, { ...issue, value: { ...(issue.value as object),
-      archived: false, closedAt: null, closedReason: null, stage: 'in_progress',
-      worktreePath: '/synthetic/project',
-    } })
+    fixture.records.set(issueKey, {
+      ...issue,
+      value: {
+        ...(issue.value as object),
+        archived: false,
+        closedAt: null,
+        closedReason: null,
+        stage: 'in_progress',
+        worktreePath: '/synthetic/project',
+      },
+    })
     const sessionKey = `session:synthetic-session-${index}`
     const session = fixture.records.get(sessionKey)!
-    fixture.records.set(sessionKey, { ...session, value: { ...(session.value as object),
-      archived: false, status: 'live',
-    } })
+    fixture.records.set(sessionKey, {
+      ...session,
+      value: { ...(session.value as object), archived: false, status: 'live' },
+    })
   }
 }
 const tokens = [
@@ -76,9 +84,11 @@ function Pulse() {
   )
 }
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
+  owner = useClientRuntime() as ClientRuntime
   pool = useMobilePool()
-  const [screen, setScreen] = useState(new URLSearchParams(location.search).get('scrollScreen') ?? 'inbox')
+  const [screen, setScreen] = useState(
+    new URLSearchParams(location.search).get('scrollScreen') ?? 'inbox',
+  )
   return (
     <main>
       <small>
@@ -96,11 +106,38 @@ function Surface() {
           Proposals
         </button>
       </nav>
-      {['work', 'tasks', 'sessions', 'target'].map(name => <button key={name} onClick={() => setScreen(name)}>{name}</button>)}
-      {screen === 'work' && <div className="surface"><WorkScreen /></div>}
-      {screen === 'tasks' && <div className="surface"><IssuesScreen /></div>}
-      {screen === 'sessions' && <div className="surface"><SessionsScreen /></div>}
-      {screen === 'target' && <IssueTargetSheet visible title="Choose task" ids={Array.from({ length: 600 }, (_, i) => `synthetic-${i}`)} query="" onQueryChange={() => {}} onEndReached={() => {}} onPick={() => {}} onClose={() => {}} />}
+      {['work', 'tasks', 'sessions', 'target'].map((name) => (
+        <button key={name} onClick={() => setScreen(name)}>
+          {name}
+        </button>
+      ))}
+      {screen === 'work' && (
+        <div className="surface">
+          <WorkScreen />
+        </div>
+      )}
+      {screen === 'tasks' && (
+        <div className="surface">
+          <IssuesScreen />
+        </div>
+      )}
+      {screen === 'sessions' && (
+        <div className="surface">
+          <SessionsScreen />
+        </div>
+      )}
+      {screen === 'target' && (
+        <IssueTargetSheet
+          visible
+          title="Choose task"
+          ids={Array.from({ length: 600 }, (_, i) => `synthetic-${i}`)}
+          query=""
+          onQueryChange={() => {}}
+          onEndReached={() => {}}
+          onPick={() => {}}
+          onClose={() => {}}
+        />
+      )}
       <Profiler
         id="phone-readers"
         onRender={(_id, _phase, ms) => {

@@ -7,7 +7,10 @@ import {
 } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
-import { useConversation as useOwnedConversation, useStoreHandle } from '@podium/client-core/react'
+import {
+  useClientRuntime,
+  useConversation as useOwnedConversation,
+} from '@podium/client-core/react'
 import {
   chatSendRoute,
   composerState,
@@ -140,8 +143,8 @@ export function createWebConversation(
   mount: ConversationMountOptions,
 ): WebConversation {
   pool.bindSessionDrafts(runtime.drafts)
-  const store = runtime.access
-  const { hub, trpc, replica } = store
+  const { api: trpc, replica, commands, chatSends } = runtime.root
+  const hub = runtime.root.services.connection.hub
   const readSession = () => here(pool.model('session', sessionId))
   const readRecords = () =>
     loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
@@ -275,7 +278,7 @@ export function createWebConversation(
                 trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
               retract: (id) =>
                 trpc.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
-              discard: (id) => store.discardChat(asMutationId(id)),
+              discard: (id) => chatSends.discardChat(asMutationId(id)),
               dismissNotice: (id) =>
                 trpc.messages.dismissNotice.mutate({ id }).then(() => undefined),
             }),
@@ -284,7 +287,7 @@ export function createWebConversation(
         createDeliveryId: () => `msg_${randomUUID()}`,
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
         optimisticDismissOffer: false,
-        dismissOffer: (at) => store.dismissOffer(sessionId, at),
+        dismissOffer: (at) => commands.issues.dismissOffer(sessionId, at),
         interrupt: async (messageId) => {
           if (headless && mount.superThread) {
             await superagentWrites(trpc).interruptTurn.mutate({
@@ -296,7 +299,7 @@ export function createWebConversation(
           // a late Stop never reaches the next turn, and every device shows
           // Interrupting… (then Kill, if the turn runs on) from the record.
           const turn = conversation.session?.turnStartedAt
-          await store.interruptTurn(sessionId, {
+          await commands.sessions.interrupt(sessionId, {
             ...(turn !== undefined ? { turn } : {}),
             ...(messageId ? { messageId } : {}),
           })
@@ -320,13 +323,13 @@ export function createWebConversation(
               : {}),
           })
           if (conversation.heldSends.some((send) => send.mutationId === turn.deliveryId))
-            return store.sendChat(
+            return chatSends.sendChat(
               { sessionId, text: turn.wire, wake: route.kind === 'resume' },
               asMutationId(turn.deliveryId),
             )
           if (route.kind === 'session' || route.kind === 'resume') {
             runtime.ui.setPanelMode(sessionId, 'chat')
-            return store.sendChat(
+            return chatSends.sendChat(
               {
                 sessionId,
                 text: turn.wire,
@@ -399,7 +402,7 @@ export function useConversation(
   sessionId: SessionId,
   options: ConversationMountOptions = {},
 ): WebConversation | null {
-  const runtime = useStoreHandle<Trpc>()
+  const runtime = useClientRuntime<Trpc>()
   const pool = useWorklistPool()
   const readReady = useCallback(
     (pool: MobxPool) => {

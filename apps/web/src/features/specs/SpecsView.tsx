@@ -1,3 +1,4 @@
+import { useRequestClient } from '@podium/client-core/react'
 import { machinePathBasename } from '@podium/model/browser'
 import { AutomationOpening } from '@/app/automation-readers'
 import { useAnswerQuery } from '@/lib/use-answer-query'
@@ -6,7 +7,6 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
-import { useStoreHandle } from '@podium/client-core/react'
 import { TRPCClientError } from '@trpc/client'
 import {
   BookOpenText,
@@ -81,7 +81,7 @@ export function SpecsView(): JSX.Element {
 }
 
 function SpecsViewBody(): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const { repos, pending: repositoryPending } = useSpecsRepositories()
   const confirm = useConfirm()
   const isDark = useIsDark()
