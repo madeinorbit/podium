@@ -102,8 +102,9 @@ it('polls a real worktree without journaling checks, then journals each git chan
       branch: 'issue/git-state',
       dirtyFiles: 0,
       ahead: 0,
-      lastCommitAt: commitAt,
     })
+    // Git versions can spell the same UTC instant with Z or +00:00.
+    expect(Date.parse(initial?.lastCommitAt ?? '')).toBe(Date.parse(commitAt))
     let cursor = await ledger.cursor()
     repoOp.mockClear()
     published.mockClear()
@@ -147,10 +148,12 @@ it('polls a real worktree without journaling checks, then journals each git chan
           updatedAt: now,
           dirtyFiles: 0,
           ahead: 1,
-          lastCommitAt: commitAt,
         }),
       }),
     ])
+    expect(Date.parse((await svc.reports.get(id))?.gitState?.lastCommitAt ?? '')).toBe(
+      Date.parse(commitAt),
+    )
     expect(published).toHaveBeenCalledTimes(2)
     cursor = await ledger.cursor()
 
