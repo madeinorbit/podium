@@ -1,12 +1,12 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import { Reactions } from '../../client-core/src/engine/reactions'
+import type { RuntimeState } from '../../client-core/src/engine/state'
+import { MarkReadService } from '../../client-core/src/runtime-root/services/mark-read-service'
 import {
   READ_CHECKPOINT_MS,
   READ_SETTLE_MS,
-} from '../../client-core/src/engine/read-acknowledgements'
-import type { RuntimeState } from '../../client-core/src/engine/state'
+} from '../../client-core/src/runtime-root/services/read-acknowledgements'
 import { createPoolNavigationProvider } from './navigation-provider'
 import { MobxPool } from './pool'
 import { worklistView } from './worklist/view-model'
@@ -88,11 +88,11 @@ function fixture() {
     sessionReadAt = at
     paint()
   })
-  const reactions = new Reactions({
+  const reactions = new MarkReadService({
     state: () => state,
-    publish: (patch) => Object.assign(state, patch),
-    hub: { setVisible() {}, setViewState() {} } as never,
-    notices: {} as never,
+    publishBaseline: (baseline) => {
+      state.issueVisitBaseline = baseline
+    },
     isVisible: () => visible,
     markIssueRead,
     markSessionRead,
@@ -116,7 +116,8 @@ function fixture() {
     },
     visible(value: boolean) {
       visible = value
-      reactions.onVisibilityChange()
+      reactions.updateIssueVisitBaseline()
+      update()
     },
     unread(kind: 'issue' | 'session') {
       if (!navigation.readIntent) throw new Error('read intent port missing')

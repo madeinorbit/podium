@@ -6,7 +6,7 @@ import { insideReader, measureWork } from '../../../../tests/worklist/harness/sr
 import { MobileConversation } from './mobile-conversation'
 
 const draftsForProbe = () => new DraftStore({ storage: { get: () => null, set: () => {} },
-  hub: { on: () => () => {}, sendDraftEdit: () => true, connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }) } })
+  hub: { on: () => () => {}, sendDraftEdit: () => true } })
 
 it('bounds the canonical phone producer, observed rows and open Find at 1x/4x history', async () => {
   const item = (at: number): TranscriptItem => ({ id: `item-${at}`, role: at % 4 === 0 ? 'user' : 'assistant',

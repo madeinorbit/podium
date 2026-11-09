@@ -3,7 +3,7 @@ import { loadingNavigationProvider } from '@podium/client-core/engine'
 import { autorun, configure, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { Reactions } from '../../client-core/src/engine/reactions'
+import { FollowService } from '../../client-core/src/runtime-root/services/follow-service'
 import { createPoolNavigationProvider } from './navigation-provider'
 import { NAVIGATION_SUMMARIES } from './navigation-schema'
 import { MobxPool } from './pool'
@@ -111,14 +111,12 @@ it('keeps the loading port addressed before the pool import resolves', () => {
     },
   })
   const publish = vi.fn()
-  const reactions = new Reactions({
+  const reactions = new FollowService({
     state: () => state,
     publish,
-    hub: {} as never,
+    checkoutsKnown: () => true,
     notices: {} as never,
     isVisible: () => false,
-    markSessionRead: vi.fn(),
-    markIssueRead: vi.fn(),
   })
   try {
     expect(reactions.worktreeFallback()).toBe(false)
@@ -300,14 +298,12 @@ it('keeps one move, fallback, path lookup and unrelated heartbeat flat at 1x/4x'
         throw new Error('global repository read')
       },
     })
-    const reactions = new Reactions({
+    const reactions = new FollowService({
       state: () => state,
       publish: (patch) => Object.assign(state, patch),
-      hub: {} as never,
+      checkoutsKnown: () => true,
       notices: { info } as never,
       isVisible: () => true,
-      markSessionRead: vi.fn(),
-      markIssueRead: vi.fn(),
     })
     try {
       const first = await measureWork(
@@ -384,14 +380,11 @@ it('reads the first-worktree fallback imperatively under development diagnostics
     reposLoaded: true,
     selectedWorktree: '/gone',
   } as unknown as RuntimeState
-  const reactions = new Reactions({
+  const reactions = new FollowService({
     state: () => state,
     publish: (patch) => Object.assign(state, patch),
-    hub: {} as never,
     notices: {} as never,
     isVisible: () => false,
-    markSessionRead: vi.fn(),
-    markIssueRead: vi.fn(),
   })
   const paths: unknown[] = []
   const stop = autorun(() => paths.push(f.provider.firstWorktree!()))

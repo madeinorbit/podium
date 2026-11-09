@@ -2683,7 +2683,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -2705,7 +2705,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -7217,7 +7217,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7254,7 +7254,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7313,7 +7313,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7569,7 +7569,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7587,7 +7587,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7605,7 +7605,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -11970,7 +11970,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
@@ -11991,7 +11991,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -12752,80 +12752,84 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/pruneWorkspaces/workspacesPatch:callback",
+      "file": "packages/client-core/src/runtime-root/services/tab-pruning-service.ts",
+      "holder": "TabPruningService/pruneWorkspaces/workspacesPatch:callback",
       "rule": "loop:for-of",
       "tokens": "761dd3ea3792c6c9c0a05a12aaa28a6704082113d78e6a64d6a2684168a69bf1",
-      "gate": [],
+      "gate": [
+        "exit:then:ab9980619ac344812059c59c1d479cee0f48616b1816c48d42d516eb527fd363"
+      ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "80fccb25156a7f9b393b01f3fc99337e2d0d07bb895f0585c30a8ab467a15edd",
+      "fingerprint": "881b3d4108fb2e388e780b00876cf894d8e043e11a0216a925cdcc3de0b1adb6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/pruneWorkspaces/workspacesPatch:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 80fccb25156a7f9b393b01f3fc99337e2d0d07bb895f0585c30a8ab467a15edd.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/pruneWorkspaces/workspacesPatch:callback",
+      "file": "packages/client-core/src/runtime-root/services/tab-pruning-service.ts",
+      "holder": "TabPruningService/pruneWorkspaces/workspacesPatch:callback",
       "rule": "reader-summary",
       "tokens": "6cf0f312e1bedf5795102a650a3142b2e21187a099e6ee63382688af86c8c4d8",
-      "gate": [],
+      "gate": [
+        "exit:then:ab9980619ac344812059c59c1d479cee0f48616b1816c48d42d516eb527fd363"
+      ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "bf46c7f94fd898a7c404f9328980f25a68487994c0b1302af505862f3041190f",
+      "fingerprint": "8beb40b038f3c7606271dce2c8aeeed8d289d2a85fde279835d6dd02af9d660c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/pruneWorkspaces/workspacesPatch:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: bf46c7f94fd898a7c404f9328980f25a68487994c0b1302af505862f3041190f.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/seedCwds",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/seedCwds",
       "rule": "consume:map",
       "tokens": "337e4a200c73d8412123a81ff97a2f1464cf1960f47e55c5ea2ec90849157bb3",
       "gate": [],
       "origin": [
-        "7ae3351a77ba5b3a22822b48d20680ef5eedbe3bf75e924a2ccd5367f2508242"
+        "e6413c9a5293e2e686401de68cfbd100ad6fbf7aefa8d02d362f9f73152dfd5f"
       ],
-      "fingerprint": "245bc80b7961e7316c4ffa27dac619a47101f9be6356988d4b9a753b35eaeb8f",
+      "fingerprint": "818268babffe9096dbadea23f7811c2dbae82bccbb3e7384551124bebee3e50d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/seedCwds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 245bc80b7961e7316c4ffa27dac619a47101f9be6356988d4b9a753b35eaeb8f.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/seedIssueIds",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/seedIssueIds",
       "rule": "consume:map",
-      "tokens": "dfde873409660e8bca7b0264c484149837c31dd88dc99ad6fdb78250eb183bfa",
+      "tokens": "3f0b7bbe926bd8cc9266f40e6d7e679024493fa62d61da52c58481a708aac0ac",
       "gate": [],
       "origin": [
-        "1b2e434d06382a1a9d8d7c9040f5e325afc0450fc11b6c3d311ff65f86f348e5"
+        "9f654caed5cb02579e8169c6cb0779739cd1d1f17ae580c346180156d9903741"
       ],
-      "fingerprint": "9f68ecad8d1203c8524c3547b80220bd85ba473661d1a0766354cc32d453ef57",
+      "fingerprint": "64873eb573ccd661744d673bf2b631f10875f78524f09964b49f70de22bda91d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/seedIssueIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 9f68ecad8d1203c8524c3547b80220bd85ba473661d1a0766354cc32d453ef57.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/sessionIssueFollow",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/sessionIssueFollow",
       "rule": "helper-consumer",
       "tokens": "0e87eb6f9e8f59cd8b79e0928ec447a70aeb7b3f16110662887429fadf85b5b9",
       "gate": [
@@ -12841,18 +12845,18 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "dac7ead234999ed5eec9abfcb4dcce1542216535359df90fb1bac278943c7166",
+      "fingerprint": "e010770fe11748a114244d587365de23ab8e32271645684e57d1b01ad8c79e6e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/sessionIssueFollow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: dac7ead234999ed5eec9abfcb4dcce1542216535359df90fb1bac278943c7166.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/sessionIssueFollow",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/sessionIssueFollow",
       "rule": "reader-summary",
       "tokens": "a739b5bded4e23c3fea9c7cb51d31690aa28849d13ae42f87c4cc561b249aea7",
       "gate": [
@@ -12868,18 +12872,18 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "a709cfe29e5fe2542f3043d4f958362ba7845d44749dd7f6b0500e0b6ce98c5d",
+      "fingerprint": "8f949cd6924ece2b1e67d535606f51d6e7d0b1f1524371cc4f506a452181eb9c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/sessionIssueFollow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: a709cfe29e5fe2542f3043d4f958362ba7845d44749dd7f6b0500e0b6ce98c5d.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/sessionIssueFollow",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/sessionIssueFollow",
       "rule": "spread",
       "tokens": "1e75b2aa601da6a1b555ada9465c8e2eb0d49e890eb32b357bdc0ad845d051e9",
       "gate": [
@@ -12895,18 +12899,18 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "c58a8a4046dcc1d606b6f59afbb5b876e9b6b75390c22859afab5e88347d3a32",
+      "fingerprint": "36e8495007ac7c32d3aad971f835a8d5f97a66bf52bd1cf455fdda1f0a32e7d5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/sessionIssueFollow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: c58a8a4046dcc1d606b6f59afbb5b876e9b6b75390c22859afab5e88347d3a32.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/sessionIssueFollow/nextLayout",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/sessionIssueFollow/nextLayout",
       "rule": "reader-summary",
       "tokens": "3aa63fcaffd164ee4647988aec84ca7582024951186b52b7912fbd117a3c5a03",
       "gate": [
@@ -12922,18 +12926,18 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "04a8dbe26a66cb0e2599c319c951d0274efef273e1bc37348221f27e9e88970c",
+      "fingerprint": "eef979b46652b3390f48024dec0caed44ea74c8a3f9ec9bb31b967d95b9bc1d7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/sessionIssueFollow/nextLayout",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 04a8dbe26a66cb0e2599c319c951d0274efef273e1bc37348221f27e9e88970c.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/worktreeFallback/known",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/worktreeFallback/known",
       "rule": "consume:some",
       "tokens": "0ee8335d138cfbe9ab4878f254801e9683754ed81c9a5da09aa1c5441ec2df3d",
       "gate": [
@@ -12942,20 +12946,20 @@
         "exit:then:96b28555065e3e8cc0d727c06dd75bef0c598d3fb5d786a98c985402f949cf94"
       ],
       "origin": [
-        "77a17536f39b6f6d4a84fc012e4d70607e5239ff2a0ea5b610708b4ad45206e0"
+        "b85aa11bc492d94e234d98b6808fa0ceddb9c5e948c263bd90719b2d9354def1"
       ],
-      "fingerprint": "95ad3bb307facabbe85de29e5e571c99d66e62f0771f68f8471affeae937012a",
+      "fingerprint": "425f97d4e3ef3b2705b602ebbd6ed878dfbe858ddfb8ccfd021f4abff4ca515d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/worktreeFallback/known",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 95ad3bb307facabbe85de29e5e571c99d66e62f0771f68f8471affeae937012a.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/worktreeFollow/plan",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/worktreeFollow/plan",
       "rule": "helper-consumer",
       "tokens": "785768d2d78e624f4489e3d90e6d8091c0fc3a20f07e0b8af50c4eb29750cd31",
       "gate": [
@@ -12963,20 +12967,20 @@
         "exit:then:ebd649d9caca2baa10f9d3461e0803b7590e7d43f558dfe5160f8c451f4d6bf5"
       ],
       "origin": [
-        "075559b9cc148cd0fbd125e61e442670c7b8a57736a4acfe8de290f0b7e94cc9"
+        "c378aaa1f322ebf7116b12625bb313b9fc83842154b6de08cfcb9d05cbdd4e7f"
       ],
-      "fingerprint": "d417fcadc07eb59e91402895371ac05ee62019088b201d6238558a595ba4188e",
+      "fingerprint": "07687f57bc35cb0d61d8c7919b35c7ff5b2424dbbe491787a667868a772124ea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/worktreeFollow/plan",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: d417fcadc07eb59e91402895371ac05ee62019088b201d6238558a595ba4188e.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/worktreeFollow/plan",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/worktreeFollow/plan",
       "rule": "reader-summary",
       "tokens": "ad6cca3440d268a17ffce0e31efee9bd526fd45f56382657d95ff6fe70982fa1",
       "gate": [
@@ -12984,20 +12988,20 @@
         "exit:then:ebd649d9caca2baa10f9d3461e0803b7590e7d43f558dfe5160f8c451f4d6bf5"
       ],
       "origin": [
-        "075559b9cc148cd0fbd125e61e442670c7b8a57736a4acfe8de290f0b7e94cc9"
+        "c378aaa1f322ebf7116b12625bb313b9fc83842154b6de08cfcb9d05cbdd4e7f"
       ],
-      "fingerprint": "2f8742a42c268bcb36a50c8d549cfb655284f785c6e236c418cf4f718f84b12f",
+      "fingerprint": "4cf044604f535d8e6b5c36c99aa60b55f5b9f4e02351b098f20a9c7b5783a5d3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/worktreeFollow/plan",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 2f8742a42c268bcb36a50c8d549cfb655284f785c6e236c418cf4f718f84b12f.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/reactions.ts",
-      "holder": "Reactions/worktreeFollow/plan/worktreePaths/flatMap:callback",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/worktreeFollow/plan/worktreePaths/flatMap:callback",
       "rule": "consume:map",
       "tokens": "69bb15c58b6ebb59678ae21894a653f936aaa0974140274a5737a9bf7dc4a02d",
       "gate": [
@@ -13005,103 +13009,58 @@
         "exit:then:ebd649d9caca2baa10f9d3461e0803b7590e7d43f558dfe5160f8c451f4d6bf5"
       ],
       "origin": [
-        "075559b9cc148cd0fbd125e61e442670c7b8a57736a4acfe8de290f0b7e94cc9"
+        "c378aaa1f322ebf7116b12625bb313b9fc83842154b6de08cfcb9d05cbdd4e7f"
       ],
-      "fingerprint": "14635267cf55028da4d14d6f16fc386566c540c9e8f66cd6a2754945dd20ee04",
+      "fingerprint": "f3349a7800668262d38cd22ba8bac41fbaa2b0e41b405e95bbbfc5b56fb81806",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Reactions/worktreeFollow/plan/worktreePaths/flatMap:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 14635267cf55028da4d14d6f16fc386566c540c9e8f66cd6a2754945dd20ee04.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/adoptPaneLinkAnswer/workspacesPatch:callback",
+      "file": "packages/client-core/src/runtime-root/services/pane-link-service.ts",
+      "holder": "PaneLinkService/adoptPaneLinkAnswer/workspacesPatch:callback",
       "rule": "reader-summary",
       "tokens": "6cf0f312e1bedf5795102a650a3142b2e21187a099e6ee63382688af86c8c4d8",
       "gate": [
-        "exit:then:74f3457358d273ae4193f9bd666fea789e3fb56c8e7b3d709b7576c9aa815786",
+        "exit:then:34af8af29b2c64acf28daedd3a86dda2d77636581111f2b0cca15bbfc4a4cf9e",
         "then:5bf88ef85a1a69dc2d664cd78b2651f1da8fe906637e3d9faf998bf77c784af4"
       ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "477c823d0399550140ba0e38b75ae618db619446661735b9ff4391285510bb92",
+      "fingerprint": "bea3d2d04ce7924ca2ff7c76b9638d82fb812c4b03156b2caf75b3d862cf0f3e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/adoptPaneLinkAnswer/workspacesPatch:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 477c823d0399550140ba0e38b75ae618db619446661735b9ff4391285510bb92.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/adoptPaneLinkAnswer/workspacesPatch:callback",
+      "file": "packages/client-core/src/runtime-root/services/pane-link-service.ts",
+      "holder": "PaneLinkService/adoptPaneLinkAnswer/workspacesPatch:callback",
       "rule": "reader-summary",
       "tokens": "73b30bd01fba4299d5ba43401ff07dc08efd2ba028c7da8a0141d60379663db9",
       "gate": [
-        "exit:then:74f3457358d273ae4193f9bd666fea789e3fb56c8e7b3d709b7576c9aa815786",
+        "exit:then:34af8af29b2c64acf28daedd3a86dda2d77636581111f2b0cca15bbfc4a4cf9e",
         "then:5bf88ef85a1a69dc2d664cd78b2651f1da8fe906637e3d9faf998bf77c784af4"
       ],
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "78d33e77bd96d86e15700d89413824b7be18e57e82aa86b11e5dfdc1a4988b60",
+      "fingerprint": "479168c461e458249b8c6e9c055950fa997a2059ab7bd6fc1fe5aceb1dd6dbdb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/adoptPaneLinkAnswer/workspacesPatch:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/navigate/changed",
-      "rule": "consume:some",
-      "tokens": "65a416fbde83b99bfa2fbadadbd722a96ca123de2cc861e4a070cb6e5306c17b",
-      "gate": [
-        "exit:then:892123e9b6ad70103e9721b8fc00214f0f03a4273d1eb3152b7c263699e2d6e6",
-        "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "4fcc2f0241e8cc16251db4ab20e3ca9f67da0330e409548356bfcaabb0d4ce3b",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "ce1155b2331f53bb6f740529054597e878c7a5e46ad582de2d43a0e947240be3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ClientRuntime/navigate/changed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/navigate/changed",
-      "rule": "enumerate:Object.entries",
-      "tokens": "2bf6274963125dd8d0a1a0c930177fa96a0262c153f7b1b3f1366a37de1c5ef4",
-      "gate": [
-        "exit:then:892123e9b6ad70103e9721b8fc00214f0f03a4273d1eb3152b7c263699e2d6e6",
-        "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced"
-      ],
-      "origin": [
-        "4fcc2f0241e8cc16251db4ab20e3ca9f67da0330e409548356bfcaabb0d4ce3b"
-      ],
-      "fingerprint": "2ccc63b0a5e9a5cc1bfa4ef7a3fad34da16007d20f7c1c82de08aeacf58c0d5d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ClientRuntime/navigate/changed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "enumerate:Object.entries carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 78d33e77bd96d86e15700d89413824b7be18e57e82aa86b11e5dfdc1a4988b60.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
       "file": "packages/client-core/src/engine/runtime.ts",
@@ -13149,65 +13108,65 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/openLinkedSession",
+      "file": "packages/client-core/src/runtime-root/services/pane-link-service.ts",
+      "holder": "PaneLinkService/openLinkedSession/selection",
       "rule": "reader-summary",
-      "tokens": "6bf592ab8ec6b89d76b8034a366c78c8f62c9b3a58bfaa3791795a38163c902f",
+      "tokens": "93220022a7002c6f3ebda8c7f103bafe6b619724627ab3efe33034215fd0cc51",
       "gate": [
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
         "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "08941bd34737cf5151771e27147b39ed7a869bbd6ee24ae278081254bcb2b121",
+      "fingerprint": "67caa9bda12456663840dad57c241cef20ce0c0e77da640fc381eb89c45002fc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/openLinkedSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 08941bd34737cf5151771e27147b39ed7a869bbd6ee24ae278081254bcb2b121.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/openLinkedSession",
+      "file": "packages/client-core/src/runtime-root/services/pane-link-service.ts",
+      "holder": "PaneLinkService/openLinkedSession",
       "rule": "spread",
       "tokens": "d1bd52769420ecb75210941fadaa615b41bd42b2b9bbd507740f1145e5d25f79",
       "gate": [
-        "exit:then:95cbbde3355a2d0dfeb1a6ad06e5d666bf7eb911dc88513b11bba25d14535600",
+        "exit:then:8cddfe7a8450c3ac43f375595b0bf0b6fd15f61e58e656489bf47d673eef0e18",
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
         "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "5b10996f689f7202ee9399587ebc6e3dddcafb0677c9f4b5d12d7370c1f8ee2a",
+      "fingerprint": "b9cf9e2029bf02bb66ab4cb625530878c0caf642438e947a49f7d4d503e01b62",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/openLinkedSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 5b10996f689f7202ee9399587ebc6e3dddcafb0677c9f4b5d12d7370c1f8ee2a.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/openLinkedSession/selection",
+      "file": "packages/client-core/src/runtime-root/services/pane-link-service.ts",
+      "holder": "PaneLinkService/openLinkedSession",
       "rule": "reader-summary",
-      "tokens": "2fa09d64d015fba3aacb1c99fb8efac05b4a60ac99f0b59b79039e6a6da984b4",
+      "tokens": "25dbbba8aa85d58a95277af44e16957df6b65cff49d9a770aea112868dd79e4f",
       "gate": [
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
         "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "8761fda644d98f82116e2b448cd1b2611389476455a13198b2b9f5df6bfef349",
+      "fingerprint": "3b3bee6295bae93643ee9026a19111aa3a00df0c247ff1c9c6504482982ecafa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/openLinkedSession/selection",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 8761fda644d98f82116e2b448cd1b2611389476455a13198b2b9f5df6bfef349.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
       "file": "packages/client-core/src/engine/runtime.ts",
@@ -13276,25 +13235,25 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
-      "holder": "ClientRuntime/setNavigationProvider/onTopology:callback",
+      "file": "packages/client-core/src/runtime-root/services/follow-service.ts",
+      "holder": "FollowService/start/reaction:callback/onTopology:callback",
       "rule": "loop:for-of",
-      "tokens": "c927f507cb2a9ecf3c8382d2f5cf0fb79821b7fbd52776c72f1f7b91116bb68d",
+      "tokens": "9c3292206a39b7a538a4ecbe079b36e7e5a9c86ed1b679a5f5a2c186bf4dcbb2",
       "gate": [
-        "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced",
-        "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced"
+        "exit:then:dd1743dde744170355c1bff26d00a1d3fe7db9385d480fe4f97c2cf71ccce71d",
+        "exit:then:3b6ff932f2c1421aae3ec7e29b9d123ccf674829087dfd842515822a487d2d30"
       ],
       "origin": [
-        "c81ab169d03596b0e57f85c6634b7000f7489270ff6532e5775fe2e1ffe1e94f"
+        "b21d6c1614df188eb905b091dfb885516a20838b97e95e716e91da989e954ce8"
       ],
-      "fingerprint": "382db54923422816299b29235e74db90f3e3b3d1bbd0c020d5b6b87393be91b2",
+      "fingerprint": "0f4726b4bb2594d6f8806b8c1456fd5cf431d66e697d37ea0d4d29430d9e3324",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ClientRuntime/setNavigationProvider/onTopology:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved to its per-user service with the same collection bound; no scan repair claimed. Predecessor: 382db54923422816299b29235e74db90f3e3b3d1bbd0c020d5b6b87393be91b2.",
+      "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
       "file": "packages/client-core/src/ui/session-link.ts",
@@ -19010,7 +18969,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -26661,7 +26620,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation of chatMentionIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-\u2026); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-…); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -28047,7 +28006,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -29435,8 +29394,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29453,8 +29412,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29471,8 +29430,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29490,8 +29449,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/pool.ts",
@@ -29949,7 +29908,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29968,7 +29927,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29987,7 +29946,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -30005,7 +29964,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -30024,7 +29983,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -30143,7 +30102,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -31059,7 +31018,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation of createShellViews/issues/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-\u2026); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-…); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36413,8 +36372,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
@@ -36431,8 +36390,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
     },
     {
       "file": "packages/client-graph/src/workflow-views.ts",
@@ -38222,7 +38181,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. Predecessor: 49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 9a0b429be4417f397150e675cb56fa20e25197252b07b91e643794f402be3dba (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -38242,7 +38201,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. Predecessor: 64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 30b5b60f9286a3af0abde779479547903c4c5e87995141d67a630334172b3de8 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."

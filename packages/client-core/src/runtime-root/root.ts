@@ -114,8 +114,19 @@ export interface RuntimeRootInit<TApi extends PodiumClientApi = PodiumClientApi>
   networkEnabled?: boolean
 }
 
+/** UI policies are installed by the composition root once UiStore exists. */
+export interface ClientServices {
+  readonly follow: import('./services/follow-service').FollowService
+  readonly paneLinks: import('./services/pane-link-service').PaneLinkService
+  readonly tabPruning: import('./services/tab-pruning-service').TabPruningService
+  readonly markRead: import('./services/mark-read-service').MarkReadService
+  readonly viewState: import('./services/view-state-service').ViewStateService
+  readonly notifications: import('./services/notification-service').NotificationService
+  readonly draftResend: import('./services/draft-resend-service').DraftResendService
+}
+
 /** The root's services. None of them is visible to components. */
-export interface RuntimeServices {
+export interface RuntimeServices extends Partial<ClientServices> {
   readonly connection: ConnectionService
   readonly outbox: OutboxService
   readonly topics: LiveFeed
@@ -142,6 +153,7 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
   private conversationCache: ConversationCache | undefined
   private commandModules: Commands<TApi> | undefined
   private conversationSends: ChatCommands | undefined
+  private clientServices: ClientServices | undefined
   private started = false
   private disposed = false
 
@@ -221,6 +233,13 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
     this.services = { connection, outbox, topics }
   }
 
+  installClientServices(services: ClientServices): void {
+    if (this.clientServices || this.started || this.disposed)
+      throw new Error('Client services must be installed once before start')
+    this.clientServices = services
+    Object.assign(this.services, services)
+  }
+
   /** The conversation cache, once the pool supplied its ports; undefined before. */
   get conversations(): ConversationCache | undefined {
     return this.conversationCache
@@ -273,6 +292,7 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
     // A root without network has no topics, so every reading stays unknown (and
     // a fixture may write them itself). The outbox counts reach the store either way.
     if (this.networkEnabled) topics.start()
+    for (const service of Object.values(this.clientServices ?? {})) service.start()
     connection.start()
   }
 
@@ -281,6 +301,7 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
   stop(): void {
     this.started = false
     const { connection, outbox, topics } = this.services
+    for (const service of Object.values(this.clientServices ?? {}).reverse()) service.stop()
     topics.stop()
     outbox.stop()
     connection.stop()
@@ -302,6 +323,7 @@ export class RuntimeRoot<TApi extends PodiumClientApi = PodiumClientApi> {
     this.stop()
     this.disposed = true
     const { connection, outbox, topics } = this.services
+    for (const service of Object.values(this.clientServices ?? {}).reverse()) service.dispose()
     outbox.dispose()
     topics.dispose()
     connection.dispose()

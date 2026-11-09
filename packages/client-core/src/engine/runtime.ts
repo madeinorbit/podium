@@ -21,7 +21,7 @@ import {
  *   COMMANDS         commands/          (POD-6682) — area modules over the write path
  *   ROUTER/UI-STATE  ui-state.ts        (POD-403) — the ONLY UI persistence
  *   POOL WRITER      client-graph/write  — optimism, spawns and outbox settlement
- *   REACTIONS        reactions.ts       — the old useEffect table
+ *   SERVICES         runtime-root/services — per-user background policies
  *   BOOT             boot.ts            — the tRPC enrichments
  *   STATE            state.ts           — the shape + its pure derivations
  *
@@ -67,7 +67,6 @@ import {
   resolveUserPreferences,
   userPreferencesRowId,
 } from '@podium/model'
-import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import { action, actionBound, reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { type Commands, createCommands } from '../commands'
@@ -83,12 +82,18 @@ import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { OutboxOutcome } from '../runtime-root/outbox/outbox-service'
 import type { OutboxKinds } from '../runtime-root/outbox/wiring'
 import { createRuntimeRoot, type RuntimeRoot, type RuntimeRootInit } from '../runtime-root/root'
+import { DraftResendService } from '../runtime-root/services/draft-resend-service'
+import { FollowService } from '../runtime-root/services/follow-service'
+import { MarkReadService } from '../runtime-root/services/mark-read-service'
+import { NotificationService } from '../runtime-root/services/notification-service'
+import { PaneLinkService } from '../runtime-root/services/pane-link-service'
+import { TabPruningService } from '../runtime-root/services/tab-pruning-service'
+import { ViewStateService } from '../runtime-root/services/view-state-service'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
 import { openLegacyDeviceKeys } from '../ui/draft-storage'
 import { createUiKeys } from '../ui/keys'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
 import { UiPersistence } from '../ui/persistence'
-import { sessionLinkProblem, sessionLinkSelection } from '../ui/session-link'
 import type { ScreenState } from '../ui/state'
 import { UiStore } from '../ui/ui-store'
 import { UrlMirror } from '../ui/url-mirror'
@@ -99,26 +104,16 @@ import {
   type RouterWindow,
   type RouteState,
 } from '../ui-state'
-import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
-import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
+import { openTab, reposToViews } from '../values'
 import {
   asIssueIdOrNull,
-  type EngineState,
   type EngineStatics,
-  focusedPaneSession,
-  foregroundIssue,
-  initialEngineState,
   NAVIGATION_LOADING,
   type NavigationProvider,
-  type NavigationTopologySession,
-  navigationSession,
   overlayState,
   resolvedWorkspaceKey,
   type WorkspacePatch,
   workspaceFor,
-  workspaceKeyForState,
-  workspaceMirrorPatch,
-  workspacesPatch,
   workspaceWritePatch,
 } from './state'
 import { defaultFormatError, NOOP_NOTICES, type Store, type StoreNotices } from './types'
@@ -191,7 +186,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private readonly uiPersistence: UiPersistence
   private readonly urlMirror: UrlMirror
-  private readonly reactions: Reactions
+  private readonly follow: FollowService
+  private readonly markRead: MarkReadService
+  private readonly paneLinks: PaneLinkService
 
   private readonly api: TApi
   get spawnNotices(): StoreNotices {
@@ -209,22 +206,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly autoContinueDialog = new AutoContinueDialogModel()
   readonly transcriptReveals = new TranscriptRevealActions()
 
-  private readonly state: EngineState & ScreenState
-  private stopNavigationWatch: (() => void) | undefined
+  private readonly state: ScreenState
   private pendingNavigation: NavigationIntent | undefined
   private pendingSessionNavigation: string | undefined
-  private navigationWakeQueued = false
-  private pendingNavigationTopology = false
-  private readonly pendingWorktreeMoves = new Map<string, NavigationTopologySession>()
-  private pendingWorktreeFallback = false
-  private statsReactionDepth = 0
   readonly services: EngineStatics<TApi>
   readonly access: Store<TApi>
-  private stopTopologyWatch: (() => void) | undefined
   private prevRoute: RouteState | undefined = undefined
-  /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
-   *  the pane mirrors are re-derived from the workspace being switched to. */
-  private workspaceKey: WorkspaceKey
   private offs: Array<() => void> = []
   private sessionPhases: (() => readonly SessionPhaseChange[]) | undefined
   private sounds: ReturnType<typeof createNotificationSounds> | undefined
@@ -245,22 +232,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Set by destroy(). The state choke point refuses everything after it, so a
    *  superseded principal's late callback cannot reach any consumer. */
   private destroyed = false
-  /** The short-id pane link awaiting the server's answer (POD-4637); a later
-   *  pane navigation supersedes it, so a slow answer never yanks the view. */
-  private pendingPaneLink: string | null = null
-  /** A full session id a `?pane=` link named before this replica held the
-   *  session (POD-4642): opened when the row arrives, reported once the prune
-   *  grace gives up on it. */
-  private paneLink: {
-    sessionId: string
-    worktree: string | null
-    timer: ReturnType<typeof setTimeout>
-  } | null = null
-  private readonly paneLinkGraceMs: number
-  private applyingHydratedUi = false
-  /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
-  private batchDepth = 0
-  private pendingReactions = new Set<keyof (EngineState & ScreenState)>()
   readonly drafts: DraftStore
   private readonly networkEnabled: boolean
   /** One-time boot work, once per runtime, even across a StrictMode
@@ -278,7 +249,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     bindStoreStatsOwner(this.root.replica, this)
     const device = this.root.replica.deviceStorage()
     const localUi = openLegacyDeviceKeys(device)
-    this.state = initialEngineState() as EngineState & ScreenState
     this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
     // Synced layout is a pool handle. Device state loads below, independently.
     this.layout = new LayoutAccess(
@@ -312,41 +282,25 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       repositories: () => this.repositories(),
       isVisible: () => this.visibility.isVisible(),
       revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
-      changed: (changed) => {
-        if (this.reactions)
-          this.runReactions(changed as ReadonlySet<keyof (EngineState & ScreenState)>)
-      },
-      watch: (keys, listener) => {
+      watch: (_keys, listener) => {
         return reaction(() => [this.ui.selectedIssueId, this.ui.navigation], listener)
       },
       navigate: (intent) => this.navigate(intent),
       waitForSessionNavigation: (identifier) => {
-        this.dropPaneLink()
+        this.paneLinks.cancel()
         this.pendingNavigation = undefined
         this.pendingSessionNavigation = identifier
-        this.watchNavigation()
+        this.follow.refreshWatch()
       },
     })
     this.uiPersistence = new UiPersistence(this.ui, device, localUi, this.visibility)
-    // Only internal policy code uses this read port. Every value is a getter
-    // into the MobX home; no device field is retained in EngineState.
-    Object.defineProperties(
-      this.state,
-      Object.fromEntries(
-        Object.entries(Object.getOwnPropertyDescriptors(this.ui.screen))
-          .filter(([key]) => !Object.hasOwn(this.state, key))
-          .map(([key, descriptor]) => [key, { ...descriptor, enumerable: false }]),
-      ),
-    )
+    // Planners read UiStore directly. No EngineState copy or whole-state publication.
+    this.state = this.ui.screen
     Object.defineProperties(this.state, {
       paletteOpen: { enumerable: false, get: () => this.palette.open },
       autoContinuePromptSessionId: {
         enumerable: false,
         get: () => this.autoContinueDialog.sessionId,
-      },
-      issueVisitBaseline: {
-        enumerable: false,
-        get: () => this.reactions?.issueVisitBaseline ?? null,
       },
     })
     bindSwitchTraceUi(this.deviceState)
@@ -374,30 +328,76 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.ui,
       this.router,
       (route) => this.onRouteChanged(route),
-      () => this.paneLink?.sessionId ?? this.pendingPaneLink,
+      () => this.paneLinks?.pendingPane ?? null,
     )
-    this.reactions = new Reactions({
+    this.follow = new FollowService({
       state: () => this.state,
-      publish: (patch) => this.apply(patch),
-      hub: this.root.services.connection.hub,
+      publish: (patch) => this.ui.patch(patch),
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
-      markSessionRead: (sessionId, readAt) =>
-        this.root.commands.sessions.markRead(sessionId, readAt),
-      markIssueRead: (issueId, readAt) => this.root.commands.issues.markRead(issueId, readAt),
-      ...(init.workspacePruneGraceMs !== undefined
-        ? { pruneGraceMs: init.workspacePruneGraceMs }
-        : {}),
-      linkedWorktree: () => this.paneLink?.worktree ?? null,
+      linkedWorktree: () => this.paneLinks?.linkedWorktree ?? null,
       repositories: () => this.repositories(),
-      // The checkouts are known once the replica holds a feed position (a saved
-      // copy or a first bootstrap) or holds checkout records at all.
       checkoutsKnown: () =>
         this.root.replica.getCursor() !== null ||
         (this.root.replica.rowCount?.('checkouts') ?? 0) > 0,
+      subscribeCheckouts: (changed) => {
+        const off = this.root.replica.subscribeAddressedBatch?.((batch) => {
+          if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) {
+            this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
+            changed()
+          }
+        })
+        this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
+        return () => {
+          off?.()
+          this.heldRepositories = undefined
+        }
+      },
+      readPending: () => {
+        const pending = this.pendingNavigation
+        return [
+          this.pendingSessionNavigation
+            ? this.state.navigation.session(this.pendingSessionNavigation)
+            : undefined,
+          pending
+            ? resolvedWorkspaceKey(
+                overlayState(this.state, {
+                  ...(pending.selectedIssueId !== undefined
+                    ? { selectedIssueId: pending.selectedIssueId }
+                    : {}),
+                  ...(pending.selectedWorktree !== undefined
+                    ? { selectedWorktree: pending.selectedWorktree }
+                    : {}),
+                }),
+              )
+            : undefined,
+        ]
+      },
+      retryPending: () => {
+        if (this.pendingSessionNavigation) this.ui.navigateToSession(this.pendingSessionNavigation)
+        if (this.pendingNavigation) this.navigate(this.pendingNavigation)
+      },
     })
-    this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
-    this.workspaceKey = workspaceKeyForState(this.state)
+    this.markRead = new MarkReadService({
+      state: () => this.state,
+      publishBaseline: (baseline) => this.ui.setIssueVisitBaseline(baseline),
+      isVisible: () => this.visibility.isVisible(),
+      connection: this.root.services.connection,
+      markSessionRead: (id, at) => this.root.commands.sessions.markRead(id, at),
+      markIssueRead: (id, at) => this.root.commands.issues.markRead(id, at),
+    })
+    this.paneLinks = new PaneLinkService({
+      state: () => this.state,
+      publish: (patch) => this.ui.patch(patch),
+      router: this.router,
+      notices: this.notices,
+      resolve: (identifier) => this.api.sessions.resolve.query({ identifier }),
+      repositories: () => this.repositories(),
+      navigate: (intent) => this.navigate(intent),
+      openWorkspaceTab: (id) => this.openWorkspaceTab(id),
+      fallback: () => this.follow.refreshFallback(),
+      graceMs: init.workspacePruneGraceMs,
+    })
     // Drafts are hydrate-first for the same reason the entity slices are, and
     // with more at stake: this is the person's own unsent writing, and a first
     // paint without it is an empty composer where a half-written message was.
@@ -419,6 +419,24 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         waitForSpawnConfirmed: (id) => this.requirePoolWriter().waitForSpawnConfirmed!(id),
       }),
     )
+    this.root.installClientServices({
+      follow: this.follow,
+      paneLinks: this.paneLinks,
+      tabPruning: new TabPruningService({
+        state: () => this.state,
+        publish: (patch) => this.ui.patch(patch),
+        pruneGraceMs: init.workspacePruneGraceMs,
+        ready: () => !this.follow.pendingTopology,
+      }),
+      markRead: this.markRead,
+      viewState: new ViewStateService({
+        state: () => this.state,
+        hub: this.root.services.connection.hub,
+        connection: this.root.services.connection,
+      }),
+      notifications: new NotificationService(this.root.services.connection.hub, this.visibility),
+      draftResend: new DraftResendService(this.drafts, this.root.services.connection),
+    })
     this.services = this.buildStatics()
     this.access = Object.defineProperties(
       { ...this.services },
@@ -429,7 +447,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           enumerable: true,
           get: () => this.autoContinueDialog.sessionId,
         },
-        issueVisitBaseline: { enumerable: true, get: () => this.reactions.issueVisitBaseline },
       },
     ) as Store<TApi>
     this.urlMirror.adoptCurrent()
@@ -471,16 +488,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts.start()
     const offs = this.offs
 
-    // Restartable cleanup drops a pending full-id link's grace timer. Re-arm
-    // it before selection can mirror out, including StrictMode's second mount.
-    if (!this.paneLink && !this.pendingPaneLink) this.followPaneLink(this.router.current())
     this.uiPersistence.start()
-    this.urlMirror.start()
     // THE ROOT (POD-6681): the outbox service attaches the queue and publishes
     // its counts (PoolTransactions owns paint), the topics follow the server,
     // and the connection service arms its listeners and dials on the next
     // macrotask.
     this.root.start()
+    this.urlMirror.start()
     void this.root.replica.hydrate().catch((error) => {
       if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
     })
@@ -497,35 +511,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     installReadPositions()
     offs.push(this.root.replica.subscribeRows('userReadPositions', installReadPositions))
 
-    // Machines, their access and their checkouts are replica records
-    // (POD-6644): a moved checkout re-checks the selected worktree.
-    const offCheckouts = this.root.replica.subscribeAddressedBatch?.((batch) => {
-      if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) {
-        this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
-        if (!this.pendingNavigationTopology) this.worktreeFallback()
-      }
-    })
-    // Held repositories are valid only while this subscription follows them:
-    // derived here once, and again by each batch that moves a checkout.
-    this.heldRepositories = repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
-    offs.push(() => {
-      offCheckouts?.()
-      this.heldRepositories = undefined
-    })
-    // Attention → web notification, but only while this page can't be seen —
-    // a visible Podium window IS the notification.
-    offs.push(
-      this.root.services.connection.hub.on('attention', (e) => {
-        if (this.visibility.isVisible()) return
-        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-        try {
-          new Notification(e.title, { body: e.body, tag: e.sessionId })
-        } catch {
-          // some webviews throw on construction — never break the app over a toast
-        }
-      }),
-    )
-
     this.sounds ??= createNotificationSounds({
       ui: this.deviceState,
       phases: () => this.sessionPhases?.() ?? [],
@@ -535,26 +520,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // observable source; attachSessionPhases starts sounds when it arrives.
     if (this.sessionPhases) this.sounds.start()
     offs.push(() => this.sounds?.stop())
-
-    // Presence feeds the server's smart router (skip mobile push while visible).
-    // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
-    // The connection service owns the source and runs this before it
-    // reconnects on the same change; it also reconnects when the network returns.
-    offs.push(
-      this.root.services.connection.onVisibilityChange(() => this.reactions.onVisibilityChange()),
-    )
-    this.reactions.onVisibilityChange()
-    // A ghost tab restored from persistence needs no delta to be a ghost, so the
-    // prune pass has to be armed at boot as well as reacted to — otherwise an
-    // offline reload keeps showing (and re-persisting) a tab for a session that
-    // is long gone. Idempotent: it re-arms its own timer.
-    this.reactions.pruneWorkspaces()
-    offs.push(
-      reaction(
-        () => [this.ui.workspaces, this.ui.fileTabList],
-        () => this.reactions.pruneWorkspaces(),
-      ),
-    )
 
     if (!this.booted) {
       this.booted = true
@@ -572,8 +537,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   @actionBound dispose(): void {
     this.started = false
     bindSwitchTraceUi(null)
-    this.reactions.dispose()
-    this.dropPaneLink()
+    this.paneLinks.cancel()
     this.drafts.stop()
     for (const off of this.offs.splice(0)) {
       try {
@@ -609,15 +573,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.root.releaseConversations()
     this.drafts.dispose()
     this.dispose()
-    this.stopNavigationWatch?.()
-    this.stopNavigationWatch = undefined
-    this.stopTopologyWatch?.()
-    this.stopTopologyWatch = undefined
     this.pendingNavigation = undefined
     this.pendingSessionNavigation = undefined
-    this.pendingNavigationTopology = false
-    this.pendingWorktreeMoves.clear()
-    this.pendingWorktreeFallback = false
     if (options.eraseUi) this.uiPersistence.erase()
     this.destroyed = true
     this.poolWriter?.dispose?.()
@@ -638,382 +595,25 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * installed during loading or teardown. */
   @actionBound setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
-    // Release observations against their owning pool before replacing it.
-    if (provider !== this.state.navigation) this.reactions.leaveReadVisits()
-    this.stopTopologyWatch?.()
-    this.pendingWorktreeMoves.clear()
-    this.stopTopologyWatch = provider.onTopology?.((delta) => {
-      if (this.destroyed) return
-      if (delta?.reset && provider.topologySession)
-        for (const [id, previous] of this.pendingWorktreeMoves)
-          this.pendingWorktreeMoves.set(id, { ...previous, after: provider.topologySession(id) })
-      for (const change of delta?.sessions ?? []) {
-        const previous = this.pendingWorktreeMoves.get(change.id)
-        this.pendingWorktreeMoves.set(
-          change.id,
-          previous ? { id: change.id, before: previous.before, after: change.after } : change,
-        )
-      }
-      this.pendingNavigationTopology = true
-      this.queueNavigationWake(provider)
-    })
-    this.pendingNavigationTopology = true
-    this.apply({ navigation: provider })
-    if (this.pendingNavigationTopology || this.pendingWorktreeFallback)
-      this.queueNavigationWake(provider)
-    if (this.pendingSessionNavigation)
-      this.services.navigateToSession(this.pendingSessionNavigation)
+    this.ui.setNavigation(provider)
+    if (this.pendingSessionNavigation) this.ui.navigateToSession(this.pendingSessionNavigation)
     if (this.pendingNavigation) this.navigate(this.pendingNavigation)
   }
 
-  private watchNavigation(): void {
-    // Attach the new watch before releasing the old one, so the provider's
-    // cached reads (activity roll-ups, mission roots) stay observed across a
-    // click instead of being dropped and rebuilt from scratch.
-    const previous = this.stopNavigationWatch
-    this.stopNavigationWatch = undefined
-    const provider = this.state.navigation
-    if (!provider?.watch) {
-      previous?.()
-      return
-    }
-    // The topology port already follows background membership. An idle
-    // window has no addressed pool cells to watch and needs no row reaction.
-    if (
-      provider.onTopology &&
-      !focusedPaneSession(this.state) &&
-      !this.state.selectedIssueId &&
-      !this.state.openIssueId &&
-      !this.pendingSessionNavigation &&
-      !this.paneLink &&
-      !this.pendingNavigation &&
-      this.pendingWorktreeMoves.size === 0 &&
-      !this.pendingWorktreeFallback &&
-      !this.pendingNavigationTopology
-    ) {
-      previous?.()
-      return
-    }
-    try {
-      this.stopNavigationWatch = this.attachNavigationWatch(provider, provider.watch)
-    } finally {
-      previous?.()
-    }
-  }
-
-  private attachNavigationWatch(
-    provider: NavigationProvider,
-    watch: NonNullable<NavigationProvider['watch']>,
-  ): () => void {
-    return watch.call(
-      provider,
-      () => {
-        const st = this.state
-        const focused = focusedPaneSession(st)
-        const session = focused ? provider.session(focused) : undefined
-        const issue = foregroundIssue(st)
-        const pending = this.pendingNavigation
-        return [
-          this.pendingNavigationTopology
-            ? [...this.pendingWorktreeMoves.values()]
-                .filter(
-                  (change) =>
-                    change.before && change.after && change.before.cwd !== change.after.cwd,
-                )
-                .map((change) => provider.worktreeSession?.(change.id))
-            : undefined,
-          (this.pendingNavigationTopology || this.pendingWorktreeFallback) &&
-          provider.registeredWorktree
-            ? st.selectedWorktree
-              ? [
-                  provider.registeredWorktree(st.selectedWorktree),
-                  provider.hasWorktreeSession?.(st.selectedWorktree),
-                ]
-              : provider.firstWorktree?.()
-            : undefined,
-          !provider.onTopology && (this.pendingNavigationTopology || this.pendingWorktreeFallback)
-            ? provider.worktreeSessions?.()
-            : undefined,
-          resolvedWorkspaceKey(st),
-          issue
-            ? [
-                issue.id,
-                issue.updatedAt,
-                provider.activityAt(issue.id),
-                provider.issueReadAt(issue.id),
-              ]
-            : undefined,
-          // Watch only the pool fields these navigation reactions consume.
-          session && session !== NAVIGATION_LOADING
-            ? [
-                session.sessionId,
-                session.issueId,
-                session.cwd,
-                session.lastActiveAt,
-                session.unread,
-              ]
-            : session,
-          this.pendingNavigationTopology &&
-          session &&
-          session !== NAVIGATION_LOADING &&
-          session.issueId
-            ? resolvedWorkspaceKey(overlayState(st, { selectedIssueId: session.issueId }))
-            : undefined,
-          this.paneLink ? provider.session(this.paneLink.sessionId) : undefined,
-          this.pendingSessionNavigation
-            ? provider.session(this.pendingSessionNavigation)
-            : undefined,
-          pending
-            ? resolvedWorkspaceKey(
-                overlayState(st, {
-                  ...(pending.selectedIssueId !== undefined
-                    ? { selectedIssueId: pending.selectedIssueId }
-                    : {}),
-                  ...(pending.selectedWorktree !== undefined
-                    ? { selectedWorktree: pending.selectedWorktree }
-                    : {}),
-                }),
-              )
-            : undefined,
-        ]
-      },
-      () => this.queueNavigationWake(provider),
-    )
-  }
-
-  private queueNavigationWake(provider: NavigationProvider): void {
-    if (this.navigationWakeQueued) return
-    this.navigationWakeQueued = true
-    // The runtime publishes before the row source's queued fold. Cross that
-    // boundary before following a rehome or pruning the original tab strip.
-    queueMicrotask(() =>
-      queueMicrotask(() => {
-        this.navigationWakeQueued = false
-        if (this.destroyed || this.state.navigation !== provider) return
-        this.batch(() => {
-          if (this.pendingNavigationTopology) {
-            const followed = this.reactions.worktreeFollow([...this.pendingWorktreeMoves.values()])
-            if (followed) this.pendingWorktreeMoves.clear()
-            if (
-              followed &&
-              this.reactions.worktreeFallback() &&
-              this.reactions.sessionIssueFollow()
-            ) {
-              this.pendingNavigationTopology = false
-              this.pendingWorktreeFallback = false
-              this.reactions.pruneWorkspaces()
-            }
-          }
-          if (
-            !this.pendingNavigationTopology &&
-            this.pendingWorktreeFallback &&
-            this.reactions.worktreeFallback()
-          )
-            this.pendingWorktreeFallback = false
-          if (
-            this.paneLink &&
-            !this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
-          )
-            this.apply(this.openWorkspaceTab(this.paneLink.sessionId))
-          if (this.pendingSessionNavigation)
-            this.services.navigateToSession(this.pendingSessionNavigation)
-          if (this.pendingNavigation) this.navigate(this.pendingNavigation)
-          this.syncWorkspaceSelection()
-          this.reactions.updateIssueVisitBaseline()
-          this.reactions.updateMarkReadTimer()
-          this.reactions.updateIssueMarkReadTimer()
-        })
-        this.watchNavigation()
-      }),
-    )
-  }
-
-  // ------------------------------------------------------------ state pipeline
-
-  /** Writes are immediate; subscribers see only the completed batch, including
-   *  its reaction cascade. Reactions read state(), never the published snapshot.
-   *  A destroyed runtime refuses every asynchronous writer at this boundary. */
-  /** Transfer the selection once; every legacy state read and write then
-   * delegates to the always-on worklist. Detach takes it back when that view
-   * disappears, before another principal or pool can attach. */
-  private apply(patch: Partial<EngineState & ScreenState>): void {
+  /** UI writes stay in their MobX homes; no state snapshot is republished. */
+  @action private apply(patch: Partial<ScreenState>): void {
     if (this.destroyed) return
-    this.batch(() => {
-      if (patch.paletteOpen !== undefined) this.palette.setOpen(patch.paletteOpen)
-      if (patch.autoContinuePromptSessionId !== undefined) {
-        if (patch.autoContinuePromptSessionId)
-          this.autoContinueDialog.open(patch.autoContinuePromptSessionId)
-        else this.autoContinueDialog.close()
-      }
-      if (patch.issueVisitBaseline !== undefined)
-        this.reactions.setIssueVisitBaseline(patch.issueVisitBaseline)
-      const screenPatch = Object.fromEntries(
-        Object.entries(patch).filter(([key]) => Object.hasOwn(this.ui.screen, key)),
-      )
-      if (Object.keys(screenPatch).length) this.ui.patch(screenPatch)
-      const changed = new Set<keyof (EngineState & ScreenState)>()
-      for (const k of Object.keys(patch) as Array<keyof (EngineState & ScreenState)>) {
-        if (
-          Object.hasOwn(this.ui.screen, k) ||
-          k === 'paletteOpen' ||
-          k === 'autoContinuePromptSessionId' ||
-          k === 'issueVisitBaseline'
-        )
-          continue
-        const next = patch[k]
-        if (!Object.is(this.state[k], next)) {
-          ;(this.state as unknown as Record<string, unknown>)[k as string] = next
-          changed.add(k)
-        }
-      }
-      if (changed.size === 0) return
-      if (this.statsReactionDepth > 0) {
-        // Preserve the synchronous reaction ordering: a nested selection write
-        // restores its panes before the next reaction reads the current state.
-        this.runReactions(changed)
-      } else {
-        for (const key of changed) this.pendingReactions.add(key)
-      }
-    })
-  }
-
-  private runReactions(changed: ReadonlySet<keyof (EngineState & ScreenState)>): void {
-    this.statsReactionDepth++
-    try {
-      this.react(changed)
-    } finally {
-      this.statsReactionDepth--
+    if (patch.paletteOpen !== undefined) this.palette.setOpen(patch.paletteOpen)
+    if (patch.autoContinuePromptSessionId !== undefined) {
+      if (patch.autoContinuePromptSessionId)
+        this.autoContinueDialog.open(patch.autoContinuePromptSessionId)
+      else this.autoContinueDialog.close()
     }
+    this.ui.patch(patch)
   }
 
-  /** Explicit batches defer reactions until all writes land, then publish the
-   * changed local keys once. Finally restores the boundary if a reaction throws. */
   @action batch(fn: () => void): void {
-    if (this.destroyed) return
-    this.batchDepth++
-    try {
-      fn()
-    } finally {
-      try {
-        if (this.batchDepth === 1) {
-          const changed = this.pendingReactions
-          this.pendingReactions = new Set()
-          if (changed.size > 0) this.runReactions(changed)
-        }
-      } finally {
-        this.batchDepth--
-      }
-    }
-  }
-
-  /** Effect → reaction table (#262): each old provider useEffect either lives
-   *  here keyed by the slices it depended on, or in start() (mount-once). */
-  private react(changed: ReadonlySet<keyof (EngineState & ScreenState)>): void {
-    const any = (...keys: Array<keyof (EngineState & ScreenState)>): boolean =>
-      keys.some((k) => changed.has(k))
-
-    // Worktree fallback selection.
-    if (any('selectedWorktree') && !this.pendingNavigationTopology) this.worktreeFallback()
-    // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
-    // the truth; the pane scalars follow whichever workspace is now on screen.
-    // Pool navigation invalidates the mission root when issue topology moves.
-    if (any('selectedIssueId', 'selectedWorktree', 'navigation')) this.syncWorkspaceSelection()
-    // A tab whose session or file is GONE (POD-710). Nothing else can remove it
-    // — it renders nothing, so there is no ✕ to click — and it is persisted, so
-    // it comes back on every reload until this drops it.
-    // View-state report to the server. `workspaces` is a trigger in its own
-    // right: a third pane's active tab changes what is on screen without moving
-    // `paneA`/`paneB`. `panelMode` is equally live: switching Native → Chat must
-    // release the client terminal's takeover lease before a Chat turn can reach
-    // the headless engine.
-    if (
-      any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession', 'panelMode')
-    )
-      this.reactions.reportViewState()
-    // Mark-the-viewed-session-read reaction.
-    if (any('view', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
-      this.reactions.updateMarkReadTimer()
-    // …and the same for the issue the operator has in the foreground (POD-272).
-    if (any('navigation', 'view', 'selectedIssueId', 'openIssueId'))
-      this.reactions.updateIssueVisitBaseline()
-    if (any('navigation', 'view', 'selectedIssueId', 'openIssueId'))
-      this.reactions.updateIssueMarkReadTimer()
-    if (
-      any(
-        'navigation',
-        'selectedIssueId',
-        'selectedWorktree',
-        'view',
-        'openIssueId',
-        'paneA',
-        'paneB',
-        'split',
-        'focusedPane',
-        'workspaces',
-      )
-    )
-      this.watchNavigation()
-  }
-
-  /** Re-derive the pane mirrors when the workspace on screen changes. A write
-   *  INSIDE one workspace already carries its own mirror (workspaceWritePatch),
-   *  so this fires only on the switch. */
-  private syncWorkspaceSelection(): void {
-    const key = resolvedWorkspaceKey(this.state)
-    if (key === NAVIGATION_LOADING) return
-    if (key === this.workspaceKey) return
-    this.workspaceKey = key
-    // Mirror only: switching to a task that has never been opened must not
-    // persist an empty layout for it.
-    this.apply(workspaceMirrorPatch(workspaceFor(this.state, key)))
-  }
-
-  /**
-   * A SHORT SESSION ID IN A PANE LINK (POD-4637).
-   *
-   * The pane is adopted as-is first, like every pane — but a short id or birth
-   * ref can never become a session row, so without this the tab named nothing
-   * and the link silently opened nothing. The SERVER answers, through the CLI's
-   * own rule (`sessions.resolve`); no client matches prefixes. A session answer
-   * rewrites the link to its full id and the ordinary full-id path opens it;
-   * ambiguous and absent SAY so. Either way the prefix tab goes.
-   *
-   * A full id never asks: it may be an optimistic spawn the server has not
-   * confirmed, and that keeps its adopt-then-wait path. An unreachable server
-   * leaves the adopted tab to the prune grace, as for any unknown pane.
-   */
-  private resolvePaneLink(pane: string | null | undefined): void {
-    if (!pane || !isShortSessionIdentifier(pane)) {
-      this.pendingPaneLink = null
-      return
-    }
-    if (navigationSession(this.state, pane)) return
-    this.pendingPaneLink = pane
-    void Promise.resolve()
-      .then(() => this.api.sessions.resolve.query({ identifier: pane }))
-      .then(
-        (answer) => this.adoptPaneLinkAnswer(pane, answer),
-        (error: unknown) => log.debug('pane link resolve failed', { pane, error }),
-      )
-  }
-
-  private adoptPaneLinkAnswer(pane: string, answer: SessionIdentifierResolution): void {
-    if (this.destroyed || this.pendingPaneLink !== pane) return
-    this.pendingPaneLink = null
-    if (answer.kind === 'session') {
-      const route = this.router.current()
-      this.router.replace({ ...route, view: 'workspace', pane: answer.sessionId })
-    } else {
-      this.notices.error(sessionLinkProblem(pane, answer))
-    }
-    this.apply(
-      workspacesPatch(this.state, (ws) => (allTabIds(ws).includes(pane) ? closeTab(ws, pane) : ws)),
-    )
-    // A COLD link seeds `paneA` from the URL before any layout holds it, so no
-    // tab closed above; re-derive the scalars from the layout on screen.
-    if (this.state.paneA === pane) {
-      this.apply(workspaceMirrorPatch(workspaceFor(this.state, workspaceKeyForState(this.state))))
-    }
+    if (!this.destroyed) fn()
   }
 
   /** Open a tab in the workspace a navigation is landing in — `selection` is the
@@ -1028,7 +628,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const key = resolvedWorkspaceKey(st)
     if (key === NAVIGATION_LOADING) return {}
     const next = openTab(workspaceFor(st, key), tabId, { permanent })
-    this.workspaceKey = key
     return workspaceWritePatch(st, key, next)
   }
 
@@ -1042,19 +641,30 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingSessionNavigation = undefined
     // Any navigation supersedes a link still waiting for its session, so a late
     // row never yanks the operator off where they went since (POD-4642).
-    this.dropPaneLink()
+    this.paneLinks.cancel()
     const plan = planNavigation(this.state, this.router.current(), intent, {
       visible: this.visibility.isVisible(),
       now: new Date().toISOString(),
     })
     if (plan.pending) {
       this.pendingNavigation = intent
-      this.watchNavigation()
+      this.follow.refreshWatch()
       return false
     }
-    const changed = Object.entries(plan.patch).some(
-      ([key, value]) => !Object.is(this.state[key as keyof (EngineState & ScreenState)], value),
-    )
+    const patch = plan.patch
+    // Compare the navigation fields only. Never enumerate the screen or copy a
+    // whole state document to decide whether this one selection changed.
+    const changed =
+      this.ui.view !== patch.view ||
+      this.ui.settingsTab !== patch.settingsTab ||
+      this.ui.openIssueId !== patch.openIssueId ||
+      (patch.selectedIssueId !== undefined && this.ui.selectedIssueId !== patch.selectedIssueId) ||
+      (patch.selectedWorktree !== undefined &&
+        this.ui.selectedWorktree !== patch.selectedWorktree) ||
+      (patch.workspaces !== undefined && this.ui.workspaces !== patch.workspaces) ||
+      (patch.fileTabs !== undefined && this.ui.fileTabList !== patch.fileTabs) ||
+      (patch.recentFiles !== undefined && this.ui.recentFiles !== patch.recentFiles) ||
+      (patch.focusedPane !== undefined && this.ui.focusedPane !== patch.focusedPane)
     // History validates/serializes before state is committed. Its synchronous
     // callback must not independently adopt the same destination and publish.
     this.committingNavigation = true
@@ -1065,7 +675,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.committingNavigation = false
     }
     this.prevRoute = this.router.current()
-    this.workspaceKey = plan.key
     this.apply(plan.patch)
     return changed
   }
@@ -1082,7 +691,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * Panes are adopted as-is, because an unknown pane has no fallback↔adopt pair
    * and so cannot oscillate: it becomes a real tab in the workspace it lands
    * in, and if it never resolves to a session or a file the prune reaction
-   * retires it after its grace period (`Reactions.pruneWorkspaces`). It is NOT
+   * retires it after its grace period (`TabPruningService.pruneWorkspaces`). It is NOT
    * the view's job — the view renders the layout and cannot see a tab that
    * resolves to nothing.
    *
@@ -1097,7 +706,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state
-    const patch: Partial<EngineState & ScreenState> = {
+    const patch: Partial<ScreenState> = {
       view: route.view,
       settingsTab: route.settingsTab,
       openIssueId: asIssueIdOrNull(route.issueId),
@@ -1129,74 +738,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     // A pane the state is not already showing is a LINK (deep link, back/forward),
     // not this runtime's own mirror write.
-    if (route.pane !== prev?.pane) this.dropPaneLink()
+    if (route.pane !== prev?.pane) this.paneLinks.cancel()
     const linked = !!route.pane && route.pane !== prev?.pane && route.pane !== st.paneA
-    if (!linked && route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
+    if (!linked && route.pane !== prev?.pane) this.paneLinks.resolve(route.pane)
     this.apply(patch)
-    if (linked) this.followPaneLink(route)
-  }
-
-  /**
-   * A `?pane=<session id>` LINK OPENS THAT SESSION (POD-4642).
-   *
-   * Cold and warm links both land here. A known session opens the way the
-   * jump-to-session action opens it — its issue and worktree selected, its tab
-   * active — because the tab strip draws the LAYOUT, and a pane scalar seeded
-   * from the URL alone left the restored tab in front under the new link.
-   *
-   * A full id this replica does not hold yet is adopted as a tab, as before (it
-   * may be an optimistic spawn, or a row still on its way), and remembered: its
-   * arrival opens it, and the worktree fallback holds the linked worktree
-   * meanwhile instead of swapping in another repo. If the prune grace passes
-   * without it, the link SAYS so. Short ids ask the server
-   * ({@link resolvePaneLink}); a session answer comes back through here as a
-   * full id.
-   */
-  private followPaneLink(route: RouteState): void {
-    const pane = route.pane
-    this.dropPaneLink()
-    this.resolvePaneLink(pane)
-    if (!pane) return
-    const short = isShortSessionIdentifier(pane)
-    if (!short && this.openLinkedSession(pane, route.worktree ?? null)) return
-    // A deep-linked pane is an OPEN, so the workspace it lands in gains the tab;
-    // the mirror would otherwise erase it on the next layout write.
-    this.apply(this.openWorkspaceTab(pane))
-    if (short || pane.startsWith('file:')) return
-    const timer = setTimeout(() => {
-      if (this.paneLink?.sessionId !== pane) return
-      this.dropPaneLink()
-      if (this.destroyed || navigationSession(this.state, pane)) return
-      this.notices.error(sessionLinkProblem(pane, { kind: 'absent' }))
-      // The held worktree may name nothing now; let the fallback settle it.
-      this.reactions.worktreeFallback()
-    }, this.paneLinkGraceMs)
-    this.paneLink = { sessionId: pane, worktree: route.worktree ?? null, timer }
-    this.watchNavigation()
-  }
-
-  /** Open a linked session this replica holds; false when it holds none. */
-  private openLinkedSession(sessionId: string, worktree: string | null): boolean {
-    const meta = navigationSession(this.state, sessionId)
-    if (!meta) return false
-    this.dropPaneLink()
-    const selection = sessionLinkSelection(this.state, this.repositories(), meta, worktree)
-    // Already the active tab of the workspace it lands in (a plain reload):
-    // nothing to move, and a split's focus stays where it was.
-    const key = workspaceKeyForState(this.state)
-    if (
-      key === workspaceKeyForState(overlayState(this.state, selection)) &&
-      workspaceMirrorPatch(workspaceFor(this.state, key)).paneA === sessionId
-    )
-      return true
-    this.navigate({ view: 'workspace', ...selection, tabId: sessionId, history: 'view' })
-    return true
-  }
-
-  private dropPaneLink(): void {
-    if (!this.paneLink) return
-    clearTimeout(this.paneLink.timer)
-    this.paneLink = null
+    if (linked) this.paneLinks.follow(route)
   }
 
   // -------------------------------------------------------------- outbox seams
@@ -1212,7 +758,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * Delivery and awaiting-truth entries are already durable and resume after reload. */
   readonly prepareReload = async (): Promise<void> => {
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
-    await this.reactions.flushReadAcknowledgements()
+    await this.markRead.flushReadAcknowledgements()
     this.drafts.persist(true)
     await this.uiPersistence.flush()
     await this.root.services.outbox.queue.flushLocalWrites?.()
@@ -1240,14 +786,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return this.heldRepositories
   }
   private heldRepositories: readonly CheckoutRepository[] | undefined
-
-  /** Keep the selected worktree valid against the registered worktrees. */
-  private worktreeFallback(): void {
-    if (!this.reactions.worktreeFallback() && this.state.navigation) {
-      this.pendingWorktreeFallback = true
-      this.queueNavigationWake(this.state.navigation)
-    }
-  }
 
   private createCommands(): Commands<TApi> {
     return createCommands({

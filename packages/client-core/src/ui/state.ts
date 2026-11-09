@@ -331,7 +331,7 @@ export function workspaceWritePatch(
  * missing from here is not necessarily dead. It may be early (a deep-linked
  * pane that arrives before its session) or temporarily invisible (a scoped
  * slice shrinking under an evict). Deciding which is which is the caller's job
- * — see `Reactions.pruneWorkspaces`.
+ * — see `TabPruningService.pruneWorkspaces`.
  */
 export interface PruningState extends ScreenState {
   sessions: SessionView[]

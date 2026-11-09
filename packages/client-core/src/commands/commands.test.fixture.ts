@@ -7,7 +7,9 @@ import {
   issueUserStateRowId,
   sessionUserStateRowId,
 } from '@podium/model'
+import { reaction } from 'mobx'
 import { afterEach, beforeAll, vi } from 'vitest'
+import type { FixtureCommandDeps as CommandDeps } from '../../test-support/commands'
 import { fixtureCommands } from '../../test-support/commands'
 import { layoutFixture } from '../../test-support/layout'
 import { fixtureNavigation } from '../../test-support/navigation'
@@ -24,7 +26,6 @@ import { UiStore } from '../ui/ui-store'
 import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
 import { createRoutedUiState } from '../ui-state'
-import type { FixtureCommandDeps as CommandDeps } from '../../test-support/commands'
 
 beforeAll(loadRecordDeclarations)
 export const sessionId = asSessionId('session-1')
@@ -195,12 +196,10 @@ export function harness(
     revealTranscript,
     repositories: () => [],
     isVisible: () => true,
-    changed: () => {
-      publish()
-    },
     watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
     navigate: (runtime as unknown as { navigate: (intent: NavigationIntent) => boolean }).navigate,
   })
+  cleanups.push(reaction(() => [ui.selectedIssueId, ui.navigation], publish))
   cleanups.push(() => ui.dispose())
   ui.patch({ view: 'issues', navigation })
   function readState() {

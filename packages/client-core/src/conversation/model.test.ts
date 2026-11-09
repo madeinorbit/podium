@@ -47,8 +47,7 @@ function fixture(over: Partial<ConversationOptions> = {}) {
     storage: { get: () => null, set: vi.fn() },
     hub: {
       ...hub,
-      sendDraftEdit: vi.fn(),
-      connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }),
+      sendDraftEdit: vi.fn()
     },
   })
   const current = observable.box<ConversationSession>(

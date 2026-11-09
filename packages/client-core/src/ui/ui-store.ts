@@ -12,7 +12,7 @@ import { isSessionIdPrefix } from '@podium/protocol'
 import { actionBound, observable, observableRef } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { loadingNavigationProvider, type NavigationProvider } from '../engine/navigation-provider'
-import type { Store, StoreNotices, UserFocus } from '../engine/types'
+import type { IssueVisitBaseline, Store, StoreNotices, UserFocus } from '../engine/types'
 import type { SocketHub } from '../socket-transport'
 import type { FileScrollPosition, MainView, RoutedUiState, Router } from '../ui-state'
 import { readStoredPanelModes, UI_STATE_KEYS, uiStateRoute } from '../ui-state'
@@ -86,7 +86,6 @@ export interface UiStorePorts {
    *  replica's `checkout` records (POD-6644). */
   repositories(): readonly CheckoutRepository[]
   isVisible(): boolean
-  changed?(keys: ReadonlySet<keyof ScreenState>): void
   watch?(keys: readonly ('selectedIssueId' | 'navigation')[], listener: () => void): () => void
   navigate?(intent: NavigationIntent): boolean
   waitForSessionNavigation?(identifier: string): void
@@ -94,6 +93,10 @@ export interface UiStorePorts {
 }
 
 export class UiStore {
+  @observableRef accessor issueVisitBaseline: IssueVisitBaseline | null = null
+  @actionBound setIssueVisitBaseline(value: IssueVisitBaseline | null): void {
+    this.issueVisitBaseline = value
+  }
   @observable accessor view: MainView = 'workspace'
   @observable accessor selectedWorktree: string | null = null
   @observable accessor selectedIssueId: IssueId | null = null
@@ -148,6 +151,7 @@ export class UiStore {
     // Pure planners and the existing services accept a narrow read port. These
     // getters read the one MobX home; this object stores no screen values.
     const fields = [
+      'issueVisitBaseline',
       'view',
       'selectedWorktree',
       'selectedIssueId',
@@ -218,11 +222,9 @@ export class UiStore {
   @actionBound
   patch(patch: Partial<ScreenState>): void {
     if (!this.alive) return
-    const changed = new Set<keyof ScreenState>()
     for (const [key, value] of Object.entries(patch)) {
       if (key === 'fileTabs') {
         this.fileTabs.replace((value as FileTab[]).map((tab) => [tab.id, tab]))
-        changed.add(key)
       } else if (key === 'panelMode' || key === 'dockTab' || key === 'superOpen') {
         this.ports.keys.set(
           UI_STATE_KEYS[key],
@@ -234,7 +236,6 @@ export class UiStore {
                 : '0'
               : String(value),
         )
-        changed.add(key)
       } else if (
         key !== 'paneA' &&
         key !== 'paneB' &&
@@ -243,11 +244,8 @@ export class UiStore {
         !Object.is(this[key as keyof this], value)
       ) {
         Reflect.set(this, key, value)
-        changed.add(key as keyof ScreenState)
       }
     }
-    if (patch.workspaces) for (const key of ['paneA', 'paneB', 'split'] as const) changed.add(key)
-    this.ports.changed?.(changed)
   }
 
   getFileScroll(id: string): FileScrollPosition | undefined {

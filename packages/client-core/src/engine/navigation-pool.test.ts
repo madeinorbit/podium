@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { fixtureCommands } from '../../test-support/commands'
 import { fixtureNavigation } from '../../test-support/navigation'
 import { fixtureUi } from '../../test-support/ui'
+import { FollowService } from '../runtime-root/services/follow-service'
+import { MarkReadService } from '../runtime-root/services/mark-read-service'
+import { TabPruningService } from '../runtime-root/services/tab-pruning-service'
 import type { SessionView } from '../session-values'
 import { planNavigation } from '../ui/navigation'
 import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
-import { Reactions } from './reactions'
 import {
   loadingNavigationProvider,
   NAVIGATION_LOADING,
@@ -77,14 +79,9 @@ describe('addressed workspace pruning', () => {
     worktreePath: '/repo',
   })
   function reaction(st: RuntimeState) {
-    return new Reactions({
+    return new TabPruningService({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
-      hub: {} as never,
-      notices: {} as never,
-      isVisible: () => true,
-      markSessionRead: vi.fn(),
-      markIssueRead: vi.fn(),
       pruneGraceMs: 20,
     })
   }
@@ -238,17 +235,14 @@ describe('addressed worktree reactions', () => {
     repos: [{ path: '/repo', kind: 'repository' as const, worktrees: [{ path: '/dest' }] }],
   })
   const owner = (st: RuntimeState, info = vi.fn()) =>
-    new Reactions({
+    new FollowService({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
       // The registered repositories are checkout records now (POD-6644).
       repositories: () => (st as unknown as { repos?: never[] }).repos ?? [],
       checkoutsKnown: () => true,
-      hub: {} as never,
       notices: { info } as never,
       isVisible: () => true,
-      markSessionRead: vi.fn(),
-      markIssueRead: vi.fn(),
     })
   const forbidSessions = (st: RuntimeState) =>
     Object.defineProperty(st, 'sessions', {
@@ -449,11 +443,11 @@ describe('navigation with an injected pool provider', () => {
       paneA: seat.sessionId,
     }
     const markSessionRead = vi.fn()
-    const reactions = new Reactions({
+    const reactions = new MarkReadService({
       state: () => st,
-      publish: (patch) => Object.assign(st, patch),
-      hub: {} as never,
-      notices: {} as never,
+      publishBaseline: (baseline) => {
+        st.issueVisitBaseline = baseline
+      },
       isVisible: () => true,
       markSessionRead,
       markIssueRead: vi.fn(),
@@ -488,11 +482,11 @@ describe('navigation with an injected pool provider', () => {
       throw new Error('legacy read cursor')
     })
     const markIssueRead = vi.fn()
-    const reactions = new Reactions({
+    const reactions = new MarkReadService({
       state: () => st,
-      publish: (patch) => Object.assign(st, patch),
-      hub: {} as never,
-      notices: {} as never,
+      publishBaseline: (baseline) => {
+        st.issueVisitBaseline = baseline
+      },
       isVisible: () => true,
       markSessionRead: vi.fn(),
       markIssueRead,
@@ -501,15 +495,15 @@ describe('navigation with an injected pool provider', () => {
       const plan = planNavigation(st, routeDefaults('workspace'), { view: 'workspace' }, context)
       Object.assign(st, plan.patch)
       reactions.updateIssueVisitBaseline()
-      expect(reactions.issueVisitBaseline?.readAt).toBe(cursor)
+      expect(st.issueVisitBaseline?.readAt).toBe(cursor)
       // Applying the planner leaves the visit with its new owner; its cursor
       // remains unchanged when activity later becomes available.
-      expect(reactions.issueVisitBaseline?.issueId).toBe(child.id)
+      expect(st.issueVisitBaseline?.issueId).toBe(child.id)
       reactions.updateIssueMarkReadTimer()
       expect(markIssueRead).not.toHaveBeenCalled()
       ready = true
       reactions.updateIssueVisitBaseline()
-      expect(reactions.issueVisitBaseline?.readAt).toBe(cursor)
+      expect(st.issueVisitBaseline?.readAt).toBe(cursor)
       reactions.updateIssueMarkReadTimer()
       expect(markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id, stamp)
     } finally {
@@ -533,14 +527,11 @@ describe('navigation with an injected pool provider', () => {
       selectedIssueId: child.id,
       paneA: seat.sessionId,
     }
-    const reactions = new Reactions({
+    const reactions = new FollowService({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
-      hub: {} as never,
       notices: {} as never,
       isVisible: () => true,
-      markSessionRead: vi.fn(),
-      markIssueRead: vi.fn(),
     })
     reactions.seedIssueIds([seat])
     Object.defineProperty(st, 'sessions', {

@@ -27,7 +27,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { IssueProjection } from '@podium/model'
 import { asIssueId } from '@podium/model/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Reactions } from '../../../../packages/client-core/src/engine/reactions'
+import { TabPruningService } from '../../../../packages/client-core/src/runtime-root/services/tab-pruning-service'
 import { planNavigation } from '../../../../packages/client-core/src/ui/navigation'
 import {
   issueActivityAt,
@@ -202,14 +202,9 @@ describe('web pool navigation', () => {
       ]),
     )
     const prune = (st: RuntimeState) => {
-      const reactions = new Reactions({
+      const reactions = new TabPruningService({
         state: () => st,
         publish: (patch) => Object.assign(st, patch),
-        hub: {} as never,
-        notices: {} as never,
-        isVisible: () => true,
-        markSessionRead: vi.fn(),
-        markIssueRead: vi.fn(),
       })
       try {
         reactions.pruneWorkspaces()
@@ -310,7 +305,7 @@ describe('web pool navigation', () => {
   })
 
   it('switches sessions with identical layouts and no legacy mission entries while pruning runs', async () => {
-    const prune = vi.spyOn(Reactions.prototype, 'pruneWorkspaces')
+    const prune = vi.spyOn(TabPruningService.prototype, 'pruneWorkspaces')
     {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine

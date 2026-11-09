@@ -15,6 +15,13 @@ import type { SocketHub } from '../socket-transport'
 import type { VisibilitySource } from './connection/visibility'
 import type { EngineOutbox } from './outbox/wiring'
 import { createRuntimeRoot, type RuntimeRoot, type RuntimeRootInit } from './root'
+import { DraftResendService } from './services/draft-resend-service'
+import { FollowService } from './services/follow-service'
+import { MarkReadService } from './services/mark-read-service'
+import { NotificationService } from './services/notification-service'
+import { PaneLinkService } from './services/pane-link-service'
+import { TabPruningService } from './services/tab-pruning-service'
+import { ViewStateService } from './services/view-state-service'
 
 /**
  * THE RUNTIME ROOT (POD-6681): one per signed-in user, created at sign-in,
@@ -234,6 +241,17 @@ describe('the runtime root in React', () => {
   it('a StrictMode remount starts nothing twice, and components see no services', () => {
     vi.useFakeTimers()
     const { queue, visibility, replicas } = parts()
+    const serviceTypes = [
+      NotificationService,
+      MarkReadService,
+      TabPruningService,
+      FollowService,
+      PaneLinkService,
+      ViewStateService,
+      DraftResendService,
+    ]
+    const starts = serviceTypes.map((type) => vi.spyOn(type.prototype, 'start'))
+    const stops = serviceTypes.map((type) => vi.spyOn(type.prototype, 'stop'))
     // The provider builds a real hub; its dials are the sockets it asks for.
     const dials: string[] = []
     const makeSocket = (url: string) => {
@@ -287,12 +305,18 @@ describe('the runtime root in React', () => {
     expect(queue.subscribers()).toBe(1)
     expect(visibility.subscribers()).toBe(2)
     expect(queue.attaches).toBe(2)
+    for (const start of starts) expect(start).toHaveBeenCalledTimes(2)
+    for (const stop of stops) expect(stop).toHaveBeenCalledTimes(1)
+    // Each service is one per runtime; both starts use that same user-owned instance.
+    for (const start of starts) expect(start.mock.contexts[0]).toBe(start.mock.contexts[1])
     expect(seen.at(-1)).toEqual({
       keys: ['live', 'principal'],
       parked,
       recovery: ['discard', 'edit', 'retry'],
     })
     unmount()
+    for (const stop of stops) expect(stop).toHaveBeenCalledTimes(2)
+    for (const spy of [...starts, ...stops]) spy.mockRestore()
     expect(queue.subscribers()).toBe(0)
     expect(visibility.subscribers()).toBe(0)
   })

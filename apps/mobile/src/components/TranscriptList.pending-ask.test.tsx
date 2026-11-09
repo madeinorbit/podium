@@ -699,7 +699,6 @@ it('renders retained phone rows through stream, Find, envelope reshaping and pag
     hub: {
       on: () => () => {},
       sendDraftEdit: () => true,
-      connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }),
     },
   })
   const seed: TranscriptItem = {

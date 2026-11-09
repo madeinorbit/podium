@@ -1,10 +1,10 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
+import { MarkReadService } from '../runtime-root/services/mark-read-service'
 import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
-import { Reactions } from './reactions'
 import { type RuntimeState, workspaceMirrorPatch } from './state'
 
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
@@ -62,20 +62,20 @@ describe('pure navigation plan', () => {
     expect(plan.route).toMatchObject({ view: 'workspace', worktree: '/repo', pane: 'session' })
     expect(plan.replace).toBe(false)
     const final = { ...before, ...plan.patch }
-    // The visit belongs to Reactions after the UiStore landing. Check the same
+    // The mark-read service writes the baseline into UiStore. Check the same
     // cursor and timestamp after applying the real planner's result.
-    const visits = new Reactions({
+    const visits = new MarkReadService({
       state: () => final,
-      publish: (patch) => Object.assign(final, patch),
-      hub: {} as never,
-      notices: {} as never,
+      publishBaseline: (baseline) => {
+        final.issueVisitBaseline = baseline
+      },
       isVisible: () => true,
       markSessionRead: vi.fn(),
       markIssueRead: vi.fn(),
     })
     try {
       visits.updateIssueVisitBaseline()
-      expect(visits.issueVisitBaseline).toEqual({
+      expect(final.issueVisitBaseline).toEqual({
         issueId: issue.id,
         readAt: null,
         openedAt: context.now,
@@ -153,32 +153,33 @@ describe('pure navigation plan', () => {
     before.selectedIssueId = issue.id
     before.issueVisitBaseline = { issueId: issue.id, readAt: null, openedAt: context.now }
     before.view = 'workspace'
+    const baseline = before.issueVisitBaseline
     let visible = true
-    const visits = new Reactions({
+    const visits = new MarkReadService({
       state: () => before,
-      publish: (patch) => Object.assign(before, patch),
-      hub: {} as never,
-      notices: {} as never,
+      publishBaseline: (baseline) => {
+        before.issueVisitBaseline = baseline
+      },
       isVisible: () => visible,
       markSessionRead: vi.fn(),
       markIssueRead: vi.fn(),
     })
     try {
-      visits.setIssueVisitBaseline(before.issueVisitBaseline)
+      before.issueVisitBaseline = baseline
       Object.assign(
         before,
         planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, context).patch,
       )
       visits.updateIssueVisitBaseline()
-      expect(visits.issueVisitBaseline).toBe(before.issueVisitBaseline)
+      expect(before.issueVisitBaseline).toBe(baseline)
       Object.assign(
         before,
         planNavigation(before, routeDefaults('workspace'), { view: 'settings' }, context).patch,
       )
       visits.updateIssueVisitBaseline()
-      expect(visits.issueVisitBaseline).toBeNull()
+      expect(before.issueVisitBaseline).toBeNull()
       before.view = 'workspace'
-      visits.setIssueVisitBaseline(before.issueVisitBaseline)
+      before.issueVisitBaseline = baseline
       visible = false
       Object.assign(
         before,
@@ -190,7 +191,7 @@ describe('pure navigation plan', () => {
         ).patch,
       )
       visits.updateIssueVisitBaseline()
-      expect(visits.issueVisitBaseline).toBeNull()
+      expect(before.issueVisitBaseline).toBeNull()
     } finally {
       visits.dispose()
     }
