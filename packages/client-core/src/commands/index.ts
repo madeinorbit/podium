@@ -48,6 +48,6 @@ export function createCommands<TApi extends PodiumClientApi>(
     preferences: reported(createPreferencesCommands(deps, shared)),
     automations: reported(createAutomationsCommands(deps, shared)),
     threads: reported(createThreadsCommands(deps, shared)),
-    records: shared.records,
+    records: reported(shared.records),
   }
 }

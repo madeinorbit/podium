@@ -5,13 +5,10 @@ import { createRecordsApi, type RecordKind, type RecordPatch, type RecordRef } f
 import { NAVIGATION_LOADING } from '../ui/state'
 
 import type { CommandDeps } from './context'
-import { commandFailureReporter, reportCommandFailures } from './failures'
+import { commandFailureReporter } from './failures'
 export function createCommandWrites<TApi extends PodiumClientApi>(rt: CommandDeps<TApi>) {
   const reportFailure = commandFailureReporter(rt.notices)
-  const records = reportCommandFailures(
-    createRecordsApi((kind, input) => rt.write(kind, input)),
-    reportFailure,
-  )
+  const records = createRecordsApi((kind, input) => rt.write(kind, input))
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
