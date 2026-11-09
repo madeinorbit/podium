@@ -2,7 +2,7 @@
 import '@podium/client-graph/synced-models'
 import { knownReading, type LiveStore } from '@podium/client-core/live'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import type { HostMetricsWire, MachineId } from '@podium/model/browser'
+import { INSTANCE_PREFERENCES_ROW_ID, instancePreferencesRecordOf, type HostMetricsWire, type MachineId } from '@podium/model/browser'
 import { runInAction } from 'mobx'
 import { createSidebarFixture } from './sidebar-fixture'
 
@@ -10,7 +10,9 @@ import { createSidebarFixture } from './sidebar-fixture'
 export function createHeaderFixture(count: number, sessionCount = count, userId = 'operator') {
   const now = Date.now(),
     base = createSidebarFixture(count, now, false, userId)
-  const machineIds = ['host-one', 'host-two', 'host-three'] as MachineId[]
+  // The replica delivers records in key order, so ids preserve this corpus's
+  // visible Host 1, Host 2, Host 3 order without relying on an old RPC array.
+  const machineIds = ['host-1', 'host-2', 'host-3'] as MachineId[]
   const machines = machineIds.map((id, index) => ({
     id,
     name: `Host ${index + 1}`,
@@ -81,6 +83,10 @@ export function createHeaderFixture(count: number, sessionCount = count, userId 
     hibernation: { enabled: false, memoryPct: 90, maxIdleSessions: 10, loadPerCore: 1 },
     worktreeGc: { enabled: false, afterDays: 14 },
   }
+  base.records.set(`instancePreferences:${INSTANCE_PREFERENCES_ROW_ID}`, {
+    entity: 'instancePreferences', entityId: INSTANCE_PREFERENCES_ROW_ID,
+    value: instancePreferencesRecordOf(lifecycle), provenance: { seq: 1 },
+  })
   Object.assign(base.api, {
     settings: { get: { query: async () => lifecycle } },
     quota: { summary: { query: async () => quota } },
@@ -214,6 +220,9 @@ export function createHeaderFixture(count: number, sessionCount = count, userId 
       })
       live = conditions
       machineLive = conditions
+      // This synthetic hub is healthy. With the network feed disabled, publish
+      // its condition explicitly at the same live boundary the feed owns.
+      live?.setConnection({ state: 'online', pingMs: health.rttMs, since: health.since })
       if (store)
         runInAction(() =>
           store.applyTopic('account.quota', 'me', knownReading({ machines: quota } as never, now)),

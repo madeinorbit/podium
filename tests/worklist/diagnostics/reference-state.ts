@@ -125,6 +125,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
     const machines = replica.rows('machines').flatMap((machine) => {
       const mine = access_.get(String(machine.id))
       if (!mine) return []
+      const { userId: _userId, machineId: _machineId, ...mineFacts } = mine
       // Online and presence are the LiveStore's condition (unknown reads offline).
       const reading = live?.conditionOf(String(machine.id))
       const condition = reading?.known ? reading.value : undefined
@@ -133,7 +134,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
         unknown
       >
       return [
-        { ...mine, ...machine, ...presence, id: machine.id, online: condition?.online === true },
+        { ...mineFacts, ...machine, ...presence, id: machine.id, online: condition?.online === true },
       ]
     })
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]

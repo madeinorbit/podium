@@ -1,6 +1,6 @@
 import type { LiveStore } from '@podium/client-core/live'
 import type { UiStore } from '@podium/client-core/ui'
-import type { AccountView, GitRepositoryWire, LayoutWire, MemberView, PinKind } from '@podium/model'
+import { repositoriesFromCheckouts, type AccountView, type CheckoutWire, type GitRepositoryWire, type LayoutWire, type MemberView, type PinKind } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 
 import type { NotificationSession, SessionPhaseChange } from '@podium/client-core/sound'
@@ -357,6 +357,23 @@ export class MobxPool {
   }
 
   @observableRef accessor ui: UiStore | undefined = undefined
+  @observableRef private accessor readCheckouts: (() => readonly CheckoutWire[]) | undefined = undefined
+  @observable private accessor checkoutRevision = 0
+  /** A read port to the one replica; checkout facts are never copied here. */
+  @action bindCheckouts(read: () => readonly CheckoutWire[]): () => void {
+    this.readCheckouts = read
+    return () => runInAction(() => {
+      if (this.readCheckouts === read) this.readCheckouts = undefined
+    })
+  }
+  @action checkoutRecordsChanged(): void {
+    this.checkoutRevision++
+  }
+  /** The repository derivation belongs to this pool and ends with it. */
+  @lazy get checkoutRepositories() {
+    this.checkoutRevision
+    return repositoriesFromCheckouts(this.disposed ? [] : this.readCheckouts?.() ?? [])
+  }
   @action bindUi(ui: UiStore): void {
     this.ui = ui
   }

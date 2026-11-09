@@ -291,20 +291,17 @@ export function checkoutRepositoryId(repo: {
   return JSON.stringify([repo.machineId ?? '', repo.path])
 }
 
-const derived = new WeakMap<readonly CheckoutWire[], readonly CheckoutRepository[]>()
 const EMPTY: readonly CheckoutRepository[] = Object.freeze([])
 
 /**
  * The registered roots among `rows`, each with its worktrees, in the rows'
- * order (machine, then path). Memoized by the rows array: the same replica
- * answer gives the same list, so a reader holding it sees nothing move.
+ * order (machine, then path). This derivation is pure; each client pool owns
+ * its memo so no answer survives into another runtime or principal.
  */
 export function repositoriesFromCheckouts(
   rows: readonly CheckoutWire[],
 ): readonly CheckoutRepository[] {
   if (rows.length === 0) return EMPTY
-  const hit = derived.get(rows)
-  if (hit) return hit
   const roots = new Map<string, CheckoutRepository & { worktrees: GitWorktreeWire[] }>()
   const key = (machineId: string, path: string) => `${machineId}\n${machinePathKey(path)}`
   for (const row of rows) {
@@ -328,52 +325,7 @@ export function repositoriesFromCheckouts(
       ...(row.prunable ? { prunable: true } : {}),
     })
   }
-  // Keep the previous answer's objects where nothing moved, so a reader
-  // holding a repository (or its worktree list) sees no change for a checkout
-  // change elsewhere.
-  const kept = new Map<string, CheckoutRepository>()
-  const out = Object.freeze(
-    [...roots.values()].map((repo) => {
-      const id = checkoutRepositoryId(repo)
-      const before = previousAnswer.get(id)
-      const next = before ? reuse(before, repo) : repo
-      kept.set(id, next)
-      return next
-    }),
-  )
-  previousAnswer = kept
-  derived.set(rows, out)
-  return out
-}
-
-/** The last answer, by repository id (one derivation's worth of objects). */
-let previousAnswer = new Map<string, CheckoutRepository>()
-
-function sameWorktrees(a: readonly GitWorktreeWire[], b: readonly GitWorktreeWire[]): boolean {
-  if (a.length !== b.length) return false
-  return a.every(
-    (tree, at) =>
-      tree.path === b[at]!.path &&
-      tree.branch === b[at]!.branch &&
-      tree.locked === b[at]!.locked &&
-      tree.prunable === b[at]!.prunable,
-  )
-}
-
-function reuse(
-  before: CheckoutRepository,
-  next: CheckoutRepository & { worktrees: GitWorktreeWire[] },
-): CheckoutRepository {
-  const worktrees = sameWorktrees(before.worktrees, next.worktrees) ? before.worktrees : next.worktrees
-  const same =
-    worktrees === before.worktrees &&
-    before.path === next.path &&
-    before.kind === next.kind &&
-    before.machineId === next.machineId &&
-    before.repoId === next.repoId &&
-    before.branch === next.branch &&
-    before.originUrl === next.originUrl
-  return same ? before : { ...next, worktrees }
+  return Object.freeze([...roots.values()])
 }
 
 // ---------------------------------------------------------------------------

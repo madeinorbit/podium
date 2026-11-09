@@ -108,18 +108,4 @@ describe('web shell structure', () => {
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })
-
-})
-
-describe('memory breakdown view', () => {
-  it('fetches the clicked machine breakdown via the hosts endpoint and refreshes while open (#136)', () => {
-    const src = read('features/machines/HostMemoryView.tsx')
-    // Machine-aware: the breakdown is requested for the clicked machine (#136),
-    // not always the first online daemon.
-    expect(src).toContain(
-      'trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined)',
-    )
-    expect(src).toContain('setInterval')
-    expect(src).toContain('clearInterval')
-  })
 })

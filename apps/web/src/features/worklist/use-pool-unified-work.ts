@@ -9,6 +9,7 @@ import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
@@ -223,12 +224,15 @@ export function createPoolWorkActions(
     const remembered = layout?.panes[layout.focusedPaneId]?.activeTabId
     trace(target ?? (remembered ? asSessionId(remembered) : null), asIssueId(id))
     batch(() => {
+      const worklist = worklistView(pool)
+      const wasFolded = worklist.wasFoldedBeforeSelection(rootId)
       const changed = runtime.ui.navigateWorkspace({
         selectedIssueId: asIssueId(rootId),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
         tabId: target,
         firstPane: true,
       })
+      worklist.setFolded(wasFolded)
       const commandKey = JSON.stringify([id, paneSession, clicked.issue.updatedAt])
       if (!changed && lastIssueNavigation === commandKey) return
       lastIssueNavigation = commandKey

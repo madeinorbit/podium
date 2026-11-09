@@ -199,7 +199,12 @@ export function usePanelSurface(input: {
   // write the mode captured by an older render back over that pick.
   const savedModeRef = useRef(savedMode)
   savedModeRef.current = savedMode
+  const sessionPresent = session !== undefined
   useEffect(() => {
+    // Before the pool attaches, an absent session is not evidence that chat
+    // is unavailable. Persisting that provisional native fallback can race a
+    // saved chat choice as the records arrive.
+    if (!sessionPresent) return
     if (!modeSettled) return
     // An explicit per-session choice is already durable. Rewriting it from the
     // derived fallback creates a stale writer when a warm/hidden panel mounts
@@ -211,7 +216,7 @@ export function usePanelSurface(input: {
     // elsewhere — name it.
     log.debug('panel mode materialized from fallback', { sessionId, mode, producer })
     setPanelMode(sessionId, mode)
-  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode, producer])
+  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode, producer, sessionPresent])
 
   const pickMode = (m: PanelMode): void => {
     log.debug('panel mode picked', { sessionId, from: mode, to: m })

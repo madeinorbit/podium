@@ -11,11 +11,12 @@ import {
   repositoriesAsCheckouts,
 } from '@podium/client-core/test-support/machine-records'
 import { fixtureUi } from '@podium/client-core/test-support/ui'
-import type { GitRepositoryWire, MachineFacts } from '@podium/model'
+import type { CheckoutWire, GitRepositoryWire, MachineFacts } from '@podium/model'
 import { headerEntities } from './header-entities'
 import { seedFixtureMachines } from './live-fixture'
 import type { MobxPool } from './pool'
 import type { SettingsOwner } from './settings-source'
+import { checkoutRepositoryId, repositoriesFromCheckouts } from './shared/checkout-repositories'
 
 type Repo = Pick<GitRepositoryWire, 'path' | 'kind'> & Partial<GitRepositoryWire>
 type Machine = { readonly id: string } & Record<string, unknown>
@@ -95,11 +96,16 @@ export function settingsOwnerFixture(input: {
   return {
     owner,
     listeners,
-    /** Put the machines in `pool` as the row source would: records, and online on the LiveStore. */
+    /** Publish the same machine and repository records as the runtime row/header sources. */
     seed(pool: MobxPool) {
+      const repositories = repositoriesFromCheckouts(checkouts as unknown as readonly CheckoutWire[])
       headerEntities(pool).apply(
-        seedFixtureMachines(pool, listed as unknown as MachineFacts[]) as never,
+        [
+          ...seedFixtureMachines(pool, listed as unknown as MachineFacts[]),
+          ...repositories.map(value => ({ kind: 'repository', id: checkoutRepositoryId(value), value })),
+        ] as never,
       )
+      headerEntities(pool).order('repository', repositories.map(checkoutRepositoryId))
       headerEntities(pool).order(
         'machine',
         listed.map((machine) => machine.id),

@@ -23,7 +23,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { parseIssueUserStateRowId, spreadSortKeys } from '@podium/model'
+import { parseIssueUserStateRowId, pinRowId, spreadSortKeys } from '@podium/model'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
@@ -194,6 +194,31 @@ async function settle() {
   await act(async () => {
     await Promise.resolve()
   })
+}
+/** The pin field on issues.update was removed in 28e2d0053c. Current
+ * pin commands create/remove my pin record through the sync entry point. */
+function enableRecordRequests(fixture: Fixture) {
+  Object.assign(fixture.api, {
+    sync: {
+      submit: {
+        mutate: ({ command, input }: { command: string; input: Record<string, unknown> }) =>
+          new Promise((resolve, reject) =>
+            requests.push({
+              procedure: command,
+              input,
+              resolve: (result) => resolve({
+                outcome: 'applied', result, replayed: false,
+                receipt: { feedId: 'fixture', epoch: 'fixture', seq: 1 },
+              }),
+              reject,
+            }),
+          ),
+      },
+    },
+  })
+}
+function issuePinId(id = TARGET) {
+  return pinRowId(asUserId('sidebar-pool-actions'), 'issue', id)
 }
 function row(id = TARGET) {
   return document.querySelector<HTMLElement>(`[data-issue-row="${id}"]`)!
@@ -769,12 +794,13 @@ describe('real pool row mutations and receipts', () => {
   it.each([
     true,
     false,
-  ])('crosses the pinned boundary (%s) with only the moved row patch', async (pinned) => {
-    await mount((fixture) => {
+  ])('crosses the pinned boundary (%s) with only the moved issue and pin records', async (pinned) => {
+    const fixture = await mount((fixture) => {
       const keys = spreadSortKeys(12)
       for (let index = 0; index < 12; index += 1)
         patchIssue(fixture, `synthetic-${index}`, { sortKey: keys[index] })
     })
+    enableRecordRequests(fixture)
     const movedId = pinned ? TARGET : 'synthetic-0'
     const sourceScope = pinned ? 'group:synthetic-repo' : 'pinned'
     const targetScope = pinned ? 'pinned' : 'group:synthetic-repo'
@@ -782,20 +808,31 @@ describe('real pool row mutations and receipts', () => {
       ? [...sidebarView(pool!).sections().pinnedIds]
       : [...projectBand().rowIds]
     const order = [...existing, movedId]
+    const beforePinned = [...sidebarView(pool!).sections().pinnedIds]
+    const beforeBand = [...projectBand().rowIds]
     expect(drag.options!.allowedTargets?.(sourceScope, movedId)).toEqual([targetScope])
     await act(async () => {
       await drag.options!.onDrop({ sourceScope, targetScope, movedId, order })
     })
-    const write = await request('issues.update', movedId)
-    expect(requests).toHaveLength(1)
-    expect(write.input).toMatchObject({
+    const sort = await request('records.issueProjection.edit', movedId)
+    const pin = await request(`records.pin.${pinned ? 'create' : 'remove'}`, issuePinId(movedId))
+    expect(requests).toHaveLength(2)
+    expect(sort.input).toMatchObject({
       id: movedId,
-      patch: { pinned, sortKey: expect.any(String) },
+      patch: { sortKey: expect.any(String) },
+    })
+    expect(sort.input['patch']).not.toHaveProperty('pinned')
+    expect(pin.input).toMatchObject({
+      id: issuePinId(movedId),
+      ...(pinned ? { fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: movedId } } : {}),
     })
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
     await settle()
-    await refuse(write)
+    await refuse(sort)
+    await refuse(pin)
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(!pinned)
+    expect(sidebarView(pool!).sections().pinnedIds).toEqual(beforePinned)
+    expect(projectBand().rowIds).toEqual(beforeBand)
   })
 
   it('renames inline on Enter, paints before the receipt and rewinds on refusal', async () => {
@@ -878,11 +915,15 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('pins immediately from the actual issue menu and returns to the original band on refusal', async () => {
-    await mount()
+    const fixture = await mount()
+    enableRecordRequests(fixture)
     await menu()
     fireEvent.click(await item('Pin'))
-    const write = await request('issues.update')
-    expect(write.input).toMatchObject({ patch: { pinned: true } })
+    const write = await request('records.pin.create', issuePinId())
+    expect(write.input).toMatchObject({
+      id: issuePinId(),
+      fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: TARGET },
+    })
     expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(true)
     await settle()
@@ -1074,7 +1115,7 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('marks an unread task read, clears deferral and unpins through the actual menu', async () => {
-    await mount((fixture) =>
+    const fixture = await mount((fixture) =>
       patchIssue(fixture, TARGET, {
         readAt: null,
         pinned: true,
@@ -1097,10 +1138,11 @@ describe('real pool row mutations and receipts', () => {
     expect(value().issue.deferred).toBe(false)
     await settle()
     await refuse(unsnooze)
+    enableRecordRequests(fixture)
     await menu()
     fireEvent.click(await item('Unpin'))
-    const unpin = await request('issues.update')
-    expect(unpin.input).toMatchObject({ patch: { pinned: false } })
+    const unpin = await request('records.pin.remove', issuePinId())
+    expect(unpin.input).toMatchObject({ id: issuePinId() })
     expect(sidebarView(pool!).sections().pinnedIds).not.toContain(TARGET)
     await refuse(unpin)
     expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)

@@ -214,7 +214,9 @@ async function settle(f: Awaited<ReturnType<typeof fixture>>) {
 
 it('reads my thread records, the active selection and an exact differential', async () => {
   const f = await fixture()
-  expect(superagentState(f.pool).loading).toBe(true)
+  // The listThreads request and its loading boundary were deleted in
+  // 250fea209e. Synced records already present in the pool paint immediately.
+  expect(superagentState(f.pool).threads.map((row) => row.id)).toEqual(['global', 'btw-private'])
   await settle(f)
   expect(checkSuperagent(f.pool, f.state)).toMatchObject({
     differences: 0,

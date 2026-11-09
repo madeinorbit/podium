@@ -15,7 +15,6 @@ import { fixtureNavigation } from './navigation'
 
 const refreshers = new WeakMap<object, () => void>()
 const disposers = new WeakMap<object, () => void>()
-const fixtureKeyPorts = new WeakMap<UiStore, RoutedUiState>()
 export function disposeFixtureUi(owner: object): void {
   disposers.get(owner)?.()
 }
@@ -95,7 +94,6 @@ export function fixtureUi(keys?: RoutedUiState, ports: Partial<UiStorePorts> = {
     ...ports,
   })
   const dispose = ui.dispose
-  fixtureKeyPorts.set(ui, port)
   Object.defineProperty(ui, 'dispose', {
     configurable: true,
     writable: true,
@@ -279,13 +277,12 @@ export function addFixtureUi(
     },
   })
   disposers.set(fake, ui.dispose)
-  const deviceState = fixtureKeyPorts.get(ui)!
-  fake.deviceState = deviceState
+  fake.deviceState = keys
   Object.defineProperties(fake, {
     ui: { configurable: true, enumerable: true, get: () => read(ui) },
     palette: { configurable: true, get: () => read(palette) },
     autoContinueDialog: { configurable: true, get: () => read(autoContinueDialog) },
   })
   fake.transcriptReveals ??= new TranscriptRevealActions()
-  return { ui, palette, autoContinueDialog, deviceState }
+  return { ui, palette, autoContinueDialog, deviceState: keys }
 }

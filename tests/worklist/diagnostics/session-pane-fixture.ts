@@ -40,9 +40,6 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', neverBound: true, spawnFailure: 'synthetic spawn refusal' },
     { status: 'exited', resumable: false },
     { status: 'starting' },
-    // Reconnecting is derived from this machine's offline LiveStore condition,
-    // while the session record stays live. Keep the corpus slot stable.
-    { machineId: 'machine-b' },
     {
       condition: 'logged-out',
       agentKind: SYNTHETIC_CODEX_KIND,
@@ -72,7 +69,12 @@ export function sessionPaneFixture(): SessionView[] {
     },
   ]
   return variants.map(
-    (patch, i) =>
+    (patch, index) => {
+      // be8f95667b deleted SessionStatus.reconnecting (the former pane-12).
+      // Keep the remaining corpus identities; offline live sessions below
+      // exercise the machine-derived condition instead.
+      const i = index < 12 ? index : index + 1
+      return (
       ({
         sessionId: asSessionId(`pane-${i}`),
         agentKind: DEFAULT_HARNESS_AGENT,
@@ -99,6 +101,8 @@ export function sessionPaneFixture(): SessionView[] {
         model: 'auto',
         effort: 'auto',
         ...patch,
-      }) as SessionView,
+      }) as SessionView
+      )
+    },
   )
 }

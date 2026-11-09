@@ -14,6 +14,7 @@ import {
 } from './settings-schema'
 import {
   type CheckoutRepository,
+  bindCheckoutRecords,
   checkoutRepositoryId,
   repositoriesFromCheckouts,
 } from './shared/checkout-repositories'
@@ -102,6 +103,7 @@ export class SettingsSource {
   /** The pool whose machine rows (records joined with my access) settings reads. */
   attach(pool: MobxPool): void {
     this.pool = pool
+    bindCheckoutRecords(pool, this.owner.replica)
   }
 
   read(entity: SettingsEntity, id: string): Reading {
@@ -165,6 +167,8 @@ export class SettingsSource {
    * observed repositories; checkouts move rarely.
    */
   private changed(name: Discovery, batch: ReplicaAddressedBatch): void {
+    if (name === 'repos' && (batch.type === 'replace' || batch.rows.some(row => KINDS.repos.has(row.kind))))
+      this.pool?.checkoutRecordsChanged()
     if (batch.type === 'replace') {
       for (const key of this.rows.keys())
         if (key.startsWith(`${ENTITY[name]}:`) || key === 'settingsCatalog:catalog')
@@ -201,7 +205,7 @@ export class SettingsSource {
   }
 
   private repositories() {
-    return repositoriesFromCheckouts(this.owner.replica.rows('checkouts'))
+    return this.pool?.checkoutRepositories ?? repositoriesFromCheckouts(this.owner.replica.rows('checkouts'))
   }
 
   /** The repositories by id, built once per replica answer. */

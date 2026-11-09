@@ -2,6 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import { dedupeSessionsByResume } from '@podium/model'
+import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { automationViews } from './automation-views'
@@ -56,6 +57,36 @@ function fixture(rows: RowRecord[]) {
   }
   return { pool, source, load, publish }
 }
+
+it('keeps checkout-derived repository answers inside their principal pool', async () => {
+  const a = fixture([]), b = fixture([])
+  const repos = [{ path: '/shared', kind: 'repository' as const, branch: 'main' }]
+  const first = settingsOwnerFixture({ userId: 'first', repos })
+  const second = settingsOwnerFixture({ userId: 'second', repos })
+  attachSettingsSource(a.pool, first.owner)
+  attachSettingsSource(b.pool, second.owner)
+  const id = JSON.stringify(['synthetic-machine', '/shared'])
+  const read = (pool: MobxPool) => requireHere(pool.row('settingsRepository', id))
+  const before = read(b.pool)
+  expect(read(a.pool)).toEqual(before)
+  expect(read(a.pool)).not.toBe(before)
+  const stop = autorun(() => { a.pool.row('settingsRepository', id) })
+  try {
+    await Promise.resolve()
+    await Promise.resolve()
+    first.setRepos([{ ...repos[0]!, branch: 'changed' }])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(read(a.pool)).toMatchObject({ branch: 'changed' })
+    expect(read(b.pool)).toMatchObject({ branch: 'main' })
+    a.pool.dispose()
+    expect(read(b.pool)).toMatchObject({ branch: 'main' })
+  } finally {
+    stop()
+    a.pool.dispose()
+    b.pool.dispose()
+  }
+})
 
 it('keeps first setup demand, named presence, counts and heartbeat updates flat at 1x/4x', async () => {
   async function measured(scale: 1 | 4) {
@@ -318,10 +349,8 @@ it('orders visible automation targets with path maxima and no session catalog at
             view.getSnapshot().ids.map((id) => automationViews(f.pool).target(id)?.value),
           ).toEqual(['/shown', '/other', '__global__'])
         },
-        { pool: f.pool, trace: process.env.POD6695_TRACE === '1' },
+        { pool: f.pool },
       )
-      if (first.sites)
-        console.info('POD6695 automation sites', scale, JSON.stringify([...first.sites]))
       paint.mockClear()
       const repeated = await measure('automation choices repeated demand', () => {
         view.getSnapshot()

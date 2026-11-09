@@ -156,7 +156,7 @@ beforeEach(() => {
     sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } },
   }
   pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  attachPreferenceSource(pool, owner.deviceState)
+  attachPreferenceSource(pool, state.uiState as RoutedUiState)
   pool.apply({
     type: 'replace',
     rows: [

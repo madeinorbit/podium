@@ -16,7 +16,7 @@ import type { TopicListener } from '@podium/client-core/socket-transport'
 import type { MachineQuotaWire } from '@podium/model'
 import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import type { TopicPayload } from '@podium/protocol'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
@@ -59,6 +59,7 @@ const processHub = {
   ),
   refreshTopic: vi.fn(),
 }
+const processReplica = { rows: () => [], subscribeAddressedBatch: () => () => {} }
 let maxIdleSessions = 8
 let hibernationEnabled = false
 let hibernationMemoryPct = 80
@@ -123,7 +124,7 @@ const agentSession = (
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: processHub,
-    replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
+    replica: processReplica,
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
     // POD-316: the strip now also carries the dead-letter recovery chip, which
@@ -288,6 +289,21 @@ describe('memory chip is machine-aware', () => {
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
     expect(await screen.findByText(/1 hibernated/)).toBeTruthy()
+  })
+
+  it('updates an open memory view when its machine processes topic pushes', async () => {
+    render(<HostIndicators />)
+    fireEvent.click(screen.getByRole('button', { name: /vmi — memory/i }))
+    await screen.findByLabelText('Host info')
+    expect(screen.queryByText('3 processes')).toBeNull()
+    const listener = processHub.subscribeTopic.mock.calls.find(([, id]) => id === 'vmi34')?.[2]
+    if (!listener) throw new Error('The clicked machine has no processes subscription')
+    act(() => listener.onState?.({ status: 'value', position: { epoch: 'fixture', seq: 2 }, value: {
+      breakdown: { ...breakdownFor('vmi'), agents: [{ sessionId: 'pushed-session', bytes: 1e9, processCount: 3 }] },
+      reclaim: { candidates: [], orphans: [], diagnostics: [], estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null } },
+    } }))
+    expect(await screen.findByText('3 processes')).toBeTruthy()
+    expect(screen.getByText('pushed-s')).toBeTruthy()
   })
 })
 

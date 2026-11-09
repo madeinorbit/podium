@@ -171,6 +171,7 @@ async function mount() {
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.
       Object.defineProperty(runtime.hub, 'connected', { configurable: true, get: () => connected })
+      runtime.live.setConnection({ state: connected ? 'online' : 'offline', since: Date.now() })
       configured.add(runtime)
     }
 

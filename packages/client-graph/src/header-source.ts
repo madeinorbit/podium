@@ -7,7 +7,7 @@ import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
 import type { HeaderEntity, HeaderRecord, HeaderRows } from './header-schema'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import { checkoutRepositoryId, repositoriesFromCheckouts } from './shared/checkout-repositories'
+import { bindCheckoutRecords, checkoutRepositoryId } from './shared/checkout-repositories'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. Live
  * readings (metrics, quota, connection) are not copied here: they are
@@ -17,6 +17,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
 ): () => void {
+  bindCheckoutRecords(pool, runtime.replica)
   let disposed = false
   const known = new Map<HeaderEntity, Set<string>>()
   function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
@@ -44,10 +45,11 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     const rows = runtime.replica.rows('checkouts')
     if (rows === repositoriesFrom) return
     repositoriesFrom = rows
+    pool.checkoutRecordsChanged()
     // One derivation pass per checkout change (they are rare: a worktree made
     // or removed, a branch checked out), but only the repositories whose facts
     // moved are written, so one change redraws one repository row.
-    const next = repositoriesFromCheckouts(rows)
+    const next = pool.checkoutRepositories
     const keep = new Set<string>()
     const records: HeaderRecord[] = []
     for (const repo of next) {

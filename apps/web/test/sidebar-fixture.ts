@@ -12,6 +12,7 @@ import {
   sessionUserStateRowId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
+import { compareStructural } from 'mobx'
 
 export function createSidebarFixture(
   count = 18,
@@ -228,6 +229,9 @@ export function createSidebarFixture(
             })
           }
       for (const next of nextRecords) {
+        // The feed publishes changed records. Re-supplying a discovery list
+        // does not create a delta for every unchanged checkout and access row.
+        if (compareStructural(records.get(`${next.entity}:${next.entityId}`)?.value, next.value)) continue
         const record = put(next.entity, next.entityId, next.value)
         replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
       }

@@ -18,8 +18,8 @@ import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
 import {
   type CheckoutRepository,
+  bindCheckoutRecords,
   checkoutRepositoryId,
-  repositoriesFromCheckouts,
 } from './shared/checkout-repositories'
 import { defineSource, type PoolSource, type PoolSourceRows } from './source-registry'
 import type { Loaded } from './worklist/rollup'
@@ -76,6 +76,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     private readonly pool: MobxPool,
     private readonly runtime: ClientRuntime<PodiumClientApi>,
   ) {
+    bindCheckoutRecords(pool, runtime.replica)
     // The optional source owns its reader registration. Startup consumers use
     // the registry without pulling launcher derivations into the eager bundle.
     commandLaunchViews(pool)
@@ -101,7 +102,8 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       if (rows === checkoutsFrom) return
       checkoutsFrom = rows
       runInAction(() => {
-        this.repositories(repositoriesFromCheckouts(rows))
+        pool.checkoutRecordsChanged()
+        this.repositories(pool.checkoutRepositories)
         this.counts.repoChanges++
       })
     }

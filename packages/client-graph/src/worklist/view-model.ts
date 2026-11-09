@@ -151,6 +151,14 @@ export class Worklist {
 
   @action select(id: string | null): void {
     if (id === this.selectedId) return
+    this.selectedWasFolded = this.wasFoldedBeforeSelection(id)
+    this.selectedId = id
+  }
+
+  /** Read placement before UiStore moves selection and the selected-row rule
+   * can change it. The gesture keeps this presentation latch after navigation. */
+  wasFoldedBeforeSelection(id: string | null): boolean {
+    if (id === this.selectedId) return this.selectedWasFolded
     let folded = false
     if (id !== null) {
       try {
@@ -161,8 +169,7 @@ export class Worklist {
         if (error !== LOADING) throw error
       }
     }
-    this.selectedWasFolded = folded
-    this.selectedId = id
+    return folded
   }
 
   @action setLayout(layout: SidebarState): void {

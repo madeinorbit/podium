@@ -91,13 +91,6 @@ exports[`renders the same real AgentPanel header, lifecycle text and controls fo
 }
 `;
 
-exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-12 1`] = `
-{
-  "bytes": 882,
-  "sha256": "2725fbf62476725f05b58ffe42779a88795480534b55123a3810234da910061b",
-}
-`;
-
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-13 1`] = `
 {
   "bytes": 890,

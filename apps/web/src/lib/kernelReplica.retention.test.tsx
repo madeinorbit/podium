@@ -1,6 +1,7 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asUserId, ISSUE_STAGES, issueUserStateRowId, pinRowId } from '@podium/model/browser'
+import { pinRowId } from '@podium/model'
+import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { cleanup, render } from '@testing-library/react'

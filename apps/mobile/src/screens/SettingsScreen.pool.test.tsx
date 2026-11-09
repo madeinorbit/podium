@@ -135,7 +135,7 @@ async function mount(count = 8, scale?: number) {
     seen: unknown[] = []
   const scaledMachines = scale
     ? Array.from({ length: 16 * scale }, (_, i) => ({
-        id: `host-${i}`,
+        id: `host-${String(i).padStart(4, '0')}`,
         name: `Host ${i + 1}`,
         hostname: `host-${i}`,
         online: true,

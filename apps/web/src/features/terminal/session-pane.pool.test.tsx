@@ -372,7 +372,9 @@ it('uses the same wake action and parked shell without resolving a replacement',
   fireEvent.click(
     shell.container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-resume"]')!,
   )
-  expect(f.resurrect).toHaveBeenCalledWith(sessions[19]!.sessionId)
+  expect(f.resurrect).toHaveBeenCalledWith(
+    sessions.find((row) => row.agentKind === 'shell' && row.status === 'hibernated')!.sessionId,
+  )
   expect(f.resolveShell).not.toHaveBeenCalled()
 })
 
