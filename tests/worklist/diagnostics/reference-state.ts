@@ -4,7 +4,7 @@ import type { ReplicaRows } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { PendingRows } from '@podium/client-graph/shared/row-source'
 import type { IssueProjection } from '@podium/model'
-import { dedupeSessionsByResume, repositoriesFromCheckouts, type SessionMeta } from '@podium/model'
+import { dedupeSessionsByResume, repositoriesFromCheckouts, serverMoveEligibilityOf, type SessionMeta } from '@podium/model'
 import { runInAction } from 'mobx'
 
 export type ReferenceState<
@@ -140,6 +140,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
           ...presence,
           id: machine.id,
           online: condition?.online === true,
+          serverMoveEligibility: serverMoveEligibilityOf({ ...mineFacts, ...machine }, condition?.online === true),
         },
       ]
     })

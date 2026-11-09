@@ -200,7 +200,7 @@ async function mount(count = 8, scale?: number) {
       attachRuntime={(owner) => {
         data.bindHub(owner.hub, undefined, owner.live)
         // This phone fixture starts offline with its saved records.
-        owner.live.setConnection({ state: 'offline', since: null })
+        owner.live.setConnection({ state: 'offline', since: 0 })
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >

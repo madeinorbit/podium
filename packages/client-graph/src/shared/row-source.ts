@@ -1474,7 +1474,9 @@ export function createRowSource(
       if (byKey.has(key)) continue
       stats.rowsVisited += 1
       if (isPerUserKind(kind)) {
-        const held = published.get(key)
+        // Warm companions may already be in the pool before their first feed
+        // publication. A remove must compare against that existing truth.
+        const held = published.has(key) ? published.get(key) : perUserRow(kind, id, null)
         const value = retain(key, perUserRow(kind, id, pending))
         if (value !== held) byKey.set(key, { kind, id, value })
         continue

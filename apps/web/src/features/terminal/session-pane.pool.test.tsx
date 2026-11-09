@@ -70,11 +70,12 @@ const paneDrafts = new DraftStore({
   } as never,
 })
 let paneConversations: ConversationCache | undefined
+let paneUiSnapshot: Store
 const paneStoreHandle = withKeyedInputs({
   ownConversations: (options: ConversationCacheOptions) =>
     (paneConversations ??= new ConversationCache(options)),
   drafts: paneDrafts,
-  getSnapshot: () => f.state,
+  getSnapshot: () => paneUiSnapshot,
   subscribe: (_listener: () => void) => () => {},
 })
 vi.mock('@/app/store', () => ({
@@ -253,6 +254,9 @@ beforeEach(() => {
     setDockVisibleSession: vi.fn(),
   } as unknown as Store
   f.state = state
+  // UiStore consumes the producer snapshot. Individual tests may wrap the
+  // legacy consumer in a proxy without changing the current UI owner.
+  paneUiSnapshot = state
   f.pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
     summaries: SESSION_PANE_SUMMARIES,
     load: (entity, id) =>
