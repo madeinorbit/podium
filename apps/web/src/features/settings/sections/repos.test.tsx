@@ -1,3 +1,4 @@
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire } from '@podium/model'
@@ -42,16 +43,10 @@ function mount(scans: GitRepositoryWire[] | null) {
     ],
   })
   headerEntities(pool).apply([
-    {
-      kind: 'machine',
-      id: ludovico,
-      value: { id: ludovico, name: 'ludovico', online: true } as never,
-    },
-    {
-      kind: 'machine',
-      id: flatblock,
-      value: { id: flatblock, name: 'flatblock', online: false } as never,
-    },
+    ...seedFixtureMachines(pool, [
+      { id: ludovico, name: 'ludovico', online: true },
+      { id: flatblock, name: 'flatblock', online: false },
+    ] as never),
     ...(scans ?? []).map((value, i) => ({ kind: 'repository' as const, id: `scan${i}`, value })),
   ])
   if (scans)

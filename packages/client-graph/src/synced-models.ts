@@ -191,6 +191,7 @@ const schema = {
       serviceAssignment: { type: 'object', optional: true, source: machineAccess() },
       components: { type: 'object', optional: true, source: machineAccess() },
       deliveryCaps: { type: 'object', optional: true, source: machineAccess() },
+      checkoutReach: { type: 'enum', optional: true, source: machineAccess() },
       wireSchemaDigest: { type: 'string', optional: true, nullable: true, source: machineAccess() },
       buildReportedAt: { type: 'isoDate', optional: true, nullable: true, source: machineAccess() },
       // Execution detail (present only with `use`)

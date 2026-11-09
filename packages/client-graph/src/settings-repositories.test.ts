@@ -1,3 +1,4 @@
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import type { GitRepositoryWire } from '@podium/model'
 import { asMachineId, asRepoId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -81,16 +82,10 @@ function scene(repos: Repo[], scans: GitRepositoryWire[]) {
     })),
   })
   headerEntities(p).apply([
-    {
-      kind: 'machine',
-      id: ludovico,
-      value: { id: ludovico, name: 'ludovico', online: true } as never,
-    },
-    {
-      kind: 'machine',
-      id: flatblock,
-      value: { id: flatblock, name: 'flatblock', online: false } as never,
-    },
+    ...seedFixtureMachines(p, [
+      { id: ludovico, name: 'ludovico', online: true },
+      { id: flatblock, name: 'flatblock', online: false },
+    ] as never),
     ...scans.map((value, i) => ({ kind: 'repository' as const, id: `scan${i}`, value })),
   ])
   headerEntities(p).order(
