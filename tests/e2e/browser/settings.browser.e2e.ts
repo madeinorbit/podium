@@ -4,6 +4,70 @@ import { nativeAccountId } from '../../../packages/runtime/src/settings'
 import { E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
 import { RELAY } from './_harness'
 
+type Trpc = ReturnType<typeof makeTrpc>
+type Values = Readonly<Record<string, unknown>>
+type Change = { entity: string; id: string; op: string; value?: Record<string, unknown> }
+interface SyncApi {
+  sync: {
+    submit: { mutate(input: unknown): Promise<{ outcome: string }> }
+    changesSince: {
+      query(input: { cursor: number | null }): Promise<{ kind: string; changes?: Change[] }>
+    }
+  }
+}
+const sync = (trpc: Trpc) => (trpc as unknown as SyncApi).sync
+
+/** The newest value of every record this member can see, from the whole log
+ *  (POD-6673, POD-6677): the preference records reach an app on the feed, and
+ *  there is no settings read over HTTP any more. */
+async function records(trpc: Trpc): Promise<Change[]> {
+  const delta = await sync(trpc).changesSince.query({ cursor: 0 })
+  if (delta.kind !== 'delta')
+    throw new Error(`expected the whole log as a delta, got ${delta.kind}`)
+  const latest = new Map<string, Change>()
+  for (const change of delta.changes ?? []) latest.set(`${change.entity}\n${change.id}`, change)
+  return [...latest.values()].filter((change) => change.op === 'upsert')
+}
+
+/** My personal settings record: the one `userPreferences` row I can see. */
+async function myPreferences(trpc: Trpc): Promise<Change> {
+  const mine = (await records(trpc)).filter((change) => change.entity === 'userPreferences')
+  const [only] = mine
+  if (mine.length !== 1 || only === undefined) {
+    throw new Error(`expected my one settings record, saw ${mine.length}`)
+  }
+  return only
+}
+
+/** The instance settings record, flat by leaf path. */
+async function instancePreferences(trpc: Trpc): Promise<Record<string, unknown>> {
+  const record = (await records(trpc)).find((change) => change.entity === 'instancePreferences')
+  if (!record?.value) throw new Error('the instance settings record is not on the log')
+  return record.value
+}
+
+/** A record edit on sync.submit, as the outbox drain sends it: `null` resets a leaf. */
+async function edit(trpc: Trpc, command: string, id: string, values: Values): Promise<void> {
+  const patch: Record<string, unknown> = {}
+  const unset: string[] = []
+  for (const [path, value] of Object.entries(values)) {
+    if (value === null && command === 'records.userPreferences.edit') unset.push(path)
+    else patch[path] = value
+  }
+  const reply = await sync(trpc).submit.mutate({
+    mutationId: crypto.randomUUID(),
+    command,
+    version: 1,
+    input: { id, patch, ...(unset.length > 0 ? { unset } : {}) },
+  })
+  if (reply.outcome !== 'applied') throw new Error(`${command} refused: ${JSON.stringify(reply)}`)
+}
+
+/** Seed my personal settings (the `userPreferences` record). */
+async function setMyPreferences(trpc: Trpc, values: Values): Promise<void> {
+  await edit(trpc, 'records.userPreferences.edit', (await myPreferences(trpc)).id, values)
+}
+
 test.skip(
   ({ isMobile }) => isMobile,
   'desktop test (the Settings nav button lives in the top bar; POD-318 moved it out of the <aside> Sidebar, and POD-420 repointed these locators)',
@@ -12,14 +76,10 @@ test.describe.configure({ timeout: 90_000 })
 
 async function seedStaleCodexWorkLlm(): Promise<void> {
   const trpc = makeTrpc('http://localhost:8799')
-  // Was a legacy workLlm blob write via settings.set; the blob write is gone
-  // (POD-420 family + POD-1213) and workLlm migrates onto roles.background, so
-  // seed the migrated shape through the contracted personal command.
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.background.accountId': nativeAccountId('codex'),
-      'roles.background.model': 'gpt-5.5',
-    },
+  // workLlm migrated onto roles.background; seed that shape on my settings record.
+  await setMyPreferences(trpc, {
+    'roles.background.accountId': nativeAccountId('codex'),
+    'roles.background.model': 'gpt-5.5',
   })
 }
 
@@ -110,13 +170,10 @@ test('native account profile labels render when available', async ({ page }) => 
 
 test('new sessions allows effort with automatic model selection', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  // settings.set (whole-blob write) is retired; seed through updatePersonal.
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('codex'),
-      'roles.coding.model': 'auto',
-      'roles.coding.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('codex'),
+    'roles.coding.model': 'auto',
+    'roles.coding.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
@@ -140,18 +197,17 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.coding).toMatchObject({ model: 'auto', effort: 'xhigh' })
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({ 'roles.coding.model': 'auto', 'roles.coding.effort': 'xhigh' })
 })
 
 test('new sessions exposes and persists both Grok implementation models', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('grok'),
-      'roles.coding.model': 'auto',
-      'roles.coding.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('grok'),
+    'roles.coding.model': 'auto',
+    'roles.coding.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
@@ -175,22 +231,21 @@ test('new sessions exposes and persists both Grok implementation models', async 
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.coding).toMatchObject({
-    accountId: nativeAccountId('grok'),
-    model: 'grok-composer-2.5-fast',
-  })
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({
+      'roles.coding.accountId': nativeAccountId('grok'),
+      'roles.coding.model': 'grok-composer-2.5-fast',
+    })
 })
 
 test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('grok'),
-      'roles.superagent.accountId': nativeAccountId('codex'),
-      'roles.superagent.model': 'gpt-5.5',
-      'roles.superagent.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('grok'),
+    'roles.superagent.accountId': nativeAccountId('codex'),
+    'roles.superagent.model': 'gpt-5.5',
+    'roles.superagent.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
@@ -215,13 +270,14 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.superagent).toMatchObject({
-    accountId: nativeAccountId('codex'),
-    harness: 'codex',
-    model: 'gpt-5.4',
-    effort: 'xhigh',
-  })
+  // The record holds the leaves I chose; `harness` resolves from the account.
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({
+      'roles.superagent.accountId': nativeAccountId('codex'),
+      'roles.superagent.model': 'gpt-5.4',
+      'roles.superagent.effort': 'xhigh',
+    })
 })
 
 test('background LLM only offers executable API accounts', async ({ page }) => {
@@ -256,8 +312,11 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
 
 test('idle-session convergence target round-trips and renders', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  // hibernation is an instance-preference tier leaf (POD-1213), not personal.
-  await trpc.settings.updateInstance.mutate({ values: { 'hibernation.maxIdleSessions': null } })
+  // hibernation is an instance leaf: the `instancePreferences` record (POD-6677).
+  // A null here is the value "no cap", not a reset.
+  await edit(trpc, 'records.instancePreferences.edit', 'instance', {
+    'hibernation.maxIdleSessions': null,
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
@@ -271,6 +330,8 @@ test('idle-session convergence target round-trips and renders', async ({ page })
   await input.fill('12')
   await settings.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible()
-  expect((await trpc.settings.get.query()).hibernation.maxIdleSessions).toBe(12)
+  await expect
+    .poll(async () => (await instancePreferences(trpc))['hibernation.maxIdleSessions'])
+    .toBe(12)
   await settings.screenshot({ path: '/tmp/POD-957-idle-cap-settings.png' })
 })
