@@ -253,18 +253,18 @@
       "file": "apps/mobile/src/client/use-session-context.ts",
       "holder": "mobileConversationPorts/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "510f6e687e4010a0c7f57de2c7cd23735a231fc8ed20eaa4665b790661319c0b",
+      "tokens": "f756db6d35401b9a3435150b2a15dc072cd9ed55df8631b2d82fe129dc53a971",
       "gate": [],
       "origin": [
         "3b19f43357c3b801cf8917e2dbcfc994674c4172259ebf6bce1def2e64963c67"
       ],
-      "fingerprint": "c8e79f254816c2e0cc3a9b553da18b96b6f36372f885c141c1f824c72ff89499",
+      "fingerprint": "a740b95aeacff5f07718ba9beab7d6f2a9273c639bd13808698019f659f8d96f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "owner": "POD-6707",
       "trigger": "The selected conversation observes its session message window.",
       "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
-      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: c8e79f254816c2e0cc3a9b553da18b96b6f36372f885c141c1f824c72ff89499.",
       "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
     },
     {
@@ -986,7 +986,7 @@
       "file": "apps/web/src/app/AppShell.tsx",
       "holder": "AppBodyView",
       "rule": "reader-summary",
-      "tokens": "e2eb94548427cedc5de7ffb05fa644e42a4e680c984c193cebc5fe3aff9ea43b",
+      "tokens": "77a6568d099222296d95c2a624bb271143a726a916f283f7a1664daa5a5e4371",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -997,13 +997,13 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "4cb8e988140e62d4837b5527fbb71bbd45d77259624ec8be7aa5a4ddae6d28f3",
+      "fingerprint": "3f40f20380b49117138c8a3943d442abb63705cd5d26312ac677e00b33275bd4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "owner": "POD-6707",
       "trigger": "Invocation of AppBodyView",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 4cb8e988140e62d4837b5527fbb71bbd45d77259624ec8be7aa5a4ddae6d28f3, f035e5aee1b9e5e9b5042e6e9a711ab35b3854ccebc5131966f3475dbd3211c1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1454,7 +1454,7 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
       "rule": "reader-summary",
-      "tokens": "396ef00ac2aa728920dbbb89674ffea44b05042e1dc01152981bcd610a9b3a46",
+      "tokens": "dc23550451c6be527f3c7796fb3d6bc597fe81cc861be18b82557bb2827b22e0",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -1462,17 +1462,18 @@
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "a093a0ec8f7fecc6c8991702c8572a6bfacc7a45ea416683c3000ffe28c86d26",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "a912e2b54e586e2c526368f220c09caea480bbdf9e009805ac5ff9c0f10ce229",
+      "fingerprint": "42e324087f6f6f374f319af17eca1ae7af259b07be2c3cf062ec78a003f0c66c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "owner": "POD-6707",
       "trigger": "Invocation of Workspace",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: a912e2b54e586e2c526368f220c09caea480bbdf9e009805ac5ff9c0f10ce229, b5163d7d45e2f09a906f9f524505273de2f657a1a42412e331825e8cd22ca048.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -8250,24 +8251,34 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/actions",
       "rule": "reader-summary",
-      "tokens": "dce012c445477e2a064ce87a12a80e769dbc0feee78f9b297627a9df38f87ba8",
+      "tokens": "ea371e742b7195c297a27ff4eb027588350024fdcb01522f808c64036ee6b60d",
       "gate": [],
       "origin": [
+        "0984cc6476f09a29c282a4612f4bb2b87ea2d024d8c5edfa890f71d62c900d1b",
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "41cb880b5111dba1550db1352c02177707188f5db38e5b5132dd5d5319e3da51",
+        "523a5c5c7a2166c0a192ec312c86f060986ec3e0b6707347e0305c9b8e548985",
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
         "88424a6c15b2cffbf5677493dc0693fae25dfc874ff3365e19f071c067caa6a6",
+        "923b52caab844ddeed229dd65c6794a71d73e8f7e397c16216e0540edcf2bd5e",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+        "c7634f4e2a2d53c9ee8db624476e40122a7f36c6dae3c5b2465fbd5ea72bf9cf",
+        "e8c7dcfe52ef9a4c5674f32866c520e324fdc426d7227fff45ae421d68af1ae5",
+        "eae59f21dd39d9ef5d0aa570740c52913b75f5e1301bc861255f718f624fccc3",
+        "ec744bac4fb832de05f4339c16a6ad26229753f1221db21c1791256e105ea75d",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
+        "f1fb142d0722cac36ebdea42f5384081ed403b27910ad20e866f7a66ae77f612",
+        "f8c8d86fdf26463788a905be72d123922fb117daf0f8c5ac7a8bad135baf8eb9"
       ],
-      "fingerprint": "f4252a11d51bf451de7a70600b1293fd82503edd2ddb523923f7af6201224315",
+      "fingerprint": "3c44788d105cd13dc25994f1f884264d7302a04f7d322c87e46941cf92025bd2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "owner": "POD-6707",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/actions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: f4252a11d51bf451de7a70600b1293fd82503edd2ddb523923f7af6201224315, 0409335fb460ba0f7c61061a2c4e18528c64c134e6a7f09257665fb81044026b.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33604,40 +33615,40 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "df0e5ebbc71faced779d2100be0a020777e207af516e06667a8b727ba172b7b5",
+      "tokens": "20b5faeac589f1c70c206012fab6a2b607b60b96ba8f581bfc05b9f5dc938ddc",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32",
+      "fingerprint": "a47d27b1aae99f2d1225352d23d1b0a4f3377de6807d40039a7f58cb5ecbfb8a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "9b0e6d92108e9ef0cfd050bb423ec17b98ad7f0db33cda3c6cd36c29c2aaed7d",
+      "tokens": "1f0481e493b88a7b31563844649f3fb71641bba0e16f8398ae374199a094834d",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730",
+      "fingerprint": "f3b921d8d69676dc5dd7afb9454632a507a227737a84e2c756a47e6e8e79e8e4",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -37765,16 +37776,16 @@
       "tokens": "00b5f8db36ceed09bfd3dda60945c892b8daa3f90454a748374d5962f2318e4d",
       "gate": [],
       "origin": [
-        "e6c412e8c5e90590b56c103b824e12284bd9a0d8b9a2e0effdd808bc08007617",
-        "eca8e0e125b2cfcfeb6bf6c6688657b69c55efaff5201c54c6da4caed059f1e0"
+        "bc620eaf254a67c7025f124d072e3b45228bd1b7be5ba5c39efef0d133a65b7e",
+        "e6c412e8c5e90590b56c103b824e12284bd9a0d8b9a2e0effdd808bc08007617"
       ],
-      "fingerprint": "955ec176b948df7098229f7c54a009ef8febfa4c03e54f469273afe0cf315d69",
+      "fingerprint": "5f83e1d3e680c909ac3547daf7bee8d2e70f6e4b20323297f0866fef6e7dddd1",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-6695",
       "trigger": "A test replaces or seeds its fixture records.",
       "bound": "Only the machine/repository inputs and readings owned by this test fixture.",
-      "reason": "Test-only host metrics replacement removes readings for fixture machines no longer present.",
+      "reason": "Test-only host metrics replacement removes readings for fixture machines no longer present. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 955ec176b948df7098229f7c54a009ef8febfa4c03e54f469273afe0cf315d69.",
       "guard": "Focused client fixture tests use the real pool and LiveStore; no product interaction calls this helper."
     },
     {
@@ -37852,26 +37863,6 @@
       "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
       "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9. Predecessor: 7bf1b836f04afac8025cce546ab8017e31e35d323d4a7894c84a62c984388288 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/AppShell.tsx",
-      "holder": "AppBodyView",
-      "rule": "reader-summary",
-      "tokens": "77a6568d099222296d95c2a624bb271143a726a916f283f7a1664daa5a5e4371",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "f035e5aee1b9e5e9b5042e6e9a711ab35b3854ccebc5131966f3475dbd3211c1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AppBodyView",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/command-launch-data.ts",
@@ -37967,25 +37958,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
-    },
-    {
-      "file": "apps/web/src/app/Workspace.tsx",
-      "holder": "Workspace",
-      "rule": "reader-summary",
-      "tokens": "cdc2a942dcf4650f2078f7f3e5ae1dcb982e591947cf75be0180e559da04fe68",
-      "gate": [],
-      "origin": [
-        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
-        "a093a0ec8f7fecc6c8991702c8572a6bfacc7a45ea416683c3000ffe28c86d26"
-      ],
-      "fingerprint": "b5163d7d45e2f09a906f9f524505273de2f657a1a42412e331825e8cd22ca048",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of Workspace",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
@@ -38350,40 +38322,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/actions",
-      "rule": "reader-summary",
-      "tokens": "ea371e742b7195c297a27ff4eb027588350024fdcb01522f808c64036ee6b60d",
-      "gate": [],
-      "origin": [
-        "0984cc6476f09a29c282a4612f4bb2b87ea2d024d8c5edfa890f71d62c900d1b",
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "41cb880b5111dba1550db1352c02177707188f5db38e5b5132dd5d5319e3da51",
-        "523a5c5c7a2166c0a192ec312c86f060986ec3e0b6707347e0305c9b8e548985",
-        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
-        "923b52caab844ddeed229dd65c6794a71d73e8f7e397c16216e0540edcf2bd5e",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "c7634f4e2a2d53c9ee8db624476e40122a7f36c6dae3c5b2465fbd5ea72bf9cf",
-        "e8c7dcfe52ef9a4c5674f32866c520e324fdc426d7227fff45ae421d68af1ae5",
-        "eae59f21dd39d9ef5d0aa570740c52913b75f5e1301bc861255f718f624fccc3",
-        "ec744bac4fb832de05f4339c16a6ad26229753f1221db21c1791256e105ea75d",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "f1fb142d0722cac36ebdea42f5384081ed403b27910ad20e866f7a66ae77f612",
-        "f47c0c702e2d9828f78f1dcf167a8adc130ab6e27dc0430f356eee1d89ec20f8",
-        "f8c8d86fdf26463788a905be72d123922fb117daf0f8c5ac7a8bad135baf8eb9"
-      ],
-      "fingerprint": "0409335fb460ba0f7c61061a2c4e18528c64c134e6a7f09257665fb81044026b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/actions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/unarchiveBatch/callback",
       "rule": "consume:flatMap",
@@ -38586,46 +38524,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useLayoutEffect:callback",
-      "rule": "helper-consumer",
-      "tokens": "ff9283d63826726de23de79a655fd002a87ee774917a62be0f9ab4ee95488e3b",
-      "gate": [],
-      "origin": [
-        "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5872",
-      "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
-      "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/records/callback",
-      "rule": "helper-consumer",
-      "tokens": "9550c763b707d3e7f2b6a512c5e3d0ec874bfd6b85b39738fb1edc7734f192bc",
-      "gate": [],
-      "origin": [
-        "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5888",
-      "trigger": "Provider-free screen fixtures load their declared synthetic records.",
-      "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
       "file": "apps/mobile/src/components/InboxSessionRow.tsx",
@@ -39658,60 +39556,60 @@
       "file": "apps/web/src/features/settings/SettingsView.tsx",
       "holder": "SettingsViewBody/SettingsViewBody",
       "rule": "reader-summary",
-      "tokens": "aacdae438c6f5519d4f8482a6a2a8b84ee945bcc6d2081db2081391f9154b7df",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
       "gate": [],
       "origin": [
         "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
         "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
         "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
       ],
-      "fingerprint": "8143013f01feba0836ec74e1bdf8db127dcf5b04c5d060eb96e530a5c9387652",
+      "fingerprint": "4a68d8d14a286fb108fca9e4648ea21740dae4982abb33534b90fbfda64f8b73",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of SettingsViewBody/SettingsViewBody",
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
+      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 8143013f01feba0836ec74e1bdf8db127dcf5b04c5d060eb96e530a5c9387652.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "usePoolPreference",
       "rule": "reader-summary",
-      "tokens": "aacdae438c6f5519d4f8482a6a2a8b84ee945bcc6d2081db2081391f9154b7df",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
       "gate": [],
       "origin": [
         "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
         "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
         "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
       ],
-      "fingerprint": "6ae9cfac483ab551c8fc313eff0ec6ecbc051072b9fb2f7f4a7296b5a77ba99f",
+      "fingerprint": "7b81665939444867fd5136c877b84520de4dd164b74a7683200d60cbac7e3d1c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of usePoolPreference",
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
+      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 6ae9cfac483ab551c8fc313eff0ec6ecbc051072b9fb2f7f4a7296b5a77ba99f.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
       "file": "apps/web/src/features/settings/sections/accounts.tsx",
       "holder": "NativeAccountRow/NativeAccountRow",
       "rule": "reader-summary",
-      "tokens": "aacdae438c6f5519d4f8482a6a2a8b84ee945bcc6d2081db2081391f9154b7df",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
       "gate": [],
       "origin": [
         "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
         "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
         "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
       ],
-      "fingerprint": "be6038cdf985739fe0c0f2904f5294005a0d848b8ac6c692ddb9e2971aa79e06",
+      "fingerprint": "d17293ea3129e55d1b50f7ca8cdd0f0ba059184b7eb046a27478ff66099a0788",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of NativeAccountRow/NativeAccountRow",
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
+      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: be6038cdf985739fe0c0f2904f5294005a0d848b8ac6c692ddb9e2971aa79e06.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
@@ -40017,18 +39915,18 @@
       "file": "packages/client-core/src/engine/runtime.ts",
       "holder": "ClientRuntime/createCommands",
       "rule": "reader-summary",
-      "tokens": "e74d4eab848c3ede9191c1e1d483d38dc9294274ae5f177e6765e2eabe39b59e",
+      "tokens": "3e986e5045450e8829d71ba4b9693c1f9684427f5245c39a1d2203bc823a0d84",
       "gate": [],
       "origin": [
         "e127385f68a2e0e7b02e4a47c230a27f7bb5bf4dbebec86e51ec1db20bf5bc9d"
       ],
-      "fingerprint": "44aabfd58c690ac2ea8ba9dfb8b5cf40e064d4e4d58f01670b0e83f62773ff16",
+      "fingerprint": "9271f29b544ac6f3a68ac0a60a10e799cf897771513fa3c2df6b33deebdd088c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of ClientRuntime/createCommands",
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
+      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 44aabfd58c690ac2ea8ba9dfb8b5cf40e064d4e4d58f01670b0e83f62773ff16.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
