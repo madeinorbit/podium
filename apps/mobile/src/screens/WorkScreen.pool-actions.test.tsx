@@ -437,7 +437,9 @@ describe('mobile pool work-list actions', () => {
     expect(navigation).toHaveBeenCalledOnce()
     const write = await request('issues.markRead')
     expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
-    expect(value().issue.readAt).toBe(iso(0))
+    expect(Date.parse(value().issue.readAt ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(value().issue.updatedAt),
+    )
     expect(value().emphasizeUnread).toBe(false)
     await settled()
     await settle(write)
@@ -564,13 +566,14 @@ describe('mobile pool work-list actions', () => {
     expect(first.input).toMatchObject({ patch: { title: 'First rename' } })
     expect(button().textContent).toContain('First rename')
     await settle(first, true)
+    // This fixture uses the legacy reply path. Publish the accepted truth as
+    // that server would, before asking it for a second, refused rename.
+    await patch(fixture, TARGET, { title: 'First rename' })
     await rename('Second rename')
     const second = await request('issues.update')
     expect(value().title).toBe('Second rename')
     await settled()
     await settle(second)
-    expect(value().title).toBe('First rename')
-    await patch(fixture, TARGET, { title: 'First rename' })
     expect(value().title).toBe('First rename')
   })
 

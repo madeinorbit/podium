@@ -78,14 +78,15 @@ it('declares launch and palette demand after attachment, follows window updates 
     expect(result.current.palette).not.toBe(LOADING)
   })
   const { launch, palette, actions, owner } = result.current
-  if (launch === LOADING || palette === LOADING) throw new Error('Launch readers did not settle')
+  if (typeof launch === 'symbol' || !palette || typeof palette === 'symbol')
+    throw new Error('Launch readers did not settle')
   expect(launch.initialRepoPath).toBe('/synthetic/project')
   expect(launch.repoPaths).toEqual(['/synthetic/project'])
-  expect(launch.machines.map((machine) => machine.id)).toEqual([
-    'host-one',
-    'host-two',
-    'host-three',
-  ])
+  const expectedMachines = [...fixture.records.values()]
+    .filter((record) => record.entity === 'machine')
+    .map((record) => record.entityId)
+  expect(expectedMachines).toHaveLength(3)
+  expect(launch.machines.map((machine) => machine.id)).toEqual(expectedMachines)
   expect(palette.paletteOpen).toBe(false)
   expect(palette.selectedIssueId).toBeNull()
   expect(actions.setPaletteOpen).toBe(owner.palette.setOpen)
@@ -100,7 +101,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   })
   expect(result.current.open).toBe(true)
   const updated = result.current.palette
-  if (updated === LOADING) throw new Error('Palette became unavailable')
+  if (!updated || typeof updated === 'symbol') throw new Error('Palette became unavailable')
   expect(updated.paletteOpen).toBe(true)
   expect(updated.selectedIssueId).toBe('synthetic-1')
   expect(storeStats.snapshot().runtimes).toEqual([])

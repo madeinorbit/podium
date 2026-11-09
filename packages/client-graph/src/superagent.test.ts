@@ -457,8 +457,10 @@ it('batches addressed cold session loads without indexing cold session payloads'
   expect(f.pool.hydrate()).toBe(1)
   expect(f.load).toHaveBeenCalledTimes(1)
   expect(omitGone(f.pool.row('session', cold.sessionId))).toMatchObject({ cwd: '/synthetic' })
+  const beforeMissing = f.load.mock.calls.length
   expect(omitGone(f.pool.row('session', 'known-absent'))).toBe(LOADING)
-  expect(f.pool.hydrate()).toBe(1)
+  f.pool.hydrate()
+  expect(f.load.mock.calls.slice(beforeMissing)).toEqual([['session', 'known-absent']])
   expect(omitGone(f.pool.row('session', 'known-absent'))).toBeUndefined()
 })
 it('releases all scoped state and subscriptions, including an already queued demand', async () => {

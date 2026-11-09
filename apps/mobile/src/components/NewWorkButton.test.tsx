@@ -1,6 +1,7 @@
 import {
   LAST_LAUNCH_PICK_KEY,
   NEW_WORK_EFFORT_KEY,
+  NEW_WORK_MACHINE_KEY,
   NEW_WORK_MODEL_KEY,
   NEW_WORK_REPO_KEY,
 } from '@podium/client-core/ui-state'
@@ -700,6 +701,9 @@ describe('phone last launched pair', () => {
         [LayoutWire.parse({ ...parseLayoutRowId(input.id), value: input.patch.value })],
         [],
       )
+    // These cases exercise each stored machine/harness pair. Choose their
+    // initial machine explicitly; the fleet is ordered by name, not input order.
+    act(() => view.runtime.deviceState.set(NEW_WORK_MACHINE_KEY, 'mine'))
     return { ...view, create, layoutSet }
   }
   async function choose(field: string, choice: string) {

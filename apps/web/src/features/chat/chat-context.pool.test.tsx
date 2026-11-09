@@ -165,6 +165,12 @@ beforeEach(async () => {
     openArtifact: vi.fn(),
     openFileInWorktree: vi.fn(),
   }
+  // Artifact/file navigation belongs to UiStore. Observe that owner while
+  // preserving the suite's original dispatch spies and payload assertions.
+  Object.defineProperties(f.fixture.owner.ui, {
+    openArtifact: { configurable: true, writable: true, value: f.seams.openArtifact },
+    openFileInWorktree: { configurable: true, writable: true, value: f.seams.openFileInWorktree },
+  })
   bindStoreStatsOwner(handle, f.fixture.owner)
   bindStoreStatsOwner(f.fixture.owner.root.replica, f.fixture.owner)
   storeStats.enable()

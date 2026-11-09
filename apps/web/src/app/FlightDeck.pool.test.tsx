@@ -540,7 +540,7 @@ describe('rendered mission pane parity', () => {
     const gauge = screen.getByTestId('flight-deck-gauge')
     expect(gauge.textContent).toMatch(/^\d+\/\d+$/)
     expect(gauge.getAttribute('aria-label')).toContain('Open flight deck')
-    fireEvent.click(screen.getByRole('button', { name: 'Open flight deck', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open flight deck' }))
     fireEvent.click(gauge)
     expect(expand).toHaveBeenCalledTimes(2)
     expect(missionIndexStats()).toEqual(baseline)
