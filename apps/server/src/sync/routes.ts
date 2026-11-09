@@ -24,6 +24,13 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     if (coding === 'not-acceptable') return c.body(null, 406)
     const routingId = String(principalRoutingId(principal))
     const transferId = randomUUID()
+    // Supersede only within ONE client (its replica's id, kept across its own
+    // retries). Keyed by user alone, every tab and device of a user cancelled the
+    // others' bootstraps; when they all started cold together (after an update
+    // added record kinds) none ever completed. A request without the id (older
+    // clients, the CLI) supersedes nothing; its own disconnect still aborts it.
+    const clientId = c.req.raw.headers.get('podium-sync-client')?.slice(0, 64) || undefined
+    const reservationKey = clientId ? `${routingId} ${clientId}` : transferId
     const metrics: SyncTransferMetrics = {
       transferId, principal: routingId, coding, startedAt: performance.now(),
       captureMs: 0, bytesIn: 0, bytesOut: 0, rows: 0, records: 0, outcome: 'running',
@@ -31,7 +38,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     const abort = new AbortController()
     // Reserve before awaiting identity, so concurrent retries cannot overtake
     // one another and resurrect an older snapshot after the new request starts.
-    const superseded = bootstraps.get(routingId)
+    const superseded = bootstraps.get(reservationKey)
     if (superseded) {
       // DEBUG, not info: `logSyncTransfer` already reports the outcome at info.
       // This says only who did it, which is the one fact that line cannot carry.
@@ -40,10 +47,10 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       })
       superseded.abort.abort(new SyncWorkerError('cancelled'))
     }
-    bootstraps.set(routingId, { abort, transferId })
+    bootstraps.set(reservationKey, { abort, transferId })
     const signal = AbortSignal.any([c.req.raw.signal, abort.signal])
     const release = () => {
-      if (bootstraps.get(routingId)?.abort === abort) bootstraps.delete(routingId)
+      if (bootstraps.get(reservationKey)?.abort === abort) bootstraps.delete(reservationKey)
     }
     let completionOwnsLog = false
     try {

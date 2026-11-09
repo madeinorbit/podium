@@ -50,13 +50,13 @@ function reasonOf(error: unknown): string {
 function checkAbort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new SyncCancelledError()
 }
-async function request(deps: HttpSyncSourceDeps, path: string, attempt: SyncTransferAttempt | undefined, signal?: AbortSignal): Promise<Response> {
+async function request(deps: HttpSyncSourceDeps, path: string, attempt: SyncTransferAttempt | undefined, signal?: AbortSignal, extra?: Record<string, string>): Promise<Response> {
   checkAbort(signal)
   const port = deps.streamingFetch
   let response: Response
   try {
     response = await port.fetch(deps.origin.replace(/\/$/, '') + path, {
-      method: 'GET', credentials: port.credentials, headers: port.headers?.(), signal,
+      method: 'GET', credentials: port.credentials, headers: { ...port.headers?.(), ...extra }, signal,
     })
   } catch (cause) {
     checkAbort(signal)
@@ -118,6 +118,10 @@ async function* records(response: Response, deps: HttpSyncSourceDeps, attempt?: 
 }
 /** One fetch per attempt; the replica owns the bounded restart ladder. */
 export class HttpBootstrapSource {
+  /** One id per replica, kept across its retries. The server cancels an older
+   *  bootstrap only for the SAME id, so one client's restarted walk replaces its
+   *  own transfer while other tabs and devices of the user never cancel each other. */
+  private readonly clientId = globalThis.crypto.randomUUID()
   constructor(private readonly deps: HttpSyncSourceDeps) {}
   async *bootstrap(signal?: AbortSignal): AsyncGenerator<BootstrapChunk> {
     const path = '/sync/bootstrap'
@@ -129,7 +133,7 @@ export class HttpBootstrapSource {
     let outcome = 'cancelled'
     let reason: string | undefined
     try {
-      const response = await request(this.deps, path, attempt, signal)
+      const response = await request(this.deps, path, attempt, signal, { 'Podium-Sync-Client': this.clientId })
       if (response.status === 409) {
         void response.body?.cancel().catch(() => undefined)
         throw new SyncFormatError('unexpected-bootstrap-refusal')

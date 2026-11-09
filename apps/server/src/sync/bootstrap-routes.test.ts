@@ -64,8 +64,8 @@ function fixture() {
   app.use('/sync/*', async (c, next) => ready ? next() : c.body(null, 503))
   app.use('/sync/*', clientAuthGuard({ loginRequired: () => true, principalForRequest: async () => authorized ? { memberId: 'test', role: 'admin' } : undefined }))
   registerSyncRoutes(app, deps)
-  const request = (signal?: AbortSignal, coding = 'identity') => app.fetch(new Request('https://localhost/sync/bootstrap?principal=attacker&feedId=forged&epoch=forged', {
-    signal, headers: { 'accept-encoding': coding },
+  const request = (signal?: AbortSignal, coding = 'identity', client: string | null = 'replica-a') => app.fetch(new Request('https://localhost/sync/bootstrap?principal=attacker&feedId=forged&epoch=forged', {
+    signal, headers: { 'accept-encoding': coding, ...(client ? { 'podium-sync-client': client } : {}) },
   }))
   return { request, deps, bootstrap, transfers, unauthorized: () => { authorized = false }, unready: () => { ready = false } }
 }
@@ -155,6 +155,19 @@ describe('bootstrap HTTP boundary', () => {
     controller.abort()
     expect(four.signal?.aborted).toBe(true)
     await expect(last.text()).rejects.toMatchObject({ reason: 'cancelled' })
+  })
+  it('never cancels another client of the same user, nor a request without a client id', async () => {
+    const f = fixture()
+    const tab = f.request(undefined, 'identity', 'replica-a')
+    const one = await started(f); one.acknowledge()
+    const phone = f.request(undefined, 'identity', 'replica-b')
+    const two = await started(f, 2); two.acknowledge()
+    const cli = f.request(undefined, 'identity', null)
+    const three = await started(f, 3); three.acknowledge()
+    const cliAgain = f.request(undefined, 'identity', null)
+    const four = await started(f, 4); four.acknowledge()
+    expect([one, two, three, four].map((t) => t.signal?.aborted)).toEqual([false, false, false, false])
+    for (const response of [tab, phone, cli, cliAgain]) await (await response).body!.cancel()
   })
   it('does not start an older job when identity resolves after a replacement', async () => {
     const f = fixture()
