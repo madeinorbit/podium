@@ -18,7 +18,7 @@ import {
  *   ROOT             runtime-root/      (POD-6681) — replica, LiveStore, the
  *                                        connection and outbox services
  *   TRANSPORT        socket-transport/  (POD-400) — socket, planes, PTY epoch/seq
- *   ACTIONS          actions.ts         (POD-402) — command dispatch + outbox
+ *   COMMANDS         commands/          (POD-6682) — area modules over the write path
  *   ROUTER/UI-STATE  ui-state.ts        (POD-403) — the ONLY UI persistence
  *   POOL WRITER      client-graph/write  — optimism, spawns and outbox settlement
  *   REACTIONS        reactions.ts       — the old useEffect table
@@ -1338,7 +1338,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private buildStatics(): EngineStatics<TApi> {
     return {
-      // Plumbing forwarded to the runtime root (POD-6681) until POD-6682.
+      // Remaining UI and discovery seams, until the façade retires (POD-5803).
       uiState: this.deviceState,
       readPosition: this.readPosition,
       batchGesture: (fn: () => void) => this.batch(fn),

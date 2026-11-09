@@ -40,22 +40,6 @@ export type StoreNotices = import('../notices').NoticeSink
 
 export const NOOP_NOTICES: StoreNotices = { error: () => {}, info: () => {} }
 
-/** Result returned by a session wake/resurrection command. */
-export interface SessionResurrectionResult {
-  ok: boolean
-  reason?: string
-}
-
-/** Result of a clean end [spec:SP-9904]. `ok: false` is a REFUSAL the caller
- *  should show, not a transport failure — most often an unsaved working tree,
- *  which `endSession(id, true)` overrides. */
-export interface SessionEndResult {
-  ok: boolean
-  reason?: string
-  /** True when the issue worktree was released (the branch is always kept). */
-  worktreeFreed?: boolean
-}
-
 /** The issue read cursor that existed when the current foreground visit began. */
 export interface IssueVisitBaseline {
   issueId: IssueId

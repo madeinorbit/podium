@@ -1,11 +1,11 @@
-import type { SessionResurrectionResult } from '@podium/client-core/engine'
+import type { SessionResurrectionResult } from '@podium/client-core/commands'
 import { type ExitedAction, exitedRecovery } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
-import { Moon, RotateCcw } from './icons'
 import { type JSX, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { Moon, RotateCcw } from './icons'
 import { PressableScale } from './PressableScale'
 
 type RecoveryActionId = 'resume' | 'restart' | 'relaunch' | 'remove'
@@ -81,7 +81,10 @@ function LifecycleButton({
   compact,
 }: {
   action: RecoveryAction
-  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
+  session: Pick<
+    SessionMeta,
+    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+  >
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
   compact: boolean
@@ -155,7 +158,10 @@ export function MobileSessionLifecycle({
   onResume,
   onRemove,
 }: {
-  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
+  session: Pick<
+    SessionMeta,
+    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+  >
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>

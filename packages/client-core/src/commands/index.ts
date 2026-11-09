@@ -21,7 +21,11 @@ export type { CommandDeps } from './context'
 export type { FilesCommands } from './files-types'
 export type { IssuesCommands } from './issues-types'
 export type { PreferencesCommands } from './preferences-types'
-export type { SessionsCommands } from './sessions-types'
+export type {
+  SessionEndResult,
+  SessionResurrectionResult,
+  SessionsCommands,
+} from './sessions-types'
 export type { ThreadsCommands } from './threads-types'
 
 /** Plain command families over the principal's existing write and request paths. */

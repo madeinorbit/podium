@@ -1,6 +1,5 @@
 import type { IssueId, MachineId, MutationId, SessionId, WorkState } from '@podium/model'
 import type { PodiumClientApi } from '../api'
-import type { SessionEndResult, SessionResurrectionResult } from '../engine/types'
 import type {
   IssueWorkAction,
   LaunchSessionArgs,
@@ -10,6 +9,21 @@ import type {
   StartIssueSession,
   TaskSpawnOutcome,
 } from '../spawn-agent'
+
+/** Result returned by a session wake/resurrection command. */
+export interface SessionResurrectionResult {
+  ok: boolean
+  reason?: string
+}
+
+/** Result of a clean end [spec:SP-9904]. `ok` says whether the desired-state
+ * edit was queued; a later lifecycle refusal appears on the session. */
+export interface SessionEndResult {
+  ok: boolean
+  reason?: string
+  /** True when the issue worktree was released (the branch is always kept). */
+  worktreeFreed?: boolean
+}
 
 export interface SessionsCommands<_TApi extends PodiumClientApi = PodiumClientApi> {
   /** Start a new agent optimistically (#119): mints client ids, paints a
