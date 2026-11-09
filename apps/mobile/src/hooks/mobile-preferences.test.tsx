@@ -1,8 +1,6 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { StrictMode, useMemo, useSyncExternalStore } from 'react'
@@ -230,7 +228,7 @@ describe('mobile preferences', () => {
   })
 })
 
-it('batches all demanded keys, never falls back while attaching, and reports matching output with zero legacy reads', async () => {
+it('reads saved values before pool attachment and retains one owner through attachment', async () => {
   ui.values.set(VALUE, 'saved')
   ui.values.set(storageKeyFor('repo'), 'true')
   let renders = 0
@@ -245,39 +243,20 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
     },
     { wrapper: StrictMode },
   )
-  expect(result.current.value[0]).toBe('default')
-  expect(result.current.single[0]).toBe(true)
-  expect(ui.get).not.toHaveBeenCalled()
-  const pool = attach(ui)
-  rerender()
-  expect(ui.get).not.toHaveBeenCalled()
-  await flush()
   expect(result.current.value[0]).toBe('saved')
+  expect(result.current.single[0]).toBe(true)
   expect([...result.current.set.collapsed]).toEqual(['repo'])
-  expect((preferenceSource(pool)?.counts ?? null)).toMatchObject({ batches: 1, loaded: 4 })
-  expect((preferenceSource(pool)?.keys() ?? []).length).toBe(4)
-  expect(ui.listeners.size).toBe(1)
-  const values = () =>
-    (preferenceSource(pool)?.keys() ?? []).map((key) => {
-      const row = omitGone(pool.row('preference', key))
-      return typeof row === 'object' && row ? row.value : row
-    })
-  expect(values()).toEqual(['saved', null, null, 'true'])
-  const projections = state.projections
+  const subscriptions = ui.listeners.size
+  attach(ui)
   rerender()
-  expect(state.projections).toBe(projections)
+  expect(ui.listeners.size).toBe(subscriptions)
+  expect(result.current.value[0]).toBe('saved')
   const before = renders
   act(() => ui.emit())
   await flush()
   expect(renders).toBe(before)
-
-  const row = pool.row.bind(pool)
-  vi.spyOn(pool, 'row').mockImplementation(((entity: never, key: string) => {
-    const value = row(entity, key)
-    return typeof value === 'object' && value ? { ...value, value: 'planted-difference' } : value
-  }) as typeof pool.row)
-  expect(values()).toEqual(Array(4).fill('planted-difference'))
-  expect(values()).not.toEqual(['saved', null, null, 'true'])
+  act(() => ui.set(VALUE, 'later'))
+  expect(result.current.value[0]).toBe('later')
 })
 
 it('keeps pending writes with the old principal and drops its optimism and subscriptions on owner replacement', async () => {
@@ -302,7 +281,7 @@ it('keeps pending writes with the old principal and drops its optimism and subsc
   expect(bob.set).not.toHaveBeenCalled()
   expect(result.current.collapsed.size).toBe(0)
   expect(alice.listeners.size).toBe(0)
-  expect((preferenceSource(alicePool)?.keys() ?? [])).toEqual([])
+  expect(preferenceSource(alicePool)?.keys() ?? []).toEqual([])
 })
 
 it('allows an authoritative replacement inside the post-write batch to win after local optimism ends', async () => {

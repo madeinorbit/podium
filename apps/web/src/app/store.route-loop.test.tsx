@@ -22,6 +22,23 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 // ---------------------------------------------------------------------------
 
 class FakeHub {
+  subscribeTopic(
+    _kind: string,
+    _id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    listener.onState?.({ status: 'pending' })
+    return () => {}
+  }
+  machines() {
+    return []
+  }
+  serverIdentity() {
+    return null
+  }
+  clockSkewMs() {
+    return null
+  }
   setViewState(): void {}
   setVisible(): void {}
   /** The P5a `on()` subscription seam the engine wires events through. */
@@ -84,7 +101,7 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
-const { StoreProvider, useRuntimeSelector } = await import('./store')
+const { StoreProvider } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
 const { useUiValue } = await import('@podium/client-core/react')
 const { loadingNavigationProvider } = await import('@podium/client-core/engine')

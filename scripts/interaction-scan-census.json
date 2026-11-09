@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "e47d357a85030f81fe5673f464a2a8d5933be9a2d18f46e48df9d55b8e0edcf8",
+      "tokens": "7a21e6abf235e42f7f4f487b10e779b065b2288506318d956a391e3b53b685b8",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "be7208f81d3983cbd639cfe762fcc0edc1bb33f20cc867ad94c9ce381dd9c2f1",
+      "fingerprint": "a1ce82712475f613094abdd0f4e854fa164e05a219e7480bb4d5c75001399893",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -988,14 +988,14 @@
       "file": "apps/web/src/app/AppShell.tsx",
       "holder": "AppBodyView",
       "rule": "reader-summary",
-      "tokens": "b6ae0138fd72fc1ad3c847388bee238bc7046ff98487812c173ba10e5b4539b9",
+      "tokens": "e2eb94548427cedc5de7ffb05fa644e42a4e680c984c193cebc5fe3aff9ea43b",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "b870f20a67460346c8aaca75c3b00cb6acb6b135dc635d91d15387c184062f4a",
+      "fingerprint": "6b521fd8e7a49e3ab9c18dd2fa8cf14b289a5d816dd28c0b3de150c5c7d49b00",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1473,24 +1473,6 @@
     },
     {
       "file": "apps/web/src/app/Workspace.tsx",
-      "holder": "OrphanWorkspace/orphan",
-      "rule": "reader-summary",
-      "tokens": "0c3a0615391bb88db7bafbca913fd61c9a98a52cbee46675f94ca05809c887fd",
-      "gate": [],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "a8dd926a6512860cb9f68ba6ef63883052b366bdfd2679111ddd0e009184934b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of OrphanWorkspace/orphan",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
       "rule": "helper-consumer",
       "tokens": "eb99f5375a1e9db5e899fcd8d9c79c1c3853e6b5c538d711924319fc3ad420b4",
@@ -1498,12 +1480,13 @@
         "exit:then:14f51dd716089ff1328518ed2bbe37789405decb316ad3799a7af076f437c317",
         "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
         "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
-        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f"
+        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9"
       ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "c184a175237c9c65d3a4aab5202ed857acbd61216cba40756112931c8731588f",
+      "fingerprint": "30baae9ed57688261957d98fd5c329e1cded6b19e7595a0a094fd9c0dee58eb7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1516,17 +1499,12 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
       "rule": "reader-summary",
-      "tokens": "7e4bc162b3be7a37a82b58eb744e232ab10659fbcb5251094ac4752655cbbad2",
-      "gate": [
-        "exit:then:14f51dd716089ff1328518ed2bbe37789405decb316ad3799a7af076f437c317",
-        "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
-        "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
-        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f"
-      ],
+      "tokens": "1e89d24337303e4ac0ce825c85d1f3036e875a4db45bd0339ae0d725b8a9fe57",
+      "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "62a7f0931b00d279d08ab05c6bd40e3d94f91f381d6fa1b3c16ce817e8674cef",
+      "fingerprint": "1dc7c92a40eb04cec8294aecde96048df581640da48b6fd422c5ae68753e5732",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1539,12 +1517,18 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
       "rule": "reader-summary",
-      "tokens": "6ab6c1bec93b8c29b66ccbce9ed9982a78b4e6f15ccae45eef418d4900eb263e",
-      "gate": [],
+      "tokens": "7e4bc162b3be7a37a82b58eb744e232ab10659fbcb5251094ac4752655cbbad2",
+      "gate": [
+        "exit:then:14f51dd716089ff1328518ed2bbe37789405decb316ad3799a7af076f437c317",
+        "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
+        "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
+        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9"
+      ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "fda8a8f7c36420244fe1029ea0b783beb60a0bbc4b236e63c4fb5c4af27ef0d7",
+      "fingerprint": "a07af199b4444bec6a20ec069a8530a0dba393db182cbf56c356c277941ad607",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1593,12 +1577,12 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "consume:filter",
-      "tokens": "1b15b2329524c12f058132a527d568e26d184b46b5506fb1104c47c703f2ee96",
+      "tokens": "fb216b4645a955af3c74f02eef562eb6a6a7b9a99307c9c5c0a68165bfa3751a",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "602fe65ce09318719d47251b7dd833d6bbf7a9534b8fd1f36cb54dd63671b556",
+      "fingerprint": "20ff49cb750356a2f9a08c67a8a04006de12b7f28ac2a83a6a648cac6a4e4717",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1611,12 +1595,12 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "consume:map",
-      "tokens": "f26499ec826241e42c2e022652b46b001fc1f903a13577e49680ef1430e52e5b",
+      "tokens": "9306185788fac41e9e1ffdc93c62ff99c16e218c032cefe667a7b610c64c88eb",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "fd48902af6a5e19042cdbac2b4292d436aa961304538b01326180629261cc66e",
+      "fingerprint": "16586cc80d00c97b428e5601c9ee2a516282275616f9909704226f4227165aed",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1629,12 +1613,12 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "materialize:Set",
-      "tokens": "1b75aeb1f52fcf7d7ffc69a642e8cbe9d15ef1497a1e26804a51fb34cdbc7df2",
+      "tokens": "8a80f35c37375f0eac6d3ddc0208aa42ddb945a88d063fbdc9f3ca282fcdfa3f",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "04073b03671097db86e6bf79f367520349b2bcb9aac5a991d6a971dc875a3812",
+      "fingerprint": "df188110b442ab4cb557948a703179e105754af3a924fbbe74ee38631e3d4b71",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1781,12 +1765,13 @@
         "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
         "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
         "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9",
         "exit:then:4ccda26cdb47264499055fbe5c677efc23b37d36238da5b2211620097156d565"
       ],
       "origin": [
         "7ed1f1611a02c58c0162692716293b0875fa1f26a675863f699307409a922871"
       ],
-      "fingerprint": "1296a79ec30bbd647477f6b4659966caaa2b8da89a89df047ae4841c830021e6",
+      "fingerprint": "7a35af4fe0a754238de3b29c38794f0ced2d14fe282cb42c7980d906ed60158f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1826,12 +1811,13 @@
         "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
         "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
         "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9",
         "exit:then:8efae713e8de8961567a10f9f38a858872836247cd8540c190761346a0fe3d31"
       ],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "eb32e750efb3342dcd3ba3424f61e761890581c40883ca3ed23a10c41936d8a8",
+      "fingerprint": "dec70176a22d95d676550fa14313d7d5f7a9e77b3f2a737c45d34908a13bc519",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2807,162 +2793,6 @@
     },
     {
       "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession",
-      "rule": "helper-consumer",
-      "tokens": "57e9b9435c71b83357820974359c3779088852d2035a1569e02eda85f37767d6",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "d1b553e156bc2bd0b7b007289b952c6f07ac6eee5f0b1d749fcda2a430a8db0e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession",
-      "rule": "reader-summary",
-      "tokens": "9a2229d76d5c8d1dc1af52703bd2a70787db6e7b6c1284abd8e5e1640d9f0bdd",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "53b8c7224597c89919c43875f42c413369a029f168d7b191dc5c09d948b20aae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession/ids",
-      "rule": "consume:sort",
-      "tokens": "2e24efb00e4943737ea5d4747b892b3a5c97412891be0d1f455bd548e8e91701",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "686040bc43927c0d087870171ac751a8cb635b612833a28ec83a10233936e22b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession/ids",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession/ids",
-      "rule": "question:shellSessions",
-      "tokens": "0684540cac4e47b32bbab3e5bf9038862a423d78b8d831e8f07c3aa74404e902",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "524e690ed67df662612e11d60ae6511de3254c6a23dcea3fd03573b0f8033f40",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession/ids",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:shellSessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession/sessions",
-      "rule": "helper-consumer",
-      "tokens": "111c8215bdcb2eb9a73b659056855c8019839d4dbfff68513c3b27dd9d5a6221",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "fc0961b57f442361974d965bfaff383400aa8c585bab44e9e6793c01ca4e7887",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "readOrphanWorkspaceSession/sessions",
-      "rule": "reader-summary",
-      "tokens": "77e2b4495614d86b1d1fbc02eb380e617fb4f858c3fdc95237bcad5e2199b2ab",
-      "gate": [
-        "exit:then:4130c1e104a0a7dab0f05bb1124db401ef4cd4383375f0def2f3d997d4dc22b0"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "81b6cf1c6460d9f799e3d18efcf1bb59b5e46c8e198dd0be9ab5b1d0c55bbe8d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readOrphanWorkspaceSession/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "useOrphanWorkspaceSession",
-      "rule": "reader-summary",
-      "tokens": "582873b372298381ffec7a84fd4df1a52243a1e76e19833107df16591429aada",
-      "gate": [],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "fda09ef3b410f21be8d75fb14d9ed0151200c5aa199a7205b9746759a960f8f1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useOrphanWorkspaceSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "useOrphanWorkspaceSession/read/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "fda28f317fddc8142cc788ff84c399c7963e28e392cdf3136c3048c27d4463bd",
-      "gate": [],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "9d195842be9d0a4431af2d59031606008f5827d8793128d24f7c1484c2feacfc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useOrphanWorkspaceSession/read/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
       "holder": "useWorkspaceInputs",
       "rule": "spread",
       "tokens": "3c9a54b5eba8c656a1281c129533c67d0b90586f49deb1e019f11e659f2bbb9e",
@@ -3096,24 +2926,6 @@
       "tokens": "14ff19d713848e2f049592eecd853ef7138e3c89684d334a8c5cb22c41430454",
       "gate": [],
       "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "2faf7a59ffda236799b5ddc6dba03e5f664f032443458dc25c1758779cc4e198",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of workspaceSessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "workspaceSessions",
-      "rule": "consume:flatMap",
-      "tokens": "14ff19d713848e2f049592eecd853ef7138e3c89684d334a8c5cb22c41430454",
-      "gate": [],
-      "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
       "fingerprint": "f148422aa1b7c45964a9a18d71eeaf5effc0aa81f6eb10fa411767c5a713d049",
@@ -3135,24 +2947,6 @@
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
       "fingerprint": "2e29aae378f6bbb55413972aaf398deb0fe6f5f7e1411852fbdae6084c1bc667",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of workspaceSessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/workspace-inputs.ts",
-      "holder": "workspaceSessions",
-      "rule": "materialize:Set",
-      "tokens": "fa7663e3fef2085d70e72dc223d938486bae1f3d0b2a52a202a19fcf815e7ec0",
-      "gate": [],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "ea3d972ee9d27d17f532913f69a2764a4b1305e73cd8683ff60b74c6f3cc4d51",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3323,12 +3117,12 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "498672d36d838433d3c8074aaf20d3dea0c77d130c6da07018d14d9005c6f213",
+      "tokens": "98397dbf89bc5fde620c1ba9d0456bc13877a9d42f230712d78fdf4ec026332f",
       "gate": [],
       "origin": [
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "232f31eec3c9a38bbe9d7180f211579570e7b858ab78f25c5df1b2acf2fd727c",
+      "fingerprint": "b3d2b8ec9802acb95e280f50a9861029a5b9c1fb2005e2a60357ae4ed19a989e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3712,41 +3506,17 @@
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/answer",
-      "rule": "spread",
-      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
-      "gate": [
-        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
-        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:653ffe3935e96c1bc14348cafa1bbf2ed9158a5fadb954d50e2db733f0bab21c",
-        "exit:then:cb5a82ba2e20565cf7856c1bec10e28ded4c57c827bdc271847bf2de3b73f325",
-        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
-      ],
-      "origin": [
-        "a0927c5a24ed5466d2d16fded8758d800e482d18ec353b8fd25a5e676f360761"
-      ],
-      "fingerprint": "1f04d95d86abd35653c9eff9507c9c4204ac65172f4068ed3b1db427611975ab",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Send a turn to the selected superagent thread.",
-      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b. Predecessor: cc28d0c9ffdb063b9d01b8d166b76ad8bee2f7b3f4422a8eb0bc79c634691597 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 91d4f1c6dea29350b81cbcb28836ec7614f2847ba2029031c0dd8561f50ca75b (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "1ad0703f4e951a9f8920a2ed44210b1e7af406cfb4e080cad34a984025bf17f3",
+      "tokens": "6fe8acb5d14015529d2958d4b71566d956b0dbe3ed525f2c7bbbcff0dc44953e",
       "gate": [
-        "exit:then:cb5a82ba2e20565cf7856c1bec10e28ded4c57c827bdc271847bf2de3b73f325"
+        "exit:then:9a0e22f3c4dc7041777949a017e6e0aa7a79bb89eb974d17d95d50ea1e337d32"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
         "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
       ],
-      "fingerprint": "00fa3660afb76e2890fe580bed8bfa009987044b7086ebed330d6ed1b89b28c1",
+      "fingerprint": "308f885d43d6a5b2b52cbca6517998fe73edd697ad0f6e0ac7ffda191b368387",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3762,12 +3532,12 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:c74f82fbb4b6bcaff4ad01e6e8e055582db0d22d8e61c34ceedba95aaf8c91d1"
+        "??:1fb7bb870401b26eeae44761f6c992530021991fc5c9a090c120a91840f3dda0"
       ],
       "origin": [
         "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
       ],
-      "fingerprint": "0fb240dde3c3718dc34313216e48f8862debd2e036f08eb61d0558cf969799ae",
+      "fingerprint": "17a3bcbb0428bcef6fe0ebb704fd2d6481f25e8cff72d55fac858d9eb519cee5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -3780,14 +3550,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "6d6d9552c7a455b690446c74b6827fc92fb95aabbadce52f2b23818eee8ca60b",
+      "tokens": "d05b5b2c73ec6b54396e738cc397c4324af4d1c56f2838a8bd0cc407fa6f6671",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
       ],
-      "fingerprint": "83cd44937bd79363fc54ed860ffc38875324afba142e65ba668e04918956d386",
+      "fingerprint": "9cf7818baee996e3341c3b4ff5787fa955a567283a117d507e8825cb5697fd42",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -3818,13 +3588,13 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "44a818be0fd8cd39f8d6e4914e872fba2f2a6d2d942a57e0424b267d22781449",
+      "tokens": "f8a1a20b1887ed0da0805307a3b7efd7f1f7d8317faff5eb3bd83de694f8418c",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
         "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
       ],
-      "fingerprint": "c039db572ea6db6178586457ee46d116cf840ee31f53b107de0023e561029339",
+      "fingerprint": "effc5f291a7e4720d6bb51e7e9aeecb27a5f008fbe2c95210b622ef599e7d0d4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7765,42 +7535,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/mobile-handoff/MobileHandoffChip.tsx",
-      "holder": "MobileHandoffChip/sessionId",
-      "rule": "reader-summary",
-      "tokens": "59ca01ed9bc5794a84c9eddf1a48b837aa993859f4cc7add53fe071f67a55412",
-      "gate": [],
-      "origin": [
-        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
-      ],
-      "fingerprint": "00c11c6aa6395288c37177280ce970942696e52797c834f9a2b82d32db898fef",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MobileHandoffChip/sessionId",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/mobile-handoff/MobilePromoCard.tsx",
-      "holder": "MobilePromoCard/sessionId",
-      "rule": "reader-summary",
-      "tokens": "59ca01ed9bc5794a84c9eddf1a48b837aa993859f4cc7add53fe071f67a55412",
-      "gate": [],
-      "origin": [
-        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
-      ],
-      "fingerprint": "4d5b161cf64d02c8581fc1f0d8870f2c2fe4ccee5f6d28d8cfc813468418109c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MobilePromoCard/sessionId",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/settings/SettingsView.tsx",
       "holder": "SettingsViewBody/SettingsViewBody",
       "rule": "consume:map",
@@ -9028,51 +8762,6 @@
     },
     {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback",
-      "rule": "helper-consumer",
-      "tokens": "bd54e1d85e0ed7fcb81aeb8fb95a2b65daa03bd8f5486cbc95eb208942a3daeb",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
-      ],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "642843e93946a7f12abbacb3e4db13e6d9e13bb792f15225c52e4d168361c646",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/restoreLayout",
-      "rule": "helper-consumer",
-      "tokens": "3d3121ddbbfa7f998e80239c23e925ca3ae315af294aa43fbeb298b0b06d7456",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "&&:6213bdbdc184c5f75e66e230faccd6f711ba4a69b32c77323fed62df20c7e619"
-      ],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "436545a6183b0fbdec9dd4417c22c8eaefbb477cb90416795715a7d914c58065",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/unarchiveBatch/callback",
       "rule": "consume:flatMap",
       "tokens": "d57c65ca1522f6981be2b6ea2719abe827e77e25e0ef1522af2940985a4cb9bc",
@@ -9406,14 +9095,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "d0d79131884f79607b0c08e8995a6ba219b8e8b8ded79b51bfa2a9460b60af66",
+      "tokens": "9022b9b592152a1a11be628a13795c1161214e1d592f5582ce55b96cd03ee335",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "70aa1c8d8c7cd8c4060176ad02c1f4d5a7af924d49a7d4c7340f5faaa935330a",
+      "fingerprint": "89243d3c12d8ab280844fed613f608ccca822903c2735d62f885dc63200acbdf",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -9614,12 +9303,12 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "fixtureSidebarRow/bucketOf/callback",
       "rule": "consume:some",
-      "tokens": "5507dd2b554162e0f9941f6d710d36850733f2c1dbf9618bb361228136a31c58",
+      "tokens": "ad1147410601f0468aae3d3699e678df2cd2edaa4fbbddd6cc0ba174dd8413af",
       "gate": [],
       "origin": [
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "3ee056defe020e7e5b0f73d194255a0f39121fe57d211b9235130fb5ca426b84",
+      "fingerprint": "afb1d530c266286dead36a163cf9997cc7ed2651f0797056c2c802d2f691ba39",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9947,13 +9636,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/issues",
       "rule": "reader-summary",
-      "tokens": "21422f75a04c4bd08febfd892425c86459a37e023929fc80f727599b5e63ef02",
+      "tokens": "3bbdd3645b324c788b3c88fffdb35c75720bb281039136ac3808ef8fd86dfa17",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "9712edf2cdfeeb27a2a3d61a6fadf3810915dba545a5d889cec41ca51734f295",
+      "fingerprint": "fa278cc8aa6b373add06348ed462f53f3d4fcab7bfb13e9c502617cd91d44732",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -10462,12 +10151,12 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/queries/setupSessionPresent/callback",
       "rule": "consume:some",
-      "tokens": "01300bd9af794bc45a24253b74786aa1cce9da53f0425653d19f71d55c14a28a",
+      "tokens": "43e4270be0540560e174ca80042cb54f5e9edc1eb2bd7cf2f265f8a57bd85678",
       "gate": [],
       "origin": [
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "c4bc696a5e2d5a4883e9dddb2b07b37b3d90d77e61f0265712718e91ede8989a",
+      "fingerprint": "377829f960588a4c1509fd8e8ba98e9695e748ae03a482e99c5082b7dec8d4b4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11042,29 +10731,6 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/transcriptReveal",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "exit:then:45da0e519a87fcc73ea92403ce22b421414740aaf28f3a39c350ccd6767d9fc5",
-        "exit:then:ec06271ffe00f940d2c65f14547c40d4d1188a5330b58e473f377502895211c4",
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:9757831293aac94ed860367590616f81cc9a4c818af1af6c3247fcd1d5a90e36"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "af7afdee69adf4219716be3c14e790b2dbaf0bf81f368bbde0a4d1484eaee755",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
-      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/row/value",
       "rule": "reader-summary",
       "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
@@ -11126,7 +10792,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "c5d5928d8bdc48c382ae26e71c5430985518f3750e35890cd5354c7acc2da6ca",
+      "tokens": "3f56c9f7bec7d5aae2f89e3e4a10b8ee34c1da5c11f359bdce3fc6440476ecf6",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -11135,7 +10801,7 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "3920a1733ac0cc71d2a50deef3dd30dc2b59e3d5663d0ab9b961fc06dd58e45a",
+      "fingerprint": "67a98b659663c79cb406a9c2eaab50cc915e4eb69e1647c550c90d20c575dbe3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12847,12 +12513,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "dfbab621d49589d909ef37f462273a4fd54b278403ec83ad76db5ec7c4507d19",
+      "tokens": "c77cefbdbb0686945aa08523f6bfab1f26d460e7d12eea9f1f51fe80ff801c4f",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "4ca6f2577e3e41b4f8dc727127fa64c1161904070d19dfe0517c352095ae0812",
+      "fingerprint": "42423a15b073d050afc7cd256242fee012ac6b22f9963462007ca8f088dd3be8",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12957,15 +12623,15 @@
       "guard": "transcript-log.stored.test.ts: the delta is merged when it continues the stored run and falls back when the reader lost the anchor."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/activateWorkspaceTab/callback/editWorkspace:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/activateWorkspaceTab/editWorkspace:callback",
       "rule": "reader-summary",
       "tokens": "59073b96e444616dd62e470ff9911c4f21ac1a88e9f546fc4b8347d70fac0f61",
       "gate": [],
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "d7482c6e705fdc725539f77125e7260367f31ba19e593a0945c5f38bb3beb1c1",
+      "fingerprint": "48217c52596ed400aafab4bdae0b6c7a6e7017fb53169c73ae7f416a6040acd1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12975,8 +12641,32 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/closeWorkspacePane/callback/editWorkspace:callback",
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/activated",
+      "rule": "reader-summary",
+      "tokens": "59073b96e444616dd62e470ff9911c4f21ac1a88e9f546fc4b8347d70fac0f61",
+      "gate": [
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "958f3872879315ec3d9efe4c20f3960384e2faafe1661bafeca7576d1a3c0ee4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createEngineActions/activateWorkspaceTab/callback/editWorkspace:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/closeWorkspacePane/editWorkspace:callback",
       "rule": "reader-summary",
       "tokens": "cf06abfd27a8c65b91cdb8b29b45d8889a8cc6c9f52dee7131b71fda7def0a57",
       "gate": [],
@@ -12984,7 +12674,7 @@
         "0559e1200dafc1b8dcd7726599205112a02705f4f6ac075636b2855311c95334",
         "a8f5887c1fad1f48a8a88a0378507971a917256bfadd7db6f0c3bb93cf1e8273"
       ],
-      "fingerprint": "fde97573e4c53489f89a4e004c0c911d5eff52fbb23a446102ccee9926c952f1",
+      "fingerprint": "31d819e0078d56c85a8feb2123d443cf451e9578ed29a7a050f7574facfbfccc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12994,8 +12684,8 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/closeWorkspaceTab/callback/patch/workspaceEdit:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/closeWorkspaceTab/patch/workspaceEdit:callback",
       "rule": "reader-summary",
       "tokens": "ef5f32d75290fdd7623876d5921766e7dea8d56bc9799e6be821155c22510209",
       "gate": [
@@ -13004,7 +12694,7 @@
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "7d583b4502e3c0f71279b0d2b59cff737a718b8f3e2d35fa7eb65db4642bbdb7",
+      "fingerprint": "f0b3fa9593c5e135bf54bc4935bd85c2cffed389c5a1a9646b824d3d2bedf044",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13014,8 +12704,8 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/moveWorkspaceTab/callback/editWorkspace:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/moveWorkspaceTab/editWorkspace:callback",
       "rule": "reader-summary",
       "tokens": "aebd870819970bfc944563942fb6ec6cbcfc459c5f487ea931a6ad5abe435d0b",
       "gate": [],
@@ -13023,7 +12713,7 @@
         "5fb834e0b88835f44f4314290174ede4d2aff35e35fe2db443965db307329068",
         "ceb285ca8ea7b7478606cf463047fddf3845dc58c3840ec05238e8b77049022e"
       ],
-      "fingerprint": "ee224571139ca292b3cfbfd7a1371dd3b97a0ed7200996a4b2b067655c88cb6e",
+      "fingerprint": "b8bd73f2fa76cb853c5581cd6457da09cb74831239944fc7c9dceefca6cd85fe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13033,18 +12723,19 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/navigateToSession/callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/navigateToSession",
       "rule": "reader-summary",
-      "tokens": "aba3b0ae93ac2f631c27d45a0e41c9b984080a9286e51822216e0a8fc3a430ab",
+      "tokens": "569da97fbc77c48bd6060490b7e5e725ea91cbf77972d679e8821400ee3a9ff7",
       "gate": [
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4",
-        "exit:then:4d37d1d5aed8fbdf2db584c47ca5c11cebf9c78fd1f306af36b942907fb1f542"
+        "exit:then:4d37d1d5aed8fbdf2db584c47ca5c11cebf9c78fd1f306af36b942907fb1f542",
+        "exit:then:035e54c7621cbb764b6825ba55f70f2c524b4d6de47c2e53801dfa7beba34fac"
       ],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "c15281a3ca7c8e62499e0fcfd1b3fb6bfe0ebb0d5bdae8ec8f0f7af9e51e7081",
+      "fingerprint": "9928807ee426b682e1aaaac5734d4a61e9f711570556f8b4f966fbf5f40cccd4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13054,18 +12745,19 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/navigateToSession/callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/navigateToSession",
       "rule": "spread",
-      "tokens": "a4b96c9b95c4433da74dc00b86313442650ab7a2e5d040074f055040a3caf5a4",
+      "tokens": "e37dcbdacaaea69facdba0dcc05a17de407decab8a81985bdc7628c1e0347201",
       "gate": [
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4",
-        "exit:then:4d37d1d5aed8fbdf2db584c47ca5c11cebf9c78fd1f306af36b942907fb1f542"
+        "exit:then:4d37d1d5aed8fbdf2db584c47ca5c11cebf9c78fd1f306af36b942907fb1f542",
+        "exit:then:035e54c7621cbb764b6825ba55f70f2c524b4d6de47c2e53801dfa7beba34fac"
       ],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "99e0bfb3af128cd925fed5936842b34807002d595da8cffc1c4fe82d3462ce96",
+      "fingerprint": "287a710964e6397c44657979834c1e13f99b3a4c8ca26088ce6f84205aabe0b2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13075,36 +12767,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/navigateToSessionLink/callback",
-      "rule": "helper-consumer",
-      "tokens": "8f10bb1ea4900bcb5315589f16bbca670c41edddfb7c90747f6689cbe9236e6a",
-      "gate": [
-        "exit:then:d4b4b1c6c53eabbb1d0709091db3760e537bc50c765993e0dfbcac0ab9b623ec",
-        "then:e58685ec3becb09cbd299cdcdea25f2e76f12f7330aadf8f842632aaa05216b2"
-      ],
-      "origin": [
-        "16ca26e1baff3cf0318446a27e78150840ea0d16cd319c74e0359f76b5b80351"
-      ],
-      "fingerprint": "23d65818a40ab8ba85c88b1eb569508a5db024e70bcb203c04ce2d2a6039704a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createEngineActions/navigateToSessionLink/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openFile/callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/openFile",
       "rule": "spread",
       "tokens": "55b7c13c9dfcee6c94b97d44d57f56436ba5fe5b94894432f83ec0ec012d53ff",
       "gate": [],
       "origin": [
-        "c889f8e4124e53a5b51834ea8dcad8c68dcb44bc24e540445c37447b845d3033"
+        "c811dc2cb6606caab63740b5eed28902442f11a549b3517f94f1764df28affc3"
       ],
-      "fingerprint": "410c5b4889dad2abca245dad32793efb3b13b472f9815d022095a3f8ba66d542",
+      "fingerprint": "f9c149816fe61fa2af196f119b8ff3ac3800dbe775aa137ddf870a9f44a7cd19",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13114,15 +12785,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openFile/callback/worktreePath",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/openFile/worktreePath",
       "rule": "consume:filter",
       "tokens": "2ca34c9803936077cc5e134f8f6963db424ef1f78af5518f1440a95498e2f0fa",
       "gate": [],
       "origin": [
-        "c889f8e4124e53a5b51834ea8dcad8c68dcb44bc24e540445c37447b845d3033"
+        "c811dc2cb6606caab63740b5eed28902442f11a549b3517f94f1764df28affc3"
       ],
-      "fingerprint": "bc08841b2b141d4d1346b33c5100e428cc6bb1f66c764b9777ee6abdc954ce59",
+      "fingerprint": "9d756e8283f359333664f63d70c10ece653e0963e7143b7fe2bca5bd1350af33",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13132,15 +12803,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openFile/callback/worktreePath",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/openFile/worktreePath",
       "rule": "consume:map",
       "tokens": "6ba987bba12e444d50b1d9dd3f888ce9ae1071607a58dad6e837c3c418e859a7",
       "gate": [],
       "origin": [
-        "c889f8e4124e53a5b51834ea8dcad8c68dcb44bc24e540445c37447b845d3033"
+        "c811dc2cb6606caab63740b5eed28902442f11a549b3517f94f1764df28affc3"
       ],
-      "fingerprint": "8ae289e0db52d12644dd7c29956203b104b899a7e52d601676b9038ef43202c7",
+      "fingerprint": "4467c59450bed2df73834ffa6b30aace10fd2974f921eb0cf217ec2b77d940e2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13150,15 +12821,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openFile/callback/worktreePath",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/openFile/worktreePath",
       "rule": "consume:sort",
       "tokens": "645504b410b8d7adb5e3b6185c7c09f4092ed0758d33d47343dcb70a0138dd75",
       "gate": [],
       "origin": [
-        "c889f8e4124e53a5b51834ea8dcad8c68dcb44bc24e540445c37447b845d3033"
+        "c811dc2cb6606caab63740b5eed28902442f11a549b3517f94f1764df28affc3"
       ],
-      "fingerprint": "d781ac40091dfe657f3c2fc0b3fa23690d1c3e97c28fbebba00480ef597d1b88",
+      "fingerprint": "bf07edaebe07ba5e89969025afdd0d1a0b435f713d78c211fca92f24274bff00",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13168,19 +12839,19 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openInWorkspace/callback/editWorkspace:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/openInWorkspace/editWorkspace:callback",
       "rule": "reader-summary",
-      "tokens": "91f9ce2cdd65f1d101f98f1fbde72dc2071047b82c57994bc4b71191d77a57c9",
+      "tokens": "7847f37099b9a74564af994fb0199065ff7609f37d90ae7230f697f478515d9d",
       "gate": [
-        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+        "then:1092c6a71195de67ba55c64a71c4c27a31887f462e078fa14ec9453b12207c86"
       ],
       "origin": [
         "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "95174f1300315b4f6bfbe0b2381ee8e13b30b6c2a1903219e9dad51926db2f46",
+      "fingerprint": "470b0c29c2aa3bb646df206dd1f5e844df7919e5aa36b9f3598626a8094b2640",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13190,30 +12861,8 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/openSessionAtTranscript/callback/workspaceEdit:callback",
-      "rule": "reader-summary",
-      "tokens": "bab3795a691240c8f0ec794f69a0026d5bad19bbe103f7fd8b67bf2a6c4a8aef",
-      "gate": [
-        "exit:then:d6b8f556ffe4838d461498ecebe7e3d0d3a6acd8ee2f105b04e051a3601bbe96"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "8d5ebcfd361c24c044afbda177061a490621b9d3c177cbad91be44d4753574a9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createEngineActions/openSessionAtTranscript/callback/workspaceEdit:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/setPane/callback/editWorkspace:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/setPane/editWorkspace:callback",
       "rule": "reader-summary",
       "tokens": "a2a536a81167d274c6be2b544b61f1bac7e86db4fdb195385689fb5b68acf684",
       "gate": [
@@ -13225,7 +12874,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "30c958a5fadaf11bfc2895e99ed92190ce890ec31195a22e29596a38ed7207b8",
+      "fingerprint": "f0c7436f17e9248f02f1891ef21888a6869cf02efdac0f91520a45c6aaaa433f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13255,8 +12904,8 @@
       "guard": "None yet: REQUIRED REPAIR, owned by the issue named."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "createEngineActions/toggleSplit/callback/editWorkspace:callback/reduce:callback",
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/toggleSplit/editWorkspace:callback/reduce:callback",
       "rule": "reader-summary",
       "tokens": "2acd8d856eee3fcc06f547566cf5f2b4b3b777f06dc8efe7401a2ba441db2cfe",
       "gate": [
@@ -13266,7 +12915,7 @@
         "0559e1200dafc1b8dcd7726599205112a02705f4f6ac075636b2855311c95334",
         "a8f5887c1fad1f48a8a88a0378507971a917256bfadd7db6f0c3bb93cf1e8273"
       ],
-      "fingerprint": "37139c16ba332e43005f075c7f988f02202d561f2f1aea9f20eb69da41f8bf0a",
+      "fingerprint": "47656a6982a35e42687146c7a4381bdbf168a7c1f8f0583b222e5b9f6f04b390",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13276,7 +12925,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
+      "file": "packages/client-core/src/ui/workspace-actions.ts",
       "holder": "forgetTab/workspacesPatch:callback",
       "rule": "reader-summary",
       "tokens": "ef5f32d75290fdd7623876d5921766e7dea8d56bc9799e6be821155c22510209",
@@ -13284,7 +12933,7 @@
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "c8efb29e61ef24a5d913eefb54aa486a670d0bf438a839f8b7d4b3986965e229",
+      "fingerprint": "ff6eb9f9a44828e1f86e3369350713b1bdd057659ea2d9050e77e51fb45e88ec",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13294,7 +12943,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/actions.ts",
+      "file": "packages/client-core/src/ui/workspace-actions.ts",
       "holder": "workspaceEdit",
       "rule": "reader-summary",
       "tokens": "5a22dc4d73e7df0928a56ab017b67735854ac07cd6aa5f4da2f589bfb43187cc",
@@ -13304,29 +12953,7 @@
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "6731905c1c463a1100f042f5aaf2ff54b96a4162e60c2d2e843ea0f1e66ea60f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of workspaceEdit",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/actions.ts",
-      "holder": "workspaceEdit",
-      "rule": "reader-summary",
-      "tokens": "5a22dc4d73e7df0928a56ab017b67735854ac07cd6aa5f4da2f589bfb43187cc",
-      "gate": [
-        "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "c0293a27e9c2f9e85b417b5a251bb677741e3ccb11dc762c2ada3ba66d664f9d",
+      "fingerprint": "624772e0efe7fee6faced20930a35a5c4dd31f294352f098715b7122cd451f6f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13354,30 +12981,7 @@
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
-      "holder": "planNavigation/issue",
-      "rule": "reader-summary",
-      "tokens": "99943c2d0f715be3bc1975bfd9e5b35b222c10835ea0d8815032bd9f6d06cb5d",
-      "gate": [
-        "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
-        "then:c9de7a7f16444dec76cfaf4c232c16a7b6c0b4f8398f652bfded4e35dc907431"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "596db01c47366847e69d8ef847e12bd263d079997746d8320998cceb54069ebe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of planNavigation/issue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/kept",
       "rule": "consume:filter",
       "tokens": "71beccaeebaf162d9e4e7d043d8369144f9e8b808b9b17a6d64aa3d16a49dd8e",
@@ -13390,7 +12994,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "7a1d19f8e62d6d305d8f8d560c83a211477dfd4d5f115b4a3120ad90d6e93da4",
+      "fingerprint": "c2fad1d6af264232e7703626acb6535f252446269c3dd114e73e814679361c48",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13400,7 +13004,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/live",
       "rule": "consume:flatMap",
       "tokens": "717d8e4d896c268378288cb9b67c752e34cadd2f22537f6a180605e9a2505b26",
@@ -13411,10 +13015,10 @@
       "origin": [
         "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d",
-        "927c850cac6f84f4459553ba614470934d0d0adb6719d831c194aeb6e1ddadc9"
+        "62c16dd726fb4fc360770af867f42a335f6d22bcdff20f246930a03cc427c078",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "7e2b37e9cf483e7cdba43780b2073da68da134d9252f8f1fb51ce167366a61ac",
+      "fingerprint": "2590c159e1fc0ba2f5200f1a4ea35b68dbf9763a5fa5e0f8ac8a00d16c667dfd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13424,7 +13028,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/live",
       "rule": "enumerate:Object.values",
       "tokens": "1452a183b1a08ecca1ee2ca69ff479048794aa88cc1c5f48ba8b5c3ce8a87376",
@@ -13433,9 +13037,9 @@
         "then:9590ae2f4d7f280914f45030abf6b52736a78beff0d160e51647fe7087f17ccf"
       ],
       "origin": [
-        "927c850cac6f84f4459553ba614470934d0d0adb6719d831c194aeb6e1ddadc9"
+        "62c16dd726fb4fc360770af867f42a335f6d22bcdff20f246930a03cc427c078"
       ],
-      "fingerprint": "8fff9419ec10012236a6221353f6ce6754b31e6e749bea4683d61e50002e4e2c",
+      "fingerprint": "9b2cd8f2902dc8a21e7ba8a2a13363c02969a60d768376ce3b207e89e0622617",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13445,7 +13049,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/live",
       "rule": "materialize:Set",
       "tokens": "f490e462a34736cb993f4e63948ffbda231da72867a4ebd49bda54ae5f0c4355",
@@ -13457,10 +13061,10 @@
         "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d",
-        "927c850cac6f84f4459553ba614470934d0d0adb6719d831c194aeb6e1ddadc9"
+        "62c16dd726fb4fc360770af867f42a335f6d22bcdff20f246930a03cc427c078",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "3adade308b9ceb2099d7963bcfd715af68b41c3193a5ecd64e365804f4126c52",
+      "fingerprint": "231b89d1f850695cbe75e89094bb5d2a502605f9ad6015584a0763e6d223a5ee",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13470,7 +13074,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/next",
       "rule": "reader-summary",
       "tokens": "30edcd4d54bdbeabd76e5222298e6ac27d195ac49ba898386c0250eb3206b8a3",
@@ -13483,7 +13087,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "1f625b5ba84b5707f24e813d6a28de1936d2349e902d74da52885c62ccebc17c",
+      "fingerprint": "e120152da552b19f58b27104ee62417922c2734377d41bf1fc4e14b203a3bfcd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13493,10 +13097,10 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/patch",
       "rule": "helper-consumer",
-      "tokens": "b3fe4b87394610564c58b03387f16be781da5ac36930fc45ea50246fc752ed06",
+      "tokens": "095890469847236386ba57f5d6ad08abf58acb2de57168458607480634e9cc4f",
       "gate": [
         "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
         "else:146bc4de2f5c2f666e471c1a4bbc8e616cbd34878898730db8b4a08ece997a5f"
@@ -13506,7 +13110,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "99928e240ecbc499b8bf849015afc7d90b0a53a441c2c89169819b4efb128511",
+      "fingerprint": "b8227673aab662dd0d5e9e1efaa75b7a62772d153ebdc8f487c900885eabddc3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13516,10 +13120,10 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/patch",
       "rule": "helper-consumer",
-      "tokens": "bef315d04cd081229c8eaa292d3997e71cfaa878458b66bc17c0f3b88dc63cf9",
+      "tokens": "6bcce6b88c49918b10e99ba024526525616944093d4969b9b89cb92138895e6c",
       "gate": [
         "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
         "then:146bc4de2f5c2f666e471c1a4bbc8e616cbd34878898730db8b4a08ece997a5f"
@@ -13529,7 +13133,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "c3601d5ca4a0e7ed14107d50159726ca5cdce4f961bd4797995a54c6e86575c1",
+      "fingerprint": "bfcdda1ee04c48ee1155a275c17b2e73fb156b11ae0c28580db0bd01311c840b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13539,7 +13143,30 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
+      "holder": "planNavigation/patch",
+      "rule": "reader-summary",
+      "tokens": "71419759b3274aa288d32acc5b2b1ef6728609fa67adf6e4e4d90422fc392819",
+      "gate": [
+        "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
+        "else:146bc4de2f5c2f666e471c1a4bbc8e616cbd34878898730db8b4a08ece997a5f"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "6cf88e3cb1e465f82f56d0738186be3233f225de78cfdbe51b58c421a37ae521",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of planNavigation/patch",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/patch",
       "rule": "reader-summary",
       "tokens": "10cd5b4cd53fe8e1e7509999174cf69039212679cda4a5b7d00566c3d1875f95",
@@ -13552,7 +13179,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "878c78da745c6257a74fd11997b7d9bf7d7c665b41f49dd9ccc5ce043b9e5cb3",
+      "fingerprint": "c568539040ff864176fdc794684cb07bd6fe30adce74df5a1dbc17e4397f30a7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13562,33 +13189,10 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/navigation.ts",
-      "holder": "planNavigation/patch",
-      "rule": "reader-summary",
-      "tokens": "05b4a5d538ac79a916ee2befbde6c6473ed735e70cfac2c7e4c1a6e2fe3cd639",
-      "gate": [
-        "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
-        "else:146bc4de2f5c2f666e471c1a4bbc8e616cbd34878898730db8b4a08ece997a5f"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "e28c30c7a0c655feabb0ec176a7897700012a7a62ecd9df7f27ba1fe8fef84dd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of planNavigation/patch",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/engine/navigation.ts",
+      "file": "packages/client-core/src/ui/navigation.ts",
       "holder": "planNavigation/patch",
       "rule": "spread",
-      "tokens": "7a75bc8698766849bca85fd2e8b60005da47cde98d3ec5c60b3fb66823cfb842",
+      "tokens": "66fba3d121fae0fa599a2c7687c2143dd5df9b888a46087df3b92f9ce2bdc638",
       "gate": [
         "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa"
       ],
@@ -13597,7 +13201,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "6c3002e367a9f8309f1d1ddb4dac623c1b847224e748f5f65fa0b55f8a6146f9",
+      "fingerprint": "aa675f69e216a99675203dfa96624a542926a219bd0a35fd0f5d196a8e616ac8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13682,7 +13286,7 @@
       "file": "packages/client-core/src/engine/reactions.ts",
       "holder": "Reactions/sessionIssueFollow",
       "rule": "helper-consumer",
-      "tokens": "ddcb14dc6e039a381a98351b2b34f8082be2a52010e2086255b6be22db43f120",
+      "tokens": "0e87eb6f9e8f59cd8b79e0928ec447a70aeb7b3f16110662887429fadf85b5b9",
       "gate": [
         "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa",
         "exit:then:cabf58402d6e85aaab7765f7d10ec55069355846a3b72e803cec990ed13c8ee3",
@@ -13696,7 +13300,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "098363df79c528fb0c756c0a5a0c4045a291fb0cfbe7fd7bd3616e797534d54c",
+      "fingerprint": "dac7ead234999ed5eec9abfcb4dcce1542216535359df90fb1bac278943c7166",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13917,7 +13521,7 @@
       "file": "packages/client-core/src/engine/runtime.ts",
       "holder": "ClientRuntime/navigate/changed",
       "rule": "consume:some",
-      "tokens": "986ac5cc0068110802eae747c80cf6ea7ed9c89cd775f5e2f668298ca506ff64",
+      "tokens": "65a416fbde83b99bfa2fbadadbd722a96ca123de2cc861e4a070cb6e5306c17b",
       "gate": [
         "exit:then:892123e9b6ad70103e9721b8fc00214f0f03a4273d1eb3152b7c263699e2d6e6",
         "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced"
@@ -13928,7 +13532,7 @@
         "4fcc2f0241e8cc16251db4ab20e3ca9f67da0330e409548356bfcaabb0d4ce3b",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "8d065ff3e3514f073a9f6eb745f9d7b8cd1fd9828fc05fd01f3fbcc279799d9f",
+      "fingerprint": "ce1155b2331f53bb6f740529054597e878c7a5e46ad582de2d43a0e947240be3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13962,7 +13566,7 @@
       "file": "packages/client-core/src/engine/runtime.ts",
       "holder": "ClientRuntime/navigate/plan",
       "rule": "reader-summary",
-      "tokens": "f1db3a78f6bd87d25b3274b9cfbb0b23087525f6517897333760e1827f41e21e",
+      "tokens": "c3bda18bdcb4bd0df5a9219d5359e2973deab09b875b6c1a3eb041a7e1d67ffe",
       "gate": [
         "exit:then:5b9c955554bebb844aae4c73ab27baa8b566d956e15a698b24972ea1c5b77ced"
       ],
@@ -13971,7 +13575,30 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "be77b567a68133e3feeae503fc065f041f1e4e3395ab6ab8330fb022871cf869",
+      "fingerprint": "a59a07a7e9385cc8d4fae5ac00713043d44b20027e27a85067cf14ddb47e6307",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ClientRuntime/navigate/plan",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/ui/ui-store.ts",
+      "holder": "UiStore/navigate/plan",
+      "rule": "reader-summary",
+      "tokens": "e37c0106107e3f6293e43c0e3424275bba2c2f38cef3cc267ef510e30d9ee926",
+      "gate": [
+        "exit:then:1f41c2bc7eeaa8b26c7c2a49fde6e72022c52e05d3890a14186cc8511d9dfdc6",
+        "exit:then:035e54c7621cbb764b6825ba55f70f2c524b4d6de47c2e53801dfa7beba34fac"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "8a2f830524a4ca84645de7df0fd63abe321ab18eb9fa316e624425520d1deeaf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13984,14 +13611,14 @@
       "file": "packages/client-core/src/engine/runtime.ts",
       "holder": "ClientRuntime/openLinkedSession",
       "rule": "reader-summary",
-      "tokens": "3ded3018ed535b6c815ad361c68f0a326fe524bd6141cd4180205d2d5dba8a6a",
+      "tokens": "6bf592ab8ec6b89d76b8034a366c78c8f62c9b3a58bfaa3791795a38163c902f",
       "gate": [
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "3b49689c1574427e88d6f284784589d4b5fc1810c118ba6b2f1467d609d70060",
+      "fingerprint": "08941bd34737cf5151771e27147b39ed7a869bbd6ee24ae278081254bcb2b121",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14006,13 +13633,13 @@
       "rule": "spread",
       "tokens": "d1bd52769420ecb75210941fadaa615b41bd42b2b9bbd507740f1145e5d25f79",
       "gate": [
-        "exit:then:eb899693716cf25eb634a341b292873922c63e5e38a45ca39cc7f1461585021f",
+        "exit:then:95cbbde3355a2d0dfeb1a6ad06e5d666bf7eb911dc88513b11bba25d14535600",
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "c6d2d40c657abfbb056133cfbaf87305094a9dd79534c5498799e07a83ba47b1",
+      "fingerprint": "5b10996f689f7202ee9399587ebc6e3dddcafb0677c9f4b5d12d7370c1f8ee2a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14030,9 +13657,9 @@
         "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
       ],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "ad25b0b464b0da0c601f4e24b3851097f6adbefa95ff4077d0584f9cdf3a25e4",
+      "fingerprint": "b58234ff66e59066d8cb3ba2ac99031b4f4012329bd3c6e444de44073406610b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14045,7 +13672,7 @@
       "file": "packages/client-core/src/engine/runtime.ts",
       "holder": "ClientRuntime/openWorkspaceTab",
       "rule": "helper-consumer",
-      "tokens": "cc313c2c23760ece02bc17d12d99fd68c4c8e10c9584ecd3d47e2a402744bf14",
+      "tokens": "90c4f1553f7ea03ea4d6f270960dd595fd338527f4467bace02d7f380bff8c8c",
       "gate": [
         "exit:then:4dfec82f258e760fef71a4b02202736a6be345badd5578610b92403cf83220aa"
       ],
@@ -14054,7 +13681,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "4abe4c70b4cf313dc4712bbe3bc0f6cc9ef0471d65c5ea53878a268853c5e280",
+      "fingerprint": "e282155013ce2d03612706ab8f7f4ff18dc6f01f366ce4cb0044d51ba00019e8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14129,15 +13756,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/session-link.ts",
+      "file": "packages/client-core/src/ui/session-link.ts",
       "holder": "sessionLinkSelection",
       "rule": "spread",
       "tokens": "6c880758d02827c4eadb898807cb97dc8323a69f07763959b36deec608ab0c77",
       "gate": [],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "627b4c72a5770c25899651263de1b3b1db072eb0b51260c282e5cb567be8ae50",
+      "fingerprint": "0af862ab7d616a61f901448e9849b32e67d79673d989d35c0cb46819c9e34b61",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14147,15 +13774,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/session-link.ts",
+      "file": "packages/client-core/src/ui/session-link.ts",
       "holder": "sessionLinkSelection/registered",
       "rule": "consume:filter",
       "tokens": "be6e6e2eaee8ad23c319457a99eab5f0833f0676de522bba332678dac56df78b",
       "gate": [],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "7e1e1ee370a3442495d0c9902faa6a883ae0274978ea1767d1c307226da65511",
+      "fingerprint": "acc06032ab590b01650d027b9210c21995b8f83da73c20313ea5649988b6951d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14165,15 +13792,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/session-link.ts",
+      "file": "packages/client-core/src/ui/session-link.ts",
       "holder": "sessionLinkSelection/registered",
       "rule": "consume:map",
       "tokens": "ecc928cae88f21e44bf32569314171d28fedf48d4945e5c9483743837fb5315c",
       "gate": [],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "c719102e056890f98102876ace53cf487a046284a467942fbee002378e3efad0",
+      "fingerprint": "e748e4b44253f93165a1ad8256b50f338734477564d8fff780f9e29d8d9aa8bc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14183,15 +13810,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/session-link.ts",
+      "file": "packages/client-core/src/ui/session-link.ts",
       "holder": "sessionLinkSelection/registered",
       "rule": "consume:sort",
       "tokens": "67d428d87135d514620ce885ee395d391e97797a94bf3134f63364b27634c579",
       "gate": [],
       "origin": [
-        "afbf497af970017ca822542130643ea5bb75b660bfa18bb223a382be9c3b0151"
+        "40bfe2cb8da61cc58952dbeb7b9bce024cddf2791654685a461bf0d7aa895b79"
       ],
-      "fingerprint": "b523a798f65e6c38912db176594a7f071560b9e04bc755be58961c514e8118a4",
+      "fingerprint": "a1ff414d9d0a2f44f5de043781c2127948f8804ed9333bb888bbdd6067bc6b26",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14201,15 +13828,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "knownTabIds",
       "rule": "loop:for-of",
       "tokens": "7a7e02ff4131d7208d990a5a99b3ed55002bc41c31f18878c372b644fa36f003",
       "gate": [],
       "origin": [
-        "b68e3837c6390b34a4d79606ac99154bd8d583f8910244eaf18f0bbcb280c536"
+        "64df072ef8ec73f7bbe2c082177c59884187c73070872accc24f02c4cf314fac"
       ],
-      "fingerprint": "d75d36f55dfb695c41e04a80d1260b4563d67594c3fe9b8c04ea206549af3d8c",
+      "fingerprint": "3e5f4785a081562abbd4152ad6e697555d08508488ae4493bf0df257b98945fa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14219,15 +13846,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "knownTabIdsForWorkspace",
       "rule": "loop:for-of",
       "tokens": "ca030d5f2d11e35300fcb2971aec14d97b119af4cff81360e14c112427d36bd3",
       "gate": [],
       "origin": [
-        "3cb4a590ef05926898bffd5e95ef1de958c1437d76d7282f87a10767be50d777"
+        "9992c851823cbc30b5002b04eff592a9d20362eed263e29b203df71fe48e8493"
       ],
-      "fingerprint": "1cf69a9a05e1754a0ea013cbe7b0eb6605bf08e23cbf7c8abaadcf5979673f0f",
+      "fingerprint": "abd7a92d88e859b24966b71731336b68ddbe37308135137088bfa74befae7c98",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14237,7 +13864,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "referencedTabIds",
       "rule": "loop:for-of",
       "tokens": "57000d6855191226029d1009c25cb8802c32d87771e66e3efaca36999ea30c6b",
@@ -14245,7 +13872,7 @@
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "6d352774db1f9c01d689c2f5f00b366fef0c3e05566207b04b6493c1c717ead1",
+      "fingerprint": "61450dac13c578359555f8502d0f4945ff2ce337212f751bf3262bbea5514555",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14255,7 +13882,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "referencedTabIds",
       "rule": "reader-summary",
       "tokens": "6cf0f312e1bedf5795102a650a3142b2e21187a099e6ee63382688af86c8c4d8",
@@ -14263,7 +13890,7 @@
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "32133f31fda405c0e167e31112fe77b6d93ec259ec985b7908589cfd7d5e9c74",
+      "fingerprint": "8590d8ed5a785266601c328f6e5b61ec08b564f3c22f813f6fd8ac9ac576761e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14273,15 +13900,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "resolvableFileTabIds",
       "rule": "consume:map",
       "tokens": "ba9950b95a3a49f757ec86fc11b370c716f2b2e4a699e4a32ecd26bb31515ac4",
       "gate": [],
       "origin": [
-        "e8ba8bc16f06791226195566bfc8d05fa972ebc1b9872960cd19cb1194fe7859"
+        "54e84b2df73ba56a89018cd7416c39a8f0db67c5cff39b5ae08b5cd43a239f08"
       ],
-      "fingerprint": "23328a141248309764bb15a54ef7912a136aabd902877ccfadb1af8348ef084c",
+      "fingerprint": "b285bfceee8883a9e4c1e2814bbea43ac6e50e793199f15a814d8cb96b862101",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14291,15 +13918,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "resolvableFileTabIds",
       "rule": "materialize:Set",
       "tokens": "87990dcf7d7e738bf45d9312d59725b57d8d8811b1c931714c7823ee55e54b8b",
       "gate": [],
       "origin": [
-        "e8ba8bc16f06791226195566bfc8d05fa972ebc1b9872960cd19cb1194fe7859"
+        "54e84b2df73ba56a89018cd7416c39a8f0db67c5cff39b5ae08b5cd43a239f08"
       ],
-      "fingerprint": "23b31c7963f36352e09f346568d534fb69ee435eca8a7bcb60dd1b3494af6c2a",
+      "fingerprint": "a9fd4e1393d377f43a482111ea7385f4028016f20b7d163bfe34f35cc2a620ff",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14309,7 +13936,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceMirrorPatch/leaves",
       "rule": "helper-consumer",
       "tokens": "a35305aa113092dc1c63bc1efaffe0079cbcf2af1563ab01d4473d7e861d90a2",
@@ -14317,7 +13944,7 @@
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "8b35f9810692c675705ca4791cb9e6de3ef1d93292e9d9bf2802486a1e771639",
+      "fingerprint": "d5bde70ec9c947337a4ea4e8dd751b4fae287f2eb04e45aea3238649f104888a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14327,7 +13954,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceMirrorPatch/leaves",
       "rule": "reader-summary",
       "tokens": "4fc358777e8b42dc12dd6f4e17dbc01bdb9178c0a821bc0f49e5391e2cd52e4d",
@@ -14335,7 +13962,7 @@
       "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
-      "fingerprint": "b48200989bd7db9180940f952482a36e77940ffd913c5ac1917e505c7a4fe4d3",
+      "fingerprint": "c15b534c5ff6ed7ef94638ab311bfe495abd85bb15c397c0c42393f21a1c7520",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14345,7 +13972,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceMirrorPatch/paneA",
       "rule": "reader-summary",
       "tokens": "668596663a38403d017fdf962bfa2dbb851bdfa24d42e6922e6caa095a845d87",
@@ -14355,7 +13982,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "ea2b5a989a827b0ef063e536a050e3cb4a6f1ccfd866daa02e1711e7b35554eb",
+      "fingerprint": "e8cb19d80dcbe357fce192652daa2efde27a31cb370478c755f1b0834482f14c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14365,7 +13992,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceMirrorPatch/paneB",
       "rule": "reader-summary",
       "tokens": "87d3c48f8133dbfbe7cd14d161167783b4b87a174fa9ca23efe22173d3904025",
@@ -14375,7 +14002,7 @@
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "9152304132020a4826190ed211cca543885b50a601163f2001dd8b7fb4cf5cae",
+      "fingerprint": "7800b033426cacab373e5f9c899d0de84c7284efbe699714d61c85447b2ca0d7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14385,17 +14012,17 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceWritePatch/mirror",
       "rule": "helper-consumer",
-      "tokens": "b3fe4b87394610564c58b03387f16be781da5ac36930fc45ea50246fc752ed06",
+      "tokens": "095890469847236386ba57f5d6ad08abf58acb2de57168458607480634e9cc4f",
       "gate": [],
       "origin": [
         "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "113f100e0bbf856a29321d5772626eee0da5cfbcb1a76fbf2c77ee7e06025213",
+      "fingerprint": "e02ec13ceac3598aa3cfa01a4fcf8937bc8985032314ddcece7520fabafb974c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14405,17 +14032,17 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/state.ts",
+      "file": "packages/client-core/src/ui/state.ts",
       "holder": "workspaceWritePatch/mirror",
       "rule": "reader-summary",
-      "tokens": "05b4a5d538ac79a916ee2befbde6c6473ed735e70cfac2c7e4c1a6e2fe3cd639",
+      "tokens": "71419759b3274aa288d32acc5b2b1ef6728609fa67adf6e4e4d90422fc392819",
       "gate": [],
       "origin": [
         "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
         "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "484166722b69b56632384ce2c50db56575fb7a0917ca03a58a962a84b377c278",
+      "fingerprint": "3a65152cf961ac79c0fba63f4f795f3c3f54fe64f17915580d430489ba2f27fa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17942,26 +17569,6 @@
     },
     {
       "file": "packages/client-core/src/values/compose/terminal.ts",
-      "holder": "orphanSessionFor",
-      "rule": "consume:find",
-      "tokens": "acbfbfe7c2e111861373c31335236d7d523112f46b6db240376fe319e6e7d632",
-      "gate": [
-        "exit:then:25dfe3b365037a91b84293c5c18a31dba69c0343ab67d2b4fc7f30f61badbfef"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "c2dea644d30372190cc7ab02c22f14b58e8233abac02618fa7d2be6d7f88c9ae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of orphanSessionFor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/terminal.ts",
       "holder": "orphanSessionFor/orphans",
       "rule": "helper-consumer",
       "tokens": "3106d4abf8f9d55e52e53fb44573a719e4086c79e866e0966212dbdd78a067d3",
@@ -17983,26 +17590,6 @@
     {
       "file": "packages/client-core/src/values/compose/terminal.ts",
       "holder": "orphanSessionFor/orphans",
-      "rule": "helper-consumer",
-      "tokens": "3106d4abf8f9d55e52e53fb44573a719e4086c79e866e0966212dbdd78a067d3",
-      "gate": [
-        "exit:then:25dfe3b365037a91b84293c5c18a31dba69c0343ab67d2b4fc7f30f61badbfef"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "e13b41aa6fa0e45014ff8df71e245dbbbc69c7b9e8d7c8883915564af4743a76",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of orphanSessionFor/orphans",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/terminal.ts",
-      "holder": "orphanSessionFor/orphans",
       "rule": "reader-summary",
       "tokens": "d2fcd7f728e5df45a703f32245ec4c7c0a33f2e757735bab5ab0f35a7d4d953b",
       "gate": [
@@ -18012,26 +17599,6 @@
         "14406aab3f841b6f65f87913f7d40b333ac1ac0611442c341b243d8db9d58933"
       ],
       "fingerprint": "68d15eb09a6e95f39f751f4a3d4e7fe856ad9385505ba4e1955c35e2d2ec373c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of orphanSessionFor/orphans",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/terminal.ts",
-      "holder": "orphanSessionFor/orphans",
-      "rule": "reader-summary",
-      "tokens": "d2fcd7f728e5df45a703f32245ec4c7c0a33f2e757735bab5ab0f35a7d4d953b",
-      "gate": [
-        "exit:then:25dfe3b365037a91b84293c5c18a31dba69c0343ab67d2b4fc7f30f61badbfef"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "e530023962e09d8765bc40519d8528f8ca84551616954b8de3d14d97f3e38131",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -24213,26 +23780,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/values/session-ownership.ts",
-      "holder": "sessionsForWorktree",
-      "rule": "consume:filter",
-      "tokens": "ba0b7d45717adf9fca9f18841069cac5cc84358faab65568fb89d3f89c8db4f0",
-      "gate": [
-        "exit:then:fcb9069f00120efe94b71227cff7fc4b1ad0150e899d136c4e298b8988759269"
-      ],
-      "origin": [
-        "1d263e4c83bf0d7fab9280f0608bc13f916d23dfdaf9ffb1309663c7b4e51c81"
-      ],
-      "fingerprint": "e0e520b70aa66c929ea15665d4b61ea7c4e8aab3fdc0e5704abe7760413ae531",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sessionsForWorktree",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-core/src/values/session-status.ts",
       "holder": "panelLabel",
       "rule": "helper-consumer",
@@ -25156,39 +24703,21 @@
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "allTabIds",
-      "rule": "consume:flatMap",
-      "tokens": "0a12d4529120e5bea3bce85847e0e2173e60448b5fec8290249635c1ee519490",
-      "gate": [],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "d58f02f03826d747cdb94a3673e66048a79eff6f987ec4f5186d60ea663f0775",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "allTabIds",
+      "holder": "paneOfTab",
       "rule": "helper-consumer",
       "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
       "gate": [],
       "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+        "5fb834e0b88835f44f4314290174ede4d2aff35e35fe2db443965db307329068"
       ],
-      "fingerprint": "07c91edafd67e72bf9196b3276cc9f4ea057d93eb44c74c230dd249fed59cba7",
+      "fingerprint": "57db3133e2e5ec036fa3b7a4ef7c0cec5c3d38f67db1ef56e5123d0e41434be2",
       "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of paneOfTab",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
@@ -25212,14 +24741,16 @@
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "allTabIds",
+      "holder": "paneOfTab",
       "rule": "reader-summary",
       "tokens": "4892cccc34ad16cf4bddc9e3f2814293bb56ceba9b3e0f96a334fbb69d0d5dbb",
       "gate": [],
       "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
       ],
-      "fingerprint": "3818c0c487a9aefd09e5fa7dba2df4eebbb50e91a53accde59e886280990d1d0",
+      "fingerprint": "4c68506b3d919aa516e59eb97f368568f9c5a748500b9453dc6a9a1c6637a0a9",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2324",
@@ -25978,26 +25509,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "leafPaneIds",
-      "rule": "consume:flatMap",
-      "tokens": "d03d8ce012ea12a025eb9995f0180ce97b080098d64f71af97a10b5eab408ec0",
-      "gate": [
-        "else:0bb208a19a17f7bf48506d8b05e73ed02e132a1bd20879b4caf8a48f6029cc77"
-      ],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "18e18be6ca90679f806fa01e7c42615023b44f3f786c25f42f6375c74fb50e19",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
@@ -26823,24 +26334,6 @@
       "tokens": "d9b309239cbd2cfb9921fae273ee7558b755927c506518857cc482d4ca114696",
       "gate": [],
       "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "6f55aad1087c97a8d87b74eea419ac8398265c8bdb14714fd2c216548f975d0e",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "orderedPanes",
-      "rule": "consume:flatMap",
-      "tokens": "d9b309239cbd2cfb9921fae273ee7558b755927c506518857cc482d4ca114696",
-      "gate": [],
-      "origin": [
         "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
       ],
       "fingerprint": "8c6f358da184946259de816457aa40e15c12c824f443f1b7d10c0fbff623ba82",
@@ -26869,24 +26362,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "orderedPanes",
-      "rule": "helper-consumer",
-      "tokens": "d8e3cc9d2df5e24e4459c75fcec80a5f0fd42d9edfa7d60e4b5fefe9c7c2597c",
-      "gate": [],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "86b3f1f2496b73e9162880083b36044e2dcf26eec55de5db2a648d4cab362860",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
@@ -26944,24 +26419,6 @@
     },
     {
       "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "orderedPanes",
-      "rule": "reader-summary",
-      "tokens": "27447ef075a9afa6e6de67b598c08cda41b662ec6d9ef9d9f7bd1d7f6586278c",
-      "gate": [],
-      "origin": [
-        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
-      ],
-      "fingerprint": "e278a5348ec6549d2995efe94cd05fa2bedbb055bc710f6a4c2d1b5d4ee1a507",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2324",
-      "trigger": "One task-selection gesture restoring its saved workspace.",
-      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
-      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
-      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
       "holder": "paneOfTab",
       "rule": "consume:find",
       "tokens": "4d071817a03c8df2f982ccb6d8f0175151acd4bd6738d7f9ec57418611215e8e",
@@ -26994,24 +26451,6 @@
       "trigger": "Invocation of paneOfTab",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/workspace-layout.ts",
-      "holder": "paneOfTab",
-      "rule": "helper-consumer",
-      "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
-      "gate": [],
-      "origin": [
-        "5fb834e0b88835f44f4314290174ede4d2aff35e35fe2db443965db307329068"
-      ],
-      "fingerprint": "57db3133e2e5ec036fa3b7a4ef7c0cec5c3d38f67db1ef56e5123d0e41434be2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of paneOfTab",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27842,12 +27281,12 @@
       "file": "packages/client-graph/src/command-launch-source.ts",
       "holder": "CommandLaunchSource/repositories/linked",
       "rule": "materialize:Set",
-      "tokens": "42ef41732dd572f96f4189230a073c8af01656e9b7e5b173a29284e33b303c58",
+      "tokens": "571a2cfa272b962564fde7384ee1c88667925e9364e8eeca229d90a515a356a2",
       "gate": [],
       "origin": [
         "a0ef59ac8cb6d288a7cecfab749bc49c6707b808c03800e4117d08ec6699f709"
       ],
-      "fingerprint": "10facf4e91c80453fbfda4a1e64a302bee090df8ad7e586650232a1d47730275",
+      "fingerprint": "2e56d9cd5388b68a6174c43c84f9e9dc55375c956be13026bd36720a408a7671",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -32110,7 +31549,7 @@
       "file": "packages/client-graph/src/superagent.ts",
       "holder": "createSuperagentSource/Source/collect/next",
       "rule": "consume:map",
-      "tokens": "edd1ce9256fa02e8d2b23f5e4b8e5df071580ec273cc48af6c7ffd5c3eb5a15e",
+      "tokens": "4e78654c0f3da60363a7a60fe79c633d721d9c50ff07faecd15bfa8f347d5126",
       "gate": [
         "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
         "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75",
@@ -32119,7 +31558,7 @@
       "origin": [
         "cca07ab0bba2b67e31074e953b996b05d4f3d09859c91122d8a6ad6a4fbd57f4"
       ],
-      "fingerprint": "74c4fdea7e63c4ea3b67706107028bfea9757f5a4780a795cd07f637df9bf898",
+      "fingerprint": "0b5956277a4041c38fbf7a1b771bf504d0f06eda931379088c3bb3abe5011cb5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -32153,7 +31592,7 @@
       "file": "packages/client-graph/src/superagent.ts",
       "holder": "createSuperagentSource/Source/collect/next",
       "rule": "helper-consumer",
-      "tokens": "c2adece4237d616f9f1fc90e392c183f0ac0c369b77d01477fd19e8f4f8649a0",
+      "tokens": "102d77d3da2e764e46bd38c250b0bcbf11562b00e7b66e60d952b87255642d99",
       "gate": [
         "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
         "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75"
@@ -32162,7 +31601,7 @@
         "cca07ab0bba2b67e31074e953b996b05d4f3d09859c91122d8a6ad6a4fbd57f4",
         "dabb838053394b1e44aa8ed08122ed217dede6ba08c75ef67278ebe81a81a047"
       ],
-      "fingerprint": "32685a021c1b82cea9b1dcb4151ebcad722cff62bdc07b8a84455bdc76e70e8e",
+      "fingerprint": "15ab83f5934db733c0905b0a124e2cf0d098189ab0e8c5c551f834766755cd9d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34434,7 +33873,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "c979f3dac024f30821ae409ed3dd8f5f8bab1ce0fb2f8f64336fb502e48d91b2",
+      "tokens": "33da14a3f00bceb6f2134a2ddf3028fc73f529a41193c22fdd99b9c1519cfeaa",
       "gate": [],
       "origin": [
         "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
@@ -34467,7 +33906,7 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "0cd5df596c723396c561dc728cb8daeef30984f4400ea548afbc528324a3342c",
+      "fingerprint": "eae7b1a5e61f29e40907d3e032f2c240f523dfbd2ea34e361f6b4c218977bff8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34480,14 +33919,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "3e9edb9287c450a4cf07953a78c62f773e38f3a6984f5ac985f6559cb706116e",
+      "tokens": "87cc66ab52dbc21de1d3b069647db9df1baec44af3ffa544f003787b5e5569f9",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "d0a60d81abf772f6a687a77b33cfbcbc5d41192e8ac16b84d51c3392c6375982",
+      "fingerprint": "878caf19fcec90867120b7f681c437a8653fff516d49cfee5374bd1738ef217d",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -34500,14 +33939,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "095c41d39f30e83ad73f5836f14d35a11fbbfbb0e183cfd2c24bf78f070ed6c9",
+      "tokens": "9a877fc60d28a3dc6e7cd7b6ff374c54f0597021daff472575b72d1a12de1497",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "bb3e9517660dd821d0da267d61834dd0309fd7b91751b4d5dae71bd484c27643",
+      "fingerprint": "f42159480db032c58e950a4010dc52623db3e136c3cececd2d9059d33d5cec7d",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
@@ -35632,13 +35071,13 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/menu",
       "rule": "reader-summary",
-      "tokens": "113e67f09cc84d3814697f9187e0c98d11895e681de181ce6d0f2b65423365a8",
+      "tokens": "d79bddc27b89f0e877990940af0174705b501235fede105c3e006a6433fd91cb",
       "gate": [],
       "origin": [
         "0db25b0bc1b289b66739770e9796b9c960b27ee762a7b11412f6b793f0007a76",
         "4491f2980d89a1b45d23a7118eea58cdc3642ea8461f200aa77b449daeedf6e9"
       ],
-      "fingerprint": "52d5ca4c0ce09b5745fd020d1e0498fd99686f70e595b10020e66b1da3deb16b",
+      "fingerprint": "587d6a430d0d8deaa1c39e8ca5852777ec0ae6eb1d30cee69458ea83f888a5fc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
@@ -35651,13 +35090,13 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/menu/memo:callback/repos",
       "rule": "consume:flatMap",
-      "tokens": "38203cbb2c2e00d0fa895c04c91a76b3c46e0c2859cd1f16c4b6b6af7ec0232e",
+      "tokens": "651397e81f81fe37c3e4bf689986cd2650fb42e7348cb10d7823ff9b134a1846",
       "gate": [],
       "origin": [
         "0db25b0bc1b289b66739770e9796b9c960b27ee762a7b11412f6b793f0007a76",
         "4491f2980d89a1b45d23a7118eea58cdc3642ea8461f200aa77b449daeedf6e9"
       ],
-      "fingerprint": "352848982fa979e2026d55112dabe3d557e9b5ffa7e4611376cb7e521d25ea50",
+      "fingerprint": "e0e357ad3567b5b2c0eee542904f020e72fa43d0529739aea8b7ac27548d724b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35689,7 +35128,7 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/readById",
       "rule": "reader-summary",
-      "tokens": "13211515acdf40139d2277caec27b19f6b7a0b80ecfe8ccb652cd1ff7877f602",
+      "tokens": "1b0e154a0c6fca25cffd48e16308885cf95e9dcbdb039787db9758833ec82d05",
       "gate": [
         "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
         "case:21168db693f78e9db68ba9da3d7fd455e1c03117a3910b982f2ae30e628b8fb1"
@@ -35698,7 +35137,7 @@
         "0db25b0bc1b289b66739770e9796b9c960b27ee762a7b11412f6b793f0007a76",
         "4491f2980d89a1b45d23a7118eea58cdc3642ea8461f200aa77b449daeedf6e9"
       ],
-      "fingerprint": "ad100fdf1d2fe065384f39d4c24c4741f7f1b5b197c08634f3e3f418a09b030e",
+      "fingerprint": "bfdf6141477fc1e167dc90c4d57aa248de4c1090273b8a3497a53776ab8bed32",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36991,6 +36430,516 @@
       "bound": "The pool's agentProfile, workflow, workflowRevision, workflowBinding, workflowRun and subscription tables: the instance's profiles and workflows, and the runs and subscriptions this person may read. The screens listed the same sets in full through their requests.",
       "reason": "Synced records the feed delivers (POD-6676): one computed per kind per pool, kept equal by value, so a publication that moves no member of a list keeps its identity.",
       "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/load",
+      "rule": "reader-summary",
+      "tokens": "1813e6ff90652a6178e781324f134b1bde4be144c19d1c80a088d5ea2e8b6932",
+      "gate": [
+        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
+        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
+        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
+        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "4824c9df5adabcc26b334dc3aa9a6d365700c9997eaef7157fe9638758da349e",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5797",
+      "trigger": "One principal runtime creation, before the first paint.",
+      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
+      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
+      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/load",
+      "rule": "helper-consumer",
+      "tokens": "c5aecbe22b5152f2e3dbf37530779a31d9baab14f84ad8d57028b90e01714eaa",
+      "gate": [
+        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
+        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
+        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
+        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "e42c6aa52b747ddfd09dce714369c35aefbee9b503c6e86b12d63c6de2edb02d",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5797",
+      "trigger": "One principal runtime creation, before the first paint.",
+      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
+      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
+      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "reader-summary",
+      "tokens": "cb38cb00485430dbeedffaf6e335fbb97b3636891a8532ee84500e6f4baab774",
+      "gate": [
+        "then:c764cf42f4b8b35ebec08ed805084311acb06e2e67ad37545ab15b73ad81b4ee",
+        "then:a5d29a8080eccc75ad697c23ca06b93a0b5f4b48cc7e11ce1b6461ccf426d84d"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
+      ],
+      "fingerprint": "4b4b206973b37ad0734442eebcb8d58035c37a0bcc50169adeebba4453e17ee7",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5797",
+      "trigger": "One principal runtime creation, before the first paint.",
+      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
+      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
+      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "activateTab",
+      "rule": "reader-summary",
+      "tokens": "d9fff217ffe5f766171707ca454f3d580a4087109afefd0d7bf7de631bddae36",
+      "gate": [
+        "exit:then:3ff038d41dbfbebe86bc22f8fc21e41ff95b46580203de45428ef1ed40f31c18"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "2d4f79abdf41625db7bc013c2937207585363142cfa4a6939546d41cf97043e9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "activateTab",
+      "rule": "helper-consumer",
+      "tokens": "aa2ca9a9f8409063357cc42dc3729e09309dfac0fe6917ddcd0a5efdb218b90c",
+      "gate": [
+        "exit:then:3ff038d41dbfbebe86bc22f8fc21e41ff95b46580203de45428ef1ed40f31c18"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "2f9fedeaafd3a1bd5494841a80effcaa63175d2ca3e6dd005498905501cb6271",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "activateTab",
+      "rule": "helper-consumer",
+      "tokens": "18d95a9ffcb7a89def93aaf392f15a92c1a16b72843088d4929130307248c2b0",
+      "gate": [
+        "exit:then:3ff038d41dbfbebe86bc22f8fc21e41ff95b46580203de45428ef1ed40f31c18"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "5efa61e58ef2f4519fe121ad89e03e8a3bed2b7c4dae200abfffffb436756089",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "activateTab",
+      "rule": "reader-summary",
+      "tokens": "d8cedbd7d32f456a0bb9b2bb943ab6f46c7ea46fb99320d4dd8bbabe5390c6c3",
+      "gate": [
+        "exit:then:3ff038d41dbfbebe86bc22f8fc21e41ff95b46580203de45428ef1ed40f31c18"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "cdb42ee3db2193701eedda5c28aad97a49d1ae03276f308f75484bfe816bef05",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab/next",
+      "rule": "helper-consumer",
+      "tokens": "48821c5908d9da7f9384367e9cb6d74cdeedf5b3d924fc5e78e15c81289cb466",
+      "gate": [
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "086295c4de655810f8f8bbaf18519c5232ebe8e37d8b8b4d319821f581667875",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab/pane",
+      "rule": "helper-consumer",
+      "tokens": "0790dd1a5698473c099431bd0a3578cdab97466d63f385f4d77218aefada0d41",
+      "gate": [],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "66bc8d6931a791cbf4fac1c656d7ff77f4a70f23f833a4e4a4e46532062c72b1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "focusTab",
+      "rule": "helper-consumer",
+      "tokens": "0f15c07a1e2325308edccc1fcb4c1ec347d1f26ec76310ec08b0919360b0f387",
+      "gate": [
+        "exit:then:c03102bef4d362a9d96f9d41ffff0523962d648fa38aaa348354560888f10b46",
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "472d286ca2698755d54bdf7e4dd3da7435620392e583e3987778aee2aa263c3a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "focusTab/pane",
+      "rule": "helper-consumer",
+      "tokens": "0790dd1a5698473c099431bd0a3578cdab97466d63f385f4d77218aefada0d41",
+      "gate": [],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "a39933a0a8b67d3ca2d9a812655ac28b4a1c28b33e1d9366538bb7f0af47f2e4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/activated",
+      "rule": "helper-consumer",
+      "tokens": "312f3e6a06bc52c808d35834ca099bf96fcc1db5ea87353a5a0f34405a88ce96",
+      "gate": [
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "d905b7df9d5f7d3b03857d4c65be907633e9ff28078a71009a3bbdd5ec3f1620",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/base",
+      "rule": "helper-consumer",
+      "tokens": "aa2ca9a9f8409063357cc42dc3729e09309dfac0fe6917ddcd0a5efdb218b90c",
+      "gate": [
+        "exit:then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5",
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "3b7ed3883a0279d8c0d1b2dd4566ea90deb847558fbfff1fb328aa262a826f17",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/base",
+      "rule": "reader-summary",
+      "tokens": "d8cedbd7d32f456a0bb9b2bb943ab6f46c7ea46fb99320d4dd8bbabe5390c6c3",
+      "gate": [
+        "exit:then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5",
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "4204cff2770185a53121a5a4b3540dd00e694504b434113b853f82ad9d54f620",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/next",
+      "rule": "reader-summary",
+      "tokens": "40a998f7e5ba6c98d672022a4c320b48f288f3309234ec30bc01a71bb6f11fec",
+      "gate": [
+        "exit:then:ff5d98ae2416f5331487752c1d3ccc35bb495e97054045fefde6e8713695db40",
+        "exit:then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5",
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "0e0adf6b06e9f67c72440b867f89486c08bd7c06db2a4f34898f4d220a21de5a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/next",
+      "rule": "reader-summary",
+      "tokens": "66cbc7d197c4221ba4be676ee5f26c6769d9b3bf0f807465f7e4089e8688f4bd",
+      "gate": [
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "d136eb7c18facc17bb0903be3a1f6af0593998a72d114b17d7992d59ee4add53",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/next",
+      "rule": "helper-consumer",
+      "tokens": "514d8432c236558a9cb31e44eb20823acd8ecc9790e3f1582e68ca3b3bf9d3e2",
+      "gate": [
+        "exit:then:ff5d98ae2416f5331487752c1d3ccc35bb495e97054045fefde6e8713695db40",
+        "exit:then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5",
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "d3329918d0165fcee98ed9646c96418359c14e76282bf949a054d96890645b97",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "openTab/next",
+      "rule": "helper-consumer",
+      "tokens": "3b4f95b6157c28980f55269d24c27bd45abb086d73b7be646bb422bbb485fb48",
+      "gate": [
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5",
+        "exit:then:ae1c1cf8a736b2b5556f2e12f049bba7349ec0e311fb219716cc59722e813ddc",
+        "exit:then:ca360a16c04eaaa27a18228adb09e4160974f3ccb2c3e198965677c26ae7a7cf",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:59b7427ad6365191ec139cfc0de971880859a27129d5f416a3b6089d20493fa5"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "edd5d7266c9e60558627ed92c9015c171021af6dc3783860a89cf19eb66da6a1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "paneOfTab",
+      "rule": "helper-consumer",
+      "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
+      "gate": [],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "6f53c2302e85a56eaeb4fd29ffa5a41d74e49f558443230672413511f3c0afee",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "paneOfTab",
+      "rule": "consume:find",
+      "tokens": "4d071817a03c8df2f982ccb6d8f0175151acd4bd6738d7f9ec57418611215e8e",
+      "gate": [],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "a199abbf25a28f615f91443abde3547de6269848b52688941196cf0c4945ee5a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "retirePreview",
+      "rule": "reader-summary",
+      "tokens": "0689992e225db868fc76dec699172ed0d0b16adb961b025fec1f09de89ebf992",
+      "gate": [
+        "exit:then:39d3db8911fe62672127713898352cd8f2cd292a7a992bacc0c3250eb7753cbb"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "1e75c5e3abb4d6414102ff23a58b64fff58db284053a63dcba8ce9f3e6b687e7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "retirePreview",
+      "rule": "helper-consumer",
+      "tokens": "d1d86927105f25ac67d6b711c7f0187f6a61784b686fe7dfb2a980ccd1ae23b2",
+      "gate": [
+        "exit:then:39d3db8911fe62672127713898352cd8f2cd292a7a992bacc0c3250eb7753cbb"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "f01adc6aa2785e98ec45c82dc3c6291e934e7c49171119a689e8adae9ae4807b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5797",
+      "trigger": "An explicit edit of one named device workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
+      "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
     }
   ]
 }
