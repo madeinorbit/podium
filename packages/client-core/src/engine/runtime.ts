@@ -1351,7 +1351,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       setSuperThreadId: this.ui.setSuperThreadId,
       setSuperOpen: this.ui.setSuperOpen,
       setDockTab: this.ui.setDockTab,
-      startBtw: this.ui.startBtw,
       clearAttachedSession: this.ui.clearAttachedSession,
       setSelectedWorktree: this.ui.setSelectedWorktree,
       setSelectedIssueId: this.ui.setSelectedIssueId,
