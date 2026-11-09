@@ -220,8 +220,8 @@ describe('declared command and launch targets', () => {
   it('keeps resident relation indexes current without rebuilding repo or window rows on session activity', async () => {
     const f = await fixture()
     try {
-      const before = { ...f.source.counts }
       const window = omitGone(f.pool.row('commandWindow', 'window'))
+      const before = { ...f.source.counts }
       await writePhaseChange(f.ctx)
       await Promise.resolve()
       expect(f.source.counts.repoChanges).toBe(before.repoChanges)
