@@ -1,3 +1,4 @@
+import { fixtureUiHooks } from '@podium/client-core/test-support/react'
 import { vi } from 'vitest'
 import { useConversation } from '../../../../../../packages/client-core/src/react/use-conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -41,6 +42,7 @@ vi.mock('../../../../../../packages/client-core/src/react/provider', async (impo
 export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unknown> {
   fixtureOwner = owner
   return {
+    ...fixtureUiHooks(() => fixtureOwner ?? paneOwner),
     useConversation,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,

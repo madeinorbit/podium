@@ -1,5 +1,5 @@
+import { liveFixture } from './live-fixture'
 import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
 import { settingsView } from './settings-views'
 import { headerView } from './header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -333,9 +333,7 @@ function fixture(scale = 1, bootOnly = false) {
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  headerEntities(pool).apply([
-    { kind: 'hostMetric', id: 'metric', value: { machineId: 'query-host' } } as never,
-  ])
+  liveFixture(pool).metric('query-host', { machineId: 'query-host' } as never)
   const mobile = new MobileInboxSource(
     { replica: { getCursor: () => 1, subscribeCursor: () => () => {} } } as never,
     pool,

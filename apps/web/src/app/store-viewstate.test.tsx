@@ -62,6 +62,9 @@ class FakeHub {
   onIssueUpdated() {
     return () => {}
   }
+  subscribeTopic() {
+    return () => {}
+  }
   onHostMetrics() {
     return () => {}
   }

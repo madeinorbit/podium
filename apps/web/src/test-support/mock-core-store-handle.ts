@@ -32,5 +32,5 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
-  return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  return { ...actual, ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner), useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
 })

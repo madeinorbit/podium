@@ -8,6 +8,7 @@ import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixt
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { observable, runInAction } from 'mobx'
+import { pinRowId } from '@podium/model'
 
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
@@ -160,6 +161,7 @@ export function syncPoolFixture(
       },
     }))
     const rows: RowSourceEvent['rows'] = [
+      ...normalized.replica.rows('pins').map(value => ({ kind: 'pin' as const, id: pinRowId(value.userId, value.kind, value.entityId), value: { ...value, id: pinRowId(value.userId, value.kind, value.entityId) } })),
       ...repoWorktrees,
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
       ...(state.sessions ?? []).map((value) => ({

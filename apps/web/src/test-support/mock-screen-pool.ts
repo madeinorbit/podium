@@ -734,6 +734,8 @@ function useFixturePool(): MobxPool {
                   (row) => row.sessionId === sessionId && row.transcriptItem?.id === itemId,
                 ),
             }
+          if (name === 'per-user.pins' || name === 'per-user.pin-sets')
+            return records().sources.view(name, _factory as () => object)
           if (name === 'issue-activity')
             return records().sources.view(name, _factory as () => object)
           if (name === 'issue-page') return issuePages(records())
@@ -893,6 +895,8 @@ function useFixturePool(): MobxPool {
         },
       },
       tables: {
+        get pin() { return records().tables.pin },
+        get userPreferences() { return records().tables.userPreferences },
         // My thread records, each with its feed id stamped as `id` (POD-6675).
         superagentThread: {
           values: (): IterableIterator<unknown> =>

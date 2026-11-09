@@ -226,6 +226,7 @@ describe('SocketHub metadata delta mode', () => {
     // it asks the server to stamp (feedId, epoch, minAvailableSeq) on this
     // client's frames, and there is no frame to stamp without delta mode.
     expect(sock.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'topics.v1',
       'metadataDelta',
       'syncFeedIdentity',
     ])
@@ -237,7 +238,7 @@ describe('SocketHub metadata delta mode', () => {
     })
     legacy.connect()
     plain.open()
-    expect(plain.parsed().find((m) => m.type === 'hello')?.caps).toBeUndefined()
+    expect(plain.parsed().find((m) => m.type === 'hello')?.caps).toEqual(['topics.v1'])
   })
 
   it('does NOT advertise issuesNormalized unless the embedder opts in [POD-796]', () => {
@@ -268,6 +269,7 @@ describe('SocketHub metadata delta mode', () => {
     hub.connect()
     opted.open()
     expect(opted.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'topics.v1',
       'metadataDelta',
       'syncFeedIdentity',
       'issuesNormalized',

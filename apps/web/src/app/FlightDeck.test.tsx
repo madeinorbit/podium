@@ -161,10 +161,12 @@ const owner = withKeyedInputs({
 // paths must borrow the same fixture principal.
 vi.mock('../../../../packages/client-core/src/react/provider', async (original) => ({
   ...(await original<typeof import('../../../../packages/client-core/src/react/provider')>()),
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
   useStoreHandle: () => owner,
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
   useStoreHandle: () => owner,
 }))
 

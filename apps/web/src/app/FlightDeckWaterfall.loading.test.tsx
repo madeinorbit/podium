@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -12,17 +13,19 @@ import { poolBackedScreens } from './pool-screens'
 import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 const state = vi.hoisted(() => ({ pool: null as unknown, now: 0 }))
-const owner = {
-  access: {
+const owner = withKeyedInputs({
+  getSnapshot: () => ({
     get coarseNow() {
       return state.now
     },
     uiState: { get: () => null, set: () => {} },
     trpc: { sessions: { activityHistory: { query: async () => ({ sessions: {} }) } } },
-  },
-}
+  }),
+  subscribe: () => () => {},
+})
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
   useStoreHandle: () => owner,
 }))
 vi.mock('./store', () => ({

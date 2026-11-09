@@ -70,6 +70,7 @@ vi.mock('./store', () => ({
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
   useStoreHandle: () => owner,
   // This fixture's transcript endpoint returns an empty page. Keep a real
   // retained log behind the conversation seam, as the handoff hook now reads

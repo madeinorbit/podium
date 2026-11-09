@@ -875,9 +875,9 @@ export async function startEngineOnCorpus(
     // navigation sooner would fire mark-read without a transaction owner.
     const engine = ctx.engine
     const navigation = fixtureNavigation({
-      issues: () => referenceState(engine).issueProjections,
-      sessions: () => referenceState(engine).sessions,
-      markers: () => referenceState(engine).issueUserStates,
+      issues: () => referenceState(engine, { screen: false }).issueProjections,
+      sessions: () => referenceState(engine, { screen: false }).sessions,
+      markers: () => referenceState(engine, { screen: false }).issueUserStates,
     })
     const attachWriter = engine.attachPoolWriter
     Object.assign(engine, {

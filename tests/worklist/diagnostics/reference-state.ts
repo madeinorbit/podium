@@ -33,7 +33,7 @@ export function referenceState<
   readonly access: Store<T>
   readonly replica?: ClientRuntime['replica']
   readonly principal?: { userId: string }
-}): ReferenceState<T> {
+}, options: { screen?: boolean } = {}): ReferenceState<T> {
   return runInAction(() => {
     const access = runtime.access
     const replica = runtime.replica ?? access.replica
@@ -130,7 +130,7 @@ export function referenceState<
     })
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
     return {
-      ...access,
+      ...(options.screen === false ? {} : access),
       coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(),
       ...records,
       repos,

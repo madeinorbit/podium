@@ -28,6 +28,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
   type GitRepositoryWire,
+  type HostMetricsWire,
   type IssueDepProjection,
   type IssueGitStateProjection,
   type IssueProjection,
@@ -307,6 +308,17 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     api,
     runtime: runtimeHandle!,
     emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
+    /** Machine samples arrive as per-machine LiveStore readings. */
+    setHostMetrics(samples: readonly HostMetricsWire[]) {
+      runInAction(() => {
+        const live = runtimeHandle!.live
+        const incoming = new Set(samples.map(sample => String(sample.machineId ?? sample.hostname)))
+        for (const id of live.machineMetrics.keys())
+          if (!incoming.has(id)) live.applyTopic('machine.metrics', id, undefined)
+        for (const sample of samples)
+          live.applyTopic('machine.metrics', String(sample.machineId ?? sample.hostname), knownReading(sample, Date.now()))
+      })
+    },
     /** Move the machines after mount: their records and live conditions (POD-6644). */
     setMachines(machines: MachineWire[]) {
       seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, { ...fixture, machines, repos: undefined })

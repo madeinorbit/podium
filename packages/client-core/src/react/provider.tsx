@@ -1,5 +1,5 @@
 import { allowImperativeRead } from '@podium/mobx-helpers'
-import { reaction } from 'mobx'
+import { compareShallow, reaction } from 'mobx'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).
@@ -386,9 +386,22 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
     let listener: (() => void) | undefined
     const arm = () => {
       stop?.()
-      stop = listener
-        ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener)
-        : undefined
+      if (!listener) {
+        stop = undefined
+        return
+      }
+      const stopLocals = owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener)
+      // Store still exposes UiStore-backed getters. They publish through MobX,
+      // rather than the engine's local channel, and must invalidate this seam too.
+      const stopUi = reaction(
+        () => keys.map((key) => Reflect.get(owner.access, key)),
+        listener,
+        { equals: compareShallow },
+      )
+      stop = () => {
+        stopLocals()
+        stopUi()
+      }
     }
     const access = new Proxy(owner.access, {
       get(target, key, receiver) {
@@ -412,7 +425,7 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
           keys.every((key) =>
             Object.is(
               localValues.get(key),
-              owner.readLocal(key as import('../engine/keyed-inputs').LocalKey),
+              allowImperativeRead(() => Reflect.get(owner.access, key)),
             ),
           )
         )

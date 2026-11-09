@@ -274,6 +274,11 @@
       "@podium/source": "./test-support/layout.ts",
       "types": "./test-support/layout.ts",
       "import": "./test-support/layout.ts"
+    },
+    "./test-support/react": {
+      "@podium/source": "./test-support/react.ts",
+      "types": "./test-support/react.ts",
+      "import": "./test-support/react.ts"
     }
   },
   "scripts": {

@@ -194,7 +194,7 @@ it('updates pool host metrics without waking stable action owners', async () => 
     const metrics = useMobilePoolProjection(readMetrics, [])
     return <span data-testid="hosts">{metrics.map((host) => host.hostname).join(',')}</span>
   }
-  const { emit } = await renderWithMobileStore(
+  const { setHostMetrics } = await renderWithMobileStore(
     <>
       <BroadReader />
       <HostReader />
@@ -202,7 +202,7 @@ it('updates pool host metrics without waking stable action owners', async () => 
   )
   const before = broadRenders
   for (const hostname of ['first', 'second']) {
-    await act(async () => emit('hostMetrics', [{ hostname, machineId: 'synthetic-host' }]))
+    await act(async () => setHostMetrics([{ hostname, machineId: 'synthetic-host' }] as never))
     expect(screen.getByTestId('hosts').textContent).toBe(hostname)
   }
   expect(broadRenders).toBe(before)
