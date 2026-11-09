@@ -146,14 +146,18 @@ it('matches scoped placement and cold issue/session targets through the one read
       omitGone(pool.row('settingsMachine', profile.machineId ?? '')),
     ),
   ).toHaveLength(8)
-  expect(result.current.machines.views.map((view) => view.availability)).toEqual([
-    'available',
-    'unauthorized',
-    'unreachable',
-    'incapable',
-    'disabled',
-    'degraded',
-  ])
+  expect(
+    Object.fromEntries(
+      result.current.machines.views.map((view) => [view.machine.id, view.availability]),
+    ),
+  ).toEqual({
+    'synthetic-available': 'available',
+    'synthetic-unauthorized': 'unauthorized',
+    'synthetic-unreachable': 'unreachable',
+    'synthetic-incapable': 'incapable',
+    'synthetic-disabled': 'disabled',
+    'synthetic-degraded': 'degraded',
+  })
   expect(row.mock.calls.some((call) => String(call[2]) === 'peek')).toBe(false)
   expect(fatal).not.toHaveBeenCalled()
 })

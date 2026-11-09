@@ -402,7 +402,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => actions.selectIssue('synthetic-6'))
     await act(async () => actions.selectIssue('synthetic-3'))
     expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
-    expect(runtime.access.focusedPane).toBe('B')
+    expect(runtime.access.focusedPane).toBe(saved!.focusedPaneId)
   })
 
   it('borrows immutable full drag order across heartbeat and selection changes', async () => {
