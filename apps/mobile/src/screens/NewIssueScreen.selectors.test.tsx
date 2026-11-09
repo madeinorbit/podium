@@ -1,11 +1,11 @@
-import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
-import { headerEntities } from '@podium/client-graph/header-entities'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asUserId, type CheckoutRepository, type GitRepositoryWire, type MachineWire } from '@podium/model'
@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
 import type { MobileTrpc } from '../client/trpc'
 import { NewIssueScreen } from './NewIssueScreen'
@@ -124,7 +125,8 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
       }
       return row(...args)
     }) as MobxPool['row'])
-    const owner = { start() {}, dispose() {}, destroy() {} }
+    const ui = fixtureUi()
+    const owner = { ui, start() {}, dispose: () => ui.dispose(), destroy: () => ui.dispose() }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     fixture.handle = Object.assign(
       owner,
@@ -234,7 +236,8 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
       { kind: 'repository', id: '/before', value: repo('/before') },
     ])
     headerEntities(fixture.pool).order('repository', ['/before'])
-    const owner = { start() {}, dispose() {}, destroy() {} }
+    const ui = fixtureUi()
+    const owner = { ui, start() {}, dispose: () => ui.dispose(), destroy: () => ui.dispose() }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     const store = createSubscriptionStore(
       {
