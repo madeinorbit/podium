@@ -1,16 +1,22 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { MobxPool } from '@podium/client-graph'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { nativeAccountId } from '@podium/runtime'
 import {
   asIssueId,
   asMachineId,
   asRepoId,
   asSessionId,
+  asUserId,
+  resolveUserPreferences,
   type GitRepositoryWire,
   type MachineId,
   type MachineWire,
 } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { observable, runInAction } from 'mobx'
+import { useMemo, useSyncExternalStore } from 'react'
+import { runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
@@ -19,8 +25,20 @@ import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
-const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
-vi.mock('@/features/settings/record-readers', () => ({ useSettingsRecord: () => settings }))
+const preferences = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+function publishHarness(harness: string) {
+  const userId = asUserId('menu-operator')
+  preferences.apply({ type: 'update', rows: [{ kind: 'userPreferences', id: userId, value: {
+    ...resolveUserPreferences({ userId, 'roles.coding.accountId': nativeAccountId(harness) }, userId), id: userId,
+  } as never }] })
+}
+vi.mock('@/app/store-worklist-pool', async (original) => ({
+  ...(await original<typeof import('@/app/store-worklist-pool')>()),
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const projection = useMemo(() => createPoolProjection(preferences, read), [read])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
+  },
+}))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => featureEnabled.value,
 }))
@@ -148,7 +166,7 @@ afterEach(() => {
   state.repos = []
   state.machines = []
   state.sessions = []
-  settings.model = undefined
+  runInAction(() => preferences.tables.userPreferences.clear())
 })
 
 it.each([
@@ -267,15 +285,11 @@ it('takes a new read action when another context-menu gesture replaces the openi
 })
 
 it('updates an open auto agent submenu when the Settings harness changes', () => {
-  settings.model = observable({ codingHarness: 'codex' })
+  publishHarness('codex')
   open(makeIssue({ defaultAgent: 'auto' }), 'palette')
   fireEvent.click(screen.getByRole('menuitem', { name: /Assign agent|Run now/ }))
   expect(screen.getByRole('menuitem', { name: 'Codex (default)' })).toBeTruthy()
-  act(() =>
-    runInAction(() => {
-      settings.model!.codingHarness = 'claude-code'
-    }),
-  )
+  act(() => publishHarness('claude-code'))
   expect(screen.getByRole('menuitem', { name: 'Claude Code (default)' })).toBeTruthy()
 })
 

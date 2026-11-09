@@ -1,7 +1,7 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
-import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
+import { asUserId, ISSUE_STAGES, issueUserStateRowId, pinRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { cleanup, render } from '@testing-library/react'
@@ -158,7 +158,7 @@ describe('web legacy issue retention', () => {
         value: wire,
         provenance: { seq: 1 },
       })),
-      ...(['issueProjections', 'issueUserStates', 'issueGitStates', 'repos'] as const).flatMap(
+      ...(['issueProjections', 'issueUserStates', 'issueGitStates', 'repos', 'pins'] as const).flatMap(
         (kind) =>
           fixture.replica.rows(kind).map((value) => ({
             entity: {
@@ -166,8 +166,11 @@ describe('web legacy issue retention', () => {
               issueUserStates: 'issueUserState',
               issueGitStates: 'issueGitState',
               repos: 'repo',
+              pins: 'pin',
             }[kind],
-            entityId: 'id' in value ? value.id : issueUserStateRowId(value.userId, value.entityId),
+            entityId: 'id' in value ? value.id : 'kind' in value
+              ? pinRowId(value.userId, value.kind, value.entityId)
+              : issueUserStateRowId(value.userId, value.entityId),
             value,
             provenance: { seq: 1 },
           })),

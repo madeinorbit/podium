@@ -3,6 +3,7 @@
  * dependency (POD-6683). A real pool carries the records, as the feed does.
  */
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { createRuntimeWorklistPool, type WorklistRuntime } from '@podium/client-graph/runtime-pool'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
@@ -40,6 +41,7 @@ function poolRuntime() {
   const effects = new Map<string, Row>()
   const listeners: ((batch: ReplicaAddressedBatch) => void)[] = []
   const rt = {
+    ui: fixtureUi(),
     principal: { userId: 'u-1' },
     readLocal: (key: string) => (key === 'repos' ? [] : null),
     onLocals: () => () => {},
@@ -71,7 +73,7 @@ function poolRuntime() {
       const batch: ReplicaAddressedBatch = { type: 'update', rows: [{ kind: 'effects', id }] }
       for (const listener of [...listeners]) listener(batch)
     },
-    dispose: () => handle.dispose(),
+    dispose: () => { handle.dispose(); rt.ui.dispose() },
   }
 }
 

@@ -3,5 +3,6 @@ import type { StorageApi } from '../replica/contract'
 export interface DeviceStorage {
   readonly storage: StorageApi
   readonly keyPrefix: string
+  readonly enumerateKeys?: () => readonly string[]
   readonly flush?: () => void | Promise<void>
 }

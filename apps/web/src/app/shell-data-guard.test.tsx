@@ -1,12 +1,19 @@
 import { observer } from '@podium/client-graph/react'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { shellViews } from '@podium/client-graph/shell-views'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { autorun, computed, configure, observable, runInAction } from 'mobx'
+import { autorun, computed, configure, observable, reaction, runInAction } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as reads from './shell-data'
 
 const source = vi.hoisted(() => ({ pool: null as MobxPool | null, read: () => undefined as unknown }))
+let uiOwner: ReturnType<typeof withKeyedInputs>
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => uiOwner,
+}))
 vi.mock('./store-worklist-pool', () => ({ useWorklistPool: () => source.pool }))
 vi.mock('@podium/client-graph/shell-views', () => ({ shellViews: () => {
   const read = () => source.read()
@@ -19,9 +26,14 @@ beforeEach(() => {
   vi.stubEnv('DEV', true)
   source.pool = null
   source.read = () => undefined
+  uiOwner = withKeyedInputs({
+    getSnapshot: () => ({ selectedIssueId: String((source.read() as { version?: number } | undefined)?.version ?? '') || null }),
+    subscribe: notify => reaction(() => source.read(), notify),
+  })
 })
 afterEach(() => {
   cleanup()
+  disposeFixtureUi(uiOwner)
   configure({ enforceActions: 'never', computedRequiresReaction: false,
     reactionRequiresObservable: false, observableRequiresReaction: false })
   vi.unstubAllEnvs()

@@ -2,8 +2,8 @@ import { asAutomationId, asAutomationRunId, asSessionId, type AutomationWire, ty
 import { createHeaderFixture } from './header-fixture'
 
 /** Synthetic fixture over the actual runtime/replica. No operator rows. */
-export function createAutomationsFixture(issueCount = 32, sessionCount = issueCount) {
-  const fixture = createHeaderFixture(issueCount, sessionCount)
+export function createAutomationsFixture(issueCount = 32, sessionCount = issueCount, userId = 'operator') {
+  const fixture = createHeaderFixture(issueCount, sessionCount, userId)
   const stamp = new Date(Date.now() - 3600000).toISOString()
   const definitions: AutomationWire[] = Array.from({ length: 6 }, (_, index) => ({
     id: asAutomationId(`synthetic-auto-${index}`), name: `Synthetic automation ${index}`, enabled: index !== 1,

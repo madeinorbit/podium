@@ -29,6 +29,9 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', neverBound: true, spawnFailure: 'synthetic spawn refusal' },
     { status: 'exited', resumable: false },
     { status: 'starting' },
+    // Reconnecting is derived from this machine's offline LiveStore condition,
+    // while the session record stays live. Keep the corpus slot stable.
+    { machineId: 'machine-b' },
     { condition: 'logged-out', agentKind: SYNTHETIC_CODEX_KIND, machineId: 'machine-b', machineName: 'Offline host' },
     { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
     { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },

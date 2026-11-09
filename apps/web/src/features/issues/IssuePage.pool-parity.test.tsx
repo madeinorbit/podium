@@ -532,7 +532,7 @@ describe('issue page rendered pool parity', () => {
         initial(first.current)
         attach = () => {
           stop = startupHost!.attach(
-            Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime,
+            owner as unknown as ClientRuntime,
             errors,
           )
         }

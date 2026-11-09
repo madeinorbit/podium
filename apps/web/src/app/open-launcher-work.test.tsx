@@ -22,7 +22,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1x/4x with a fixed origin', async surface => {
   const samples = []
   for (const scale of [1, 4]) {
-    const fixture = createHeaderFixture(128 * scale)
+    const fixture = createHeaderFixture(128 * scale, 128 * scale, 'open-launcher-proof')
     let repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
       path: at === 0 ? '/synthetic/project' : `/synthetic/p${at}`, originUrl: `https://example.invalid/p${at}`,
       machineId: 'host-one', branch: 'main',

@@ -200,6 +200,12 @@ export function createSidebarFixture(
     }) {
       const nextRecords = machineAndRepoRecords({ userId, ...input } as never)
       const kept = new Set(nextRecords.map((next) => `${next.entity}:${next.entityId}`))
+      if (input.machines)
+        for (const [key, record] of records)
+          if ((record.entity === 'machine' || record.entity === 'machineAccess') && !kept.has(key)) {
+            records.delete(key)
+            replica.onKernelEvent({ type: 'removed', entity: record.entity, entityId: record.entityId })
+          }
       if (input.repos)
         for (const [key, record] of records)
           if (record.entity === 'checkout' && !kept.has(key)) {

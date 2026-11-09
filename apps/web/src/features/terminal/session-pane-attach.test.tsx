@@ -14,7 +14,7 @@ import {
   SESSION_PANE_NOW,
   sessionPaneFixture,
 } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
-import { asUserId } from '@podium/model/browser'
+import { asUserId, layoutRowId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -99,6 +99,9 @@ const errors: (Error | string)[] = []
 function replicaFactory() {
   const cache = new ScenarioCache()
   for (const row of [live, shell, offline]) cache.put('session', row.sessionId, row)
+  cache.put('userLayout', layoutRowId(asUserId('session-pane-attach'), 'panelMode'), {
+    userId: 'session-pane-attach', key: 'panelMode', value: { [live.sessionId]: 'chat' },
+  })
   // Each machine's record and my access row (POD-6644); online is the live condition.
   for (const record of machines.flatMap((row) => machineRecords('session-pane-attach', row)))
     cache.put(record.entity, record.entityId, record.value)
@@ -110,7 +113,6 @@ function replicaFactory() {
 
 function binding(next: ClientRuntime): () => void {
   runtime = next
-  next.access.setPanelMode(live.sessionId, 'chat')
   next.access.setDockShell(shell.cwd, shell.sessionId)
   runInAction(() => {
     for (const row of machines)

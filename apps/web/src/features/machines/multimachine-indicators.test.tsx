@@ -13,6 +13,8 @@ import { readFileSync } from 'node:fs'
  *  - Quota: the overlay groups by machine so two accounts are both visible.
  */
 import type { MachineQuotaWire } from '@podium/model'
+import type { TopicListener } from '@podium/client-core/socket-transport'
+import type { TopicPayload } from '@podium/protocol'
 import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,6 +36,18 @@ const reclaimInventory = vi.fn(async () => ({
   estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
 }))
 const quotaSummary = vi.fn()
+// The current producer pushes one addressed processes reading. These fixture
+// callbacks supply the same breakdown and reclaim payloads used by the suite.
+const processHub = {
+  subscribeTopic: vi.fn((_kind: string, id: string, listener: TopicListener<TopicPayload<'machine.processes'>>) => {
+    let open = true
+    void Promise.all([memoryBreakdown({ machineId: asMachineId(id) }), reclaimInventory()]).then(([breakdown, reclaim]) => {
+      if (open) listener.onState?.({ status: 'value', value: { breakdown, reclaim }, position: { epoch: 'fixture', seq: 1 } })
+    })
+    return () => { open = false }
+  }),
+  refreshTopic: vi.fn(),
+}
 let maxIdleSessions = 8
 let hibernationEnabled = false
 let hibernationMemoryPct = 80
@@ -97,6 +111,8 @@ const agentSession = (
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
+    hub: processHub,
+    replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
     // POD-316: the strip now also carries the dead-letter recovery chip, which
@@ -219,6 +235,7 @@ describe('memory chip is machine-aware', () => {
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }),
     )
     expect(memoryBreakdown).not.toHaveBeenCalledWith({ machineId: asMachineId('podium-host') })
+    expect(processHub.subscribeTopic).toHaveBeenCalledWith('machine.processes', 'vmi34', expect.anything())
   })
 
   it('requests the first machine when its own chip is clicked', async () => {
@@ -229,6 +246,7 @@ describe('memory chip is machine-aware', () => {
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
     )
+    expect(processHub.subscribeTopic).toHaveBeenCalledWith('machine.processes', 'podium-host', expect.anything())
   })
 
   it('keeps memory process labels for addressed sessions and unknown ids', async () => {

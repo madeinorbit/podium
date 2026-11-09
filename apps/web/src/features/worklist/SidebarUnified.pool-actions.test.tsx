@@ -6,6 +6,7 @@ import {
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import {
   emptyWorkspace,
   missionIssueIds,
@@ -427,7 +428,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn(() => {
       calls.push('focus')
     })
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
+    const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
+    const work = createPoolWorkActions(pool!, { ...runtime, access: store, ui }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(calls).toEqual([
       'trace',
@@ -635,7 +637,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
       markIssueRead: vi.fn(async () => {}),
     }
     const focus = vi.fn()
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
+    const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
+    const work = createPoolWorkActions(pool!, { ...runtime, access: store, ui }, focus)
     work.selectIssue('synthetic-3')
     expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: null }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')

@@ -8,8 +8,8 @@ import { createHeaderFixture } from './header-fixture'
  * profiles, the workflow, its revision and the runs arrive on the feed as
  * synced records (POD-6676). The RPC answers only the writes (`sync.submit`)
  * and a run's history (`workflows.status`). */
-export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCount) {
-  const fixture = createHeaderFixture(issueCount, sessionCount)
+export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCount, userId = 'operator') {
+  const fixture = createHeaderFixture(issueCount, sessionCount, userId)
   const stamp = new Date(Date.now() - 3600000).toISOString()
   const machines: MachineWire[] = ['available', 'unauthorized', 'unreachable', 'incapable', 'disabled', 'degraded'].map(state => ({
     id: asMachineId(`synthetic-${state}`), name: `Synthetic ${state}`, hostname: `synthetic-${state}`,

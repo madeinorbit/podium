@@ -150,6 +150,7 @@ export function addFixtureUi(
     if (!snapshot.navigation) ui.setNavigation(navigation)
     // Snapshot-era fixtures supplied pane mirrors. Seed the layout that owns
     // them now, and turn later scalar publications into edits of that layout.
+    if (snapshot.workspaces !== undefined || ['paneA', 'paneB', 'split'].some(key => Object.hasOwn(snapshot, key))) {
     const key = workspaceKeyForState(ui.screen)
     if ((snapshot.workspaces === undefined && !previous) ||
         (previous && ['paneA', 'paneB', 'split', 'focusedPane'].some(key => Object.hasOwn(snapshot, key) && Reflect.get(snapshot, key) !== Reflect.get(previous!, key)))) {
@@ -167,6 +168,7 @@ export function addFixtureUi(
       if (focused) workspace = focusPane(workspace, focused)
       if (workspace !== ui.workspaces[key] && (snapshot.paneA || snapshot.paneB || snapshot.workspaces?.[key]))
         ui.patch({ workspaces: { ...ui.workspaces, [key]: workspace } })
+    }
     }
     previous = {
       paneA: snapshot.paneA,

@@ -7,8 +7,8 @@ import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { createSidebarFixture } from './sidebar-fixture'
 
 /** Operator-sized synthetic data. No operator cache, backend or daemon. */
-export function createHeaderFixture(count: number, sessionCount = count) {
-  const now = Date.now(), base = createSidebarFixture(count, now)
+export function createHeaderFixture(count: number, sessionCount = count, userId = 'operator') {
+  const now = Date.now(), base = createSidebarFixture(count, now, false, userId)
   const machineIds = ['host-one', 'host-two', 'host-three'] as MachineId[]
   const machines = machineIds.map((id, index) => ({ id, name: `Host ${index + 1}`, hostname: `host-${index}`,
     online: true, lastSeenAt: new Date(now).toISOString(), availability: { daemon: true, server: false, supervisor: false, epoch: 'one' } }))

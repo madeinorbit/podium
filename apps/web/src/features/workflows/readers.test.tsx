@@ -43,7 +43,7 @@ afterEach(() => {
 })
 
 function setup(delayed = false) {
-  const fixture = createWorkflowsFixture(),
+  const fixture = createWorkflowsFixture(32, 32, 'workflow-test'),
     fatal = vi.fn()
   let start: (() => void) | undefined
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }

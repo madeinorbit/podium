@@ -91,7 +91,7 @@ it('screen registry releases late attachments after principal teardown', async (
 })
 
 it('pool launch choices preserve scoped rights, duplicate paths, recency and an unavailable saved target', async () => {
-  const fixture = createAutomationsFixture(),
+  const fixture = createAutomationsFixture(32, 32, 'automation-rights'),
     fatal = vi.fn()
   const machines = [
     { id: asMachineId('usable'), online: true, use: 'granted', availability: { daemon: true } },

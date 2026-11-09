@@ -286,6 +286,7 @@ describe('phone launch demand bounds', () => {
         ...projects.map((project) => ({ ...project, machineId: 'remote' }) as GitRepositoryWire),
       ],
       machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
+      sessions: [historySession('recent-mine')],
     })
     fireEvent.click(screen.getByLabelText('New work'))
     fireEvent.change(screen.getByLabelText('First prompt, optional'), {
@@ -503,6 +504,7 @@ describe('the phone launch sheet', () => {
           machine({ 'claude-code': 'out', opencode: 'in' }),
           machine({ 'claude-code': 'in' }, 'other', 'Laptop'),
         ],
+        sessions: [historySession('recent-mine')],
         api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
@@ -566,6 +568,7 @@ describe('phone picker parity', () => {
     await renderWithMobileStore(<NewWorkButton />, {
       repos: [...projects, ...projects.map((project) => ({ ...project, machineId: 'remote' }) as GitRepositoryWire)],
       machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
+      sessions: [historySession('recent-mine')],
       api: launchApi(create),
     })
     fireEvent.click(screen.getByLabelText('New work'))

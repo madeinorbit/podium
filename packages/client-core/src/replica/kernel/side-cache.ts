@@ -345,6 +345,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
     deviceStorage: () => ({
       storage,
       keyPrefix: prefix,
+      enumerateKeys: init.enumerateKeys,
       flush: init.flush,
     }),
     outboxStorage: () => outboxAt(outboxKey),

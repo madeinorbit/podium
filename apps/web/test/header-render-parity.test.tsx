@@ -42,7 +42,7 @@ function renderedHeader(element: Element): unknown {
 }
 
 async function mount(roster = false) {
-  const fixture = createHeaderFixture(6, 6)
+  const fixture = createHeaderFixture(6, 6, 'header-pool-regression')
   const failures: string[] = []
   let ready = false
   let runtime: ClientRuntime | undefined

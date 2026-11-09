@@ -16,7 +16,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 it.each(['/home/mgw/nulldisk', '/home/mgw/nulldisk/topic'])(
   'offers Pi on Ludovico from checkout %s without losing the repository hosts', async path => {
-    const fixture = createHeaderFixture(1)
+    const fixture = createHeaderFixture(1, 1, 'checkout-launch-proof')
     const repositories = [
       { kind: 'repository', path: '/Users/mw/nulldisk', repoId: asRepoId('nulldisk'), machineId: 'mac', worktrees: [] },
       { kind: 'repository', path: '/home/mgw/nulldisk', repoId: asRepoId('nulldisk'), machineId: 'ludovico',
