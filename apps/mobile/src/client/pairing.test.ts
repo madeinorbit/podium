@@ -75,6 +75,17 @@ describe('mobile pairing links', () => {
     ).toEqual(pairEnvelope)
   })
 
+  it('accepts the empty-authority spelling iOS link delivery produces', () => {
+    // POD-2364: iOS can hand podium://pair?url=… over as podium:///pair?url=…;
+    // the client parser rejected that before the protocol parser ever saw it.
+    const nested = encodeURIComponent(link('https://podium.example'))
+    expect(parsePairingLink(`podium:///pair?url=${nested}`).envelope).toEqual(pairEnvelope)
+    expect(
+      parsePairingLink(`podium:///pair/${encodePairingEnvelope(pairEnvelope)}`).envelope,
+    ).toEqual(pairEnvelope)
+    expect(() => parsePairingLink(`podium:///other?url=${nested}`)).toThrow(PairingLinkError)
+  })
+
   it('rejects protected HTTP, pathful manual URLs, userinfo and expired grants', () => {
     expect(() =>
       parsePairingLink(

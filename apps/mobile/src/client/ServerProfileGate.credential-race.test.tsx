@@ -35,7 +35,11 @@ const seams = vi.hoisted(() => ({
   renders: [] as Array<{ profileId: string; origin: string; bearer: string | null }>,
 }))
 
-vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn() }))
+vi.mock('expo-haptics', () => ({
+  selectionAsync: vi.fn(),
+  notificationAsync: vi.fn(async () => {}),
+  NotificationFeedbackType: { Success: 'success' },
+}))
 vi.mock('expo-router', () => ({ router: seams.router, useRouter: () => seams.router }))
 vi.mock('react-native', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-native')>()
@@ -1685,4 +1689,46 @@ it('ignores duplicate OS delivery after a hosted callback succeeds', async () =>
   expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
   expect(seams.activeContext?.bearer).toBe('cloud-token')
   expect(screen.queryByText('Welcome to Podium')).toBeNull()
+})
+
+describe('pairing links typed into the address field', () => {
+  async function openManualEntry() {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    fireEvent.click(await screen.findByLabelText('Enter server address'))
+  }
+
+  it('pairs from a pasted pairing link instead of refusing it as a non-origin', async () => {
+    await openManualEntry()
+    const pasted = `https://pair.example/mobile#pair=${PAIRING_SECRET}`
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: ` ${pasted} ` },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    await waitFor(() =>
+      expect(seams.preflight.mock.calls.map(([origin]) => origin)).toContain(
+        'https://pair.example',
+      ),
+    )
+    expect(seams.parsePairing).toHaveBeenCalledWith(pasted)
+    expect(screen.queryByText(/origin only/)).toBeNull()
+  })
+
+  it('shows why a pasted link is invalid and stays on the address step', async () => {
+    await openManualEntry()
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('This pairing code has expired. Create a new code on your computer.')
+    })
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: PAIRING_LINK },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    expect(await screen.findByText(/This pairing code has expired/)).toBeTruthy()
+    expect(screen.getByPlaceholderText('https://podium.example')).toBeTruthy()
+    expect(seams.preflight).not.toHaveBeenCalled()
+  })
 })

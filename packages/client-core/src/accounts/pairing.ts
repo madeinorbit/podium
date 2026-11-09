@@ -52,6 +52,12 @@ export function parsePairingLink(raw: string): ParsedPairingLink {
     throw new PairingLinkError('This is not a valid Podium pairing link.')
   }
   if (url.protocol === 'podium:') {
+    // iOS can deliver podium://pair/… as podium:///pair/… (the authority
+    // collapsed into the path). parseMobilePairingUrl accepts both spellings;
+    // so must this, or every such link fails before reaching it (POD-2364).
+    if (url.hostname === '' && /^\/pair([/?#]|$)/.test(url.pathname + url.search)) {
+      url = new URL(`podium://${url.pathname.replace(/^\/+/, '')}${url.search}${url.hash}`)
+    }
     if (url.hostname !== 'pair' || url.username || url.password || url.hash) {
       throw new PairingLinkError('This is not a valid Podium app link.')
     }

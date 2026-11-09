@@ -33,7 +33,6 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -50,6 +49,7 @@ import { startupTiming } from '../lib/startup-timing'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
+import { clearInitialAppUrl, readInitialAppUrl, subscribeAppUrls } from './app-links'
 import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
 import {
@@ -178,6 +178,13 @@ function isNativeStartupLink(raw: string | null): raw is string {
   } catch {
     return false
   }
+}
+
+/** A full pairing link typed or pasted into the address field (POD-2364). */
+export function isPastedPairingLink(value: string): boolean {
+  return (
+    /^podium:/i.test(value) || /#pair=/.test(value) || /^https?:\/\/[^/?#]+\/mobile$/i.test(value)
+  )
 }
 
 function consumeWebPairingLink(): string | null {
@@ -467,7 +474,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         !initialNativePairingConsumed && !initialNativeUrlConsumed.current
       initialNativeUrlConsumed.current = true
       const initialUrlGeneration = startupLinkGeneration.current
-      const resolvedInitialUrl = shouldReadInitialUrl ? await Linking.getInitialURL() : null
+      const resolvedInitialUrl = shouldReadInitialUrl ? await readInitialAppUrl() : null
       startupTiming.mark('profile.initial-url.end')
       if (!alive) return
       // A live Linking event that arrived while the cold URL was pending is
@@ -476,6 +483,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         initialUrlGeneration === startupLinkGeneration.current ? resolvedInitialUrl : null
       if (isNativeStartupLink(initialUrl)) {
         initialNativePairingConsumed = true
+        // A pairing secret or sign-in code must not stay in expo-linking's
+        // registry for a reload or a later reader to replay.
+        if (!parseMobileHandoffUrl(initialUrl)) clearInitialAppUrl()
         handleLink(initialUrl)
       }
       const buildOverride =
@@ -696,7 +706,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setReady(true)
       }
     })
-    const subscription = Linking.addEventListener('url', ({ url }) => handleLink(url))
+    const subscription = subscribeAppUrls(handleLink)
     return () => {
       alive = false
       subscription.remove()
@@ -1820,7 +1830,7 @@ function PairingSetup({
     }
   }, [claim, onComplete, preflight, step])
 
-  const scan = (raw: string) => {
+  const scan = (raw: string, failedStep: 'welcome' | 'manual' = 'welcome') => {
     try {
       const parsed = parsePairingLink(raw)
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
@@ -1845,12 +1855,13 @@ function PairingSetup({
         void check(url.origin, null)
       } catch {
         setError(cause instanceof Error ? cause.message : String(cause))
-        setStep('welcome')
+        setStep(failedStep)
       }
     }
   }
 
-  if (step === 'scan') return <PairingScanner onScanned={scan} onCancel={returnToWelcome} />
+  if (step === 'scan')
+    return <PairingScanner onScanned={(raw) => scan(raw)} onCancel={returnToWelcome} />
 
   const connect = async () => {
     if (!preflight || connectInFlight.current) return
@@ -1933,8 +1944,15 @@ function PairingSetup({
             <PrimaryButton
               label="Check server"
               onPress={() => {
+                const value = manual.trim()
+                // A pasted pairing link (podium://pair…, …/mobile#pair=…) takes
+                // the same path as a scanned code instead of the origin check.
+                if (isPastedPairingLink(value)) {
+                  scan(value, 'manual')
+                  return
+                }
                 try {
-                  void check(normalizeManualServer(manual), null)
+                  void check(normalizeManualServer(value), null)
                 } catch (cause) {
                   setError(cause instanceof Error ? cause.message : String(cause))
                 }
