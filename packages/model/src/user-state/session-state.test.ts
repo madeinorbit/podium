@@ -206,15 +206,9 @@ describe('the projection overlays', () => {
     // one wire value, or a client would render a tucked-away issue differently
     // depending on whether a row was ever written and then cleared.
     expect(issueOverlayOf(undefined)).toEqual(NO_ISSUE_USER_STATE)
-    expect(issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: null })).toEqual(
+    expect(issueOverlayOf({ readAt: null, tuckedAt: null })).toEqual(
       NO_ISSUE_USER_STATE,
     )
-  })
-
-  it('`pinned` is derived from pinnedAt in exactly one place', () => {
-    expect(
-      issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: '2026-01-01T00:00:00.000Z' }),
-    ).toEqual({ readAt: null, tuckedAt: null, pinned: true })
   })
 
   it('the empty session overlay is never-opened and never-snoozed, and they differ', () => {

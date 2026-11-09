@@ -94,7 +94,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       const user = await firstAdminMemberId(store)
       const key = issueUserStateRowId(user, issue.id)
-      await svc.crud.update(svc.reports.store.serverWriter, issue.id, { pinned: true })
       await svc.crud.markIssueRead(svc.reports.store.serverWriter, issue.id)
       await svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'done' })
       await svc.crud.setIssueTucked(svc.reports.store.serverWriter, issue.id, true)
@@ -107,30 +106,26 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         value: {
           userId: user,
           entityId: issue.id,
-          pinned: true,
           readAt: expect.any(String),
           tuckedAt: expect.any(String),
         },
       })
       expect(await svc.reports.get(issue.id)).toMatchObject({
-        pinned: true,
         readAt: expect.any(String),
         tuckedAt: expect.any(String),
       })
       await svc.crud.setIssueTucked(svc.reports.store.serverWriter, issue.id, false)
       await svc.crud.markIssueUnread(svc.reports.store.serverWriter, issue.id)
-      await svc.crud.update(svc.reports.store.serverWriter, issue.id, { pinned: false })
       expect(
         ((await ledger.changesSince(0)) ?? []).filter((c) => c.entity === 'issueUserState').at(-1),
       ).toMatchObject({
         id: key,
         op: 'upsert',
-        value: { userId: user, entityId: issue.id, pinned: false },
+        value: { userId: user, entityId: issue.id, readAt: null, tuckedAt: null },
       })
       expect(await store.issues.getIssueUserState(user, issue.id)).toMatchObject({
         readAt: null,
         tuckedAt: null,
-        pinnedAt: null,
         joinedVia: 'start',
       })
     } finally {
@@ -149,7 +144,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const other = asUserId('user:other')
       await store.issues.setIssueUserState(fixtureWriteScope(), other, issue.id, {
         readAt: '2026-07-02',
-        pinnedAt: '2026-07-02',
+        tuckedAt: '2026-07-02',
       })
       svc.reports.store.gitStates.set(issue.id, {
         updatedAt: '2026-07-02',
@@ -172,7 +167,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(personal).toContainEqual(
         expect.objectContaining({
           id: issueUserStateRowId(other, issue.id),
-          value: expect.objectContaining({ userId: other, entityId: issue.id, pinned: true }),
+          value: expect.objectContaining({ userId: other, entityId: issue.id, tuckedAt: '2026-07-02' }),
         }),
       )
     } finally {
@@ -254,7 +249,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         },
       })
       expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
-      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, { pinnedAt: '2026-07-03' })
+      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, { tuckedAt: '2026-07-03' })
       const restoring = await svc.crud.prepareRestore(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
@@ -303,7 +298,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         svc.reports.store.writeIssueUserState(
           svc.reports.store.serverWriter,
           issue.id,
-          { pinnedAt: '2026-07-02' },
+          { tuckedAt: '2026-07-02' },
           await firstAdminMemberId(store),
         ),
       ).rejects.toThrow('marker append failed')
@@ -311,7 +306,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
       ).toEqual(prior)
-      expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
+      expect((await svc.reports.store.issueOverlay(issue.id)).tuckedAt).toBeNull()
       expect(await ledger.cursor()).toBe(before)
     } finally {
       await store.close()
@@ -333,11 +328,13 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
           await svc.reports.store.writeIssueUserState(
             svc.reports.store.serverWriter,
             issue.id,
-            { pinnedAt: '2026-07-02' },
+            { tuckedAt: '2026-07-02' },
             await firstAdminMemberId(store),
           )
-          expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(true)
-          expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+          expect((await svc.reports.store.issueOverlay(issue.id)).tuckedAt).toBe('2026-07-02')
+          expect((await svc.reports.list()).find((row) => row.id === issue.id)?.tuckedAt).toBe(
+            '2026-07-02',
+          )
           throw new Error('enclosing span failed')
         }),
       ).rejects.toThrow('enclosing span failed')
@@ -345,19 +342,21 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
       ).toEqual(prior)
       expect(await ledger.cursor()).toBe(before)
-      expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
-      expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
+      expect((await svc.reports.store.issueOverlay(issue.id)).tuckedAt).toBeNull()
+      expect((await svc.reports.list()).find((row) => row.id === issue.id)?.tuckedAt).toBeNull()
       await svc.reports.store.writeIssueUserState(
         svc.reports.store.serverWriter,
         issue.id,
-        { pinnedAt: '2026-07-03' },
+        { tuckedAt: '2026-07-03' },
         await firstAdminMemberId(store),
       )
-      expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+      expect((await svc.reports.list()).find((row) => row.id === issue.id)?.tuckedAt).toBe(
+        '2026-07-03',
+      )
       expect(
         ((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState'),
       ).toMatchObject({
-        value: { pinned: true },
+        value: { tuckedAt: '2026-07-03' },
       })
     } finally {
       await store.close()

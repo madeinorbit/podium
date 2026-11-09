@@ -2,7 +2,11 @@ import { IssueProjection as IssueProjectionSchema } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
 import { referenceState, setReferenceClock } from '../../diagnostics/reference-state'
-import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
+import {
+  fixtureGitStates,
+  fixtureIssuePins,
+  fixtureMarkers,
+} from '../../harness/src/fixture/normalized-issues'
 
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
@@ -103,6 +107,7 @@ import {
   asIssueId,
   asUserId,
   issueUserStateRowId,
+  pinRowId,
   type SessionMeta,
   sessionUserStateRowId,
 } from '@podium/model'
@@ -179,7 +184,7 @@ export class ScenarioCache implements KernelCacheRead {
  *  disk holds. */
 export function seedCacheFromCorpus(
   corpus: FixtureCorpus,
-  options: { ownRows?: boolean } = {},
+  options: { ownRows?: boolean; principal?: string } = {},
 ): ScenarioCache {
   const cache = new ScenarioCache()
   const own = <T>(value: T): T => (options.ownRows === true ? structuredClone(value) : value)
@@ -191,6 +196,12 @@ export function seedCacheFromCorpus(
       entity: 'issueUserState',
       entityId: issueUserStateRowId(state.userId, state.entityId),
       value: own(state),
+    })
+  for (const pin of fixtureIssuePins(corpus.issues, asUserId(options.principal ?? 'u-bench')))
+    rows.push({
+      entity: 'pin',
+      entityId: pinRowId(pin.userId, pin.kind, pin.entityId),
+      value: own(pin),
     })
   for (const git of corpus.issueGitStates ?? fixtureGitStates(corpus.issues))
     rows.push({ entity: 'issueGitState', entityId: git.id, value: own(git) })
@@ -786,7 +797,7 @@ export async function startEngineOnCorpus(
         userId: asUserId(principal),
       })),
     },
-    { ownRows: opts.ownRows === true },
+    { ownRows: opts.ownRows === true, principal },
   )
   // The current server publishes these homes alongside each raw session.
   // An old corpus without them exercises a cold offline gap, not steady-state work.

@@ -225,24 +225,23 @@ describe('per-user issue state (POD-1076)', () => {
       asIssueId('iss_read'),
       {
         readAt: '2026-07-07T00:00:00.000Z',
-        pinnedAt: '2026-07-08T00:00:00.000Z',
+        tuckedAt: '2026-07-08T00:00:00.000Z',
       },
     )
     expect(
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),
     ).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
-      tuckedAt: null,
-      pinnedAt: '2026-07-08T00:00:00.000Z',
+      tuckedAt: '2026-07-08T00:00:00.000Z',
     })
     // An issue nobody touched has NO row — absence is the single spelling.
     expect(
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_untouched')),
     ).toBeUndefined()
 
-    // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
+    // The PARTIAL patch: writing readAt must not disturb tuckedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
-    // upsert makes "marking it read un-pinned it" a one-line mistake.
+    // upsert makes "marking it read un-tucked it" a one-line mistake.
     await store.issues.setIssueUserState(
       fixtureWriteScope(),
       firstAdminMemberId(),
@@ -252,7 +251,7 @@ describe('per-user issue state (POD-1076)', () => {
       },
     )
     expect(
-      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))?.pinnedAt,
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))?.tuckedAt,
     ).toBe('2026-07-08T00:00:00.000Z')
 
     // ANOTHER user's slice is empty for the SAME issue.
@@ -272,7 +271,7 @@ describe('per-user issue state (POD-1076)', () => {
       asIssueId('iss_read'),
       {
         readAt: null,
-        pinnedAt: null,
+        tuckedAt: null,
       },
     )
     expect(

@@ -12,6 +12,7 @@ import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { pinIssueFor } from './test-support/issue-pin'
 
 const ctx = (registry: SessionRegistry) =>
   appRouter.createCaller({
@@ -116,21 +117,6 @@ describe('sortKey update patch (POD-168)', () => {
       await expect(op.issues.update({ id: a.id, patch: { sortKey: 'ABC' } })).rejects.toThrow()
       await expect(op.issues.update({ id: a.id, patch: { sortKey: 'a0' } })).rejects.toThrow()
       await expect(op.issues.update({ id: a.id, patch: { sortKey: '' } })).rejects.toThrow()
-    } finally {
-      await reg.dispose()
-    }
-  })
-
-  it('pin/unpin leaves the sortKey untouched (unpin returns to its position)', async () => {
-    const reg = await newRegistry()
-    try {
-      const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'pin me', startNow: false })
-      const key = a.sortKey
-      const pinned = await op.issues.update({ id: a.id, patch: { pinned: true } })
-      expect((pinned as { sortKey?: string }).sortKey).toBe(key)
-      const unpinned = await op.issues.update({ id: a.id, patch: { pinned: false } })
-      expect((unpinned as { sortKey?: string }).sortKey).toBe(key)
     } finally {
       await reg.dispose()
     }
@@ -314,7 +300,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
         .map((r) => r.id)
       // Pin one from the middle, then let the next create compact the scope.
       const pinnedId = order[5]!
-      await op.issues.update({ id: pinnedId, patch: { pinned: true } })
+      await pinIssueFor(reg.sessionStore, pinnedId, true)
       await op.issues.create({ repoPath: '/r', title: 'trigger', startNow: false })
 
       const after = await op.issues.list({ repoPath: '/r' })
@@ -324,7 +310,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       )
       // Unpinned, it comes back exactly where it was: still after order[4] and
       // still before order[6].
-      await op.issues.update({ id: pinnedId, patch: { pinned: false } })
+      await pinIssueFor(reg.sessionStore, pinnedId, false)
       const restored = (await op.issues.list({ repoPath: '/r' }))
         .slice()
         .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))

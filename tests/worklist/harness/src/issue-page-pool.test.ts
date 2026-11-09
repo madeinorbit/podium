@@ -16,7 +16,7 @@ import {
   issueDisplayTitle,
   presenceNote,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId, pinRowId } from '@podium/model/browser'
 import type { IssueProjection } from '@podium/model'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
@@ -45,6 +45,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 type PageInput = SliceIssue & {
+  /** My pin of it: published as my `pin` record (POD-6692), never on the row. */
+  pinned?: boolean
   description?: string | { value: string }
   labels?: string[]
   visibility?: IssueProjection['visibility']
@@ -80,6 +82,20 @@ const summaries = {
   issue: [...new Set([...ISSUE_PAGE_SUMMARIES.issue, ...MISSION_SUMMARIES.issue])],
   session: ISSUE_PAGE_SUMMARIES.session,
 }
+const ME = asUserId('me')
+/** A pinned task's `pin` record, or its removal. */
+const pinRecord = (row: PageInput): RowRecord => {
+  const id = pinRowId(ME, 'issue', row.id)
+  return row.pinned
+    ? {
+        kind: 'pin',
+        id,
+        value: { userId: ME, kind: 'issue', entityId: row.id, pinnedAt: STAMP } as never,
+      }
+    : { kind: 'pin', id, value: undefined }
+}
+/** The issue row as the feed carries it: no pin. */
+const issueRow = ({ pinned: _pinned, ...row }: PageInput) => row
 function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   // The kernel's canonical publication order is by opaque primary key.
   issues = [...issues].sort((a, b) => a.id.localeCompare(b.id))
@@ -93,7 +109,7 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   }))
   seats = [...seats].sort((a, b) => a.sessionId.localeCompare(b.sessionId))
   const input = new Map<string, object>([
-    ...issues.map((row) => [`issue:${row.id}`, row] as const),
+    ...issues.map((row) => [`issue:${row.id}`, issueRow(row)] as const),
     ...seats.map((row) => [`session:${row.sessionId}`, row] as const),
   ])
   const load = vi.fn((kind: string, id: string) => input.get(`${kind}:${id}`))
@@ -118,7 +134,8 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
         },
       },
       ...seats.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
-      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value: issueRow(value) })),
+      ...issues.filter((row) => row.pinned).map(pinRecord),
     ],
   })
   const world = () => {
@@ -164,9 +181,16 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
         .filter((row) => row.sessionId !== id)
         .concat(value ? [value as SliceSession] : [])
         .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-    if (value) input.set(`${kind}:${id}`, value)
+    const row = kind === 'issue' && value ? issueRow(value as PageInput) : value
+    if (row) input.set(`${kind}:${id}`, row)
     else input.delete(`${kind}:${id}`)
-    pool.apply({ type: 'update', rows: [{ kind, id, value: value as RowRecord['value'] }] })
+    pool.apply({
+      type: 'update',
+      rows: [
+        { kind, id, value: row as RowRecord['value'] },
+        ...(kind === 'issue' && value ? [pinRecord(value as PageInput)] : []),
+      ],
+    })
   }
   const settle = <T>(read: () => T): T => {
     for (let round = 0; round < 64; round++) {

@@ -18,7 +18,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
  *   former custodian's connected clients, and deletes nothing.
  */
 
-import { asIssueId, type IssueId } from '@podium/model'
+import { asIssueId, type IssueId, pinRowId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   changedIds,
@@ -67,7 +67,21 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
     const bobFeed = await (await f.as('bob')).feed()
     try {
       await alice.issues.markRead.mutate({ id } as never)
-      await alice.issues.update.mutate({ id, patch: { pinned: true } } as never)
+      // Alice's pin is her own `pin` record (POD-6692): a generic create.
+      const pinned = await (
+        alice as unknown as {
+          sync: { submit: { mutate(input: unknown): Promise<{ outcome: string }> } }
+        }
+      ).sync.submit.mutate({
+        mutationId: 'alice-pins-her-task',
+        command: 'records.pin.create',
+        version: 1,
+        input: {
+          id: pinRowId(MEMBERS.alice.id, 'issue', id),
+          fields: { userId: MEMBERS.alice.id, kind: 'issue', entityId: id },
+        },
+      })
+      expect(pinned.outcome).toBe('applied')
       await alice.issues.setTucked.mutate({ id, tucked: true } as never)
 
       // The task's activity: Bob sees none of Alice's transitions, Alice all of them.
@@ -97,13 +111,16 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
         expect(row.userId).toBe(MEMBERS.bob.id)
       }
       for (const change of bobFeed.deltas()) {
-        if (change.entity === 'issueUserState' || change.entity === 'sessionUserState') {
+        if (
+          change.entity === 'issueUserState' ||
+          change.entity === 'sessionUserState' ||
+          change.entity === 'pin'
+        ) {
           expect(change.entityId).not.toContain(MEMBERS.alice.id)
         }
       }
       // And Bob's own view of the task reports his markers, not hers.
       expect(await (await f.as('bob')).trpc.issues.get.query({ id } as never)).toMatchObject({
-        pinned: false,
         tuckedAt: null,
       })
     } finally {

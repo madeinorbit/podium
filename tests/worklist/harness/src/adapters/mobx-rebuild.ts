@@ -525,6 +525,13 @@ function rebuild(
   // position reader: a check, not a derivation.
   const repoRecords = untracked(() => source.snapshot('repo'))
   for (const record of repoRecords) ingestRecord(target, record, out)
+  // My issue pins (POD-6692): `pin` records of kind 'issue', never an issue field.
+  const pinnedIssues = new Set(
+    source
+      .snapshot('pin')
+      .map((record) => record.value as { kind?: string; entityId?: string } | undefined)
+      .flatMap((pin) => (pin?.kind === 'issue' && pin.entityId ? [pin.entityId] : [])),
+  )
 
   const { selectedIssueId } = locals.get()
   const coarseNow = locals.get().coarseNow ?? Date.now()
@@ -563,6 +570,7 @@ function rebuild(
     // its maintained SORTED mirror without iterating it).
     seatList: (id) => [...inputs.links.issue.sessions.ids(id)].sort(),
     selected: (id) => id === selectedIssueId,
+    issuePinned: (id) => pinnedIssues.has(id),
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
@@ -584,6 +592,7 @@ function rebuild(
     },
     passed: inputs.passed,
     reached: inputs.reached,
+    issuePinned: inputs.issuePinned,
     loadedIssue: inputs.issue,
     issueRead: (id) => {
       const row = tables.issue.get(id) as SliceIssue | undefined

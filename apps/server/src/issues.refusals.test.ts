@@ -128,11 +128,10 @@ describe('definitive issue refusals (POD-5429)', () => {
     const before = await registry.issues.crud.store.rowOrThrow(issue.id)
     await refuse(
       'update',
-      { id: issue.id, patch: { title: 'must survive locally', pinned: true } },
+      { id: issue.id, patch: { title: 'must survive locally' } },
       `issue ${issue.id} is deleted and cannot be updated`,
     )
     expect(await registry.issues.crud.store.rowOrThrow(issue.id)).toEqual(before)
-    expect((await registry.issues.crud.store.issueUserState(issue.id))?.pinnedAt ?? null).toBeNull()
   })
 
   it('refuses entering shipping through an ordinary update', async () => {

@@ -251,7 +251,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
     const store = await openIssueStore()
     const other = asUserId('usr_other')
     await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
-    await store.issues.setIssueUserState(fixtureWriteScope(), other, asIssueId('iss_1'), { pinnedAt: 't' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), other, asIssueId('iss_1'), { tuckedAt: 't' })
     await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_2'), { readAt: 't' })
 
     await store.issues.purgeIssueUserState(asIssueId('iss_1'))
@@ -267,7 +267,6 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
     expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_2'))).toEqual({
       readAt: 't',
       tuckedAt: null,
-      pinnedAt: null,
       joinedAt: null,
       joinedVia: null,
       assignedAt: null,

@@ -7,6 +7,7 @@ import {
   IssueProjection,
   type IssueUserStateWire,
   issueDepId,
+  type PinWire,
   type RepoProjection,
   type UserId,
 } from '@podium/model'
@@ -19,6 +20,7 @@ export function seedIssueFixtures(
 ): void {
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
+  const pins: PinWire[] = []
   const git: IssueGitStateProjection[] = []
   const repos = new Map<string, RepoProjection>()
   const deps: IssueDepProjection[] = []
@@ -40,8 +42,11 @@ export function seedIssueFixtures(
       entityId: issue.id,
       readAt: issue.readAt ?? null,
       tuckedAt: issue.tuckedAt ?? null,
-      pinned: issue.pinned ?? false,
     })
+    // A pinned task is my pin record (POD-6692), never a marker.
+    if (issue.pinned) {
+      pins.push({ userId, kind: 'issue', entityId: issue.id, pinnedAt: issue.createdAt })
+    }
     if (issue.gitState) git.push({ ...issue.gitState, id: issue.id })
     repos.set(repoId, {
       id: repoId,
@@ -59,6 +64,7 @@ export function seedIssueFixtures(
   }
   replica.applySnapshot('issueProjections', projections)
   replica.applySnapshot('issueUserStates', markers)
+  replica.applySnapshot('pins', pins)
   replica.applySnapshot('issueGitStates', git)
   replica.applySnapshot('repos', [...repos.values()])
   replica.applySnapshot('issueDeps', deps)

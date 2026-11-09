@@ -76,7 +76,8 @@ describe('issue hierarchy reads over the database', () => {
     // A parent cycle: no write path makes one, so it is planted.
     rawSql(store, "UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'")
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_8'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
+    // The viewer's pin is a `pins` row of kind 'issue' (POD-6692).
+    await store.sessions.addPin(viewer, 'issue', 'iss_8', '2026-10-01T00:00:00.000Z')
     const svc = await serviceOver(store)
     const issues = svc.reports.store
     const crud = svc.crud as unknown as SortScopes

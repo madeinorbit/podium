@@ -13,6 +13,7 @@ import {
   IssueProjection,
   type IssueUserStateWire,
   type MachineWire,
+  type PinWire,
   type RepoProjection,
 } from '@podium/model'
 
@@ -37,8 +38,18 @@ export function fixtureMarkers(issues: readonly IssueViewModel[]): IssueUserStat
     entityId: issue.id,
     readAt: issue.readAt ?? null,
     tuckedAt: issue.tuckedAt ?? null,
-    pinned: issue.pinned ?? false,
   }))
+}
+/** A pinned fixture issue is my `pin` record of kind 'issue' (POD-6692). */
+export function fixtureIssuePins(
+  issues: readonly IssueViewModel[],
+  userId = asUserId('u-bench'),
+): PinWire[] {
+  return issues.flatMap((issue) =>
+    issue.pinned
+      ? [{ userId, kind: 'issue' as const, entityId: issue.id, pinnedAt: issue.createdAt }]
+      : [],
+  )
 }
 export function fixtureGitStates(issues: readonly IssueViewModel[]): IssueGitStateProjection[] {
   return issues.flatMap((issue) => (issue.gitState ? [{ id: issue.id, ...issue.gitState }] : []))

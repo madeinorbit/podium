@@ -45,7 +45,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   await api.addComment({ id: created.id, body: 'Comment fetched separately' })
   const updated = await api.update({
     id: created.id,
-    patch: { brief: 'Plain text note', pinned: true },
+    patch: { brief: 'Plain text note' },
   })
   const shown = await api.get({ id: created.id })
   const listed = (await api.list({ repoPath: '/report-fixture' })).find(
@@ -70,7 +70,6 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     childCount: 1,
     childDoneCount: 0,
     brief: 'Plain text note',
-    pinned: true,
     deps: [],
     dependents: [{ id: child.id, type: 'parent-child' }],
     ready: true,
@@ -88,6 +87,8 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
       'asked',
       'intentOrigin',
       'isDraftVessel',
+      // A pin is the reader's own `pin` record (POD-6692), never a report field.
+      'pinned',
     ]) {
       expect(json).not.toHaveProperty(key)
     }
@@ -95,7 +96,6 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   expect(created).toMatchObject({
     commentCount: 0,
     childCount: 0,
-    pinned: false,
     draft: false,
     origin: 'human',
   })
@@ -195,14 +195,13 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
     parentId: parent.id,
     startNow: false,
   })
-  await api.update({ id: parent.id, patch: { pinned: true, title: 'Changed report parent' } })
+  await api.update({ id: parent.id, patch: { title: 'Changed report parent' } })
   expect(await read()).toMatchObject({
     title: 'Changed report parent',
     labels: ['beta'],
     commentCount: 1,
     childCount: 1,
     childDoneCount: 0,
-    pinned: true,
   })
   await api.close({ id: child.id })
   expect(await read()).toMatchObject({ childCount: 1, childDoneCount: 1 })

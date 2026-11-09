@@ -65,7 +65,6 @@ const userState = (over: Partial<IssueUserStateWire> = {}): IssueUserStateWire =
   entityId: asIssueId('i1'),
   readAt: null,
   tuckedAt: null,
-  pinned: false,
   ...over,
 })
 
@@ -283,23 +282,18 @@ describe('overlayForOutboxEntry projection', () => {
   // record gets a derived copy for the readers that have not moved yet.
   // ---------------------------------------------------------------------------
 
-  it('routes an issueUpdate by home: durable fields to the projection, pinned to the per-user row', () => {
+  it('routes an issueUpdate onto the normalized issue row, a document as a document', () => {
     const overlays = overlaysForOutboxEntry(
       entry('issueUpdate', {
         id: 'i1',
-        patch: { title: 'Renamed', description: 'new prose', pinned: true },
+        patch: { title: 'Renamed', description: 'new prose' },
       }),
     )
-    expect(overlays.map((o) => o.entity)).toEqual(['issueProjections', 'issueUserStates'])
-    const [issue, user] = overlays
-    if (issue?.op !== 'patch' || user?.op !== 'patch') {
-      throw new Error('expected patch overlays')
-    }
-    // One mutation: every part shares its key, and retires with its entry.
-    expect(new Set(overlays.map((o) => o.key))).toEqual(new Set([issue.key]))
+    expect(overlays.map((o) => o.entity)).toEqual(['issueProjections'])
+    const [issue] = overlays
+    if (issue?.op !== 'patch') throw new Error('expected a patch overlay')
     // The description is a DOCUMENT on the normalized row — painted as one.
     expect(issue.patch).toEqual({ title: 'Renamed', description: { value: 'new prose' } })
-    expect(user.patch).toEqual({ pinned: true })
   })
 
   it('every key `issues.update` accepts has exactly one home, so none paints a cell no row holds', () => {
@@ -308,16 +302,13 @@ describe('overlayForOutboxEntry projection', () => {
     // The one deliberate exception: keys the server resolves into another cell
     // land nowhere, and the set is exactly these (POD-6107/POD-6114).
     expect([...ISSUE_SERVER_RESOLVED_UPDATE_KEYS]).toEqual(['agentProfile'])
+    // No `pinned`: an issue pin is a `pin` record (POD-6692).
+    expect(keys).not.toContain('pinned')
     for (const key of keys) {
-      const { issue, user } = issueUpdateRoute({ [key]: 'x' })
-      if (ISSUE_SERVER_RESOLVED_UPDATE_KEYS.has(key)) {
-        expect([Object.keys(issue).length, Object.keys(user).length], key).toEqual([0, 0])
-        continue
-      }
-      expect(
-        [Object.keys(issue).length, Object.keys(user).length].sort(),
-        `${key} must land on exactly one normalized row`,
-      ).toEqual([0, 1])
+      const issue = issueUpdateRoute({ [key]: 'x' })
+      expect(Object.keys(issue).length, `${key} lands on the issue row`).toBe(
+        ISSUE_SERVER_RESOLVED_UPDATE_KEYS.has(key) ? 0 : 1,
+      )
     }
   })
 

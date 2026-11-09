@@ -6,6 +6,7 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  PinWire,
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
@@ -26,6 +27,8 @@ function make(store: FixtureStore) {
   const repos = new Map<string, RepoProjection>()
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
+  // A `pinned` input is my pin record (POD-6692), never a marker.
+  const pins: PinWire[] = []
   const git: IssueGitStateProjection[] = []
   const deps: Array<{ id: string; fromId: string; toId: string; type: string }> = []
   // Historical fixtures sometimes supplied only a precomputed unread flag.
@@ -115,8 +118,15 @@ function make(store: FixtureStore) {
       entityId: input.id,
       readAt: readAt ?? (input.unread === false ? latestActivity || null : null),
       tuckedAt: tuckedAt ?? null,
-      pinned: pinned ?? false,
     } as IssueUserStateWire)
+    if (pinned === true) {
+      pins.push({
+        userId: asUserId('fixture-user'),
+        kind: 'issue',
+        entityId: input.id,
+        pinnedAt: input.createdAt ?? '2026-01-01T00:00:00.000Z',
+      })
+    }
     if (gitState) git.push({ ...gitState, id: input.id })
     for (const dep of outgoing ?? [])
       deps.push({
@@ -129,10 +139,17 @@ function make(store: FixtureStore) {
   replica.applySnapshot('repos', [...repos.values()])
   replica.applySnapshot('issueProjections', projections)
   replica.applySnapshot('issueUserStates', markers)
+  replica.applySnapshot('pins', pins)
   replica.applySnapshot('issueGitStates', git)
   replica.applySnapshot('issueDeps', deps as never)
   replica.applySnapshot('sessions', (store.sessions ?? []) as SessionMeta[])
-  return { replica, issueProjections: projections, issueUserStates: markers, issueGitStates: git }
+  return {
+    replica,
+    issueProjections: projections,
+    issueUserStates: markers,
+    pins,
+    issueGitStates: git,
+  }
 }
 
 /** The store's retained issue rows stay empty, including in published slices. */

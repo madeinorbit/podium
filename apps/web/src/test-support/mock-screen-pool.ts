@@ -300,8 +300,13 @@ function fixtureSidebarSections(
     if (fields['parentId'] != null) continue
     const issue = model as unknown as SliceIssue
     const closed = closedOf(issue, false, { passed })
-    const band = bandOf(issue, { reached })
-    const rank = rankOfPart(model.id as string, ownPartOfRow(issue, { passed, reached }))
+    // Pinned rows were skipped above, so every row here is unpinned.
+    const issuePinned = () => false
+    const band = bandOf(issue, { reached, issuePinned })
+    const rank = rankOfPart(
+      model.id as string,
+      ownPartOfRow(issue, { passed, reached, issuePinned }),
+    )
     const foldMs = Date.parse(foldAtOf(issue)) || 0
     const dismissed =
       closed &&

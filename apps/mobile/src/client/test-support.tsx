@@ -32,6 +32,7 @@ import {
   type MachineProjection,
   type MachineWire,
   type MessageRecordWire,
+  type PinWire,
   type RepoProjection,
   type SessionMeta,
   type SessionUserStateWire,
@@ -58,6 +59,8 @@ export interface MobileStoreFixture {
   /** Explicit feed homes bypass the compatibility fixture adapter. */
   issueProjections?: IssueProjection[]
   issueUserStates?: IssueUserStateWire[]
+  /** My pin records (POD-6692: a pinned task is one of kind 'issue'). */
+  pins?: PinWire[]
   issueGitStates?: IssueGitStateProjection[]
   repoProjections?: RepoProjection[]
   issueDeps?: IssueDepProjection[]
@@ -172,6 +175,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     if (fixture.issueProjections)
       replica.applySnapshot('issueProjections', fixture.issueProjections)
     if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
+    if (fixture.pins) replica.applySnapshot('pins', fixture.pins)
     if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
     if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
     if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)

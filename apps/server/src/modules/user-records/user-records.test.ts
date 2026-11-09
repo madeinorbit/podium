@@ -133,6 +133,90 @@ describe('records.pin', () => {
   })
 })
 
+describe('an issue pin (POD-6692)', () => {
+  async function task(o: Oracle, title: string): Promise<{ id: string; seq: number }> {
+    if ((await o.store.repos.listRepos()).every((repo) => repo.path !== '/r')) {
+      await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    }
+    return (await o.call.issues.create({ repoPath: '/r', title, startNow: false })) as {
+      id: string
+      seq: number
+    }
+  }
+
+  it('is a pin record: pin and unpin each log issue.pinned once, a repeat logs nothing', async () => {
+    const o = await makeOracle()
+    const issue = await task(o, 'pin me')
+    const id = pinRowId(ME, 'issue', issue.id)
+    const fields = { userId: ME, kind: 'issue', entityId: issue.id }
+
+    const { rows } = await expectAppliedOnPath(
+      o,
+      envelope('records.pin.create', { id, fields }, 'i-1'),
+      { writes: true },
+    )
+    expect(rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([['pin', id, 'upsert']])
+    expect(await o.store.sessions.pinnedAt(ME, 'issue', issue.id)).toEqual(expect.any(String))
+    // Pinning what is pinned changes nothing, so it records nothing.
+    expect((await submit(o, envelope('records.pin.create', { id, fields }, 'i-2'))).outcome).toBe(
+      'applied',
+    )
+    await expectAppliedOnPath(o, envelope('records.pin.remove', { id }, 'i-3'), { writes: true })
+    expect(await o.store.sessions.pinnedAt(ME, 'issue', issue.id)).toBeUndefined()
+    expect((await submit(o, envelope('records.pin.remove', { id }, 'i-4'))).outcome).toBe('applied')
+
+    const events = await o.store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
+    expect(events.map((e) => [e.subject, e.payload])).toEqual([
+      [issue.id, { seq: issue.seq, pinned: true, userId: ME }],
+      [issue.id, { seq: issue.seq, pinned: false, userId: ME }],
+    ])
+    // The pin is no field of the task or of my state on it.
+    expect(await o.store.issues.getIssueUserState(ME, issue.id as never)).not.toHaveProperty(
+      'pinnedAt',
+    )
+  })
+
+  it('names a task that exists; unpinning one that is gone is still mine to do', async () => {
+    const o = await makeOracle()
+    const ghost = pinRowId(ME, 'issue', 'iss_nobody-has')
+    const reply = await submit(
+      o,
+      envelope(
+        'records.pin.create',
+        { id: ghost, fields: { userId: ME, kind: 'issue', entityId: 'iss_nobody-has' } },
+        'i-ghost',
+      ),
+    )
+    expect(refusalOf(reply)?.kind).toBe('unauthorized')
+    expect(await o.store.sessions.pinnedAt(ME, 'issue', 'iss_nobody-has')).toBeUndefined()
+    expect((await submit(o, envelope('records.pin.remove', { id: ghost }, 'i-gone'))).outcome).toBe(
+      'applied',
+    )
+  })
+
+  it('takes the task out of my unpinned sort scope, and only mine', async () => {
+    const o = await makeOracle()
+    const a = await task(o, 'a')
+    const b = await task(o, 'b')
+    const repoId = (await o.store.issues.getIssue(a.id))?.repoId
+    if (!repoId) throw new Error('fixture issue has no repo id')
+    const unpinned = async (user: typeof ME) =>
+      (await o.store.issues.sortScope({ repoId: repoId as never, unpinnedFor: user })).map((r) => r.id).sort()
+    expect(await unpinned(ME)).toEqual([a.id, b.id].sort())
+    await expectAppliedOnPath(
+      o,
+      envelope(
+        'records.pin.create',
+        { id: pinRowId(ME, 'issue', a.id), fields: { userId: ME, kind: 'issue', entityId: a.id } },
+        'i-scope',
+      ),
+      { writes: true },
+    )
+    expect(await unpinned(ME)).toEqual([b.id])
+    expect(await unpinned(SOMEONE_ELSE)).toEqual([a.id, b.id].sort())
+  })
+})
+
 describe('records.tabOrder', () => {
   it('an edit sets the whole order, a later one replaces it, and an empty one removes it', async () => {
     const o = await makeOracle()

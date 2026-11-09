@@ -49,7 +49,7 @@ describe('issue point reads over the database', () => {
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['one', 'two'])
     const viewer = await firstAdminMemberId(store)
     await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_1'), { readAt: '2026-10-01T00:00:00.000Z' })
-    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_4'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_4'), { tuckedAt: '2026-10-01T00:00:00.000Z' })
     rawSql(store, 'UPDATE issues SET repo_id = NULL WHERE id IN (?, ?)', 'iss_legacy_a', 'iss_legacy_b')
     // Quarantined: SQLite allows a NULL in a TEXT primary key, and the boot
     // load skips such a row (issues.boot-quarantine.test.ts); so do the reads.
@@ -67,8 +67,8 @@ describe('issue point reads over the database', () => {
     // The viewer's markers, and the personal records the same row carries
     // (POD-6290, design §4.4), empty here.
     const noRecords = { joinedAt: null, joinedVia: null, assignedAt: null, assignedBy: null }
-    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, pinnedAt: null, ...noRecords })
-    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: null, pinnedAt: '2026-10-01T00:00:00.000Z', ...noRecords })
+    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, ...noRecords })
+    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: '2026-10-01T00:00:00.000Z', ...noRecords })
     expect(await issues.issueUserState(asIssueId('iss_2'))).toBeUndefined()
 
     // References.

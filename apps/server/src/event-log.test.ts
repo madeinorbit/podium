@@ -548,17 +548,7 @@ describe('IssueService event emission', () => {
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
   })
 
-  it('pin change emits issue.pinned with the new value (both directions)', async () => {
-    const { svc, store } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, a.id, { pinned: true })
-    await svc.crud.update(svc.reports.store.serverWriter, a.id, { pinned: true }) // no change — no duplicate event
-    await svc.crud.update(svc.reports.store.serverWriter, a.id, { pinned: false })
-    const evs = await store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
-    expect(evs.length).toBe(2)
-    expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })
-    expect(evs[1]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: false } })
-  })
+  // issue.pinned is the pin record's event since POD-6692: user-records.test.ts.
 
   it('defer/undefer emit issue.snoozed / issue.unsnoozed', async () => {
     const { svc, store } = await harness()

@@ -205,12 +205,6 @@ export function insertOverlay(
   return { op: 'insert', key: `spawn:${id}`, entity, id, insert }
 }
 
-/** The per-user markers an issue write can carry: the `(user, issue)` row's
- *  own cells, read off its wire schema rather than listed. */
-const ISSUE_USER_STATE_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(IssueUserStateWire.shape).filter((key) => key !== 'userId' && key !== 'entityId'),
-)
-
 /** The normalized issue row's own fields. */
 const ISSUE_PROJECTION_KEYS: ReadonlySet<string> = new Set(Object.keys(IssueProjection.shape))
 
@@ -227,24 +221,21 @@ const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description'])
 export const ISSUE_SERVER_RESOLVED_UPDATE_KEYS: ReadonlySet<string> = new Set(['agentProfile'])
 
 /**
- * Split an `issues.update` patch by the row each key lives on (POD-4969).
- *
- * A per-user marker goes to the `(user, issue)` row; a durable field goes to
- * the normalized issue row, in ITS spelling — `description` is a document
- * there, so the text is painted as `{ value }`. A key neither row
- * carries is not painted at all: no row shows it. `overlay.test.ts` holds every key the contract accepts to one of
- * the two homes, so a new contract key cannot fall through silently.
+ * An `issues.update` patch as the normalized issue row paints it (POD-4969), in
+ * ITS spelling — `description` is a document there, so the text is painted as
+ * `{ value }`. A key the row does not carry is not painted at all: no row shows
+ * it. Every key lands on the issue row: the last per-user one, `pinned`, is a
+ * `pin` record since POD-6692. `overlay.test.ts` holds every key the contract
+ * accepts to the row, so a new contract key cannot fall through silently.
  */
-export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; user: OverlayPatch } {
+export function issueUpdateRoute(patch: OverlayPatch): OverlayPatch {
   const issue: OverlayPatch = {}
-  const user: OverlayPatch = {}
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue
-    if (ISSUE_USER_STATE_KEYS.has(key)) user[key] = value
-    else if (ISSUE_DOCUMENT_KEYS.has(key)) issue[key] = { value }
+    if (ISSUE_DOCUMENT_KEYS.has(key)) issue[key] = { value }
     else if (ISSUE_PROJECTION_KEYS.has(key)) issue[key] = value
   }
-  return { issue, user }
+  return issue
 }
 
 /**
@@ -258,7 +249,6 @@ export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; us
  * ONE ENTRY, ONE OVERLAY PER ROW IT LANDS ON (POD-4969). Issue writes target
  * the NORMALIZED rows: the durable fields on `issueProjections`, the per-user
  * markers on `issueUserStates`. Every kind lands on exactly one of them except
- * `issueUpdate`, whose patch may carry personal markers beside durable fields.
  * All parts share the mutationId and retire with its entry.
  */
 export function overlaysForOutboxEntry(
@@ -291,29 +281,19 @@ function overlayOf(
       return patchOverlay('sessions', i.sessionId, entry.mutationId, { offer: undefined })
     }
     case 'issueUpdate': {
-      // THE PATCH IS THE OVERLAY (POD-781), ROUTED BY HOME (POD-4969). Every key
-      // `issues.update` accepts is either a field of the normalized issue row or
-      // one of the per-user markers, so the patch splits into at most
-      // two overlays, one per row it lands on, both keyed by this mutation. The
-      // routing is read off the two schemas (`issueUpdateRoute`), not listed.
+      // THE PATCH IS THE OVERLAY (POD-781), on the normalized issue row
+      // (POD-4969), read off its schema (`issueUpdateRoute`), not listed.
       //
       // The server lands these verbatim: `IssueCrud.update` normalizes only by
       // ADDING keys (`normalizeClosedPatch` stamps `stage: 'done'` beside a
       // `closedReason`, a `defaultAgent` change resets model/effort) and never
       // rewrites a key the caller sent, so the paint is what truth will show.
       const i = entry.input as OutboxKinds['issueUpdate']
-      const { issue, user } = issueUpdateRoute(i.patch as OverlayPatch)
-      const out: Extract<PendingOverlay, { op: 'patch' }>[] = []
-      // An empty half is a write with nothing to paint on that row; an empty
-      // patch projects to no overlay at all.
-      for (const [entity, patch] of [
-        ['issueProjections', issue],
-        ['issueUserStates', user],
-      ] as const) {
-        if (Object.keys(patch).length === 0) continue
-        out.push(patchOverlay(entity, i.id, entry.mutationId, patch))
-      }
-      return out
+      const issue = issueUpdateRoute(i.patch as OverlayPatch)
+      // An empty patch projects to no overlay at all.
+      return Object.keys(issue).length === 0
+        ? []
+        : [patchOverlay('issueProjections', i.id, entry.mutationId, issue)]
     }
     case 'issueDelete': {
       // THE DELETE CASCADE (POD-781 design constraint (b)), and why ONE overlay

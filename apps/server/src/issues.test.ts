@@ -552,33 +552,14 @@ describe('IssueService unread (#124)', () => {
     const readAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
-    const pinned = await svc.crud.update(svc.reports.store.serverWriter, w.id, { pinned: true })
-    expect((await svc.reports.commandResult(pinned)).pinned).toBe(true)
-    expect(await svc.reports.unreadFor(w.id)).toBe(false)
-    expect((await svc.reports.commandResult(pinned)).readAt).toBe(readAt)
-    expect(pinned.updatedAt).toBe(updatedAt)
-
-    const unpinned = await svc.crud.update(svc.reports.store.serverWriter, w.id, { pinned: false })
-    expect((await svc.reports.commandResult(unpinned)).pinned).toBe(false)
-    expect(await svc.reports.unreadFor(w.id)).toBe(false)
-    expect(unpinned.updatedAt).toBe(updatedAt)
-
     const reordered = await svc.crud.update(svc.reports.store.serverWriter, w.id, {
       sortKey: 'x2c',
     })
     expect(reordered.sortKey).toBe('x2c')
     expect(await svc.reports.unreadFor(w.id)).toBe(false)
+    expect((await svc.reports.commandResult(reordered)).readAt).toBe(readAt)
     expect(reordered.updatedAt).toBe(updatedAt)
-
-    // Combined organizational patch (pin + reorder) also stays read.
-    const both = await svc.crud.update(svc.reports.store.serverWriter, w.id, {
-      pinned: true,
-      sortKey: 'x2d',
-    })
-    expect((await svc.reports.commandResult(both)).pinned).toBe(true)
-    expect(both.sortKey).toBe('x2d')
-    expect(await svc.reports.unreadFor(w.id)).toBe(false)
-    expect(both.updatedAt).toBe(updatedAt)
+    // A pin is my `pin` record (POD-6692), not an issue write: nothing to test here.
   })
 
   it('content update after markRead still flips unread (organizational whitelist is narrow)', async () => {
@@ -625,13 +606,13 @@ describe('IssueService unread (#124)', () => {
     const renamed = await svc.crud.update(svc.reports.store.serverWriter, w.id, { title: 'Y' })
     expect(renamed.title).toBe('Y')
     expect(await svc.reports.unreadFor(w.id)).toBe(true)
-    // Same clock step: pin alone must still leave a re-read issue read.
+    // Same clock step: a reorder alone must still leave a re-read issue read.
     await svc.crud.markIssueRead(svc.reports.store.serverWriter, w.id)
     expect(await svc.reports.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
-    const pinned = await svc.crud.update(svc.reports.store.serverWriter, w.id, { pinned: true })
+    const reordered = await svc.crud.update(svc.reports.store.serverWriter, w.id, { sortKey: 'x2c' })
     expect(await svc.reports.unreadFor(w.id)).toBe(false)
-    expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
+    expect(reordered.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
 })
 
@@ -3301,7 +3282,6 @@ describe('IssueService derived status (P1)', () => {
     })
     expect(w.priority).toBe(2)
     expect(w.type).toBe('task')
-    expect((await svc.reports.commandResult(w)).pinned).toBe(false)
     expect(w.labels).toEqual([])
     expect((await svc.reports.commandResult(w)).deps).toEqual([])
     expect((await svc.reports.commandResult(w)).ready).toBe(true)

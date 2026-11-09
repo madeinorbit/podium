@@ -19,6 +19,7 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
+  type PinWire,
   type RepoProjection,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -228,7 +229,13 @@ const markers: IssueUserStateWire = {
   entityId: projection.id,
   readAt: '2026-09-30T12:00:00Z',
   tuckedAt: null,
-  pinned: true,
+}
+// The task is pinned: my pin record (POD-6692), not a marker.
+const pin: PinWire = {
+  userId: asUserId('user:test'),
+  kind: 'issue',
+  entityId: projection.id,
+  pinnedAt: '2026-09-30T12:00:00Z',
 }
 const git = {
   id: projection.id,
@@ -252,6 +259,7 @@ function pageReplica(issues: IssueProjection[]) {
   }
   install('issueProjections', issues)
   install('issueUserStates', [markers])
+  install('pins', [pin])
   install('issueGitStates', [git])
   install('repos', [repo])
   return createKernelReplica({

@@ -32,6 +32,8 @@ export interface IssueViewsSnapshot {
   issueInputById: Map<string, IssueViewInput>
   issueUserStates: readonly IssueUserStateWire[]
   userStateByIssueId: Map<string, IssueUserStateWire>
+  /** My pinned issues: my `pin` records of kind 'issue' (POD-6692). */
+  pinnedIssueIds: ReadonlySet<string>
   gitStateByIssueId: Map<string, IssueGitStateProjection>
   repoById: Map<string, RepoProjection>
   rollupsFor: (issueId: IssueId) => IssueSessionRollups
@@ -81,6 +83,12 @@ export function deriveIssueViewsSnapshot(
     issueInputById: issueIndex,
     issueUserStates,
     userStateByIssueId: new Map(issueUserStates.map((row) => [row.entityId, row])),
+    pinnedIssueIds: new Set(
+      replica
+        .rows('pins')
+        .filter((pin) => pin.kind === 'issue')
+        .map((pin) => pin.entityId),
+    ),
     gitStateByIssueId: new Map(replica.rows('issueGitStates').map((row) => [row.id, row])),
     repoById: new Map(replica.rows('repos').map((row) => [row.id, row])),
     rollupsFor: (issueId) => {
@@ -116,7 +124,7 @@ export function buildIssueViewModel(
     ...derived,
     readAt,
     tuckedAt: userState?.tuckedAt ?? null,
-    pinned: userState?.pinned ?? false,
+    pinned: snapshot.pinnedIssueIds.has(projection.id),
     gitState,
     repoPath: repo?.repoPath ?? '',
     prefix: repo?.prefix ?? undefined,
