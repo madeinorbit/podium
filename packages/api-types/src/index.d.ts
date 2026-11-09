@@ -2849,126 +2849,6 @@ type Output_discovery_lastMachineScan = (null) | ({
     repos: DiscoveredRepo[];
     startedAt: number;
 });
-type Output_discovery_refreshRepos = {
-    diagnostics: _podium_model.GitDiscoveryDiagnosticWire[];
-    machines: {
-        adoptable?: boolean | undefined;
-        appVersion?: null | string | undefined;
-        availability?: undefined | {
-            daemon: boolean;
-            epoch: string;
-            server: boolean;
-            supervisor: boolean;
-        };
-        buildReportedAt?: null | string | undefined;
-        components?: ("daemon" | "server")[] | undefined;
-        daemonReadiness?: undefined | {
-            quarantinedBindings: number;
-            reason: string;
-            state: "attached" | "ready" | "recovering";
-        };
-        deliveryCaps?: string[] | undefined;
-        harnessVersions?: undefined | {
-            firstSeen: string;
-            harness: string;
-            lastSeen: string;
-            unverified?: boolean | undefined;
-            verifiedThrough?: string | undefined;
-            version: string;
-        }[];
-        hostname: string;
-        id: string & z.BRAND<"MachineId">;
-        installKind?: null | string | undefined;
-        inventory?: undefined | {
-            agents: {
-                installed: boolean | null;
-                kind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                login: {
-                    account?: string | undefined;
-                    freshness?: number | undefined;
-                    identity?: undefined | {
-                        email?: string | undefined;
-                        fingerprint: string;
-                        providerAccountId?: string | undefined;
-                    };
-                    state: "in" | "out" | "unknown";
-                };
-                path?: string | undefined;
-                probeError?: undefined | {
-                    reason: "timed-out";
-                    timeoutMs: number;
-                };
-                version?: string | undefined;
-            }[];
-            arch: "arm64" | "x64";
-            os: "darwin" | "linux" | "win32";
-            podiumVersion?: string | undefined;
-            runtimeDrivers?: undefined | {
-                family: "server" | "terminal";
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                id: string;
-            }[];
-            tools: {
-                installed: boolean | null;
-                name: string;
-                path?: string | undefined;
-                probeError?: undefined | {
-                    reason: "timed-out";
-                    timeoutMs: number;
-                };
-                version?: string | undefined;
-            }[];
-        };
-        lastSeenAt: string;
-        name: string;
-        online: boolean;
-        owned?: boolean | undefined;
-        podiumManaged?: boolean | undefined;
-        presenceSource?: "legacy-daemon" | "supervisor" | undefined;
-        revokedAt?: null | string | undefined;
-        serverMoveEligibility?: undefined | {
-            eligible: boolean;
-            reason?: "current-server" | "offline" | "unsupported" | undefined;
-        };
-        serviceAssignment?: undefined | {
-            agentExecution: boolean;
-            server: boolean;
-        };
-        services?: undefined | {
-            agentExecution: {
-                observedAt: string;
-                policy: "disabled" | "enabled";
-                reason?: string | undefined;
-                state: "available" | "refused" | "starting" | "stopped";
-            };
-            agentExecutionLockout?: boolean | undefined;
-            crashOwner?: string | undefined;
-            server: {
-                observedAt: string;
-                policy: "disabled" | "enabled";
-                reason?: string | undefined;
-                state: "available" | "refused" | "starting" | "stopped";
-            };
-            topology?: undefined | {
-                legacyUnits: string[];
-                parentUnit: "absent" | "active" | "inactive";
-                persistence: "detached" | "systemd" | "unmanaged";
-            };
-        };
-        supersedable?: boolean | undefined;
-        supersededBy?: (string & z.BRAND<"MachineId">) | null | undefined;
-        targetUnavailableReason?: null | string | undefined;
-        targetVersion?: null | string | undefined;
-        transferable?: boolean | undefined;
-        unowned?: boolean | undefined;
-        updateChannel?: "dev" | "edge" | "stable" | undefined;
-        updateChannelOverride?: "dev" | "edge" | "stable" | null | undefined;
-        use?: "denied" | "granted" | undefined;
-        versionState?: "ahead" | "behind" | "current" | "unreported" | undefined;
-        wireSchemaDigest?: null | string | undefined;
-    }[];
-    repositories: _podium_model.GitRepositoryWire[];
-};
 type Output_discovery_scanMachine = {
     deep: boolean;
     diagnostics: _podium_model.GitDiscoveryDiagnosticWire[];
@@ -6763,7 +6643,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "refreshRepos": TRPC.TRPCMutationProcedure<{
             input: void;
-            output: Output_discovery_refreshRepos;
+            output: {
+                diagnostics: {
+                    message: string;
+                    path: string;
+                    severity: "error" | "warning";
+                }[];
+            };
             meta: unknown;
         }>;
         "scanFolder": TRPC.TRPCMutationProcedure<{
@@ -7743,24 +7629,8 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
-        "rename": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                name: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
         "revoke": TRPC.TRPCMutationProcedure<{
             input: {
-                id: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
-        "setUpdateChannel": TRPC.TRPCMutationProcedure<{
-            input: {
-                channel: "dev" | "edge" | "stable" | null;
                 id: string;
             };
             output: Array<_podium_model.MachineWire>;

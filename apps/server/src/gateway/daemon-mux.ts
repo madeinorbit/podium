@@ -320,7 +320,7 @@ export class DaemonMux {
     log.info('daemon attached — the machine is now online', { machineId })
     await machines.flushQueued(machineId)
     await sessions.onMachineAttached(principal)
-    machines.scheduleBroadcastMachines()
+    machines.schedulePublishMachines([machineId])
     this.deps.bus.emit('machine.connected', { machineId })
   }
 
@@ -344,7 +344,6 @@ export class DaemonMux {
     log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
-    machines.scheduleBroadcastMachines()
   }
 
   routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {

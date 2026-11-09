@@ -221,6 +221,7 @@ export const MACHINE_ID_SITES: readonly string[] = [
   'account_machine_sends.machine_id',
   'agent_profiles.machine_id',
   'approval_requests.machine_id',
+  'checkouts.machine_id',
   'conversation_segment_incarnations.machine_id',
   'conversation_segments.machine_id',
   'conversations.machine_id',

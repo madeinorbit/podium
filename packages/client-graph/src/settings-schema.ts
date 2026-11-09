@@ -1,20 +1,22 @@
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
 import { machinePathKey } from '@podium/model'
+import type { PoolRows } from './pool'
+import type { CheckoutRepository } from '@podium/model'
 
 /** Settings-only declarations. Catalog ids name resident machine/repository
  * rows; session history uses a small summary, never an index of cold payloads.
  * There are no new entity relations: session presence is a keyed read. */
 export interface SettingsRows {
-  settingsMachine: Store['machines'][number]
-  settingsRepository: Store['repos'][number]
+  settingsMachine: Pick<PoolRows['machine'], 'id' | 'name'> & Partial<PoolRows['machine']>
+  settingsRepository: CheckoutRepository
   settingsCatalog: { machines: readonly string[]; repositories: readonly string[] }
   settingsWindow: { settingsTab: Store['settingsTab'] }
 }
 export type SettingsEntity = keyof SettingsRows
 export const SETTINGS_SCHEMA = {
-  settingsMachine: { key: 'id', source: 'engine:machines', model: 'MachineWire', residency: 'resident-on-demand' },
-  settingsRepository: { key: 'machineId,path', source: 'engine:repos', model: 'GitRepositoryWire', residency: 'resident-on-demand' },
+  settingsMachine: { key: 'id', source: 'replica:machines', model: 'MachineProjection', residency: 'resident-on-demand' },
+  settingsRepository: { key: 'machineId,path', source: 'replica:checkouts', model: 'CheckoutWire', residency: 'resident-on-demand' },
   settingsCatalog: { key: 'catalog', source: 'engine:locals', fields: ['machines', 'repositories'], residency: 'on-demand' },
   settingsWindow: { key: 'window', source: 'engine:locals', fields: ['settingsTab'], residency: 'on-demand' },
   setupSession: { key: 'sessionId', source: 'pool:session', fields: [

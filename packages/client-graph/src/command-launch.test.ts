@@ -171,13 +171,12 @@ describe('declared command and launch targets', () => {
     const f = await fixture(),
       stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
     const discover = async (repos: GitRepositoryWire[]) => {
-      f.ctx.discovery.repos = repos
-      f.ctx.hub.emit('worktreesChanged')
+      f.ctx.setRepos(repos)
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
     }
     try {
       f.settled()
-      const repos = f.ctx.discovery.repos as GitRepositoryWire[]
+      const repos = f.ctx.repos() as GitRepositoryWire[]
       const before = f.source.counts.sessionLinks
       await discover(repos.map((repo, at) => (at === 0 ? { ...repo, branch: 'renamed' } : repo)))
       f.settled('branch rename')

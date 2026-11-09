@@ -23,9 +23,8 @@ it('supplies registered zero-issue prefixes from the production feed and keeps a
         }
       },
     }
-    const discovery: readonly never[] = []
     const source = createRowSource(
-      { principal: { userId: 'operator' }, readLocal: () => discovery, onLocals: () => () => {} },
+      { principal: { userId: 'operator' } },
       replica,
       { pending: EMPTY_PENDING },
     )

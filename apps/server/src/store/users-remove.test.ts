@@ -145,8 +145,7 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
     instanceId: 'default',
     store,
     hostMachineId: store.hostMachineId,
-    clients: () => [],
-    machinesForPrincipal: async () => [],
+
     userExists: async (id) => !!(await store.users.get(id)),
   })
   try {

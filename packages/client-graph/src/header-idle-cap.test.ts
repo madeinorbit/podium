@@ -1,10 +1,10 @@
-import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
-import { liveFixture } from './live-fixture'
+import { liveFixture, seedFixtureMachines } from './live-fixture'
 import { MobxPool } from './pool'
 
 /**
@@ -15,18 +15,12 @@ import { MobxPool } from './pool'
 function fleet(pool: MobxPool, count: number): MachineId[] {
   const ids = Array.from({ length: count }, (_, index) => `m${index}` as MachineId)
   runInAction(() => {
+    // My fleet: machine records with my access row; online is live (POD-6644).
     headerEntities(pool).apply(
-      ids.map((id) => ({
-        kind: 'machine' as const,
-        id,
-        value: {
-          id,
-          name: id,
-          hostname: id,
-          online: true,
-          lastSeenAt: '2026-10-05T07:00:00Z',
-        } as MachineWire,
-      })),
+      seedFixtureMachines(
+        pool,
+        ids.map((id) => ({ id, name: id, hostname: id, online: true, lastSeenAt: '2026-10-05T07:00:00Z' })),
+      ) as never,
     )
     headerEntities(pool).order('machine', ids)
   })

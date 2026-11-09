@@ -58,7 +58,7 @@ it('acquires every shared transport without legacy subscriptions or derivations'
   storeStats.enable()
   act(() => {
     for (let n = 1; n <= 20; n++) {
-      store.publish({ ...snapshot, reposLoading: n % 2 === 1 }, new Set(['reposLoading']))
+      store.publish({ ...snapshot, paletteOpen: n % 2 === 1 }, new Set(['paletteOpen']))
     }
   })
   expect(storeStats.snapshot().runtimes).toHaveLength(1)

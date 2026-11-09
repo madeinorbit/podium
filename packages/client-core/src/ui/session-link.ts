@@ -3,7 +3,7 @@
  * One sentence shape for the `?pane=` link and the jump-to-session action, so
  * the two entry points never describe the same answer differently.
  */
-import type { IssueId, SessionMeta } from '@podium/model'
+import type { CheckoutRepository, IssueId, SessionMeta } from '@podium/model'
 import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { reposToViews } from '../values'
@@ -30,13 +30,14 @@ export function sessionLinkProblem(
  * would show whatever that workspace had active instead.
  */
 export function sessionLinkSelection(
-  st: Pick<ScreenState, 'repos' | 'selectedWorktree'>,
+  st: Pick<ScreenState, 'selectedWorktree'>,
+  repositories: readonly CheckoutRepository[],
   session: Pick<SessionMeta, 'cwd' | 'issueId'>,
   linkedWorktree?: string | null,
 ): { selectedIssueId?: IssueId; selectedWorktree?: string } {
   const holds = (path: string | null | undefined): path is string =>
     !!path && isMachinePathWithinRoot(path, session.cwd)
-  const registered = reposToViews(st.repos)
+  const registered = reposToViews(repositories)
     .flatMap((repo) => repo.worktrees)
     .map((candidate) => candidate.path)
     .filter(holds)

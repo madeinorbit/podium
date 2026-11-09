@@ -95,8 +95,16 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "the steward's issue notices: an unblocked dependent, a parent's nudge",
     kind: 'server',
   },
-  'machines.projection': {
-    what: "a machine's display projection, republished whenever its row changes",
+  'machines.records': {
+    what: "a machine's synced records (the machine row and each member's access row), rewritten whenever its row or its grants change (POD-6644)",
+    kind: 'mirror',
+  },
+  'members.access': {
+    what: "a member's machine access rows, rewritten when their role or standing changes (POD-6644)",
+    kind: 'mirror',
+  },
+  'checkouts.scan': {
+    what: "a machine's checkouts, from its daemon's scans, written only when one is created or removed or a branch is checked out (POD-6644)",
     kind: 'mirror',
   },
   'feed.issueEvents': {

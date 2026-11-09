@@ -1,8 +1,11 @@
 import {
   asIssueId,
+  asMachineId,
   asSessionId,
   asUserId,
+  checkoutRowId,
   interactionRowId,
+  machineAccessRowId,
   issueUserStateRowId,
   messageRecordRowId,
   subscriptionRowId,
@@ -100,6 +103,7 @@ async function fixture() {
     },
     grants: store.grants,
     sync: store.sync,
+    checkouts: store.checkouts,
   }
   const policy = makeFeedVisibility({
     store: rows,
@@ -589,5 +593,135 @@ describe('the issue anchor edge reads the normalized record', () => {
       { entity: 'issueGitState', entityId: 'shared' },
     ])
     expect(edge?.subjects.some((ref) => String(ref.entity) === 'issue')).toBe(false)
+  })
+})
+
+// A machine's records (POD-6644): each member's access row is theirs alone, and
+// a checkout reaches only the members holding `use` on its machine.
+describe('machine access and checkout rows', () => {
+  const machineGrant = (store: SessionStore, grantee: string, verb: GrantRow['verb'], custody = false) =>
+    store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: 'm1',
+      grantee,
+      verb,
+      owner,
+      visibility: 'owned-compute',
+      createdAt: '2026-11-09T00:00:00Z',
+      actorKind: 'user',
+      actorId: owner,
+      onBehalfOf: owner,
+      ...(custody ? { custody: true } : {}),
+    })
+
+  it('an access row is keyed to its member, and a checkout needs use on the machine', async () => {
+    const { store, policy } = await fixture()
+    await machineGrant(store, owner, 'manage', true)
+    await machineGrant(store, owner, 'use')
+    await machineGrant(store, reader, 'use')
+    await machineGrant(store, stranger, 'see')
+
+    const access = { entity: 'machineAccess' as const, entityId: machineAccessRowId(reader, asMachineId('m1')) }
+    expect(policy.state.classOf('machineAccess')).toBe('per-user-state')
+    expect(policy.state.keyedUserOf(access)).toBe(reader)
+    expect(policy.state.keyedUserOf({ entity: 'machineAccess', entityId: 'malformed' })).toBeNull()
+
+    const checkout = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium'),
+    }
+    const state = await policy.state.forBatch!([checkout])
+    expect(state.classOf('checkout')).toBe('personal')
+    expect(state.mayRead(owner, checkout)).toBe(true)
+    expect(state.mayRead(reader, checkout)).toBe(true)
+    // `see` alone is not what is checked out there (ADR 9), and no grant is nothing.
+    expect(state.mayRead(stranger, checkout)).toBe(false)
+    expect(state.mayRead(revoked, checkout)).toBe(false)
+  })
+
+  // Coordinator decision (POD-5620, 2026-11-09): a registered root is read
+  // with MANAGE or USE, a worktree only with USE. Admins MANAGE every machine.
+  it('a root reaches its managers and admins, a worktree only its users', async () => {
+    const { store, policy } = await fixture()
+    const m1 = asMachineId('m1')
+    await machineGrant(store, owner, 'manage', true)
+    await machineGrant(store, reader, 'use')
+    await machineGrant(store, stranger, 'manage')
+    const row = (path: string, root: string) => ({
+      machineId: m1,
+      path,
+      root,
+      kind: path === root ? ('repository' as const) : ('worktree' as const),
+      repoId: null,
+      branch: 'main',
+      originUrl: null,
+      locked: false,
+      prunable: false,
+    })
+    await store.checkouts.apply(
+      [row('/home/u/podium', '/home/u/podium'), row('/home/u/.worktrees/feature', '/home/u/podium')],
+      [],
+      '2026-11-09T00:00:00Z',
+    )
+    const root = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/podium') }
+    const worktree = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/.worktrees/feature') }
+    // A removed checkout (no row) is read as a worktree: no path leaks to a manager.
+    const gone = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/gone') }
+    const state = await policy.state.forBatch!([root, worktree, gone])
+    for (const manager of [owner, stranger, firstAdmin]) {
+      expect(state.mayRead(manager, root), manager).toBe(true)
+      expect(state.mayRead(manager, worktree), manager).toBe(false)
+      expect(state.mayRead(manager, gone), manager).toBe(false)
+    }
+    expect(state.mayRead(reader, root)).toBe(true)
+    expect(state.mayRead(reader, worktree)).toBe(true)
+    expect(state.mayRead(revoked, root)).toBe(false)
+  })
+
+  it('a use grant with nobody in custody admits nobody', async () => {
+    const { store, policy } = await fixture()
+    await machineGrant(store, reader, 'use')
+    const checkout = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium'),
+    }
+    const state = await policy.state.forBatch!([checkout])
+    expect(state.mayRead(reader, checkout)).toBe(false)
+  })
+
+  it('a member whose access row moved is re-sent that machine’s checkouts', async () => {
+    const { store, policy } = await fixture()
+    await store.machines.upsertMachine({
+      id: 'm1',
+      name: 'one',
+      hostname: 'one',
+      tokenHash: 'x',
+      ownerUserId: owner,
+    })
+    await store.checkouts.apply(
+      [
+        {
+          machineId: asMachineId('m1'),
+          path: '/home/u/podium',
+          root: '/home/u/podium',
+          kind: 'repository',
+          repoId: null,
+          branch: 'main',
+          originUrl: null,
+          locked: false,
+          prunable: false,
+        },
+      ],
+      [],
+      '2026-11-09T00:00:00Z',
+    )
+    const edge = await edgeOf(policy.anchors, {
+      entity: 'machineAccess',
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    })
+    expect(edge?.audience).toEqual([reader])
+    expect(edge?.subjects).toEqual([
+      { entity: 'checkout', entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium') },
+    ])
   })
 })

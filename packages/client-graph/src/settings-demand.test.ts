@@ -1,4 +1,5 @@
-import type { KeyedListChange } from '@podium/client-core/engine'
+import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import { asMachineId, type CheckoutWire, checkoutRepositoryId, checkoutRowId } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -6,49 +7,53 @@ import type { SettingsRows } from './settings-schema'
 import { type SettingsOwner, SettingsSource } from './settings-source'
 import { LOADING } from './worklist/rollup'
 
+/** A repository's settings id: its machine and root path. */
+const repoId = (n: number) => checkoutRepositoryId({ machineId: 'm0', path: `/repo/${n}` })
+
 function fixture(scale: 1 | 4) {
+  // Machines are `machine` records, repositories `checkout` records (POD-6644),
+  // read from the replica and followed through its addressed batches.
   const machines = new Map(
       Array.from({ length: 128 * scale }, (_, n) => [
         `m${n}`,
-        { id: `m${n}`, name: `Machine ${n}` } as SettingsRows['settingsMachine'],
+        { id: `m${n}`, name: `Machine ${n}`, loggedOutHarnesses: [] } as unknown as SettingsRows['settingsMachine'],
       ]),
     ),
     repos = new Map(
       Array.from({ length: 128 * scale }, (_, n) => [
-        `r${n}`,
-        {
-          path: `/repo/${n}`,
-          kind: 'repository',
-          worktrees: [],
-        } as SettingsRows['settingsRepository'],
+        checkoutRowId(asMachineId('m0'), `/repo/${n}`),
+        { machineId: 'm0', path: `/repo/${n}`, root: `/repo/${n}`, kind: 'repository' } as CheckoutWire,
       ]),
     )
-  const lists = new Map<string, (change: KeyedListChange) => void>(),
+  const lists = new Set<(batch: ReplicaAddressedBatch) => void>(),
     locals = new Set<() => void>()
   let tab: SettingsRows['settingsWindow']['settingsTab'] = 'sessions'
-  const ids = vi.fn((name: string) => [...(name === 'machines' ? machines : repos).keys()]),
-    row = vi.fn((name: string, id: string) =>
-      name === 'machines' ? machines.get(id) : repos.get(id),
+  const checkoutRows: readonly CheckoutWire[] = [...repos.values()]
+  const ids = vi.fn((kind: string) =>
+      kind === 'machines' ? [...machines.values()] : kind === 'checkouts' ? checkoutRows : [],
     ),
+    row = vi.fn((kind: string, id: string) => (kind === 'machines' ? machines.get(id) : undefined)),
     local = vi.fn(() => tab),
     off = vi.fn()
   const owner = {
-    listIds: ids,
-    listRow: row,
     readLocal: local,
-    onList(name: string, changed: (change: KeyedListChange) => void) {
-      lists.set(name, changed)
-      return () => {
-        lists.delete(name)
-        off(name)
-      }
-    },
     onLocals(_keys: readonly string[], changed: () => void) {
       locals.add(changed)
       return () => {
         locals.delete(changed)
         off('settingsTab')
       }
+    },
+    replica: {
+      rows: ids,
+      row,
+      subscribeAddressedBatch(listener: (batch: ReplicaAddressedBatch) => void) {
+        lists.add(listener)
+        return () => {
+          lists.delete(listener)
+          off('batch')
+        }
+      },
     },
   } as unknown as SettingsOwner
   const source = new SettingsSource(owner)
@@ -57,8 +62,10 @@ function fixture(scale: 1 | 4) {
     row.mockClear()
     local.mockClear()
   }
-  function emit(name: string, id: string, order = false) {
-    lists.get(name)?.({ ids: new Set([id]), order })
+  /** A machine (`machines`) or a repository (`repos`) changed on the server. */
+  function emit(name: 'machines' | 'repos', id: string) {
+    const kind = name === 'machines' ? ('machines' as const) : ('checkouts' as const)
+    for (const listener of [...lists]) listener({ type: 'update', rows: [{ kind, id }] })
   }
   async function measure(name: string, action: () => void) {
     clear()
@@ -95,12 +102,21 @@ function fixture(scale: 1 | 4) {
 }
 
 type Step = Awaited<ReturnType<ReturnType<typeof fixture>['measure']>>
+/**
+ * Every action's work is the same at 1x and 4x. The one exception is a named
+ * repository's first read: repositories are derived from the checkout records
+ * (POD-6644) in one pass over them, memoized by the replica's answer, so that
+ * read grows with the checkouts (tens per machine), and still reads the list
+ * once and no row.
+ */
 function flat(first: Record<string, Step>, second: typeof first) {
   for (const name of Object.keys(first)) {
     for (const counter of ['ids', 'rows', 'locals'] as const)
       expect(second[name]?.[counter], `${name}:${counter}`).toBe(first[name]?.[counter])
-    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const) {
+      if (name === 'repository' && (counter === 'elements' || counter === 'visits')) continue
       expect(second[name]?.work[counter], `${name}:${counter}`).toBe(first[name]?.work[counter])
+    }
   }
 }
 
@@ -114,9 +130,10 @@ it('answers imperative settings questions directly without subscribing or warmin
       })
       expect(machine).toMatchObject({ ids: 0, rows: 1, locals: 0 })
       const repository = await f.measure('imperative named repository', () => {
-        expect(f.source.read('settingsRepository', 'r0')).toMatchObject({ path: '/repo/0' })
+        expect(f.source.read('settingsRepository', repoId(0))).toMatchObject({ path: '/repo/0' })
       })
-      expect(repository).toMatchObject({ ids: 0, rows: 1, locals: 0 })
+      // Repositories are derived from the checkout records: one list read.
+      expect(repository).toMatchObject({ ids: 1, rows: 0, locals: 0 })
       const window = await f.measure('imperative settings tab', () => {
         expect(f.source.read('settingsWindow', 'window')).toEqual({ settingsTab: 'sessions' })
       })
@@ -207,7 +224,7 @@ it('loads one declared machine or repository and follows only observed keys at 1
       expect(value).toMatchObject({ name: 'Machine 0' })
       expect(first).toMatchObject({ ids: 0, rows: 1, locals: 0 })
       expect(f.row.mock.calls).toEqual([['machines', 'm0']])
-      expect([...f.lists.keys()]).toEqual(['machines'])
+      expect(f.lists.size).toBe(1)
       const repeat = await f.measure('repeat named settings machine', () => {
         const current = autorun(() => f.source.read('settingsMachine', 'm0'))
         current()
@@ -227,13 +244,13 @@ it('loads one declared machine or repository and follows only observed keys at 1
       expect(paints).toBe(beforeUnrelated)
       const removed = await f.measure('observed machine removed', () => {
         f.machines.delete('m0')
-        f.emit('machines', 'm0', true)
+        f.emit('machines', 'm0')
       })
       expect(value).toBeUndefined()
       expect(removed).toMatchObject({ ids: 0, rows: 1, locals: 0 })
       const added = await f.measure('observed machine returned', () => {
         f.machines.set('m0', { id: 'm0', name: 'Returned' } as SettingsRows['settingsMachine'])
-        f.emit('machines', 'm0', true)
+        f.emit('machines', 'm0')
       })
       expect(value).toMatchObject({ name: 'Returned' })
       expect(added).toMatchObject({ ids: 0, rows: 1, locals: 0 })
@@ -243,16 +260,16 @@ it('loads one declared machine or repository and follows only observed keys at 1
       expect(closed).toMatchObject({ ids: 0, rows: 0, locals: 0 })
       const repository = await f.measure('first named settings repository', () => {
         repoStop = autorun(() => {
-          value = f.source.read('settingsRepository', 'r0')
+          value = f.source.read('settingsRepository', repoId(0))
         })
       })
       expect(value).toMatchObject({ path: '/repo/0' })
-      expect(repository).toMatchObject({ ids: 0, rows: 1, locals: 0 })
-      expect(f.row.mock.calls).toEqual([['repos', 'r0']])
-      expect([...f.lists.keys()]).toEqual(['repos'])
+      expect(repository).toMatchObject({ ids: 1, rows: 0, locals: 0 })
+      expect(f.ids.mock.calls).toEqual([['checkouts']])
+      expect(f.lists.size).toBe(1)
       repoStop()
       const control = await f.measure('whole settings bootstrap control', () => {
-        for (const id of f.owner.listIds('machines')) f.owner.listRow('machines', id)
+        for (const machine of f.owner.replica.rows('machines')) f.owner.replica.row!('machines', machine.id)
       })
       expect(control.rows).toBe(128 * scale)
       expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
@@ -283,7 +300,8 @@ it('loads catalog ids separately from payloads and releases shared channels afte
     catalogPaints++
   })
   await Promise.resolve()
-  expect(catalog).toEqual({ machines: [...f.machines.keys()], repositories: [...f.repos.keys()] })
+  const repositories = () => [...f.repos.values()].map((repo) => checkoutRepositoryId(repo))
+  expect(catalog).toEqual({ machines: [...f.machines.keys()], repositories: repositories() })
   expect(f.ids).toHaveBeenCalledTimes(2)
   expect(f.row).not.toHaveBeenCalled()
   const stopMachine = autorun(() => {
@@ -302,24 +320,25 @@ it('loads catalog ids separately from payloads and releases shared channels afte
     expect(catalog).toBe(before)
     expect(catalogPaints).toBe(beforePaints)
     expect(f.ids).not.toHaveBeenCalled()
-    expect(f.row.mock.calls).toEqual([['machines', 'm0']])
+    // One read to see the catalog did not move, one for the observed row.
+    expect(f.row.mock.calls).toEqual([['machines', 'm0'], ['machines', 'm0']])
     f.clear()
     f.machines.delete('m1')
-    f.emit('machines', 'm1', true)
+    f.emit('machines', 'm1')
     await Promise.resolve()
-    expect(catalog).toEqual({ machines: [...f.machines.keys()], repositories: [...f.repos.keys()] })
-    expect(f.row).not.toHaveBeenCalled()
+    expect(catalog).toEqual({ machines: [...f.machines.keys()], repositories: repositories() })
+    expect(f.row.mock.calls).toEqual([['machines', 'm1']])
     expect(f.ids).toHaveBeenCalledTimes(2)
     stopCatalog()
-    expect([...f.lists.keys()]).toEqual(['machines'])
+    expect(f.lists.size).toBe(1)
     f.clear()
-    f.emit('machines', 'm2', true)
+    f.emit('machines', 'm2')
     await Promise.resolve()
     expect(f.ids).not.toHaveBeenCalled()
     expect(f.row).not.toHaveBeenCalled()
     stopMachine()
     expect(f.lists.size).toBe(0)
-    expect(f.off.mock.calls).toEqual([['repos'], ['machines']])
+    expect(f.off.mock.calls).toEqual([['batch'], ['batch']])
     f.source.dispose()
     await Promise.resolve()
     expect(f.off).toHaveBeenCalledTimes(2)

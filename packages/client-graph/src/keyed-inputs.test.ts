@@ -1,6 +1,6 @@
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import { headerEntities } from './header-entities'
+import { omitGone } from './lookup'
 // @vitest-environment happy-dom
 
 import type { GitRepositoryWire } from '@podium/model'
@@ -16,6 +16,7 @@ import { autorun, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   startScenarioEngine,
+  upsert,
   writeHeartbeat,
   writeTitleRename,
 } from '../../../tests/worklist/shared/src/scenarios'
@@ -46,7 +47,7 @@ const cleanups: (() => void)[] = []
 beforeEach(async () => {
   // Each test owns a large corpus. Collect after the previous async test
   // unwinds, keeping retired snapshots below the shared host memory budget.
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
   ;(globalThis as typeof globalThis & { Bun: { gc(force: boolean): unknown } }).Bun.gc(true)
 })
 afterEach(() => {
@@ -71,14 +72,10 @@ function metered(rt: Runtime): { view: Runtime; meter: Meter } {
   const view = Object.create(rt) as Runtime
   Object.assign(view, {
     readLocal: read(rt.readLocal),
-    listIds: read(rt.listIds),
-    listRow: read(rt.listRow),
     onLocals: (
       keys: Parameters<Runtime['onLocals']>[0],
       listener: Parameters<Runtime['onLocals']>[1],
     ) => rt.onLocals(keys, woken(listener)),
-    onList: (name: Parameters<Runtime['onList']>[0], listener: Parameters<Runtime['onList']>[1]) =>
-      rt.onList(name, woken(listener)),
   })
   return { view, meter }
 }
@@ -206,7 +203,9 @@ describe('keyed adapter inputs (POD-5433)', () => {
       const f = await fixture(scale)
       try {
         const seen: unknown[] = []
-        const stop = autorun(() => { seen.push(f.chat.read('chatDraft', f.session)) })
+        const stop = autorun(() => {
+          seen.push(f.chat.read('chatDraft', f.session))
+        })
         const batches = f.chat.counts.batches
         try {
           const cost = await costOf(f, () =>
@@ -236,14 +235,13 @@ describe('keyed adapter inputs (POD-5433)', () => {
       const discover = async (repos: GitRepositoryWire[]) => {
         await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
         change.mockClear()
-        f.ctx.discovery.repos = repos
-        f.ctx.hub.emit('worktreesChanged')
+        f.ctx.setRepos(repos)
         await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
         await flush()
         return sessionLinks()
       }
       try {
-        const repos = f.ctx.discovery.repos as GitRepositoryWire[]
+        const repos = f.ctx.repos() as GitRepositoryWire[]
         const resident = [...allResidentSessions(f.pool)]
         expect(resident.length).toBeGreaterThan(0)
         // A branch rename moves no path: no session is re-linked.
@@ -265,8 +263,17 @@ describe('keyed adapter inputs (POD-5433)', () => {
             if (count > under) [at, tree, under] = [i, j, count]
           }
         expect(under).toBeGreaterThan(0)
-        const dropped = renamed.map((repo, i) =>
-          i === at ? { ...repo, worktrees: repo.worktrees.filter((_, j) => j !== tree) } : repo,
+        // One path is one checkout record (POD-6644): a worktree the corpus
+        // also lists as a standalone root leaves only when both entries go.
+        const gone = repos[at]!.worktrees[tree]!.path
+        const dropped = renamed.flatMap((repo, i) =>
+          repo.path === gone
+            ? []
+            : [
+                i === at
+                  ? { ...repo, worktrees: repo.worktrees.filter((_, j) => j !== tree) }
+                  : repo,
+              ],
         )
         expect(await discover(dropped)).toBe(under)
         expect(under).toBeLessThan(resident.length)
@@ -351,17 +358,15 @@ describe('keyed adapter inputs (POD-5433)', () => {
       expect(machines.length).toBeGreaterThan(1)
       const first = machines[0]?.id ?? '',
         second = machines[1]?.id ?? ''
-      // Synchronous on purpose: a new machine set also starts the runtime's
-      // repo refresh, and the scenario's discovery answers with no machines.
-      f.ctx.hub.emit('machines', machines)
       const kept = headerEntities(f.pool).get('machine', second)
       expect(kept).toBeDefined()
-      f.ctx.hub.emit(
-        'machines',
-        machines.map((row, at) => (at === 0 ? { ...row, name: 'Renamed host' } : { ...row })),
-      )
+      // A rename is a change of the machine's record (POD-6644).
+      const record = f.ctx.cache.read('machine', first)!.value as Record<string, unknown>
+      upsert(f.ctx, 'machine', first, { ...record, name: 'Renamed host' })
+      await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
+      await flush()
       expect(headerEntities(f.pool).get('machine', first)).toMatchObject({ name: 'Renamed host' })
-      // A fresh but equal row keeps its identity: no reader of it wakes.
+      // The other machine's row keeps its identity: no reader of it wakes.
       expect(headerEntities(f.pool).get('machine', second)).toBe(kept)
     } finally {
       f.dispose()

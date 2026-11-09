@@ -85,7 +85,9 @@ let processTopic = processesTopicFixture(async () => ({
   breakdown: await memoryBreakdown(),
   reclaim: await reclaimInventory(),
 }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ hub: processTopic.hub }) }))
+// My access rows (POD-6644): none here, so no machine hosts the server.
+const noAccessRows = { rows: () => [], subscribeAddressedBatch: () => () => {} }
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ hub: processTopic.hub, replica: noAccessRows }) }))
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({

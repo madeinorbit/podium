@@ -72,9 +72,10 @@ const store = {
     },
     discovery: {
       scanMachine: { mutate: scanMachine },
+      // The explicit rescan (POD-6644): its finds arrive as checkout records.
+      refreshRepos: { mutate: refreshRepos },
     },
   },
-  refreshRepos,
   uiState: {
     get: (key: string) => uiValues.get(key) ?? null,
     set: (key: string, value: string | null) => {

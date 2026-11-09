@@ -157,13 +157,14 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
     { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone/base' }] },
     { ...root, path: '/clone', worktrees: [{ path: '/clone/base/nested' }] },
     { ...root, repoId: 'deeper' as typeof root.repoId, path: '/synthetic/project/w1' },
-    { ...root, repoId: 'wildcard' as typeof root.repoId, path: '/wild/', machineId: undefined, worktrees: [] },
+    // Every checkout is on a machine now (POD-6644): no machine-less wildcard root.
+    { ...root, repoId: 'wildcard' as typeof root.repoId, path: '/wild/', worktrees: [] },
   ]
   let stop = () => {}
   try {
     f.change({ paneA: asSessionId(f.fileTabs[0]!.id), repos })
     stop = autorun(() => dockSnapshot(views))
-    const check = (cwd: string, machineId: typeof root.machineId, scans = repos) => {
+    const check = (cwd: string, machineId: typeof root.machineId | undefined, scans = repos) => {
       f.change({ repos: scans, fileTabs: [{ ...f.fileTabs[0]!, worktreePath: cwd,
         scope: { kind: 'worktree', root: cwd, ...(machineId ? { machineId } : {}) } }] })
       const expected = legacyShellSnapshot(f.state(), f.issues).sections.find(section => section.key === 'dock')!

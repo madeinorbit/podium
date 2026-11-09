@@ -28,7 +28,7 @@ async function world(enrolled = true) {
   const pairing = new PairingManager({ installationId: 'installation-a' })
   const machines = new MachinesService({ instanceId: 'test', installationId: 'installation-a',
     store, hostMachineId: store.hostMachineId, pairing,
-    clients: () => [], machinesForPrincipal: async () => [] })
+    })
   const enrollment = { id: machineId, name: 'box', hostname: 'box', tokenHash: '',
     credentialKind: 'ed25519' as const, publicKey, ownerUserId: member, podiumManaged: true,
     assignment: { server: false, agentExecution: true },
@@ -127,7 +127,7 @@ describe('keypair enrollment', () => {
     expect(await store.machines.getMachine(machineId)).toBeUndefined()
     const foreign = new PairingManager({ installationId: 'installation-b' })
     const machines = new MachinesService({ instanceId: 'test', installationId: 'installation-a', store,
-      hostMachineId: store.hostMachineId, pairing: foreign, clients: () => [], machinesForPrincipal: async () => [] })
+      hostMachineId: store.hostMachineId, pairing: foreign })
     const foreignCode = machines.mintPairingCode({ ownerUserId: member })
     expect((await prepareDaemonFrame(createMachineSupervisorAcceptor({ machines, connectionId: 'foreign' }),
       hello({ kind: 'pairCode', code: foreignCode, publicKey }))).outcome.kind).toBe('rejected')

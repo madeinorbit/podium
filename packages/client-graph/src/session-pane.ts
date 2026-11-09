@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire } from '@podium/model/browser'
-import { headerIds } from './enumerate'
+import type { MachineFacts } from '@podium/model/browser'
+import { headerView } from './header-views'
 import { here, omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import type { SessionPaneRows } from './session-pane-schema'
@@ -12,11 +12,9 @@ export function paneSession(pool: MobxPool, id: string | undefined): Loaded<Sess
 export function paneWindow(pool: MobxPool): Loaded<SessionPaneRows['sessionPaneWindow']> {
   return omitGone(pool.row('sessionPaneWindow', 'window'))
 }
-export function paneMachines(pool: MobxPool): MachineWire[] {
-  return headerIds(pool, 'machine').flatMap(id => {
-    const row = here(pool.row('machine', id)) as MachineWire | undefined
-    return row ? [row] : []
-  })
+/** My fleet's machine models: online is the LiveStore's (POD-6644). */
+export function paneMachines(pool: MobxPool): MachineFacts[] {
+  return headerView(pool).machines()
 }
 /**
  * The machine a move still on its way is taking this session to, by name
@@ -26,7 +24,7 @@ export function paneMachines(pool: MobxPool): MachineWire[] {
 export function paneHandingOffTo(pool: MobxPool, id: string): string | undefined {
   const machineId = pool.sessionObject(id).handingOffTo
   if (machineId === undefined) return undefined
-  const machine = here(pool.row('machine', machineId)) as MachineWire | undefined
+  const machine = here(pool.model('machine', machineId))
   return machine?.name || machineId
 }
 export function paneHasSessions(pool: MobxPool): boolean {

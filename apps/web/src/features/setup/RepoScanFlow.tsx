@@ -86,7 +86,12 @@ export function RepoScanFlow(props: RepoScanFlowProps): JSX.Element {
 }
 
 function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineId, initialDraft }: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
-  const { trpc, refreshRepos, uiState } = useSettingsClient()
+  const { trpc, uiState } = useSettingsClient()
+  // Look again at my machines (POD-6644): what the scans find arrives as
+  // `checkout` records on every device; this only waits for the scans.
+  const refreshRepos = async (): Promise<void> => {
+    await trpc.discovery.refreshRepos.mutate()
+  }
   const { machines } = useSettingsCatalog()
   const [draft, setDraftState] = useState<LocalProjectDraft>(initialDraft)
   const [results, setResults] = useState<Results | null>(() => initialDraft.results ?? null)

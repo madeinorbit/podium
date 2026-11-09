@@ -1,11 +1,11 @@
-import type { HostMetricsWire, MachineWire } from '@podium/model'
+import type { HostMetricsWire } from '@podium/model'
 import { encode, type ServerMessage, type TopicKind } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import type { ConnectionHealth, ServerIdentity } from '../socket-transport/socket-hub'
 import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
 import type { TopicListener, TopicState } from '../socket-transport/subscriptions'
-import { LiveFeed, type LiveFeedHub, type LiveFrameScheduler } from './live-feed'
+import { LiveFeed, type LiveFeedHub, type LiveFeedMachines, type LiveFrameScheduler } from './live-feed'
 import { LiveStore } from './live-store'
 
 /**
@@ -55,12 +55,27 @@ class ManualFrames implements LiveFrameScheduler {
   }
 }
 
+class FakeMachines implements LiveFeedMachines {
+  list: string[] = []
+  private listeners = new Set<() => void>()
+  ids(): readonly string[] {
+    return this.list
+  }
+  subscribe(changed: () => void): () => void {
+    this.listeners.add(changed)
+    return () => this.listeners.delete(changed)
+  }
+  set(ids: string[]): void {
+    this.list = ids
+    for (const listener of [...this.listeners]) listener()
+  }
+}
+
 class FakeHub implements LiveFeedHub {
   connected = false
   health: ConnectionHealth = { status: 'ok', rttMs: null, since: 0 }
   identity: ServerIdentity | null = null
   skew: number | null = null
-  machineList: MachineWire[] = []
   readonly held = new Map<string, TopicListener<unknown>>()
   private handlers = new Map<string, Set<(...args: unknown[]) => void>>()
   subscribeTopic<K extends TopicKind>(
@@ -77,9 +92,6 @@ class FakeHub implements LiveFeedHub {
   }
   state(key: string, state: TopicState<unknown>): void {
     this.held.get(key)?.onState?.(state)
-  }
-  machines(): MachineWire[] {
-    return this.machineList
   }
   connectionHealth(): ConnectionHealth {
     return this.health
@@ -117,8 +129,10 @@ function setup() {
     onMetricsDemand: (id, on) => feed?.watchMetrics(id, on),
     onUsageDemand: (on) => feed?.watchUsage(on),
   })
-  feed = new LiveFeed({ hub, live, userId: 'me', scheduler: frames, now: () => 2_000 })
-  return { hub, frames, live, feed }
+  // The machines the feed follows are the replica's machine records (POD-6644).
+  const machines = new FakeMachines()
+  feed = new LiveFeed({ hub, machines, live, userId: 'me', scheduler: frames, now: () => 2_000 })
+  return { hub, machines, frames, live, feed }
 }
 
 /** A server's feature facts as `welcome` carries them (POD-6677). */
@@ -234,20 +248,19 @@ describe('LiveStore', () => {
 
 describe('LiveFeed', () => {
   it('holds account.quota and every known machine for its lifetime, and releases them on stop', () => {
-    const { hub, feed } = setup()
-    hub.machineList = [{ id: 'm1' } as MachineWire]
+    const { hub, machines, feed } = setup()
+    machines.list = ['m1']
     feed.start()
     expect([...hub.held.keys()].sort()).toEqual(['account.quota:me', 'machine.condition:m1'])
-    hub.machineList = [{ id: 'm2' } as MachineWire]
-    hub.emit('machines', hub.machineList)
+    machines.set(['m2'])
     expect([...hub.held.keys()].sort()).toEqual(['account.quota:me', 'machine.condition:m2'])
     feed.stop()
     expect(hub.held.size).toBe(0)
   })
 
   it('applies readings at most once per frame, the newest per key winning', () => {
-    const { hub, frames, live, feed } = setup()
-    hub.machineList = [{ id: 'm1' } as MachineWire]
+    const { hub, machines, frames, live, feed } = setup()
+    machines.list = ['m1']
     feed.start()
     frames.flush()
     const applied: unknown[] = []

@@ -35,7 +35,7 @@ import {
   repoUsageAt,
 } from '@podium/client-core/values'
 import { machinePathBasename } from '@podium/model'
-import type { AutomationSessionMode, GitRepositoryWire, MachineWire } from '@podium/model/browser'
+import type { AutomationSessionMode, GitRepositoryWire, MachineFacts } from '@podium/model/browser'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { Frequency } from './cron-format'
 import { cronFromFields, isValidCronExpression } from './cron-format'
@@ -415,7 +415,7 @@ export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
 export function automationTargetChoices(
   repos: readonly GitRepositoryWire[],
   sessions: readonly { cwd: string; lastActiveAt: string }[],
-  views: readonly MachineView<MachineWire>[],
+  views: readonly MachineView<MachineFacts>[],
   currentPath?: string | null,
 ): { choices: AutomationTargetChoice[]; excluded: AutomationTargetExclusions } {
   const availabilityOf = new Map(views.map((v) => [v.machine.id, v.availability]))

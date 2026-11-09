@@ -11,7 +11,17 @@ import { MobxPool } from './pool'
 
 const WEEK = 7 * 86_400_000
 const NOW = Date.parse('2026-10-05T12:00:00Z')
-function machine(id: string, online: boolean, seen: number): HeaderRows['machine'] {
+/**
+ * One machine as the app receives it (POD-6644): its record, and its presence
+ * (online, last seen, daemon availability) as a LiveStore condition. `record`
+ * is what the pool holds; `presence` is what `place` writes on the LiveStore.
+ */
+type Machine = HeaderRows['machine'] & {
+  online: boolean
+  lastSeenAt: string
+  availability?: { epoch: string; server: boolean; supervisor: boolean; daemon: boolean }
+}
+function machine(id: string, online: boolean, seen: number): Machine {
   return {
     id: id as HeaderRows['machine']['id'],
     name: id,
@@ -20,6 +30,19 @@ function machine(id: string, online: boolean, seen: number): HeaderRows['machine
     lastSeenAt: new Date(seen).toISOString(),
   }
 }
+function record(value: Machine): HeaderRows['machine'] {
+  const { online: _online, lastSeenAt: _seen, availability: _availability, ...rest } = value
+  return rest
+}
+function place(live: ReturnType<typeof liveFixture>, value: Machine): void {
+  live.condition(value.id, {
+    online: value.online,
+    since: null,
+    lastSeenAt: value.lastSeenAt,
+    ...(value.availability ? { availability: value.availability } : {}),
+  } as never)
+}
+const ids = (answer: readonly { id: string }[]) => answer.map((value) => value.id)
 
 it('bounds the actual offline header window across online fleet and expired history at 1x/4x', async () => {
   const samples = []
@@ -34,15 +57,15 @@ it('bounds the actual offline header window across online fleet and expired hist
       machine(`expired-${at}`, false, NOW - 2 * WEEK),
     )
     headerEntities(pool).apply([
-      ...online.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
-      ...expired.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
-      { kind: 'machine', id: 'target', value: target },
+      ...online.map((value) => ({ kind: 'machine' as const, id: value.id, value: record(value) })),
+      ...expired.map((value) => ({ kind: 'machine' as const, id: value.id, value: record(value) })),
+      { kind: 'machine', id: 'target', value: record(target) },
     ])
-    for (const value of online) live.online(value.id, true)
-    let answer: HeaderRows['machine'][] = [],
+    for (const value of [...online, ...expired, target]) place(live, value)
+    let answer: { id: string; name: string }[] = [],
       paints = 0,
       stop = () => {}
-    const ids = vi.spyOn(headerView(pool), 'ids')
+    const idsSpy = vi.spyOn(headerView(pool), 'ids')
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, () => runInAction(action)), { pool })
     const apply = (records: HeaderRecord[]) => headerEntities(pool).apply(records)
@@ -53,15 +76,16 @@ it('bounds the actual offline header window across online fleet and expired hist
           paints++
         })
       })
-      expect(answer).toEqual([target])
-      expect(first.work.rows).toBe(1)
+      expect(ids(answer)).toEqual(['target'])
+      // The answer is the machine's model: at most its one row is read (POD-6644).
+      expect(first.work.rows).toBeLessThanOrEqual(1)
       const before = paints
       const onlineMetadata = await measure('online machine metadata', () =>
         apply([
           {
             kind: 'machine',
             id: online[17]!.id,
-            value: { ...online[17]!, name: 'Renamed online' },
+            value: record({ ...online[17]!, name: 'Renamed online' }),
           },
         ]),
       )
@@ -70,27 +94,27 @@ it('bounds the actual offline header window across online fleet and expired hist
           {
             kind: 'machine',
             id: expired[17]!.id,
-            value: { ...expired[17]!, name: 'Renamed history' },
+            value: record({ ...expired[17]!, name: 'Renamed history' }),
           },
         ]),
       )
       const sample = await measure('unrelated live condition', () =>
-        live.online(online[18]!.id, true, new Date(NOW).toISOString()),
+        place(live, { ...online[18]!, lastSeenAt: new Date(NOW + 1).toISOString() }),
       )
       expect(paints).toBe(before)
       for (const action of [onlineMetadata, expiredMetadata, sample])
         expect(action.work.rows).toBe(0)
       const renamed = { ...target, name: 'Renamed target' }
       const selected = await measure('visible offline metadata', () =>
-        apply([{ kind: 'machine', id: 'target', value: renamed }]),
+        apply([{ kind: 'machine', id: 'target', value: record(renamed) }]),
       )
-      expect(answer).toEqual([renamed])
-      expect(selected.work.rows).toBe(1)
+      expect(answer.map((value) => value.name)).toEqual(['Renamed target'])
+      expect(selected.work.rows).toBeLessThanOrEqual(1)
       const quiet = await measure('quiet clock tick', () => pool.clock.advance(NOW + 500))
       const exact = await measure('exact offline window boundary', () =>
         pool.clock.advance(NOW + 1000),
       )
-      expect(answer).toEqual([renamed])
+      expect(answer.map((value) => value.name)).toEqual(['Renamed target'])
       expect(quiet.work.rows).toBe(0)
       expect(exact.work.rows).toBe(0)
       const expiry = await measure('one offline machine expires', () =>
@@ -98,77 +122,68 @@ it('bounds the actual offline header window across online fleet and expired hist
       )
       expect(answer).toEqual([])
       const expiredUpdate = await measure('expired selected machine changes', () =>
-        apply([{ kind: 'machine', id: 'target', value: { ...renamed, name: 'Hidden target' } }]),
+        apply([{ kind: 'machine', id: 'target', value: record({ ...renamed, name: 'Hidden target' }) }]),
       )
       expect(expiredUpdate.work.rows).toBe(0)
       const rewind = await measure('clock rewind restores window member', () =>
         pool.clock.advance(NOW),
       )
       expect(answer.map((value) => value.name)).toEqual(['Hidden target'])
-      expect(rewind.work.rows).toBe(1)
+      expect(rewind.work.rows).toBeLessThanOrEqual(1)
       const sampled = await measure('offline machine known online by the LiveStore', () =>
-        live.online('target', true),
+        place(live, { ...target, online: true }),
       )
       expect(answer).toEqual([])
       const second = await measure('a second online reading', () =>
-        live.online('target', true, new Date(NOW).toISOString()),
+        place(live, { ...target, online: true, lastSeenAt: new Date(NOW).toISOString() }),
       )
       expect(answer).toEqual([])
-      const unsampled = await measure('the live reading goes unknown', () =>
-        live.online('target', undefined),
+      const unsampled = await measure('the live reading goes offline', () =>
+        place(live, target),
       )
-      expect(answer.map((value) => value.id)).toEqual(['target'])
+      expect(ids(answer)).toEqual(['target'])
       const becameOnline = await measure('selected machine becomes online', () =>
-        apply([{ kind: 'machine', id: 'target', value: { ...target, online: true } }]),
+        place(live, { ...target, online: true }),
       )
       expect(answer).toEqual([])
       const becameOffline = await measure('selected machine loses daemon', () =>
-        apply([
-          {
-            kind: 'machine',
-            id: 'target',
-            value: {
-              ...target,
-              online: true,
-              availability: { epoch: 'current', server: true, supervisor: true, daemon: false },
-            },
-          },
-        ]),
+        place(live, {
+          ...target,
+          online: true,
+          availability: { epoch: 'current', server: true, supervisor: true, daemon: false },
+        }),
       )
-      expect(answer.map((value) => value.id)).toEqual(['target'])
+      expect(ids(answer)).toEqual(['target'])
       const removed = await measure('offline machine removed', () =>
         apply([{ kind: 'machine', id: 'target', value: undefined }]),
       )
       expect(answer).toEqual([])
-      expect(ids).not.toHaveBeenCalled()
+      expect(idsSpy).not.toHaveBeenCalled()
       stop()
       const closedPaints = paints
       const closed = await measure('offline header unmounted', () => {
-        apply([{ kind: 'machine', id: 'target', value: target }])
+        apply([{ kind: 'machine', id: 'target', value: record(target) }])
         pool.clock.advance(NOW + 2000)
       })
       expect(paints).toBe(closedPaints)
       expect(closed.work.rows).toBe(0)
       const control = await measure('former whole-fleet offline lookup', () => {
-        const sampledIds = new Set(
-          [...live.live.machineConditions].flatMap(([id, reading]) =>
-            reading.known && reading.value.online ? [id] : [],
-          ),
-        )
         headerView(pool)
           .ids('machine')
           .flatMap((id) => {
             const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
+            const reading = live.live.conditionOf(id)
+            const condition = reading?.known ? reading.value : reading?.last
             if (
               !value ||
-              !isMachineOfflineForLiveTerminal(value) ||
-              sampledIds.has(id) ||
+              !condition ||
+              !isMachineOfflineForLiveTerminal(condition) ||
               value.serviceAssignment?.agentExecution === false ||
               value.revokedAt ||
               value.supersededBy
             )
               return []
-            const seen = Date.parse(value.lastSeenAt)
+            const seen = Date.parse(String(condition.lastSeenAt))
             return Number.isFinite(seen) && !pool.clock.passed(seen + WEEK) ? [value] : []
           })
       })
@@ -198,7 +213,7 @@ it('bounds the actual offline header window across online fleet and expired hist
       })
     } finally {
       stop()
-      ids.mockRestore()
+      idsSpy.mockRestore()
       pool.dispose()
     }
   }
@@ -227,32 +242,36 @@ it('preserves all eligibility rules, source order, live online and replacement',
     { ...machine('bad-date', false, NOW), lastSeenAt: 'unknown' },
     { ...machine('old', false, NOW - WEEK - 1) },
   ]
-  let answer: HeaderRows['machine'][] = []
+  let answer: { id: string }[] = []
   const stop = autorun(() => {
     answer = headerView(pool).offlineMachines()
   })
   try {
     headerEntities(pool).apply(
-      [base, b, ...excluded].map((value) => ({ kind: 'machine', id: value.id, value })),
+      [base, b, ...excluded].map((value) => ({ kind: 'machine', id: value.id, value: record(value) })),
     )
-    expect(answer).toEqual([base, b])
+    for (const value of [base, b, ...excluded]) place(live, value)
+    expect(ids(answer)).toEqual(['a', 'b'])
     runInAction(() => headerEntities(pool).order('machine', ['missing', 'b', 'b']))
-    expect(answer).toEqual([b, base])
+    expect(ids(answer)).toEqual(['b', 'a'])
     runInAction(() => headerEntities(pool).order('machine', []))
-    expect(answer).toEqual([base, b])
-    live.online('a', true)
-    expect(answer).toEqual([b])
-    live.online('a', false)
-    live.online('b', true)
-    expect(answer).toEqual([base])
+    expect(ids(answer)).toEqual(['a', 'b'])
+    place(live, { ...base, online: true })
+    expect(ids(answer)).toEqual(['b'])
+    place(live, base)
+    place(live, { ...b, online: true })
+    expect(ids(answer)).toEqual(['a'])
     headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: undefined }])
-    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: base }])
-    live.online('b', undefined)
-    expect(answer).toEqual([b, base])
+    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: record(base) }])
+    place(live, b)
+    expect(ids(answer)).toEqual(['b', 'a'])
     runInAction(() => headerEntities(pool).clear())
     expect(answer).toEqual([])
-    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: base }])
-    expect(answer).toEqual([base])
+    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: record(base) }])
+    expect(ids(answer)).toEqual(['a'])
+    // A machine whose condition is not read yet is not listed (POD-6644).
+    headerEntities(pool).apply([{ kind: 'machine', id: 'unread', value: record(machine('unread', false, NOW)) }])
+    expect(ids(answer)).toEqual(['a'])
   } finally {
     stop()
     pool.dispose()

@@ -382,7 +382,9 @@ describe('attach / detach orchestration', () => {
       // boot, so an attaching daemon has nothing to claim — it becomes reachable.
       'machines.flushQueued',
       'sessions.onMachineAttached',
-      'machines.scheduleBroadcastMachines',
+      // The machine's records (POD-6644): an attach can carry a new build or
+      // inventory. Online itself is a LiveStore condition, not a record field.
+      'machines.schedulePublishMachines',
     ])
     expect(bus.emit).toHaveBeenCalledWith('machine.connected', { machineId: 'local' })
   })
@@ -407,7 +409,7 @@ describe('attach / detach orchestration', () => {
     expect(calls.map((c) => `${c.port}.${c.method}`)).toEqual([
       'machines.detach',
       'sessions.onMachineDetached',
-      'machines.scheduleBroadcastMachines',
+      // No record write: going offline is a LiveStore condition (POD-6644).
     ])
     expect(order).toEqual(['bus.machine.disconnected'])
   })
@@ -423,7 +425,7 @@ describe('attach / detach orchestration', () => {
           calls.push('detach')
           return false
         },
-        scheduleBroadcastMachines: () => calls.push('scheduleBroadcastMachines'),
+        schedulePublishMachines: () => calls.push('schedulePublishMachines'),
       },
       sessions: { onMachineDetached: () => calls.push('onMachineDetached') },
     } as unknown as DaemonFeaturePorts

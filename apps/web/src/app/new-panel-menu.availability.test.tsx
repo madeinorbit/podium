@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asRepoId, asUserId, type GitRepositoryWire } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -30,7 +31,8 @@ it.each(['/home/mgw/nulldisk', '/home/mgw/nulldisk/topic'])(
         { kind: 'pi', installed: true, login: { state: 'in' } },
       ] },
     }))
-    fixture.api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories, machines: machines(), diagnostics: [] })) as never
+    // Machines and repositories are records; online is the live condition (POD-6644).
+    fixture.putMachinesAndRepos({ machines: machines(), repos: repositories })
     let pool: MobxPool | null = null
     let owner!: ReturnType<typeof useStoreHandle<Trpc>>
     const opened = vi.fn()
@@ -44,20 +46,19 @@ it.each(['/home/mgw/nulldisk', '/home/mgw/nulldisk/topic'])(
     render(<StoreProvider principal={asClientPrincipal(asUserId('checkout-launch-proof'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
       createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-      attachRuntime={runtime => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, fatal) }}><Host /></StoreProvider>)
+      attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); return attachWorklistPool(runtime, fatal) }}><Host /></StoreProvider>)
     await waitFor(() => expect(pool).toBeTruthy())
-    await act(async () => { await owner.access.refreshRepos() })
     fireEvent.click(screen.getByRole('button', { name: 'New panel' }))
     await screen.findByRole('menuitem', { name: /^New Pi$/ })
     const pi = () => screen.getByRole('menuitem', { name: /^New Pi/ })
     await waitFor(() => expect(pi().getAttribute('data-refused')).toBeNull())
     expect(screen.getByRole('menuitem', { name: 'ludovico' }).getAttribute('aria-disabled')).not.toBe('true')
     online = false
-    await act(async () => { await owner.access.refreshRepos() })
-    await waitFor(() => expect(pool!.row('machine', 'ludovico')).toMatchObject({ online: false }))
+    await act(async () => { fixture.putMachinesAndRepos({ machines: machines() }) })
+    await waitFor(() => expect(here(pool!.model('machine', 'ludovico'))?.online).toBe(false))
     await waitFor(() => expect(pi().getAttribute('data-refused')).toBe('true'))
     online = true
-    await act(async () => { await owner.access.refreshRepos() })
+    await act(async () => { fixture.putMachinesAndRepos({ machines: machines() }) })
     await waitFor(() => expect(pi().getAttribute('data-refused')).toBeNull())
     fireEvent.click(pi())
     // A `session.launch` record (POD-6523): the panel opens on the session id

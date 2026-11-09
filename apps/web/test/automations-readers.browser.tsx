@@ -35,9 +35,6 @@ function Surface() {
       __openAutomationDialog: () => setDialog(true),
       __closeAutomationDialog: () => setDialog(false),
     })
-    void referenceState(owner!)
-      .refreshRepos()
-      .catch(() => failures.push('fixture-discovery-failure'))
   }, [])
   return (
     <Profiler
@@ -76,7 +73,7 @@ root.render(
     networkEnabled={false}
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, () => failures.push('pool-failure'))
     }}
   >

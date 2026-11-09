@@ -5,7 +5,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * header owns machine/repository/order rows; this extension supplies missing
  * controls and authoritative shipping lanes, never another runtime or outbox. */
 export interface ShellRows {
-  shellWindow: Pick<Store, 'view' | 'paneA' | 'selectedIssueId' | 'selectedWorktree' | 'reposLoaded' | 'superOpen' | 'paletteOpen' | 'autoContinuePromptSessionId'>
+  shellWindow: Pick<Store, 'view' | 'paneA' | 'selectedIssueId' | 'selectedWorktree' | 'superOpen' | 'paletteOpen' | 'autoContinuePromptSessionId'>
   shellCatalog: { files: readonly string[]; workspaces: readonly string[]; lanes: readonly string[] }
   shellFile: Store['fileTabs'][number]
   shellWorkspace: Store['workspaces'][string]
@@ -15,7 +15,7 @@ declare module './source-registry' { interface PoolSourceRows extends ShellRows 
 export type ShellEntity = keyof ShellRows
 export const SHELL_SOURCE_KEY = 'shell-controls'
 export const SHELL_SCHEMA = {
-  shellWindow: { key: 'window', source: 'engine:locals', fields: ['view', 'paneA', 'selectedIssueId', 'selectedWorktree', 'reposLoaded', 'superOpen', 'paletteOpen', 'autoContinuePromptSessionId'], cold: 'never' },
+  shellWindow: { key: 'window', source: 'engine:locals', fields: ['view', 'paneA', 'selectedIssueId', 'selectedWorktree', 'superOpen', 'paletteOpen', 'autoContinuePromptSessionId'], cold: 'never' },
   shellCatalog: { key: 'catalog', source: 'resident:membership', order: 'owner order' },
   shellFile: { key: 'id', source: 'engine:fileTabs', cold: 'never' },
   shellWorkspace: { key: 'workspaceKey', source: 'engine:workspaces', cold: 'never' },

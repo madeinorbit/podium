@@ -20,7 +20,7 @@ import type { IssueVisitBaseline } from './types'
  * after a different principal took over (POD-404 AC).
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import type { CheckoutRepository, IssueId, SessionId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
@@ -125,6 +125,12 @@ export interface ReactionPorts {
   /** The worktree a `?pane=` link named while its session has not arrived yet
    *  (POD-4642). The fallback holds it rather than swapping in another repo. */
   readonly linkedWorktree?: () => string | null
+  /** The registered repositories and their worktrees, from the replica's
+   *  `checkout` records (POD-6644). */
+  readonly repositories?: () => readonly CheckoutRepository[]
+  /** Whether the checkouts are known: the replica holds a synced copy, saved
+   *  or fresh. Before that an empty list is "not here yet", never "none". */
+  readonly checkoutsKnown?: () => boolean
 }
 
 export class Reactions {
@@ -370,7 +376,9 @@ export class Reactions {
     const plan = planWorktreeMoves({
       prevCwds,
       sessions: rows,
-      worktreePaths: reposToViews(st.repos).flatMap((r) => r.worktrees.map((w) => w.path)),
+      worktreePaths: reposToViews(this.ports.repositories?.() ?? []).flatMap((r) =>
+        r.worktrees.map((w) => w.path),
+      ),
       selectedWorktree: st.selectedWorktree,
       // The same "what is on screen" walk the view-state report uses: a session
       // in a third pane is being looked at just as much as one in the first.
@@ -398,7 +406,7 @@ export class Reactions {
    *  for its session there, else fall back to the first known worktree. */
   worktreeFallback(): boolean {
     const st = this.ports.state()
-    if (!st.reposLoaded) return true
+    if (this.ports.checkoutsKnown?.() !== true) return true
     if (
       st.navigation.registeredWorktree &&
       st.navigation.hasWorktreeSession &&
@@ -417,7 +425,9 @@ export class Reactions {
       this.ports.publish({ selectedWorktree: first ?? null })
       return true
     }
-    const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
+    const worktrees = reposToViews(this.ports.repositories?.() ?? []).flatMap(
+      (repo) => repo.worktrees,
+    )
     if (!st.selectedWorktree) {
       this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
       return true

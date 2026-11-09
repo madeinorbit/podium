@@ -66,13 +66,16 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
     return { outcome: 'applied', result: runs[3], receipt: { feedId: 'f', epoch: 'e', seq: 2 }, replayed: false }
   }
   Object.assign(fixture.api, {
-    discovery: { refreshRepos: { mutate: query('discovery', () => ({ repositories: [], machines: [...machines], diagnostics: [] })) } },
     sync: { submit: { mutate: submit } },
     workflows: {
       status: { query: async (input: { runId: string }) => { calls.status = (calls.status ?? 0) + 1; return runs.find((run) => run.id === input.runId) } },
     },
   })
+  // Machines are records, online their live condition; no repositories (POD-6644).
+  fixture.putMachinesAndRepos({ machines, repos: [] })
   return { ...fixture, get replica() { return fixture.replica }, api: fixture.api as unknown as Trpc, machines, profiles, runs, detail, calls,
+    /** Re-deliver `machines` (after a test edits it): records and conditions. */
+    publishMachineList() { fixture.putMachinesAndRepos({ machines }) },
     denyWrites(message: string | null) { denial = message },
     remove(entity: string, id: string) {
       fixture.records.delete(`${entity}:${id}`)

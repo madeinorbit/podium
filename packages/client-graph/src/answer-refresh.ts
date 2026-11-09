@@ -1,3 +1,4 @@
+import type { Replica } from '@podium/client-core/replica'
 import type { SocketHub, TopicState } from '@podium/client-core/socket-transport'
 import type { MachineId } from '@podium/model'
 import { checkoutTopicId, type TopicKind, type TopicPayload } from '@podium/protocol'
@@ -39,21 +40,49 @@ export function topicRefresh<K extends TopicKind>(
   }
 }
 
-/** Prefer the server's explicit identity over compatibility component labels. */
+/** The machines a request answer may be about: my access rows (POD-6644). */
+export interface AnswerMachines {
+  /** The machine the server runs on, when I may see it. */
+  serverMachineId(): MachineId | undefined
+  /** Run `changed` after my machines may have moved. Answers the unsubscribe. */
+  subscribe(changed: () => void): () => void
+}
+
+type MachineReplica = Pick<Replica, 'rows' | 'subscribeAddressedBatch'>
+
+/** {@link AnswerMachines} over the replica's `machineAccess` records. Prefers
+ *  the server's explicit identity over compatibility component labels. */
+export function replicaAnswerMachines(replica: MachineReplica): AnswerMachines {
+  return {
+    serverMachineId() {
+      const rows = replica.rows('machineAccess')
+      return (
+        rows.find((row) => row.hostsServer === true) ??
+        rows.find((row) => row.components?.includes('server'))
+      )?.machineId
+    },
+    subscribe(changed) {
+      return (
+        replica.subscribeAddressedBatch?.((batch) => {
+          if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'machineAccess')) {
+            changed()
+          }
+        }) ?? (() => {})
+      )
+    },
+  }
+}
+
 export function answerMachineId(
-  hub: Pick<SocketHub, 'machines'>,
+  machines: AnswerMachines,
   requested?: MachineId,
 ): MachineId | undefined {
-  if (requested) return requested
-  const machines = hub.machines()
-  return (
-    machines.find((machine) => machine.serverMoveEligibility?.reason === 'current-server') ??
-    machines.find((machine) => machine.components?.includes('server'))
-  )?.id
+  return requested ?? machines.serverMachineId()
 }
 
 export function checkoutRefresh(
-  hub: Pick<SocketHub, 'subscribeTopic' | 'machines' | 'on'>,
+  hub: Pick<SocketHub, 'subscribeTopic'>,
+  machines: AnswerMachines,
   machineId: MachineId | undefined,
   path: string,
 ): AnswerSignal {
@@ -62,7 +91,7 @@ export function checkoutRefresh(
     let release: (() => void) | undefined
     const bind = (): void => {
       // An omitted machine means the server host, never the first remote host.
-      const machine = answerMachineId(hub, machineId)
+      const machine = answerMachineId(machines, machineId)
       if (current === machine) return
       release?.()
       current = machine
@@ -71,7 +100,7 @@ export function checkoutRefresh(
         : undefined
     }
     bind()
-    const unlisten = hub.on('machines', bind)
+    const unlisten = machines.subscribe(bind)
     const unfocus = focusRefresh(changed)
     return () => {
       release?.()

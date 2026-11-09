@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/model'
+import type { MachineFacts } from '@podium/model'
 import { CheckCircle2, ChevronDown } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -14,7 +14,7 @@ export interface MachinePairingProps {
   podiumManaged: boolean
   recommendServer: boolean
   makeServerAfterPair: boolean
-  newMachine: Pick<MachineWire, 'id' | 'name'> | null
+  newMachine: Pick<MachineFacts, 'id' | 'name'> | null
   onManagedChange: (managed: boolean) => void
   onMakeServerAfterPairChange: (value: boolean) => void
   onChangeUrl?: () => void
@@ -141,7 +141,7 @@ export interface PairingCodeDisplayProps {
   recommendServer: boolean
   makeServerAfterPair: boolean
   onMakeServerAfterPairChange: (value: boolean) => void
-  pairedMachine: Pick<MachineWire, 'id' | 'name'> | null
+  pairedMachine: Pick<MachineFacts, 'id' | 'name'> | null
   onReviewPairedMachine: () => void
   onNewCode: () => void
   busy?: boolean

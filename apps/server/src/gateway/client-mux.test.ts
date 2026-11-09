@@ -275,7 +275,7 @@ describe('the connection lifecycle', () => {
       expect(sent).toEqual([{ type: 'welcome', clientId: conn.id }])
       started.push('sessions')
       await sessions.promise
-      conn.send({ type: 'machinesChanged', machines: [] })
+      conn.send({ type: 'attentionEvent', sessionId: 's-1' as never, title: 't', body: 'b' })
     })
     h.bootstrap.mockImplementation(async (conn) => {
       started.push('bootstrap')
@@ -314,7 +314,7 @@ describe('the connection lifecycle', () => {
     expect(sent.filter((msg) => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual(
       [],
     )
-    expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
+    expect(sent.some((msg) => msg.type === 'attentionEvent')).toBe(false)
     expect(sent.some((msg) => msg.type === 'hostMetricsChanged')).toBe(false)
     const feedEnd = sent.length
     const firstTask = first === 'sessions' ? sessions : bootstrap
@@ -322,14 +322,14 @@ describe('the connection lifecycle', () => {
     firstTask.resolve()
     await firstTask.promise
     expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
-      first === 'sessions' ? ['machinesChanged'] : ['hostMetricsChanged'],
+      first === 'sessions' ? ['attentionEvent'] : ['hostMetricsChanged'],
     )
     secondTask.resolve()
     await secondTask.promise
     expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
       first === 'sessions'
-        ? ['machinesChanged', 'hostMetricsChanged']
-        : ['hostMetricsChanged', 'machinesChanged'],
+        ? ['attentionEvent', 'hostMetricsChanged']
+        : ['hostMetricsChanged', 'attentionEvent'],
     )
     h.mux.detachClient(id)
   })

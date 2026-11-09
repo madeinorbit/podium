@@ -18,7 +18,6 @@ import {
   type TranscriptItem,
   WorkState,
 } from '@podium/model'
-import type { LiveServerMessage } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
@@ -909,10 +908,13 @@ export async function buildSuperagentTools(
         const path = `${repoPath}-${safe}`
         const r = await rpc.repoOp('worktreeAdd', repoPath, { path, branch })
         if (r.ok) {
-          // POD-665: same invalidation issues.start() fires after worktreeAdd — this
-          // tool creates a worktree through a separate path, so it needs its own push.
-          const msg: LiveServerMessage = { type: 'worktreesChanged', repoPath }
-          for (const c of sessions.clients.values()) c.send(msg)
+          // A worktree created behind the apps' backs is a change of the machine's
+          // checkouts: it is scanned, and the new `checkout` record reaches every
+          // device (POD-6644; the same rescan issues.start() asks for).
+          void modules.machines
+            .defaultMachine()
+            .then((machineId) => modules.checkouts.rescanSoon(machineId))
+            .catch(() => {})
         }
         return r.ok ? JSON.stringify({ worktreePath: path, branch }) : `failed: ${r.output}`
       },

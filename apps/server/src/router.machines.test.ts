@@ -13,6 +13,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { renameMachine } from './test-support/machine-records'
 
 async function machineCaller() {
   const store = await openTestStore(':memory:')
@@ -63,17 +64,17 @@ describe('machines router', () => {
     expect(m1?.online).toBe(false)
   })
 
-  it('machines.rename changes the name and returns the updated list', async () => {
+  it('records.machine.edit renames it, and machines.list serves the new name', async () => {
     const { call } = await machineCaller()
-    const result = await call.machines.rename({ id: 'm1', name: 'renamed-machine' })
-    const m1 = result.find((m) => m.id === 'm1')
+    await renameMachine(call, 'm1', 'renamed-machine')
+    const m1 = (await call.machines.list()).find((m) => m.id === 'm1')
     expect(m1?.name).toBe('renamed-machine')
   })
 
-  it('machines.rename enforces min=1 max=80 on name', async () => {
+  it('records.machine.edit refuses an empty or over-long name', async () => {
     const { call } = await machineCaller()
-    await expect(call.machines.rename({ id: 'm1', name: '' })).rejects.toThrow()
-    await expect(call.machines.rename({ id: 'm1', name: 'x'.repeat(81) })).rejects.toThrow()
+    await expect(renameMachine(call, 'm1', '')).rejects.toThrow()
+    await expect(renameMachine(call, 'm1', 'x'.repeat(81))).rejects.toThrow()
   })
 
   it('machines.revoke removes the machine from the list', async () => {

@@ -1,12 +1,13 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
 import { headerEntities } from './header-entities'
 import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
-import { type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
+import type { HeaderEntity, HeaderRecord, HeaderRows } from './header-schema'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
+import { checkoutRepositoryId, repositoriesFromCheckouts } from './shared/checkout-repositories'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. Live
  * readings (metrics, quota, connection) are not copied here: they are
@@ -35,28 +36,39 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     })
     known.set(entity, next)
   }
-  // Keyed (POD-5433): machines and repos arrive by id, with only the rows
-  // that changed; the window wakes on its own four locals.
-  function keyed(
-    entity: 'machine' | 'repository',
-    name: 'machines' | 'repos',
-    change?: KeyedListChange,
-  ): void {
+  // Machines are feed records (the row source installs them). Repositories
+  // are derived from the `checkout` records (POD-6644).
+  let repositoriesFrom: unknown
+  const written = new Map<string, string>()
+  function repositories(): void {
+    const rows = runtime.replica.rows('checkouts')
+    if (rows === repositoriesFrom) return
+    repositoriesFrom = rows
+    // One derivation pass per checkout change (they are rare: a worktree made
+    // or removed, a branch checked out), but only the repositories whose facts
+    // moved are written, so one change redraws one repository row.
+    const next = repositoriesFromCheckouts(rows)
+    const keep = new Set<string>()
+    const records: HeaderRecord[] = []
+    for (const repo of next) {
+      const id = checkoutRepositoryId(repo)
+      const shape = JSON.stringify(repo)
+      keep.add(id)
+      if (written.get(id) === shape && headerEntities(pool).tables.repository.has(id)) continue
+      written.set(id, shape)
+      records.push({ kind: 'repository', id, value: repo } as HeaderRecord)
+    }
     if (disposed) return
-    const ids = change === undefined || change.order ? runtime.listIds(name) : undefined
-    const changed = change === undefined ? ids! : [...change.ids]
-    const records = changed.map((id) => ({
-      kind: entity,
-      id,
-      value: runtime.listRow(name, id),
-    })) as HeaderRecord[]
     runInAction(() => {
-      // Live machine rows win over their feed companions (POD-5661, POD-5704);
-      // repositories have no companions and apply directly.
-      if (entity === 'machine') pool.ingestLiveMachines(records)
-      else headerEntities(pool).apply(records)
-      if (ids) headerEntities(pool).order(entity, ids)
+      // Also reconcile the table itself: an earlier apply may have thrown.
+      for (const id of headerEntities(pool).tables.repository.keys())
+        if (!keep.has(id))
+          records.push({ kind: 'repository', id, value: undefined } as HeaderRecord)
+      for (const id of [...written.keys()]) if (!keep.has(id)) written.delete(id)
+      if (records.length) headerEntities(pool).apply(records)
+      headerEntities(pool).order('repository', [...keep])
     })
+    known.set('repository', keep)
   }
   const window = Object.defineProperties(
     {},
@@ -85,8 +97,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
         : (omitGone(pool.row('session', change.name)) as object | undefined),
     )
   })
-  keyed('machine', 'machines')
-  keyed('repository', 'repos')
+  repositories()
   replace('window', [['window', window]])
   shipping()
   attachHeaderRequests(pool, runtime.access.trpc as unknown as HeaderRequestsApi)
@@ -95,8 +106,10 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     runtime.replica.subscribeAddressedBatch!((batch) => {
       if (batch.type === 'replace') {
         shipping()
+        repositories()
         return
       }
+      if (batch.rows.some((record) => record.kind === 'checkouts')) repositories()
       const records: HeaderRecord<'shipOrder'>[] = []
       const ids = known.get('shipOrder')!
       for (const record of batch.rows) {
@@ -108,8 +121,6 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       }
       headerEntities(pool).apply(records)
     }),
-    runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
-    runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
   ]
   return () => {
     if (disposed) return

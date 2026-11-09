@@ -19,7 +19,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { MachineWire } from '@podium/model/browser'
+import { type MachineFacts, MachineWire, serverMoveEligibilityOf } from '@podium/model/browser'
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { ReferenceState as Store } from './reference-state'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
@@ -28,8 +28,12 @@ const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
 // Models expose wire fields through getters; their own keys hold pool internals.
-const machineFields = (value: Store['machines'][number]) =>
-  fields(value, Object.keys(MachineWire.shape))
+// A server move's eligibility joins the record with online (POD-6644): both
+// sides answer it through the same join.
+const machineFields = (value: MachineFacts) => ({
+  ...fields(value, Object.keys(MachineWire.shape)),
+  serverMoveEligibility: serverMoveEligibilityOf(value as never, value.online),
+})
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && value.childCount >= 6)
 function closeFields(

@@ -19,6 +19,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import { machineAccessRowId, parseMachineAccessRowId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import type { ClientConn } from './gateway/client-registry'
@@ -110,16 +111,24 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   await users.setRole(bob.id, 'admin', alice.id)
 
   const feed = await (await inst.as('alice')).feed()
-  const listings = () =>
-    feed.frames.flatMap((frame) =>
-      frame.type === 'machinesChanged' ? [frame.machines.map((machine) => machine.id).sort()] : [],
+  // The machines Alice may see are her `machineAccess` records (POD-6644).
+  const sync = inst.handle.registry.sessionStore.sync
+  const visibleToAlice = async () =>
+    (
+      await sync.installedStates(
+        [inst.machines.alice, inst.machines.bob].map((machine) => ({
+          entity: 'machineAccess',
+          entityId: machineAccessRowId(alice.id, machine),
+        })),
+      )
     )
-  await feed.until(() => listings().length > 0)
+      .filter((row) => row.payload !== null)
+      .map((row) => parseMachineAccessRowId(row.entityId).machineId)
+      .sort()
   // As an admin, Alice sees every machine.
-  expect(listings().at(-1)).toEqual([inst.machines.alice, inst.machines.bob].sort())
+  await expect.poll(visibleToAlice).toEqual([inst.machines.alice, inst.machines.bob].sort())
   const queuedAt = Date.now()
   await tick()
-  const seen = listings().length
 
   await users.setRole(alice.id, 'member', bob.id)
 
@@ -127,9 +136,8 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   const [conn] = connectionsOf(inst, alice.id)
   expect(conn?.principal.role).toBe('member')
   expect(feed.closed()).toBe(false)
-  // Her machine listing is re-sent under the new role: only her own machine.
-  await feed.until(() => listings().length > seen)
-  expect(listings().at(-1)).toEqual([inst.machines.alice])
+  // Her machine access is rewritten under the new role: only her own machine.
+  await expect.poll(visibleToAlice).toEqual([inst.machines.alice])
   // What she queued while she was an admin is refused at dispatch.
   expect(await dispatch(inst, inst.sessions.alice, queuedBy(alice.id), queuedAt)).toEqual({
     ok: false,

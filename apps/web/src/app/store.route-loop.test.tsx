@@ -80,12 +80,10 @@ const realRepo = {
   worktrees: [],
 }
 
+/** The registered repositories the replica holds as checkout records. */
+let knownRepos: (typeof realRepo)[] = [realRepo]
+
 const fakeTrpc = {
-  discovery: {
-    refreshRepos: {
-      mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })),
-    },
-  },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
   settings: {
@@ -135,6 +133,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  knownRepos = [realRepo]
   renderCount = 0
   poolReady = false
   snapshot = null
@@ -165,7 +164,12 @@ async function mountAt(url: string): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createSidebarFixture(0, Date.now(), true).newReplica()}
+        createReplicaFn={() => {
+          // The registered repositories are checkout records (POD-6644).
+          const fixture = createSidebarFixture(0, Date.now(), true)
+          fixture.putMachinesAndRepos({ repos: knownRepos })
+          return fixture.newReplica()
+        }}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={(m) => {
           throw new Error(`fatal: ${m}`)
@@ -175,7 +179,7 @@ async function mountAt(url: string): Promise<void> {
       </StoreProvider>,
     )
   })
-  // Let boot (repos fetch) + the route/selection sync effects fully settle.
+  // Let the route/selection sync effects fully settle.
   await act(async () => {
     await Promise.resolve()
   })
@@ -244,11 +248,7 @@ describe('workspace deep link with unknown wt/pane', () => {
   })
 
   it('settles when there are no known worktrees at all', async () => {
-    fakeTrpc.discovery.refreshRepos.mutate.mockImplementationOnce(async () => ({
-      repositories: [],
-      diagnostics: [],
-      machines: [],
-    }))
+    knownRepos = []
     await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=dead-beef')
     expect(renderCount).toBeLessThan(60)
     expect(snapshot?.view).toBe('workspace')

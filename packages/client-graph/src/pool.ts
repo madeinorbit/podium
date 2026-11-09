@@ -78,8 +78,8 @@ import type {
   AutomationWire,
   EffectRecordWire,
   InstancePreferences,
+  MachineAccessWire,
   MachineProjection,
-  MachineWire,
   PersonalPreferences,
   PinWire,
   ReadPositionWire,
@@ -277,7 +277,10 @@ export interface PoolRows {
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>
   messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>
-  machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
+  /** The machine record joined with my access row (POD-6644). Live facts
+   *  (online, presence) are the model's, never the row's. */
+  machine: Readonly<MachineProjection & Partial<Omit<MachineAccessWire, 'userId' | 'machineId'>>> &
+    Readonly<Record<string, unknown>>
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
   /** Stamped at the row-source boundary: a session target's id (POD-6397). */
@@ -445,7 +448,6 @@ export class MobxPool {
   private emptyIndex: ColdIndex | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private readonly joinedRows = new WeakMap<object, object>()
-  private companionMachineRows = observable.map<string, Record<string, unknown>>()
   private disposed = false
 
   requestReference(ref: string): void {
@@ -1013,36 +1015,11 @@ export class MobxPool {
     return this.transactions?.notSaved?.(kind, id) ?? false
   }
 
-  /** TRACKED: the feed's replicated display name for a machine with a
-   * companion, undefined otherwise (POD-5661). Reads the stored companion,
-   * never the merged live row, so live overwrites cannot move it; renames
-   * re-run only this id's readers. */
+  /** TRACKED: the machine's name, from its synced record; undefined when the
+   * record is not here. Renames re-run only this id's readers. */
   machineHomeName(id: string): string | undefined {
-    const companion = this.companionMachineRows.get(id)
-    return typeof companion?.name === 'string' ? companion.name : undefined
-  }
-
-  /** Install live machine rows alongside their feed companions (POD-5661,
-   * POD-5704): the live row wins, so a keyed live rename reaches the header
-   * instead of being clobbered by the stored (stale) replicated name.
-   * Companion-only facts (loggedOutHarnesses) survive because the live row
-   * never carries them. The offline banner never reads this row — it reads
-   * the stored companion via machineHomeName, so replicated renames still
-   * reach the banner. Companion removals and row deletions pass through
-   * untouched. */
-  ingestLiveMachines(records: readonly { id: string; value: unknown }[]): void {
-    const merged = records.map((record) => {
-      const machine = { kind: 'machine' as const, ...record }
-      if (record.value === undefined || typeof record.value !== 'object') return machine
-      const companion = this.companionMachineRows.get(record.id)
-      if (!companion) return machine
-      return { ...machine, value: { ...companion, ...(record.value as Record<string, unknown>) } }
-    })
-    runInAction(() => {
-      headerEntities(this).apply(merged as never)
-      for (const record of records)
-        if (record.value === undefined) this.release('machine', record.id)
-    })
+    const row = this.tables.machine.get(id) as { name?: unknown } | undefined
+    return typeof row?.name === 'string' ? row.name : undefined
   }
 
   /**
@@ -1204,80 +1181,13 @@ export class MobxPool {
               record.value as Record<string, unknown> | undefined,
             )
       }
+      // Machines are records like any other (POD-6644): the feed's row is the
+      // machine record joined with my access row. The header's indexes over the
+      // same table follow the rows the feed carries.
       const machineRows = event.rows.filter((record) => record.kind === 'machine')
-      if (event.type === 'replace') {
-        const next = new Set(
-          machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
-        )
-        for (const id of this.companionMachineRows.keys())
-          if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
-        // Replace tracked companions in place so existing readers keep
-        // watching the same observable across publications.
-        for (const id of [...this.companionMachineRows.keys()])
-          if (!next.has(id)) this.companionMachineRows.delete(id)
-        for (const record of machineRows) {
-          if (record.value !== undefined && typeof record.value === 'object')
-            this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
-        }
-      } else
-        for (const record of machineRows) {
-          if (record.value === undefined) this.companionMachineRows.delete(record.id)
-          else if (typeof record.value === 'object')
-            this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
-        }
-      // Feed companions carry replicated display facts without live presence.
-      // Merge them over the live rows they accompany: a wholesale replace
-      // drops online/availability and every presence reader goes blind until
-      // the next hub emit (POD-5661). Companion fields win; live-only fields
-      // survive. Removals still delete. The live path merges the same stored
-      // companions the other way (ingestLiveMachines keeps the live rename,
-      // POD-5704), so a fresh live row is never clobbered by its own ingest;
-      // a later feed publication still carries the replicated facts session
-      // summaries join from. The offline banner reads the stored companion
-      // via machineHomeName, never this merged row, so replicated renames
-      // still reach it.
-      const mergedMachineRows = machineRows.map((record) => {
-        if (record.value === undefined || typeof record.value !== 'object') return record
-        const live = headerEntities(this).get('machine', record.id)
-        if (!live || typeof live !== 'object') return record
-        return {
-          ...record,
-          value: {
-            ...(live as Record<string, unknown>),
-            ...(record.value as Record<string, unknown>),
-          },
-        }
-      })
-      if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
-      // Header indexes and the models share the generic machine table. Reseed
-      // and update must retain the merged row the applying path just installed.
-      const mergedById = new Map(mergedMachineRows.map((record) => [record.id, record]))
-      const tableRows = machineRows.length
-        ? event.rows.map((record) =>
-            record.kind === 'machine' ? mergedById.get(record.id)! : record,
-          )
-        : event.rows
-      // A feed replacement cannot remove a live-only machine: it owns only
-      // replicated companions. The live source still owns those memberships.
-      const reseedRows =
-        event.type === 'replace'
-          ? [
-              ...tableRows,
-              ...headerIds(this, 'machine').flatMap((id) => {
-                if (mergedById.has(id)) return []
-                const value = this.tables.machine.get(id)
-                return value
-                  ? [
-                      {
-                        kind: 'machine' as const,
-                        id,
-                        value: value as RowSourceEvent['rows'][number]['value'],
-                      },
-                    ]
-                  : []
-              }),
-            ]
-          : tableRows
+      if (machineRows.length) headerEntities(this).apply(machineRows as never)
+      const tableRows = event.rows
+      const reseedRows = event.rows
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()

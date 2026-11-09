@@ -19,8 +19,10 @@
 
 import {
   INSTANCE_PREFERENCES_ROW_ID,
+  checkoutRowId,
   issueUserStateRowId,
   layoutRowId,
+  machineAccessRowId,
   pinRowId,
   readPositionRowId,
   sessionUserStateRowId,
@@ -87,6 +89,9 @@ const ENTITY_TO_KIND = {
   subscription: 'subscriptions',
   // POD-6677: the instance settings, one record.
   instancePreferences: 'instancePreferences',
+  // POD-6644: my machine access rows, and the checkouts I may see.
+  machineAccess: 'machineAccess',
+  checkout: 'checkouts',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -148,6 +153,14 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   }
   if (kind === 'userPreferences') {
     return userPreferencesRowId((row as ReplicaRows['userPreferences']).userId)
+  }
+  if (kind === 'machineAccess') {
+    const access = row as ReplicaRows['machineAccess']
+    return machineAccessRowId(access.userId, access.machineId)
+  }
+  if (kind === 'checkouts') {
+    const checkout = row as ReplicaRows['checkouts']
+    return checkoutRowId(checkout.machineId, checkout.path)
   }
   if (kind === 'userReadPositions') {
     const position = row as ReplicaRows['userReadPositions']

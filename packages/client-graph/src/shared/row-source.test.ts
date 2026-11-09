@@ -30,13 +30,8 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
       }
     },
   }
-  const repos: readonly never[] = []
   const source = createRowSource(
-    {
-      principal: { userId: 'operator' },
-      readLocal: () => repos,
-      onLocals: () => () => {},
-    },
+    { principal: { userId: 'operator' } },
     replica,
     options,
   )

@@ -1,5 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import { attachSettingsSource } from '@podium/client-graph/settings-source'
+import { attachSettingsSource } from '../src/test-support/settings-source.test.fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only operator replay. Inputs live only in this ludovico process;
@@ -49,10 +49,10 @@ const sessionRows = new Map(sessions.map((row) => [row.sessionId as string, row]
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined,
   { settings: true, load: (_entity, id) => sessionRows.get(id), schedule: () => () => {} })
 try {
-  attachSettingsSource(pool, owner)
-  attachPreferenceSource(pool, ui)
   pool.apply({ type: 'replace', rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId,
     value: row as unknown as SliceSession })) })
+  attachSettingsSource(pool, owner)
+  attachPreferenceSource(pool, ui)
   omitGone(pool.row('settingsCatalog', 'catalog'))
   omitGone(pool.row('settingsWindow', 'window'))
   omitGone(pool.row('preference', 'podium.sounds.enabled'))

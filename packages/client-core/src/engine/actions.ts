@@ -155,6 +155,8 @@ export const COMMAND_ACTIONS = [
   'discardChat',
   'renameSession',
   'setSuperagentBackend',
+  'renameMachine',
+  'setMachineUpdateChannel',
   'archiveSession',
   'dismissOffer',
   'setWorkState',
@@ -808,6 +810,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         patch,
       )
     },
+    // A machine's spec is two plain fields of its record (POD-6644): the
+    // name, and the update-channel pin (`null` follows the fleet default).
+    renameMachine: async (machineId, name) =>
+      editRecord({ kind: 'machine', id: machineId }, { name }),
+    setMachineUpdateChannel: async (machineId, channel) =>
+      editRecord({ kind: 'machine', id: machineId }, { updateChannelOverride: channel }),
     archiveSession: async (sessionId, archived) => {
       const write = editRecord(
         { kind: 'session', id: sessionId },

@@ -85,7 +85,8 @@ export type ModelSchemaName =
   | 'IssueGitState'
   | 'Geometry'
   | 'MachineProjection'
-  | 'MachineWire'
+  | 'MachineAccessWire'
+  | 'CheckoutWire'
   | 'AutomationWire'
   | 'AutomationRunWire'
   | 'MessageRecordWire'
@@ -117,10 +118,9 @@ export type ModelSchemaName =
  *
  * `replica:<kind>` is a collection of `ReplicaRows`
  * (`replica/contract.ts:92-145`); `schema-sources.ts` proves at typecheck time
- * that each `<kind>` is a real `ReplicaKind`. `engine:repos` is the machine's
- * repo scan (`EngineState.repos`, `GitRepositoryWire`), which is NOT a replica
- * collection — worktree lanes have no kind of their own and are built from it
- * (`shared/src/row-source.ts:308-323`).
+ * that each `<kind>` is a real `ReplicaKind`. Repository rows and worktree
+ * lanes are derived from the `checkout` records (`replica:checkouts`,
+ * POD-6644; `shared/checkout-repositories.ts`).
  */
 export type RowArrival =
   | 'replica:issueUserStates'
@@ -130,11 +130,11 @@ export type RowArrival =
   | 'replica:sessionUserStates'
   | 'replica:repos'
   | 'replica:issueDeps'
-  | 'engine:repos'
   | 'replica:machines'
+  | 'replica:machineAccess'
+  | 'replica:checkouts'
   | 'replica:automations'
   | 'replica:automationRuns'
-  | 'engine:machines'
   | 'replica:messageRecords'
   | 'replica:pendingInteractions'
   | 'replica:effects'
@@ -521,7 +521,7 @@ const effectWire = (property?: string): FieldSource => ({
 })
 const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string): FieldSource => ({
   schema,
-  arrivesOn: 'engine:repos',
+  arrivesOn: 'replica:checkouts',
   ...(property === undefined ? {} : { property }),
 })
 
@@ -552,7 +552,7 @@ const DECLARED = defineSchema({
   member: syncedIdentity('MemberView', 'request:members.list'),
   device: { ...syncedIdentity('MobileClientSession', 'request:auth.mobileSessions'), key: 'sessionId',
     fields: { sessionId: { type: 'id', source: { schema: 'MobileClientSession', arrivesOn: 'request:auth.mobileSessions' } } } },
-  repository: syncedIdentity('RequestRecordKey', 'engine:repos'),
+  repository: syncedIdentity('RequestRecordKey', 'replica:checkouts'),
   /**
    * An issue: its normalized projection joined with personal markers, checkout
    * observations and repository facts at the row-source boundary.
@@ -1000,14 +1000,14 @@ const DECLARED = defineSchema({
     components: {
       worktree: {
         schema: 'GitWorktreeWire',
-        arrivesOn: 'engine:repos',
+        arrivesOn: 'replica:checkouts',
         joinKey: 'path',
         precedence: 0,
         why: 'One lane per scanned worktree (GitRepositoryWire.worktrees[], row-source.ts:319-321).',
       },
       repoRoot: {
         schema: 'GitRepositoryWire',
-        arrivesOn: 'engine:repos',
+        arrivesOn: 'replica:checkouts',
         joinKey: 'path',
         precedence: 1,
         why: 'A repo root is itself a lane (row-source.ts:318) and stamps repoId/repoPath onto the worktrees it contains.',
@@ -1068,7 +1068,7 @@ const DECLARED = defineSchema({
       },
       repoScan: {
         schema: 'GitRepositoryWire',
-        arrivesOn: 'engine:repos',
+        arrivesOn: 'replica:checkouts',
         joinKey: 'repoId',
         precedence: 1,
         notComposed: {

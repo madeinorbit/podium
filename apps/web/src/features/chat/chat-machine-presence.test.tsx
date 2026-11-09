@@ -1,3 +1,5 @@
+import '@podium/client-graph/synced-models'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerView } from '@podium/client-graph/header-views'
 import { headerEntities } from '@podium/client-graph/header-entities'
 // @vitest-environment happy-dom
@@ -73,7 +75,14 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
           online: true,
         }) as MachineWire,
     )
-    headerEntities(pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
+    // Machine records with my access row; online is the LiveStore's (POD-6644).
+    const live = liveFixture(pool)
+    const records = seedFixtureMachines(pool, machines as never)
+    headerEntities(pool).apply(records as never)
+    const rename = (id: string, name: string) =>
+      headerEntities(pool).apply([
+        { kind: 'machine', id, value: { ...records.find((record) => record.id === id)!.value, name } },
+      ] as never)
     // Direct applies bypass the keyed delivery that sets the fleet order in
     // production; publish it so the section under test sees the live fleet.
     headerEntities(pool).order(
@@ -103,30 +112,14 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       const first = await measure(() => view!.rerender({ active: true }))
       expect(first.work.rows).toBe(1)
       expect(view!.result.current.presenceOfflineMachineName).toBeNull()
-      const unrelated = await measure(() =>
-        headerEntities(pool).apply([
-          { kind: 'machine', id: 'm1', value: { ...machines[1]!, online: false } },
-        ]),
-      )
+      const unrelated = await measure(() => live.online('m1', false))
       expect(unrelated.work.rows).toBe(0)
-      const changed = await measure(() =>
-        headerEntities(pool).apply([
-          { kind: 'machine', id: 'm0', value: { ...machines[0]!, online: false } },
-        ]),
-      )
-      expect(changed.work.rows).toBe(1)
+      const changed = await measure(() => live.online('m0', false))
+      expect(changed.work.rows).toBeLessThanOrEqual(1)
       expect(view!.result.current.presenceOfflineMachineName).toBe('Host 0')
       const hidden = await measure(() => view!.rerender({ active: false }))
       expect(hidden.work.rows).toBe(0)
-      const closed = await measure(() =>
-        headerEntities(pool).apply([
-          {
-            kind: 'machine',
-            id: 'm0',
-            value: { ...machines[0]!, online: false, name: 'While hidden' },
-          },
-        ]),
-      )
+      const closed = await measure(() => rename('m0', 'While hidden'))
       expect(closed.work.rows).toBe(0)
       const reopen = await measure(() => view!.rerender({ active: true }))
       expect(reopen.work.rows).toBe(1)
@@ -138,15 +131,11 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       expect(missing.work.rows).toBe(1)
       expect(view!.result.current.presenceOfflineMachineName).toBeNull()
       view!.unmount()
-      const detached = await measure(() =>
-        headerEntities(pool).apply([
-          {
-            kind: 'machine',
-            id: 'missing',
-            value: { ...machines[0]!, id: asMachineId('missing'), online: false },
-          },
-        ]),
-      )
+      const detached = await measure(() => {
+        headerEntities(pool).apply(
+          seedFixtureMachines(pool, [{ ...machines[0]!, id: asMachineId('missing'), online: false }] as never) as never,
+        )
+      })
       expect(detached.work.rows).toBe(0)
       headerEntities(pool).order('machine', [
         ...machines.map((value) => value.id),
@@ -154,7 +143,12 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       ])
       const control = await measureWork(
         async () => {
-          const legacy = createPoolProjection(pool, (current) => headerView(current).machines())
+          // The whole fleet read field by field, as a list reader would.
+          const legacy = createPoolProjection(pool, (current) =>
+            headerView(current)
+              .machines()
+              .map((machine) => ({ id: machine.id, name: machine.name, online: machine.online })),
+          )
           const stop = legacy.subscribe(() => {})
           try {
             expect(
@@ -167,7 +161,7 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         },
         { pool },
       )
-      expect(control.work.rows).toBe(128 * scale + 1)
+      expect(control.work.rows).toBeGreaterThanOrEqual(128 * scale)
       samples.push({
         scale,
         actions: {

@@ -40,8 +40,7 @@ async function setup(machines: { id: string; name: string; hostname: string }[])
     instanceId: 'default',
     store,
     hostMachineId: store.hostMachineId,
-    clients: () => [],
-    machinesForPrincipal: async () => [],
+
   } as MachinesDeps)
   services.push(service)
   return { store, service, ids: [...machines.map((machine) => machine.id), 'never-enrolled'] }

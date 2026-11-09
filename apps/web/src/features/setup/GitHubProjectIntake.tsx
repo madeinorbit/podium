@@ -1,5 +1,5 @@
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
-import type { MachineWire } from '@podium/model'
+import type { MachineFacts } from '@podium/model'
 import { isAbsoluteMachinePath } from '@podium/model'
 import { joinMachinePath } from '@podium/model/browser'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
@@ -13,7 +13,7 @@ import { useSettingsDraft } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
-type IntakeMachine = Pick<MachineWire, 'id' | 'name' | 'online' | 'inventory'>
+type IntakeMachine = Pick<MachineFacts, 'id' | 'name' | 'online' | 'inventory'>
 type Draft = { query: string; repository: string; destination: string }
 
 const serializeDraft = (draft: Draft): string => JSON.stringify(draft)

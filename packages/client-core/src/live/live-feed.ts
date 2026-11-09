@@ -5,7 +5,7 @@
  * writer of its topic and connection fields. Screens never see it.
  *
  * - `account.quota:<me>` and `machine.condition:<id>` for every machine the
- *   client knows are held for the runtime's whole life (ADR 7 Amendment 2 D18:
+ *   replica holds a record of (POD-6644) are held for the runtime's whole life (ADR 7 Amendment 2 D18:
  *   "the runtime root simply subscribes to machine condition and quota for its
  *   lifetime").
  * - `machine.metrics:<id>` is held only while a reader watches that machine's
@@ -22,7 +22,6 @@
  * them over on their own path, and this queue is separate from the feed's.
  */
 
-import type { MachineWire } from '@podium/model'
 import type { ServerFeatureFacts, TopicKind, TopicPayload } from '@podium/protocol'
 import { ConversationFrameScheduler } from '../conversation/frame-scheduler'
 import type { ConnectionHealth, ServerIdentity } from '../socket-transport/socket-hub'
@@ -45,12 +44,10 @@ export interface LiveFeedHub {
     id: string,
     listener: TopicListener<TopicPayload<K>>,
   ): () => void
-  machines(): MachineWire[]
   connectionHealth(): ConnectionHealth
   serverIdentity(): ServerIdentity | null
   clockSkewMs(): number | null
   readonly connected: boolean
-  on(event: 'machines', handler: (machines: MachineWire[]) => void): () => void
   on(event: 'connectionHealth', handler: (health: ConnectionHealth) => void): () => void
   on(event: 'serverIdentity', handler: (identity: ServerIdentity) => void): () => void
   on(event: 'clockSkew', handler: (skewMs: number) => void): () => void
@@ -62,8 +59,17 @@ export interface LiveFrameScheduler {
   dispose(): void
 }
 
+/** The machines whose condition the feed holds: the `machine` records the
+ *  replica keeps (POD-6644), every one I may know about. */
+export interface LiveFeedMachines {
+  ids(): readonly string[]
+  /** Run `changed` after the set may have moved. Answers the unsubscribe. */
+  subscribe(changed: () => void): () => void
+}
+
 export interface LiveFeedOptions {
   readonly hub: LiveFeedHub
+  readonly machines: LiveFeedMachines
   readonly live: LiveStore
   /** The signed-in account: `account.quota:<userId>`. */
   readonly userId: string
@@ -123,8 +129,9 @@ export class LiveFeed {
     this.releaseQuota = this.hub.subscribeTopic('account.quota', this.options.userId, {
       onState: (state) => this.queueTopic('account.quota', this.options.userId, state),
     })
-    this.offs.push(this.hub.on('machines', (machines) => this.followMachines(machines)))
-    this.followMachines(this.hub.machines())
+    const machines = this.options.machines
+    this.offs.push(machines.subscribe(() => this.followMachines(machines.ids())))
+    this.followMachines(machines.ids())
     for (const id of this.live.watchedMetrics) this.watchMetrics(id, true)
     if (this.live.usageWatched) this.watchUsage(true)
     this.offs.push(this.hub.on('connectionHealth', () => this.queueConnection()))
@@ -207,9 +214,9 @@ export class LiveFeed {
     this.queue('outbox', () => this.live.setOutbox(next))
   }
 
-  private followMachines(machines: readonly MachineWire[]): void {
+  private followMachines(ids: readonly string[]): void {
     if (!this.started) return
-    const wanted = new Set(machines.map((machine) => String(machine.id)))
+    const wanted = new Set(ids)
     for (const [id, release] of this.conditions) {
       if (wanted.has(id)) continue
       release()

@@ -57,14 +57,15 @@ function createHeaderViews(pool: MobxPool) {
     (_key: string, read: () => unknown) => read(),
     { equals: compareStructural },
   )
+  const machineModel = (id: string) => here(pool.model('machine', id)) as MachineModel | undefined
   let sessions: HeaderSessions | undefined
-  let offline: ReturnType<typeof createQueryResult<HeaderRows['machine']>> | undefined
-  function offlineMachines(): HeaderRows['machine'][] {
-    offline ??= createQueryResult<HeaderRows['machine']>({
+  let offline: ReturnType<typeof createQueryResult<MachineModel>> | undefined
+  function offlineMachines(): MachineModel[] {
+    offline ??= createQueryResult<MachineModel>({
       name: 'header.offlineMachines',
       ids: () => headerEntities(pool).offlineMachineIds(pool.clock.peekNow()),
       has: (id) => headerEntities(pool).hasOfflineMachine(id, pool.clock.peekNow()),
-      read: (id) => row('machine', id),
+      read: (id) => machineModel(id),
       order: (id) => headerEntities(pool).offlineMachineOrder(id),
       subscribe(changed) {
         const stopSource = headerEntities(pool).subscribeOfflineMachines(changed)
@@ -390,8 +391,10 @@ function createHeaderViews(pool: MobxPool) {
       return headerEntities(pool).shippingCounts(repoId)
     })
   }
-  const fleetIds = (): readonly string[] => headerEntities(pool).orders.get('machine') ?? []
-  const machineModel = (id: string) => here(pool.model('machine', id)) as MachineModel | undefined
+  /** My fleet: the machines I may see, those with my own access row
+   *  (POD-6644). A machine record alone (every member has it) is not one. */
+  const fleetIds = (): readonly string[] =>
+    memo('fleetIds', () => headerIds(pool, 'machine').filter((id) => headerEntities(pool).inFleet(id)))
   function fleetMetrics(): HostMetricsWire[] {
     return memo('metrics', () =>
       fleetIds().flatMap((id) => {
@@ -442,13 +445,10 @@ function createHeaderViews(pool: MobxPool) {
     ids: (entity: HeaderEntity) => headerIds(pool, entity),
     /** Live samples of the fleet machines, in fleet order (watching them holds their topics). */
     metrics: fleetMetrics,
-    machines: () =>
-      // The fleet section follows the live keyed order, not every table row:
-      // feed companions land in the tables for joins (S6) but are not fleet
-      // members. Pre-S6 the tables held live rows only, so this restores that
-      // membership exactly; joins and offline detection keep reading tables.
-      (headerEntities(pool).orders.get('machine') ?? []).flatMap((id) => {
-        const machine = row('machine', id)
+    /** My fleet's machine models (records, my access, live condition). */
+    machines: (): MachineModel[] =>
+      fleetIds().flatMap((id) => {
+        const machine = machineModel(id)
         return machine ? [machine] : []
       }),
     /** This account's plan quota per machine: the LiveStore's newest reading in this run. */

@@ -15,6 +15,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
 import { countStatements, quietShipping } from './test-support/statement-count'
 import { writeTestBackup } from './test-support/write-test-backup'
+import { pinMachineChannel } from './test-support/machine-records'
 
 /**
  * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
@@ -359,7 +360,7 @@ describe('one default channel', () => {
     expect(machine).toBeDefined()
     expect(registry.modules.updates.channelOf(machine as never)).toBe('edge')
 
-    await caller.machines.setUpdateChannel({ id: 'unpinned', channel: null })
+    await pinMachineChannel(caller, 'unpinned', null)
     await caller.machines.applyUpdate({ id: 'unpinned' })
 
     // Not merely "each handler refreshed something" — the SAME channel the
@@ -408,7 +409,7 @@ describe('one default channel', () => {
       .mockResolvedValue(true)
     await registry.modules.updates.setTarget('dev', target())
 
-    await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
+    await pinMachineChannel(caller, 'shared', 'dev')
     const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
 
     expect(await registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')

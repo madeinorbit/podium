@@ -31,7 +31,7 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
     dockDead: row.archived || row.status === 'exited', dockParked: !row.archived && row.status === 'hibernated',
   }
 }
-export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'coarseNow' | 'selectedIssueId'>,
+export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'coarseNow' | 'selectedIssueId'>,
   ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = []) {
   let pending = 0
   let acceptedOwnershipDifferences = 0
@@ -60,10 +60,12 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   const windowPending = window === LOADING
   if (windowPending) pending++
   const controls = (input: typeof window) => !input || input === LOADING ? {} : {
-    panelMode: input.panelMode, dockShells: input.dockShells, reposLoaded: input.reposLoaded,
+    panelMode: input.panelMode, dockShells: input.dockShells,
 
   }
-  const machineRows = (rows: typeof state.machines) => rows.map((row): CheckRow => ({ id: row.id, fields: { row } }))
+  // What the pane reads of a machine: its name, online (the LiveStore's) and logged-out harnesses.
+  const machineRows = (rows: readonly import('@podium/model').MachineFacts[]) => rows.map((row): CheckRow => ({ id: row.id,
+    fields: { name: row.name, online: row.online, loggedOutHarnesses: row.loggedOutHarnesses ?? [] } }))
   const selectedIssueId = sessionPaneView(pool).selectedIssueId
   const differenceFields: Record<string, number> = {}
   const result = compareSidebarSnapshots({ sections: [
@@ -73,7 +75,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     { key: 'ownership', fields: { selectedIssueId: state.selectedIssueId }, rows: [] },
   ], pending: 0 }, { sections: [
     { key: 'sessions', fields: {}, rows: actual },
-    { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded'] : [], rows: [] },
+    { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells'] : [], rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
     { key: 'ownership', fields: { selectedIssueId },
       rows: [] },

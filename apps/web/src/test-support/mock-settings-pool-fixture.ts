@@ -31,10 +31,15 @@ afterEach(() => { published.pool = null })
 function publish() {
   const pool = syncPoolFixture(readFixtureSnapshot(state => state))
   pool.sources.view('settings.fixtureCatalog', () => {
-    pool.sources.register(['settingsCatalog'], {
-      read: () => ({ machines: [...pool.tables.machine.keys()], repositories: [] }),
+    // The settings catalog over the pool's own rows: my machines (records) and
+    // the registered repositories (POD-6644: derived from checkout records).
+    pool.sources.register(['settingsCatalog', 'settingsRepository'], {
+      read: (entity: string, id: string) =>
+        entity === 'settingsCatalog'
+          ? { machines: [...pool.tables.machine.keys()], repositories: [...pool.tables.repository.keys()] }
+          : pool.tables.repository.get(id),
       dispose() {},
-    })
+    } as never)
     return {}
   })
   published.pool = pool

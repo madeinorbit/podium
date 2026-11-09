@@ -178,6 +178,12 @@ vi.mock('./store-worklist-pool', () => ({
         (state.sessions as SessionMeta[]).find((row) => row.sessionId === id),
     } as unknown as MobxPool),
 }))
+// The registered repositories are checkout records in the pool (POD-6644);
+// this fixture's fake pool serves them from its state.
+vi.mock('./header-data', async (original) => ({
+  ...(await original<typeof import('./header-data')>()),
+  usePoolRepositories: () => (state as { repos?: unknown[] }).repos ?? [],
+}))
 vi.mock('./workspace-mission', () => ({
   useWorkspaceMission: () => {
     const selected = replicaIssues.find(

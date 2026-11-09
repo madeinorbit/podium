@@ -104,9 +104,7 @@ const named = (machineId: MachineId | undefined): FleetTarget =>
  */
 export const FLEET_TARGETS = {
   'machines.setAssignment': (input: unknown) => named((input as { id: MachineId }).id),
-  'machines.rename': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.applyUpdate': (input: unknown) => named((input as { id: MachineId }).id),
-  'machines.setUpdateChannel': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.share': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.unshare': (input: unknown) => named((input as { id: MachineId }).id),
   // The TARGET is the machine being given away, not the recipient. Reading
@@ -342,7 +340,9 @@ async function machineUnownedRefusal(
   })
 }
 
-async function machineRefusal(
+/** The fleet gate's verb check on one machine, for a write that names it:
+ *  the generic machine record edits (POD-6644) use it as the commands did. */
+export async function machineRefusal(
   machineId: MachineId,
   verb: MachineVerb,
   deps: FleetAuthzDeps,

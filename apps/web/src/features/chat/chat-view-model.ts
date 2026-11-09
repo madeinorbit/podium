@@ -15,7 +15,7 @@ import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
-import type { MachineWire } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { PendingItem } from './chat'
@@ -262,7 +262,7 @@ export class ChatViewModel {
     const machine =
       id === undefined
         ? undefined
-        : (omitGone(pool.row('machine', id)) as MachineWire | symbol | undefined)
+        : (omitGone(pool.row('machine', id)) as MachineFacts | symbol | undefined)
     return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
       ? (this.session?.machineName ?? machine.name ?? id ?? null)
       : null

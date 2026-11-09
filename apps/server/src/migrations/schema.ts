@@ -965,6 +965,34 @@ export const repos = sqliteTable(
   (table) => [primaryKey({ columns: [table.machineId, table.path], name: 'repos_pk' })],
 )
 
+/**
+ * THE CHECKOUTS ON EACH MACHINE (POD-6644): each registered repository root and
+ * each of its worktrees, as the machine's daemon last reported them. The
+ * synced `checkout` record is this row. Written by the server from scans, and
+ * only when a checkout appears or goes or its branch changes: no head, no
+ * ahead/behind, no dirty flag (they move on every commit).
+ */
+export const checkouts = sqliteTable(
+  'checkouts',
+  {
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    path: text().notNull(),
+    /** The registered repository root this checkout belongs to. */
+    root: text().notNull(),
+    kind: text({ enum: ['repository', 'worktree', 'bare'] }).notNull(),
+    repoId: text('repo_id').$type<RepoId>(),
+    branch: text(),
+    originUrl: text('origin_url'),
+    locked: integer({ mode: 'boolean' }).notNull().default(false),
+    prunable: integer({ mode: 'boolean' }).notNull().default(false),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.machineId, table.path], name: 'checkouts_pk' }),
+    index('idx_checkouts_root').on(table.machineId, table.root),
+  ],
+)
+
 export const sessionDrafts = sqliteTable('session_drafts', {
   sessionId: text('session_id').$type<SessionId>().primaryKey(),
   text: text().notNull(),

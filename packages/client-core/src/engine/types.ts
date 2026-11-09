@@ -10,14 +10,12 @@ import type { NavigationIntent } from '../ui/navigation'
 import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   ArtifactId,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
   IssueId,
   MachineId,
-  MachineWire,
   MutationId,
   SessionId,
   ThreadId,
+  UpdateChannel,
   WorkState,
 } from '@podium/model'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
@@ -135,14 +133,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  durable storage is unusable (private mode) the same collections run in
    *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
-  repos: GitRepositoryWire[]
-  reposLoading: boolean
-  /** True once the first repo refresh has resolved — lets the UI distinguish
-   *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
-  reposLoaded: boolean
-  repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
-  machines: MachineWire[]
   /** Pin or unpin a session, issue, worktree or repo: my `pin` record
    *  (POD-6673). Readers read the pool's pin models. */
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
@@ -358,9 +348,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  A derived-mirror-safe adapter over `splitWorkspacePane`/`closeWorkspacePane`;
    *  `split` itself is read-only state derived from the layout's leaf count. */
   toggleSplit: () => void
-  /** Enrich the registered repos with branch/worktree metadata (fast — no
-   *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
-  refreshRepos: () => Promise<void>
   /** Start a new agent optimistically (#119): mints client ids, paints a
    *  'starting' session + its draft-issue vessel INSTANTLY (an overlay over the
    *  server rows), then fires `sessions.create` in the background reusing those
@@ -418,6 +405,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     threadId: string,
     choice: { readonly model?: string; readonly effort?: string },
   ) => Promise<void>
+  /** Rename a machine: an edit of its `machine` record (POD-6644). */
+  renameMachine: (machineId: MachineId, name: string) => Promise<void>
+  /** Pin a machine's update channel, or `null` to follow the fleet default. */
+  setMachineUpdateChannel: (machineId: MachineId, channel: UpdateChannel | null) => Promise<void>
   hibernateSession: (sessionId: SessionId) => Promise<void>
   /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,
    *  KEEPING the branch, the transcript and the session row, so Resume can

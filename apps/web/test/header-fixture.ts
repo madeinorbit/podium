@@ -1,3 +1,5 @@
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
 import { knownReading, type LiveStore } from '@podium/client-core/live'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { runInAction } from 'mobx'
@@ -10,6 +12,12 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   const machineIds = ['host-one', 'host-two', 'host-three'] as MachineId[]
   const machines = machineIds.map((id, index) => ({ id, name: `Host ${index + 1}`, hostname: `host-${index}`,
     online: true, lastSeenAt: new Date(now).toISOString(), availability: { daemon: true, server: false, supervisor: false, epoch: 'one' } }))
+  // Machines and repositories are records; online is the LiveStore's
+  // condition, set by publishMachines (POD-6644).
+  base.putMachinesAndRepos({
+    machines,
+    repos: [{ path: '/synthetic/project', repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [] }],
+  })
   for (const [key, record] of base.records) {
     if (record.entity !== 'session') continue
     const value = record.value as Record<string, unknown>
@@ -26,7 +34,6 @@ export function createHeaderFixture(count: number, sessionCount = count) {
     buckets: Array.from({ length: 24 }, (_, index) => ({ start: new Date(now - (23 - index) * 1800000).toISOString(), count: index % 3 })) }
   const lifecycle = { sessionDefaults: { agent: 'codex' }, hibernation: { enabled: false, memoryPct: 90, maxIdleSessions: 10, loadPerCore: 1 }, worktreeGc: { enabled: false, afterDays: 14 } }
   Object.assign(base.api, {
-    discovery: { refreshRepos: { mutate: async () => ({ repositories: [{ path: '/synthetic/project', repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [] }], machines, diagnostics: [] }) } },
     settings: { get: { query: async () => lifecycle } },
     quota: { summary: { query: async () => quota } },
     sessions: { concurrencyHistory: { query: async () => history } },
@@ -46,6 +53,25 @@ export function createHeaderFixture(count: number, sessionCount = count) {
     connectionHealth: () => health,
     onConnectionHealth: () => () => {},
     connect() {}, connectNow() {}, dispose() {}, seedMetadata() {}, setVisible() {}, setViewState() {}, sendSessionDraft() {}, sendDraftEdit: () => true,
+  }
+  // Each machine's online and presence facts, as the live feed would deliver them.
+  let machineList: readonly ({ id: string } & Record<string, unknown>)[] = machines
+  let machineLive: LiveStore | undefined
+  function applyConditions() {
+    if (!machineLive) return
+    const store = machineLive
+    runInAction(() => {
+      for (const machine of machineList) {
+        const { online, lastSeenAt, availability, presenceSource, daemonReadiness } = machine as Record<string, unknown>
+        store.applyTopic('machine.condition', String(machine.id), knownReading({
+          online: online !== false, since: null,
+          ...(lastSeenAt !== undefined ? { lastSeenAt } : {}),
+          ...(availability !== undefined ? { availability } : {}),
+          ...(presenceSource !== undefined ? { presenceSource } : {}),
+          ...(daemonReadiness !== undefined ? { daemonReadiness } : {}),
+        } as never, Date.now()))
+      }
+    })
   }
   let metrics: HostMetricsWire[] = []
   let deliver = hub.emit.bind(hub)
@@ -72,16 +98,30 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   return { ...base, get replica() { return base.replica }, hub: hub as unknown as SocketHub,
     // Exercise the real runtime's already-subscribed channels. No second hub
     // or provider is installed; emit is the hub's private dispatch test seam.
-    bindHub(real: SocketHub, store?: LiveStore) {
+    /**
+     * `store` takes the fixture's quota reading as well; `conditions` (POD-6644)
+     * is the LiveStore the machines' online and presence go to, without quota.
+     */
+    bindHub(real: SocketHub, store?: LiveStore, conditions: LiveStore | undefined = store) {
       deliver = (real as unknown as { emit: typeof hub.emit }).emit.bind(real)
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
       live = store
+      machineLive = conditions
       if (store)
         runInAction(() =>
           store.applyTopic('account.quota', 'me', knownReading({ machines: quota } as never, now)),
         )
+      applyConditions()
     },
-    publishMetrics, publishHostMetrics, publishMachines: () => deliver('machines', machines),
+    /** Machines (records plus their live condition) and repositories (checkout records). */
+    putMachinesAndRepos(input: Parameters<typeof base.putMachinesAndRepos>[0]) {
+      base.putMachinesAndRepos(input)
+      if (input.machines) machineList = input.machines as typeof machines
+      applyConditions()
+    },
+    publishMetrics, publishHostMetrics,
+    /** The machines come online: their LiveStore condition (POD-6644; the records are seeded). */
+    publishMachines: applyConditions,
     inputs: () => ({
       metrics, quotas: quota, connection: live?.connection, afterDays: 14, history, lifecycle,
       liveOnline: [], outboxSize: live?.outbox.pending ?? 0,

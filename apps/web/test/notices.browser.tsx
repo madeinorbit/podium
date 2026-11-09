@@ -141,7 +141,7 @@ root.render(
       }) as never
     }
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >

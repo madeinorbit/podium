@@ -44,7 +44,7 @@ import {
 import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { AgentKind, MachineId, MachineWire } from '@podium/model'
+import type { AgentKind, MachineFacts, MachineId } from '@podium/model'
 import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
@@ -78,7 +78,7 @@ import { HeaderButton } from './Screen'
 type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 
 const EMPTY_INPUTS = {
-  machines: [] as MachineWire[],
+  machines: [] as MachineFacts[],
   repos: [] as RepoNavView[],
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }

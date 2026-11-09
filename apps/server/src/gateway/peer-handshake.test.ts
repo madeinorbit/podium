@@ -165,8 +165,6 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     pairing,
     userExists: async (id) => (await store.users.get(id)) !== undefined,
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
   })
   return { dbPath, enrollment, hostMachineId, machineId, machines, pairing, store, token }
 }

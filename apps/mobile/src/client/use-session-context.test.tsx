@@ -397,7 +397,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.hub)
+          data.bindHub(owner.hub, undefined, owner.live)
           data.publishMachines()
           referenceState(owner).setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))

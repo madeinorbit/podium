@@ -16,7 +16,7 @@ const readClientCore = (rel: string) =>
 // binding (P5b, issue #262). Structure assertions about the store's
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
-  ['engine/runtime.ts', 'engine/boot.ts', 'engine/wiring.ts', 'react/provider.tsx']
+  ['engine/runtime.ts', 'engine/wiring.ts', 'react/provider.tsx']
     .map(readClientCore)
     .join('\n')
 
@@ -99,19 +99,16 @@ describe('web shell structure', () => {
 
   it('initial store load does not block on a conversation scan', () => {
     const src = readStore()
-    // Conversations are read on demand from the durable server index, so the
-    // boot fan-out is repos (pins and tab orders are synced records since
-    // POD-6673) — never a conversation rescan.
-    const bootStart = src.indexOf('void Promise.all([')
-    const boot = src.slice(bootStart, src.indexOf('.catch', bootStart))
-    // The enrichments moved to `engine/boot.ts` with POD-404's split; the
-    // invariant is the SHAPE of the fan-out, not which object owns the methods.
-    expect(boot).toContain('refreshRepos()')
-    expect(boot).not.toContain('refreshPins()')
-    expect(boot).not.toContain('refreshTabOrders()')
+    // Conversations are read on demand from the durable server index, and
+    // nothing is fetched at boot: pins and tab orders (POD-6673), superagent
+    // threads (POD-6675), machines and repositories (POD-6644) are records.
+    expect(src).not.toContain('refreshRepos()')
+    expect(src).not.toContain('refreshPins()')
+    expect(src).not.toContain('refreshTabOrders()')
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })
+
 })
 
 describe('memory breakdown view', () => {

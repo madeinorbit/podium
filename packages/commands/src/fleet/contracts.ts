@@ -113,7 +113,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { MachineIdField, MachineServiceAssignment, UpdateChannel, UserIdField } from '@podium/model'
+import { MachineIdField, MachineServiceAssignment, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -166,16 +166,6 @@ export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Ou
  *  shipped procedures resolve it (`machines.defaultMachine()`). */
 const machineSelector = MachineIdField.optional()
 
-export const machineRenameInput = z.object({
-  id: z.string(),
-  name: z.string().min(1).max(80),
-})
-
-export const machineSetUpdateChannelInput = z.object({
-  id: z.string(),
-  /** `null` clears the per-machine pin: the machine returns to the fleet default (POD-1882). */
-  channel: UpdateChannel.nullable(),
-})
 
 export const machineApplyUpdateInput = z.object({ id: z.string() })
 export const machineUnshareInput = z.object({
@@ -433,18 +423,11 @@ const REPO_ROW_NOTE =
 // machines.* — the hub-role fleet admin surface
 // ---------------------------------------------------------------------------
 
-/**
- * Rename a machine. ADR 9 D6 M1's `manage` verb, first entry in its list.
- *
- * `visibility: 'owned-compute'` and `policy.resource: 'machine'` are coupled by
- * `classificationErrors` and both are true here for the same reason: what it
- * writes IS the machine row, and there is nothing else its grants could hang on.
- */
-export const machineRenameContract = {
-  name: 'machines.rename',
+/** The cells every desired-state edit of a machine row shares (once the
+ *  rename's; renames are generic `machine` record edits since POD-6644). */
+const MACHINE_ROW_EDIT = {
   version: 1,
   visibility: 'owned-compute',
-  input: machineRenameInput,
   policy: {
     action: 'write',
     roleFloor: 'member',
@@ -478,11 +461,11 @@ export const machineRenameContract = {
       'would leak liveness about a row the caller may not see.',
   },
   serverRole: 'hub',
-  cli: { summary: 'Rename a machine in the fleet' },
   conflict: 'cmd',
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
-} as const satisfies FleetCommandContract<typeof machineRenameInput>
+} as const
+
 
 const machineSetAssignmentInput = z.object({
   id: MachineIdField,
@@ -490,11 +473,11 @@ const machineSetAssignmentInput = z.object({
   requestId: z.string().min(1),
 })
 export const machineSetAssignmentContract = {
-  ...machineRenameContract,
+  ...MACHINE_ROW_EDIT,
   name: 'machines.setAssignment',
   input: machineSetAssignmentInput,
   policy: {
-    ...machineRenameContract.policy,
+    ...MACHINE_ROW_EDIT.policy,
     roleFloor: 'admin',
     rationale:
       'Only an administrator changes desired services; availability is observed independently.',
@@ -504,48 +487,6 @@ export const machineSetAssignmentContract = {
   conflictRule:
     'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
 } as const satisfies FleetCommandContract<typeof machineSetAssignmentInput>
-
-/** Select the centrally controlled update authority for one managed machine. */
-export const machineSetUpdateChannelContract = {
-  name: 'machines.setUpdateChannel',
-  version: 1,
-  visibility: 'owned-compute',
-  input: machineSetUpdateChannelInput,
-  policy: {
-    action: 'write',
-    roleFloor: 'member',
-    resource: 'machine',
-    machineVerb: 'manage',
-    confirmation: 'none',
-    rationale:
-      'The selected authority controls which signed target may be granted to this machine. The ' +
-      'machine owner or an administrator with manage authority may change it; the daemon cannot ' +
-      'choose its own source and changing the value runs no arbitrary machine command. Clearing ' +
-      'it (null) is the same authority decision in the other direction: the machine goes back to ' +
-      'following the instance-wide fleet default.',
-  },
-  exposure: SERVED_ON,
-  delivery: FLEET_DELIVERY,
-  redaction: PUBLIC_REDACTION,
-  ownership: {
-    creates: [],
-    note: 'Creates nothing; it updates the authority field on the existing machine row.',
-  },
-  attribution: FLEET_ATTRIBUTION,
-  errorConsistency: {
-    callerSuppliedTargetId: true,
-    invisibleFailsAs: 'nonexistent',
-    distinguishesUnauthorizedFromUnreachable: false,
-    note:
-      'An invisible machine and an unknown id share one refusal. The selection is durable while ' +
-      'offline; target availability and convergence are reported separately.',
-  },
-  serverRole: 'hub',
-  cli: { summary: 'Select a managed machine update authority' },
-  conflict: 'cmd',
-  conflictRule:
-    'Last Authority commit wins for this field; an old grant remains scoped to the authority under which it was issued',
-} as const satisfies FleetCommandContract<typeof machineSetUpdateChannelInput>
 
 /** Apply the selected trusted target to exactly one managed machine. */
 export const machineApplyUpdateContract = {
@@ -1399,9 +1340,7 @@ export const discoveryScanMachineContract = {
  * name. It is named in POD-384's report as deliberately not done.
  */
 export const FLEET_CONTRACTS = {
-  'machines.rename': machineRenameContract,
   'machines.setAssignment': machineSetAssignmentContract,
-  'machines.setUpdateChannel': machineSetUpdateChannelContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,

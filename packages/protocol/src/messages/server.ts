@@ -22,8 +22,6 @@ import { HeadlessActivityMessage } from './headless'
 import {
   AttentionEventMessage,
   HostMetricsChangedMessage,
-  MachinesChangedMessage,
-  WorktreesChangedMessage,
 } from './host'
 import { SetLogLevelMessage } from './logs'
 import { ServerRelocationMessage } from './server-transfer'
@@ -66,8 +64,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   AgentExitMessage,
   SessionDraftChangedMessage,
   HostMetricsChangedMessage,
-  MachinesChangedMessage,
-  WorktreesChangedMessage,
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,

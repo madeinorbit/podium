@@ -14,7 +14,7 @@ import { chatUploadSrc } from './chat-upload-src'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
-const EMPTY_MACHINES: import('@podium/model/browser').MachineWire[] = []
+const EMPTY_MACHINES: import('@podium/model/browser').MachineFacts[] = []
 const EMPTY_THREADS: import('@podium/client-core/values').SuperThreadView[] = []
 const referenceReader = (pool: MobxPool) => {
   const reader = omitGone(pool.row('chatContextReader', 'reader'))

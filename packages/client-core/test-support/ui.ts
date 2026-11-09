@@ -25,8 +25,7 @@ export function fixtureUi(keys?: RoutedUiState): UiStore {
       subscribe: () => () => {},
     },
     router: createRouter({ win: createMemoryRouterWindow() }),
-    repos: () => [],
-    reposLoaded: () => true,
+    repositories: () => [],
     isVisible: () => true,
   })
 }
@@ -44,11 +43,7 @@ export function addFixtureUi(
     const snapshot = fake.getSnapshot() as Partial<ScreenState>
     const patch = Object.fromEntries(
       Object.keys(ui.screen)
-        .filter(
-          (key) =>
-            !['paneA', 'paneB', 'split', 'repos', 'reposLoaded'].includes(key) &&
-            Object.hasOwn(snapshot, key),
-        )
+        .filter((key) => !['paneA', 'paneB', 'split'].includes(key) && Object.hasOwn(snapshot, key))
         .map((key) => [key, Reflect.get(snapshot, key)]),
     )
     ui.patch(patch)

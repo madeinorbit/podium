@@ -159,6 +159,9 @@ async function regWithRevocableMachineGrant() {
 describe('rule 46 grant snapshots at relay composition', () => {
   it('holds the mail machine grant for one pass and re-reads it for the next pass', async () => {
     const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
+    // The revocation also rewrites the machine's access records (POD-6644),
+    // which read the grants on their own account; only the login's reads count.
+    vi.spyOn(reg.modules.machines, 'publishMachines').mockResolvedValue()
     revokeAfterFirstGrantRead()
     const gate = reg.modules.messageGate as unknown as {
       policyFor?: (principal: typeof TEST_PRINCIPAL) => Promise<{
@@ -968,16 +971,14 @@ describe('session handoff orchestration', () => {
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
       const { reg, sessionId } = await handoffRegistry()
-      const client: ServerMessage[] = []
-      attachTestClient(reg.clientGateway, (message) => client.push(message))
+      // Both machines' checkouts moved: each is scanned (POD-6644), and what
+      // changed reaches every device as `checkout` records.
+      const rescans = vi.spyOn(reg.modules.checkouts, 'rescanSoon').mockImplementation(() => {})
       await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(client.filter((m) => m.type === 'worktreesChanged')).toEqual([
-        { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },
-        { type: 'worktreesChanged', repoPath: '/source/repo', machineId: 'm1' },
-      ])
+      await expect.poll(() => rescans.mock.calls.map(([machine]) => machine)).toEqual(['m2', 'm1'])
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior

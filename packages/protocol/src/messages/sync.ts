@@ -3,6 +3,7 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
+  CheckoutWire,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   EffectRecordWire,
@@ -14,6 +15,7 @@ import {
   IssueProjection,
   IssueUserStateWire,
   LayoutWire,
+  MachineAccessWire,
   MachineProjection,
   MessageRecordWire,
   PinWire,
@@ -295,6 +297,14 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Never a secret. Additive: an older build parses these rows as
    *  {@link UnknownMetadataChange} and advances. */
   metadataChangeArm(z.literal('instancePreferences'), InstancePreferencesWire),
+  /** A machine's synced records beside `machine` (POD-6644, design POD-5620
+   *  §1.12): one member's access row for one machine (`machineAccessRowId`,
+   *  class `per-user-state`), and one checkout on one machine (`checkoutRowId`:
+   *  a registered root is readable with `manage` or `use` on the machine, a
+   *  worktree only with `use`). Additive: an older build parses
+   *  these rows as {@link UnknownMetadataChange} and advances. */
+  metadataChangeArm(z.literal('machineAccess'), MachineAccessWire),
+  metadataChangeArm(z.literal('checkout'), CheckoutWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -328,6 +338,8 @@ export const MetadataEntityKind = z.enum([
   'workflowRun',
   'subscription',
   'instancePreferences',
+  'machineAccess',
+  'checkout',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

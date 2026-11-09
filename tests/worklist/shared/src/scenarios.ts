@@ -101,11 +101,13 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
+import { machineRecords, repositoriesAsCheckouts } from '@podium/client-core/test-support/machine-records'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import {
   asIssueId,
   asUserId,
+  type GitRepositoryWire,
   issueUserStateRowId,
   pinRowId,
   type SessionMeta,
@@ -211,14 +213,22 @@ export function seedCacheFromCorpus(
     rows.push({ entity: 'repo', entityId: repo.id, value: own(repo) })
   for (const dep of corpus.issueDeps)
     rows.push({ entity: 'issueDep', entityId: dep.id, value: own(dep) })
+  // Each machine's record and my access row, and every registered repository
+  // and worktree as a checkout record (POD-6644).
+  for (const record of [
+    ...(corpus.machines ?? []).flatMap((machine) =>
+      machineRecords(options.principal ?? 'u-bench', machine as never),
+    ),
+    ...repositoriesAsCheckouts((corpus.repos ?? []) as never),
+  ])
+    rows.push({ entity: record.entity, entityId: record.entityId, value: own(record.value) })
   cache.install(rows)
   return cache
 }
 
 class FakeHub {
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>()
-  /** A server push, delivered to whatever the runtime subscribed (POD-4555:
-   *  `worktreesChanged` drives the runtime's own discovery refresh). */
+  /** A server push, delivered to whatever the runtime subscribed. */
   emit(kind: string, ...args: unknown[]): void {
     for (const cb of this.handlers.get(kind) ?? []) cb(...args)
   }
@@ -301,7 +311,6 @@ export interface ScenarioServer {
 
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
 function scenarioApi(
-  discovery: { repos: unknown[] },
   opts: {
     rejectMarkRead?: () => boolean
     server?: ScenarioServer
@@ -320,11 +329,6 @@ function scenarioApi(
           diagnostics: [],
           cursor: 0,
         }),
-      },
-    },
-    discovery: {
-      refreshRepos: {
-        mutate: async () => ({ repositories: discovery.repos, diagnostics: [], machines: [] }),
       },
     },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
@@ -716,9 +720,13 @@ export interface ScenarioEngine {
   cache: ScenarioCache
   /** The socket hub the current runtime subscribed; `emit` is a server push. */
   hub: { emit(kind: string, ...args: unknown[]): void }
-  /** What `discovery.refreshRepos` answers. Replace `repos` to move worktrees,
-   *  then push `worktreesChanged` through `hub`. */
-  discovery: { repos: unknown[] }
+  /** The registered repositories, in the listing shape the corpus wrote. */
+  repos(): readonly GitRepositoryWire[]
+  /**
+   * Move the repositories (POD-6644): the server writes their checkout
+   * records, removing the ones that left. Only changed records are written.
+   */
+  setRepos(repos: readonly GitRepositoryWire[]): void
   /**
    * POD-4555 — a tab reload: destroy the runtime and boot a new one over a
    * fresh replica facade on the SAME durable cache and the SAME outbox store,
@@ -818,8 +826,7 @@ export async function startEngineOnCorpus(
   const newReplica = () => createKernelReplica({ cache, side })
   let rejectArmed = false
   const markReadReceipts: string[] = []
-  const discovery = { repos: corpus.repos as unknown[] }
-  const api = scenarioApi(discovery, {
+  const api = scenarioApi({
     rejectMarkRead: () => {
       if (!rejectArmed) return false
       rejectArmed = false
@@ -905,6 +912,7 @@ export async function startEngineOnCorpus(
   }
   const replica = newReplica()
   const first = await boot(replica)
+  let currentRepos: readonly GitRepositoryWire[] = corpus.repos as unknown as GitRepositoryWire[]
   let stamps = 0
   const settleMs = opts.settleMs ?? (corpus.issues.length > 1000 ? 600 : 60)
   const ctx: ScenarioEngine = {
@@ -912,7 +920,22 @@ export async function startEngineOnCorpus(
     replica,
     cache,
     hub: first.hub,
-    discovery,
+    repos: () => currentRepos,
+    setRepos(repos) {
+      currentRepos = repos
+      const next = new Map(
+        repositoriesAsCheckouts(repos as never).map((record) => [record.entityId, record.value]),
+      )
+      ctx.replica.batch(() => {
+        for (const record of cache.readEntities())
+          if (record.entity === 'checkout' && !next.has(record.entityId)) remove(ctx, 'checkout', record.entityId)
+        for (const [id, value] of next) {
+          const held = cache.read('checkout', id)?.value
+          if (held && JSON.stringify(held) === JSON.stringify(value)) continue
+          upsert(ctx, 'checkout', id, value)
+        }
+      })
+    },
     reload: async () => {
       ctx.engine.destroy()
       const fresh = newReplica()

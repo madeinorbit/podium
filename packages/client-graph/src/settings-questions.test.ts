@@ -11,7 +11,7 @@ import { requireHere } from './lookup'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 import { createColdIndex } from './shared/cold-index'
-import type { SettingsOwner } from './settings-source'
+import { settingsOwnerFixture } from './settings-owner-fixture'
 import { SETUP_SESSION_SUMMARY_FIELDS } from './settings-schema'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
@@ -163,10 +163,10 @@ it('orders visible automation targets with path maxima and no session catalog at
     const f = fixture([target, other, ...Array.from({ length: 128 * scale }, (_, n) => session(`foreign-${n}`))])
     const repos = new Map([['shown', { path: '/shown', kind: 'repository', worktrees: [{ path: '/shown/wt' }] }],
       ['other', { path: '/other', kind: 'repository', worktrees: [] }]])
-    attachSettingsSource(f.pool, { listIds: (name: string) => name === 'repos' ? [...repos.keys()] : [],
-      listRow: (name: string, id: string) => name === 'repos' ? repos.get(id) : undefined,
-      readLocal: () => 'sessions', onList: () => () => {}, onLocals: () => () => {},
-    } as unknown as SettingsOwner)
+    // Repositories are checkout records (POD-6644).
+    const settings = settingsOwnerFixture({ repos: [...repos.values()] as never })
+    settings.seed(f.pool)
+    attachSettingsSource(f.pool, settings.owner)
     const rows = vi.spyOn(f.pool, 'row'), roster = vi.spyOn(settingsView(f.pool), 'sessions'), ids = vi.spyOn(f.pool.queries, 'ids')
     const view = createPoolProjection(f.pool, pool => automationViews(pool).targets()), paint = vi.fn()
     let stop = () => {}

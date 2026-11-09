@@ -15,7 +15,7 @@ export function seedAcceptanceCache(corpus: FixtureCorpus, principal: string) {
     issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map(row => ({
       ...row, userId: asUserId(principal),
     })),
-  })
+  }, { principal })
   cache.install([
     ...homes.userStates.map(state => ({
       entity: 'sessionUserState' as const,

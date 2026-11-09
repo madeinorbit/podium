@@ -76,7 +76,6 @@ function Surface() {
       if (!active) return
       // Provider start installs the real hub listeners in its passive effect.
       fixture.publishMachines()
-      await referenceState(runtime).refreshRepos()
       if (!active) return
       referenceState(runtime).setSettingsTab('accounts')
       ready = currentPool !== null

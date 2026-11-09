@@ -2,6 +2,7 @@
 import { lazy } from '@podium/mobx-helpers'
 import {
   asThreadId,
+  type CheckoutRepository,
   type IssueId,
   isMachinePathWithinRoot,
   type SessionId,
@@ -80,8 +81,9 @@ export interface UiStorePorts {
   notices: StoreNotices
   keys: RoutedUiState
   router: Router
-  repos(): Store['repos']
-  reposLoaded(): boolean
+  /** The registered repositories and their worktrees, derived from the
+   *  replica's `checkout` records (POD-6644). */
+  repositories(): readonly CheckoutRepository[]
   isVisible(): boolean
   changed?(keys: ReadonlySet<keyof ScreenState>): void
   watch?(keys: readonly ('selectedIssueId' | 'navigation')[], listener: () => void): () => void
@@ -172,17 +174,12 @@ export class UiStore {
           fields.map((key) => [key, { enumerable: true, get: () => this[key] }]),
         ),
         fileTabs: { enumerable: true, get: () => this.fileTabList },
-        repos: { enumerable: true, get: ports.repos },
-        reposLoaded: { enumerable: true, get: ports.reposLoaded },
       },
     ) as ScreenState
   }
 
   get router(): Router {
     return this.ports.router
-  }
-  get repos(): Store['repos'] {
-    return this.ports.repos()
   }
   @lazy get fileTabList(): FileTab[] {
     return [...this.fileTabs.values()]
@@ -354,7 +351,7 @@ export class UiStore {
     }
     this.navigate({
       view: 'workspace',
-      ...sessionLinkSelection(this.screen, meta),
+      ...sessionLinkSelection(this.screen, this.ports.repositories(), meta),
       tabId: meta.sessionId,
       history: 'push',
     })
@@ -683,7 +680,7 @@ export class UiStore {
     const session = rawSession === NAVIGATION_LOADING ? undefined : rawSession
     const cwd = session?.cwd ?? ''
     const worktreePath =
-      reposToViews(state.repos)
+      reposToViews(this.ports.repositories())
         .flatMap((repo) => repo.worktrees)
         .map((candidate) => candidate.path)
         .filter((candidate) => isMachinePathWithinRoot(candidate, cwd))

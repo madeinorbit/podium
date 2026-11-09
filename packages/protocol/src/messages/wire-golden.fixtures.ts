@@ -878,24 +878,6 @@ export const WIRE_FIXTURES: WireFixture[] = [
 
   // ---- frames that CARRY the relocated entities (must stay in protocol) ----
   {
-    name: 'frame.machinesChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'machinesChanged',
-      machines: [
-        {
-          id: 'machine-1',
-          name: 'ludovico',
-          hostname: 'ludovico.local',
-          online: true,
-          lastSeenAt: '2026-07-30T10:00:00.000Z',
-          use: 'granted',
-          inventory: INVENTORY_FULL,
-        },
-      ],
-    },
-  },
-  {
     name: 'frame.hostMetricsChanged',
     schema: ServerMessage,
     value: {
@@ -911,11 +893,6 @@ export const WIRE_FIXTURES: WireFixture[] = [
         },
       ],
     },
-  },
-  {
-    name: 'frame.worktreesChanged',
-    schema: ServerMessage,
-    value: { type: 'worktreesChanged', repoPath: '/home/u/repo', machineId: 'machine-1' },
   },
   {
     name: 'frame.transcriptDelta',

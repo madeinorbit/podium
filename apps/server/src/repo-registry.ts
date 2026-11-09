@@ -1,16 +1,13 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { createLogger, describeError } from '@podium/logger'
-import type { GitRepositoryWire, MachineId } from '@podium/model'
-import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathKey } from '@podium/model'
+import { describeError } from '@podium/logger'
+import type { GitDiscoveryDiagnosticWire, MachineId } from '@podium/model'
+import { isAbsoluteMachinePath, isMachinePathWithinRoot } from '@podium/model'
 import type { IssueWriter } from './modules/issues/service/types'
-import { asSystemWrite } from './plain-command-scope'
-import type { ScanReposResult, SessionRegistry } from './relay'
+import type { SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
-
-const log = createLogger('server:repo-registry')
 
 export type DirectoryBrowserEntry = {
   name: string
@@ -158,6 +155,7 @@ export class RepoRegistry {
           prefix?.toUpperCase(),
         ),
     )
+    await this.checkoutsMoved(mid)
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
@@ -172,6 +170,7 @@ export class RepoRegistry {
       this.serverWriter,
       async () => await this.store.repos.addRepo(p, machineId, originUrl),
     )
+    await this.checkoutsMoved(machineId)
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
@@ -291,20 +290,6 @@ export class RepoRegistry {
     return this.sessionReg.modules.issues.reports.store.serverWriter
   }
 
-  /**
-   * Publish the repo truth after writes made outside {@link commitRepoWrite}
-   * (scan-reported origins): a reconcile, with no provenance, which is right for
-   * the server's own write. Best-effort: the store writes already succeeded, and
-   * a feed that missed one publish self-heals on the next boot reconcile.
-   */
-  private async publishRepos(): Promise<void> {
-    try {
-      await this.sessionReg.modules.issues.reports.store.publishRepos()
-    } catch (err) {
-      log.warn('repo projection publish failed', { err })
-    }
-  }
-
   async remove(writer: RepoWriter, path: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // The removed checkout may have been the repo's chosen root or the source
@@ -313,129 +298,40 @@ export class RepoRegistry {
       writer,
       async () => await this.store.repos.removeRepo(normalizeRepoPath(path), mid),
     )
+    await this.checkoutsMoved(mid)
   }
 
   /**
-   * Fan out one `scanReposRequest` to each online daemon (using the roots that
-   * machine has registered), await all replies, and stamp each returned
-   * `GitRepositoryWire` with the responding machine's `machineId`.
-   *
-   * Single-machine invariant: with one online daemon this returns exactly the
-   * same repos that `scanRepos(list())` returned before — just with `machineId`
-   * added. The web ignores `machineId` until the machine-aware UI lands, so the
-   * single-machine UI is unchanged.
+   * A registration moved: the machine's checkout records follow it at once
+   * (the root appears or goes), then a scan fills in its branch and worktrees
+   * (POD-6644).
    */
+  private async checkoutsMoved(machineId: MachineId): Promise<void> {
+    const checkouts = this.sessionReg.modules.checkouts
+    await checkouts.registrationsChanged(machineId)
+    checkouts.rescanSoon(machineId)
+  }
+
   /**
-   * @param mayUse - POD-1079: the machines this caller may place work on. A
-   * fan-out with no filter would walk every paired host's filesystem through its
-   * daemon, which is exactly the code-execution boundary `use` draws. Absent
-   * means unfiltered, and the ONLY callers that omit it are in-process ones with
-   * no principal to filter by (boot reconcile, tests) — every transport path
-   * supplies it, and `audit:machine-grants` checks that.
+   * Scan every machine this caller may use and bring its checkout records up
+   * to date (POD-6644): the explicit "look again" a person asks for after
+   * changing repositories outside Podium. The checkouts themselves reach the
+   * apps as records; this answers only the scans' diagnostics, which the view
+   * that asked shows.
+   *
+   * @param mayUse - the machines this caller may place work on (POD-1079): a
+   * scan walks the machine's filesystem through its daemon, which is the
+   * code-execution boundary `use` draws.
    */
-  async scanReposAll(
-    mayUse?: (machineId: MachineId) => boolean,
-    maySee: (machineId: MachineId) => boolean = mayUse ?? (() => true),
-  ): Promise<ScanReposResult> {
-    // Scanning touches the machine filesystem and requires `use`; persisted repo
-    // roots are machine facts and require only `see`. Keeping those predicates
-    // separate is what lets a reload restore a visible surviving session even
-    // while its daemon is reconnecting or its execution grant is unavailable.
-    const registeredRows = (await this.store.repos.listRepos()).filter((row) =>
-      maySee(row.machineId),
-    )
-    const fallbackFor = (rows: typeof registeredRows) =>
-      rows.map((row) => ({
-        path: normalizeRepoPath(row.path),
-        kind: 'repository' as const,
-        ...(row.originUrl ? { originUrl: row.originUrl } : {}),
-        worktrees: [],
-        machineId: row.machineId,
-        ...(row.repoId ? { repoId: row.repoId } : {}),
-      }))
-    const machineIds = this.sessionReg.modules.machines
-      .onlineMachineIds()
-      .filter((id) => mayUse?.(id) ?? true)
+  async rescanUsable(mayUse: (machineId: MachineId) => boolean): Promise<GitDiscoveryDiagnosticWire[]> {
+    const machineIds = this.sessionReg.modules.machines.onlineMachineIds().filter(mayUse)
     if (machineIds.length === 0) {
-      return {
-        // A daemon restart does not unregister its repositories. A page reload
-        // inside that gap must therefore render the durable roots rather than
-        // replace the workspace snapshot with an authoritative-looking empty
-        // list. As with a timed-out scan below, empty worktrees means unknown.
-        repositories: fallbackFor(registeredRows),
-        diagnostics: [{ severity: 'error', path: '', message: 'no daemons online' }],
-      }
+      return [{ severity: 'error', path: '', message: 'no daemons online' }]
     }
-
-    let originsMoved = false
-    const perMachine = await Promise.all(
-      machineIds.map(async (machineId) => {
-        const roots = await this.store.repos.listRepoPaths(machineId)
-        const result = await this.sessionReg.modules.rpc.scanRepos(
-          roots,
-          { includeHome: false, maxDepth: 0 },
-          machineId,
-        )
-        const storedRows = registeredRows.filter((row) => row.machineId === machineId)
-        const storedOrigin = new Map(
-          storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.originUrl]),
-        )
-        // Record scan-reported origins for registered repos (upgrades path-fallback
-        // repo_ids to origin-derived ones — remote/late origins included).
-        for (const r of result.repositories) {
-          if (!r.originUrl) continue
-          await this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
-          // A new or changed remote on a registered checkout can rename the
-          // logical repo (POD-6246). An unchanged one publishes nothing.
-          const key = machinePathKey(normalizeRepoPath(r.path))
-          if (storedOrigin.has(key) && storedOrigin.get(key) !== r.originUrl) originsMoved = true
-        }
-        const repoIdByPath = new Map(
-          storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.repoId]),
-        )
-        const seenPaths = new Set(
-          result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))),
-        )
-        // Stamp each repo with the machine that returned it (+ its stable repoId).
-        const scanned = result.repositories.map((r) => {
-          const repoId = repoIdByPath.get(machinePathKey(normalizeRepoPath(r.path)))
-          return { ...r, machineId, ...(repoId ? { repoId } : {}) }
-        })
-        // Keep registered roots visible even when the daemon scan times out or returns
-        // no metadata. The path is still a valid spawn target for this machine, and
-        // diagnostics continue to surface the scan failure separately.
-        //
-        // READ `worktrees: []` HERE AS "UNKNOWN", NEVER AS "NONE" (POD-1704). These
-        // rows are SYNTHESIZED from the registry because the scan told us nothing —
-        // `scanRepos` resolves rather than rejects on its 10s timeout, so a slow
-        // daemon lands here with every root intact and every worktree missing. A
-        // consumer that reads the emptiness as absence concludes that live worktrees
-        // were deleted; one did, and offered to destroy the sessions running in them.
-        // The result is a UNION of machines and a snapshot of a moment, so it is
-        // sound for POSITIVE answers ("here is a worktree you can use") and unsound
-        // for negative ones. To ask whether a path really exists, ask the daemon that
-        // owns it — `IssueWorkflow.ensureWorktree` does, and rebuilds from the branch.
-        const registeredFallbacks = fallbackFor(
-          storedRows.filter((row) => !seenPaths.has(machinePathKey(normalizeRepoPath(row.path)))),
-        )
-        return {
-          repositories: [...scanned, ...registeredFallbacks],
-          diagnostics: result.diagnostics,
-        }
-      }),
+    const diagnostics = await Promise.all(
+      machineIds.map(async (machineId) => await this.sessionReg.modules.checkouts.rescan(machineId)),
     )
-
-    // The origins are what the machines reported: the server's own write, also
-    // from inside `discovery.refreshRepos`, a plain command (POD-6417).
-    if (originsMoved) await asSystemWrite(async () => await this.publishRepos())
-    const online = new Set(machineIds)
-    return {
-      repositories: [
-        ...perMachine.flatMap((r) => r.repositories),
-        ...fallbackFor(registeredRows.filter((row) => !online.has(row.machineId))),
-      ],
-      diagnostics: perMachine.flatMap((r) => r.diagnostics),
-    }
+    return diagnostics.flat()
   }
 }
 

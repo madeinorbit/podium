@@ -32,6 +32,7 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
 import {
@@ -181,9 +182,6 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?:
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => {
-    await referenceState(runtime).refreshRepos()
-  })
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(sidebarView(pool!).sections().bands.length).toBeGreaterThan(0))
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
@@ -727,10 +725,18 @@ describe('pool navigation uses the existing gesture semantics', () => {
   })
 })
 
+/** The synthetic project's band. Bands follow the registered repositories,
+ *  which come from checkout records in path order (POD-6644). */
+function projectBand() {
+  const band = sidebarView(pool!).sections().bands.find((entry) => entry.repoId === 'synthetic-repo')
+  if (!band) throw new Error('The synthetic project band is missing')
+  return band
+}
+
 describe('real pool row mutations and receipts', () => {
   it('backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal', async () => {
     await mount()
-    const original = [...sidebarView(pool!).sections().bands[0]!.rowIds]
+    const original = [...projectBand().rowIds]
     const movedId = original.at(-1)!
     const order = [movedId, ...original.slice(0, -1)]
     const patches = planReorderKeys(order, movedId, () => undefined)
@@ -749,10 +755,10 @@ describe('real pool row mutations and receipts', () => {
         return { id: input.id, ...input.patch }
       }),
     ).toEqual(patches)
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(order)
+    expect(projectBand().rowIds).toEqual(order)
     await settle()
     for (const patch of patches) await refuse(await request('issues.update', patch.id))
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(original)
+    expect(projectBand().rowIds).toEqual(original)
   })
 
   it.each([
@@ -769,7 +775,7 @@ describe('real pool row mutations and receipts', () => {
     const targetScope = pinned ? 'pinned' : 'group:synthetic-repo'
     const existing = pinned
       ? [...sidebarView(pool!).sections().pinnedIds]
-      : [...sidebarView(pool!).sections().bands[0]!.rowIds]
+      : [...projectBand().rowIds]
     const order = [...existing, movedId]
     expect(drag.options!.allowedTargets?.(sourceScope, movedId)).toEqual([targetScope])
     await act(async () => {
@@ -891,10 +897,10 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     const tuck = await request('issues.setTucked')
     expect(tuck.input).toMatchObject({ id: TARGET, tucked: true })
-    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET))
+    await waitFor(() => expect(projectBand().closedIds).toContain(TARGET))
     await settle()
     await refuse(tuck)
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    expect(projectBand().rowIds).toContain(TARGET)
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     await accept(await request('issues.setTucked'))
     await act(async () => patchIssue(fixture, TARGET, { tuckedAt: new Date(NOW).toISOString() }))
@@ -917,13 +923,13 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await screen.findByTestId('bring-back'))
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
-    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET))
+    await waitFor(() => expect(projectBand().rowIds).toContain(TARGET))
     // Brought back to Open: the row is there once that lane shows (POD-2074).
     fireEvent.click(screen.getByTestId('work-lane-open'))
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     await settle()
     await refuse(bringBack)
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET)
+    expect(projectBand().closedIds).toContain(TARGET)
   })
 
   it('unsnoozes from the snoozed row context menu and restores it on refusal', async () => {
@@ -940,11 +946,11 @@ describe('real pool row mutations and receipts', () => {
     expect(write.input).toMatchObject({ id: TARGET })
     expect(value().issue.deferred).toBe(false)
     expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    expect(projectBand().rowIds).toContain(TARGET)
     await settle()
     await refuse(write)
     expect(value().issue.deferred).toBe(true)
-    expect(sidebarView(pool!).sections().bands[0]!.snoozedIds).toContain(TARGET)
+    expect(projectBand().snoozedIds).toContain(TARGET)
   })
 
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
@@ -970,7 +976,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await screen.findByTestId('closed-issue-archive'))
     await settle()
     expect(
-      sidebarView(pool!).sections().bands[0]!.closedIds,
+      projectBand().closedIds,
       JSON.stringify({
         pending: runtime.outbox.pending(),
         row: sidebarView(pool!).row('synthetic-5'),
@@ -979,10 +985,10 @@ describe('real pool row mutations and receipts', () => {
     ).not.toContain('synthetic-5')
     const write = await request('issues.update', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).not.toContain('synthetic-5')
+    expect(projectBand().closedIds).not.toContain('synthetic-5')
     await settle()
     await refuse(write)
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain('synthetic-5')
+    expect(projectBand().closedIds).toContain('synthetic-5')
     await waitFor(() =>
       expect(screen.getByTestId('folded-work-row').textContent).toContain('Synthetic task 5'),
     )
@@ -1155,31 +1161,28 @@ describe('real pool row mutations and receipts', () => {
         cwd: `${ROOT}/guests`,
       })
       patchIssue(fixture, TARGET, { worktreePath: `${ROOT}/guests` })
-      const refresh = fixture.api.discovery.refreshRepos.mutate
-      fixture.api.discovery.refreshRepos.mutate = async (...args) => {
-        const result = await refresh(...args)
-        return {
-          ...result,
-          repositories: ['source', 'target'].map((machineId) => ({
-            path: machineId === 'source' ? ROOT : '/synthetic/target',
-            machineId,
-            repoId: 'synthetic-repo',
-            kind: 'repository',
-            branch: 'main',
-            worktrees:
-              machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
-          })),
-          machines: ['source', 'target'].map((id) => ({
-            id,
-            name: `Synthetic ${id}`,
-            online: true,
-            serviceAssignment: { server: false, agentExecution: true },
-            availability: { daemon: true },
-            inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] },
-          })),
-        } as typeof result
-      }
+      // Machines and repositories are records (POD-6644).
+      fixture.putMachinesAndRepos({
+        repos: ['source', 'target'].map((machineId) => ({
+          path: machineId === 'source' ? ROOT : '/synthetic/target',
+          machineId,
+          repoId: 'synthetic-repo',
+          kind: 'repository',
+          branch: 'main',
+          worktrees:
+            machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
+        })),
+        machines: ['source', 'target'].map((id) => ({
+          id,
+          name: `Synthetic ${id}`,
+          serviceAssignment: { server: false, agentExecution: true },
+          inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] },
+        })),
+      })
     })
+    // Both machines are online: their live condition.
+    for (const id of ['source', 'target'])
+      liveFixture(pool!).condition(id, { online: true, since: null, availability: { daemon: true } } as never)
     await menu()
     fireEvent.click(await item('Handoff'))
     fireEvent.click(await item('Synthetic target'))
@@ -1222,11 +1225,11 @@ describe('real pool row mutations and receipts', () => {
         .map((entry) => (entry.input as { id: string }).id)
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(0)
+    expect(projectBand().closedIds).toHaveLength(0)
     await settle()
     for (const entry of runtime.outbox.pending().filter(isArchive))
       await refuse(await request('issues.update', (entry.input as { id: string }).id))
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
+    expect(projectBand().closedIds).toHaveLength(2)
     await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
   })
 

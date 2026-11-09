@@ -6,7 +6,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import { asMachineId } from '@podium/model'
-import type { MachineWire, UpdateChannel } from '@podium/model/browser'
+import type { MachineFacts, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -582,7 +582,7 @@ function PairingCodeDisplay({
   recommendServer: boolean
   makeServerAfterPair: boolean
   onMakeServerAfterPairChange: (value: boolean) => void
-  pairedMachine: MachineWire | null
+  pairedMachine: MachineFacts | null
   canReviewTransfer: boolean
   onReviewPairedMachine: () => void
   /** Mint a fresh code and join command for the same options. */
@@ -758,10 +758,10 @@ const ServerMoveDialog = observer(function ServerMoveDialog({
   open,
   onOpenChange,
 }: {
-  machine: MachineWire
+  machine: MachineFacts
   sourceName: string
   operation: Operation | null
-  offlineMachines: MachineWire[]
+  offlineMachines: MachineFacts[]
   trpc: Store['trpc']
   onChanged: () => void
   open?: boolean
@@ -960,7 +960,7 @@ function MachineFleetStatus({
 }: {
   label: string
   tone: 'online' | 'offline' | 'degraded' | 'off'
-  lastSeenAt?: MachineWire['lastSeenAt']
+  lastSeenAt?: MachineFacts['lastSeenAt']
   detail?: string
   dot?: boolean
 }): JSX.Element {
@@ -1002,8 +1002,8 @@ const MachineRow = observer(function MachineRow({
   convergence = null,
   onConvergenceChanged = () => {},
 }: {
-  machine: MachineWire
-  replacementMachines?: readonly MachineWire[]
+  machine: MachineFacts
+  replacementMachines?: readonly MachineFacts[]
   trpc: Store['trpc']
   /** [spec:SP-3701] True when this row is the device the app is running on. */
   isThisMachine?: boolean
@@ -1024,6 +1024,7 @@ const MachineRow = observer(function MachineRow({
   /** Ask the panel to re-read the fleet now. */
   onConvergenceChanged?: () => void
 }): JSX.Element {
+  const { renameMachine } = useSettingsClient()
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -1069,7 +1070,7 @@ const MachineRow = observer(function MachineRow({
   const [confirmName, setConfirmName] = useState('')
   const [transferError, setTransferError] = useState<string | null>(null)
 
-  // Sync incoming name changes from server broadcast.
+  // Follow the record's name (a rename from any device) while not editing.
   useEffect(() => {
     if (!editing) setName(machine.name)
   }, [machine.name, editing])
@@ -1083,7 +1084,7 @@ const MachineRow = observer(function MachineRow({
     }
     setRenaming(true)
     try {
-      await machineWrites(trpc).rename.mutate({ id: machine.id, name: trimmed })
+      await renameMachine(machine.id, trimmed)
     } finally {
       setRenaming(false)
       setEditing(false)
@@ -1884,21 +1885,20 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
   convergence,
   onApplied,
 }: {
-  machine: MachineWire
+  machine: MachineFacts
   trpc: Store['trpc']
   /** This machine's server-side convergence, or null when it is not converging. */
   convergence: MachineConvergence | null
   /** Ask the panel to poll now, so the row shows progress without a delay. */
   onApplied: () => void
 }): JSX.Element {
-  // The PIN (null = follows the fleet default), not the resolved channel. POD-1882.
-  const [channel, setChannel] = useState<UpdateChannel | null>(
-    machine.updateChannelOverride ?? null,
-  )
-  const [targetVersion, setTargetVersion] = useState<string | null>(machine.targetVersion ?? null)
-  const [unavailableReason, setUnavailableReason] = useState<string | null>(
-    machine.targetUnavailableReason ?? null,
-  )
+  // The PIN (null = follows the fleet default), not the resolved channel
+  // (POD-1882). Read off the machine's record: a change queued on this device
+  // shows at once, and one from another device arrives as a record (POD-6644).
+  const channel: UpdateChannel | null = machine.updateChannelOverride ?? null
+  const targetVersion = machine.targetVersion ?? null
+  const unavailableReason = machine.targetUnavailableReason ?? null
+  const { setMachineUpdateChannel } = useSettingsClient()
   const developing = useFeature('podium-development')
   const [changingChannel, setChangingChannel] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -1922,12 +1922,6 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
   // make every row claim a completion nobody asked for.
   const watching = useRef(false)
 
-  useEffect(() => {
-    setChannel(machine.updateChannelOverride ?? null)
-    setTargetVersion(machine.targetVersion ?? null)
-    setUnavailableReason(machine.targetUnavailableReason ?? null)
-  }, [machine.updateChannelOverride, machine.targetVersion, machine.targetUnavailableReason])
-
   // Report the transition OUT of an in-flight state once, whoever started it.
   useEffect(() => {
     const state = convergence?.state ?? null
@@ -1950,28 +1944,13 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
     }
   }, [convergence?.state, convergence?.detail, machine.name])
 
-  const adoptMachine = (machines: readonly MachineWire[]): boolean => {
-    const updated = machines.find((candidate) => candidate.id === machine.id)
-    if (!updated) return false
-    setChannel(updated.updateChannelOverride ?? null)
-    setTargetVersion(updated.targetVersion ?? null)
-    setUnavailableReason(updated.targetUnavailableReason ?? null)
-    return true
-  }
-
   const chooseChannel = async (nextChannel: UpdateChannel | null): Promise<void> => {
     if (nextChannel === channel || changingChannel || busy) return
     setChangingChannel(true)
     setUpdateError(null)
     setUpdateStatus(null)
     try {
-      const machines = await machineWrites(trpc).setUpdateChannel.mutate({
-        id: machine.id,
-        channel: nextChannel,
-      })
-      if (!adoptMachine(machines)) {
-        setUpdateError('The machine disappeared while its update source was changing.')
-      }
+      await setMachineUpdateChannel(machine.id, nextChannel)
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1986,7 +1965,6 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
     setUpdateStatus(null)
     try {
       const result = await trpc.machines.applyUpdate.mutate({ id: machine.id })
-      adoptMachine(result.machines)
       const said = describeApplyOutcome(result.outcome, machine.name)
       if (said.tone === 'error') setUpdateError(said.message)
       else setUpdateStatus(said.message)

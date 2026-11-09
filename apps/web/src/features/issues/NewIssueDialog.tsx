@@ -13,7 +13,7 @@ import {
   DEFAULT_HARNESS_AGENT,
   ISSUE_STAGES,
   type IssueStage,
-  type MachineWire,
+  type MachineFacts,
   machinePathBasename,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
@@ -181,10 +181,10 @@ function MachineMenu({
   onSelect,
 }: {
   trigger: ReactNode
-  machines: MachineWire[]
+  machines: MachineFacts[]
   agentKind: string
   agentName: string
-  autoMachine: MachineWire | undefined
+  autoMachine: MachineFacts | undefined
   /** `''` = Auto. */
   value: string
   onSelect: (machineId: string) => void

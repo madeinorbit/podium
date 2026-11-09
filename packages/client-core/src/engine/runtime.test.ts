@@ -13,6 +13,7 @@ import type { SessionView } from '../session-values'
  * no DOM, no network.
  */
 
+import { repositoryCheckouts } from '@podium/client-core/test-support/machine-records'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type { GitRepositoryWire } from '@podium/model'
 import { asArtifactId, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
@@ -134,6 +135,16 @@ const KNOWN_REPO = {
   branch: 'main',
   worktrees: [{ path: '/tmp/known-repo/.worktrees/wt1', branch: 'wt1' }],
 } as unknown as GitRepositoryWire
+
+/** The default replica: KNOWN_REPO's checkout records on one machine (POD-6644). */
+function knownRepoReplica(storage: StorageApi) {
+  const replica = createReplicaFixture({ storage })
+  replica.applySnapshot(
+    'checkouts',
+    repositoryCheckouts(KNOWN_REPO, 'm-known').map((record) => record.value) as never,
+  )
+  return replica
+}
 
 function session(id: string, cwd: string): SessionView {
   return {
@@ -286,8 +297,7 @@ function makeEngine(
     onFatalError: (m) => fatals.push(m),
     ...(opts.networkEnabled !== undefined ? { networkEnabled: opts.networkEnabled } : {}),
     notices: { error: (m) => errors.push(m), info: opts.info ?? (() => {}) },
-    createReplicaFn: () =>
-      opts.replica ?? createReplicaFixture({ storage: opts.storage ?? memoryStorage() }),
+    createReplicaFn: () => opts.replica ?? knownRepoReplica(opts.storage ?? memoryStorage()),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
     ...(opts.workspacePruneGraceMs !== undefined
@@ -639,7 +649,11 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     engine.start()
     await settle()
     expect([...hub.topicHolds.keys()]).toEqual(['account.quota:operator'])
-    hub.emit('machines', [{ id: 'm1' }, { id: 'm2' }])
+    // The live feed follows the machine records (POD-6644).
+    engine.replica.applySnapshot('machines', [
+      { id: 'm1', name: 'm1', loggedOutHarnesses: [] },
+      { id: 'm2', name: 'm2', loggedOutHarnesses: [] },
+    ] as never)
     expect([...hub.topicHolds.keys()].sort()).toEqual([
       'account.quota:operator',
       'machine.condition:m1',
@@ -745,182 +759,12 @@ describe('engine lifecycle', () => {
     }
   })
 
-  it('publishes one machine snapshot for duplicate bursts and reporting clock changes', async () => {
-    const { engine, hub } = makeEngine()
-    engine.start()
-    await settle()
-    const publish = vi.fn()
-    const machinePublish = vi.fn()
-    let previousMachines = engine.access.machines
-    engine.onLocals(['machines', 'repos'], () => {
-      publish()
-      const machines = engine.access.machines
-      if (machines !== previousMachines) machinePublish()
-      previousMachines = machines
-    })
-    const machine = {
-      id: 'machine-a',
-      online: true,
-      lastSeenAt: 'before',
-      buildReportedAt: 'before',
-      services: {
-        server: { state: 'available', observedAt: 'before' },
-        agentExecution: { state: 'available', observedAt: 'before' },
-      },
-    }
-    hub.emit('machines', [machine])
-    const snapshot = engine.access
-    // The scope change also publishes reposLoading; count machine publications
-    // separately, then require duplicate/clock frames to publish nothing at all.
-    expect(machinePublish).toHaveBeenCalledTimes(1)
-    publish.mockClear()
-    hub.emit('machines', [structuredClone(machine)])
-    hub.emit('machines', [
-      {
-        ...machine,
-        lastSeenAt: 'after',
-        buildReportedAt: 'after',
-        services: {
-          server: { observedAt: 'after', state: 'available' },
-          agentExecution: { observedAt: 'after', state: 'available' },
-        },
-      },
-    ])
-    expect(publish).not.toHaveBeenCalled()
-    expect(engine.access).toBe(snapshot)
-    engine.dispose()
-    engine.start()
-    publish.mockClear()
-    hub.emit('machines', [structuredClone(machine)])
-    expect(publish).toHaveBeenCalledTimes(1)
-    engine.dispose()
-  })
-
-  it.each([
-    ['online', { online: false }],
-    ['inventory revision', { inventory: { rev: 2 } }],
-    ['harness versions', { harnessVersions: [{ harness: 'codex', version: '2' }] }],
-    ['use', { use: 'denied' }],
-    ['caps', { deliveryCaps: ['new-cap'] }],
-    ['crash ownership', { services: { crashOwner: 'supervisor' } }],
-    ['unknown future field', { futureField: { value: 2 } }],
-    ['unknown timestamp', { futureAt: 'later' }],
-    ['revocation', { revokedAt: 'later' }],
-  ])('publishes material machine changes: %s', async (_name, patch) => {
-    const { engine, hub } = makeEngine()
-    engine.start()
-    await settle()
-    const machine = { id: 'machine-a', online: true }
-    hub.emit('machines', [machine])
-    const publish = vi.fn()
-    engine.onLocals(['machines', 'repos'], publish)
-    hub.emit('machines', [{ ...machine, ...patch }])
-    expect(publish).toHaveBeenCalledTimes(1)
-    engine.dispose()
-  })
-
-  it('ignores membership order but publishes additions and removals', async () => {
-    const { engine, hub } = makeEngine()
-    engine.start()
-    await settle()
-    const a = { id: 'a', online: true }
-    const b = { id: 'b', online: true }
-    hub.emit('machines', [a, b])
-    const publish = vi.fn()
-    engine.onLocals(['machines', 'repos'], publish)
-    hub.emit('machines', [b, a])
-    expect(publish).not.toHaveBeenCalled()
-    hub.emit('machines', [a])
-    hub.emit('machines', [a, b])
-    expect(publish).toHaveBeenCalledTimes(2)
-    engine.dispose()
-  })
-
-  it('forgets the hub comparison when a repo refresh replaces machines', async () => {
-    const { engine, hub } = makeEngine()
-    engine.start()
-    await settle()
-    const machine = { id: 'a', online: true }
-    hub.emit('machines', [machine])
-    // The scope-triggered refresh returns an empty machine list.
-    await settle()
-    expect(engine.access.machines).toEqual([])
-    hub.emit('machines', [machine])
-    expect(engine.access.machines).toEqual([machine])
-    engine.dispose()
-  })
-
-  it('refreshes an authorized repo snapshot when a machine event keeps the same online count', async () => {
+  it('reads no repositories at boot: machines and checkouts are records (POD-6644)', async () => {
     const api = makeApi()
-    const { engine, hub } = makeEngine({ api })
+    const { engine } = makeEngine({ api })
     engine.start()
     await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    hub.emit('machines', [
-      { id: asMachineId('daemon-before-restart'), online: true, name: 'before' },
-    ])
-    await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    // A rebound daemon replacing the prior visible machine leaves the online
-    // count at one. The old count-rise heuristic skipped this invalidation and
-    // could leave the worklist joined against the wrong machine snapshot.
-    hub.emit('machines', [{ id: asMachineId('daemon-after-restart'), online: true, name: 'after' }])
-    await settle()
-
-    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
-    engine.dispose()
-  })
-
-  it('does not supersede repo refreshes for machine metadata-only broadcasts', async () => {
-    const api = makeApi()
-    const { engine, hub } = makeEngine({ api })
-    engine.start()
-    await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    const machineId = asMachineId('rebound-daemon')
-    hub.emit('machines', [{ id: machineId, online: true, name: 'before inventory' }])
-    await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    // Inventory/build reporting broadcasts the full machine projection after
-    // reattach without changing which machine is visible or reachable. It must
-    // update the machine paint without invalidating the authorized repo fetch.
-    hub.emit('machines', [
-      {
-        id: machineId,
-        online: true,
-        name: 'after inventory',
-        inventory: { agents: [] },
-      },
-    ])
-    await settle()
-
     expect(api.discovery.refreshRepos.mutate).not.toHaveBeenCalled()
-    expect(engine.access.machines[0]?.name).toBe('after inventory')
-    engine.dispose()
-  })
-
-  it('refreshes repos when use is revoked without changing machine identity or liveness', async () => {
-    const api = makeApi()
-    const { engine, hub } = makeEngine({ api })
-    engine.start()
-    await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    const machineId = asMachineId('shared-daemon')
-    hub.emit('machines', [{ id: machineId, online: true, name: 'shared daemon', use: 'granted' }])
-    await settle()
-    api.discovery.refreshRepos.mutate.mockClear()
-
-    // The machine remains visible and online, but filesystem scan authority is
-    // gone. The authorized repo snapshot must be recomputed under that denial.
-    hub.emit('machines', [{ id: machineId, online: true, name: 'shared daemon', use: 'denied' }])
-    await settle()
-
-    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
     engine.dispose()
   })
 
@@ -939,14 +783,14 @@ describe('engine lifecycle', () => {
     const { engine, hub, fatals } = makeEngine()
     engine.start()
     engine.start() // double-start must not double-subscribe
-    expect(hub.onCalls.filter((k) => k === 'worktreesChanged')).toHaveLength(1)
+    expect(hub.onCalls.filter((k) => k === 'attention')).toHaveLength(1)
     await settle()
     engine.dispose()
     engine.dispose() // double-dispose must not throw
-    expect(hub.subscribed('worktreesChanged')).toBe(0)
+    expect(hub.subscribed('attention')).toBe(0)
     engine.start() // re-start after dispose re-arms everything
     await settle()
-    expect(hub.subscribed('worktreesChanged')).toBe(1)
+    expect(hub.subscribed('attention')).toBe(1)
     engine.dispose()
     expect(fatals).toEqual([])
   })

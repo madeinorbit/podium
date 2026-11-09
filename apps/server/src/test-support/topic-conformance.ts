@@ -283,7 +283,7 @@ export async function createTopicWorld(
   let daemon!: FakeDaemon
 
   const conditions = new MachineConditionTopic({
-    online: (machineId) => machineId === daemon.machineId && daemon.connected,
+    condition: (machineId) => ({ online: machineId === daemon.machineId && daemon.connected }),
     now: () => Date.now(),
     publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
   })

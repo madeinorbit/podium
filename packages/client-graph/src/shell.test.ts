@@ -10,6 +10,8 @@ import {
   poolShellSnapshot,
 } from '../../../tests/worklist/diagnostics/shell-check'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
+import { headerEntities } from './header-entities'
+import { seedFixtureMachines } from './live-fixture'
 import { omitGone } from './lookup'
 import { loadSyncedModels } from './models'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
@@ -129,9 +131,9 @@ describe('shell pool', () => {
         { online: false },
         { availability: { daemon: false, server: true, supervisor: false, epoch: 'changed' } },
       ]) {
-        f.pool.ingestLiveMachines([{ id: machine.id, value: { ...machine, ...patch } }])
-        // Online is the LiveStore's condition (POD-5798), so its fault is planted there.
-        if ('online' in patch) f.live.online(machine.id, patch.online)
+        // The record and the live condition (POD-6644): each fault is planted
+        // where that fact lives.
+        headerEntities(f.pool).apply(seedFixtureMachines(f.pool, [{ ...machine, ...patch } as never]) as never)
         const report = settled(f)
         expect(report).toMatchObject({
           differences: 1,
@@ -139,7 +141,7 @@ describe('shell pool', () => {
           first: { sectionIndex: 8, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
         })
         expect(JSON.stringify(report)).not.toContain('private-machine-name')
-        f.live.online(machine.id, machine.online)
+        headerEntities(f.pool).apply(seedFixtureMachines(f.pool, [machine]) as never)
       }
     } finally {
       f.pool.dispose()

@@ -217,7 +217,7 @@ root.render(
     networkEnabled={false}
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return () => {}
     }}
   >

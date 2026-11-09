@@ -2,7 +2,7 @@ import type { SocketHub, TopicState } from '@podium/client-core/socket-transport
 import type { MachineId } from '@podium/model'
 import type { TopicPayload } from '@podium/protocol'
 import { action, observableRef } from 'mobx'
-import { answerMachineId, focusRefresh } from './answer-refresh'
+import { type AnswerMachines, answerMachineId, focusRefresh } from './answer-refresh'
 
 export class MachineProcessesView {
   @observableRef accessor snapshot: {
@@ -15,18 +15,19 @@ export class MachineProcessesView {
   private stopFocus?: () => void
   private machine?: MachineId
   constructor(
-    private readonly hub: Pick<SocketHub, 'machines' | 'on' | 'subscribeTopic' | 'refreshTopic'>,
+    private readonly hub: Pick<SocketHub, 'subscribeTopic' | 'refreshTopic'>,
+    private readonly machines: AnswerMachines,
     private readonly requested?: MachineId,
   ) {}
   open(): void {
     if (this.stopMachines) return
     this.bind()
-    this.stopMachines = this.hub.on('machines', () => this.bind())
+    this.stopMachines = this.machines.subscribe(() => this.bind())
     // Older daemons get a one-shot server request again on focus; never a client poll.
     this.stopFocus = focusRefresh(() => this.refresh())
   }
   @action private bind(): void {
-    const id = answerMachineId(this.hub, this.requested)
+    const id = answerMachineId(this.machines, this.requested)
     if (this.machine === id && this.release) return
     this.release?.()
     this.machine = id

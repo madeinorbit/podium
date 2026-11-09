@@ -41,7 +41,8 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
       availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
       inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
     }))
-    fixture.api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: repos, machines, diagnostics: [] })) as never
+    // Machines and repositories are records; online is the live condition (POD-6644).
+    fixture.putMachinesAndRepos({ machines, repos })
     let pool: MobxPool | null = null
     let owner!: ReturnType<typeof useStoreHandle<Trpc>>
     let choose!: (path: string) => void
@@ -60,9 +61,8 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     const app = render(<StoreProvider principal={asClientPrincipal(asUserId('open-launcher-proof'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
       createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-      attachRuntime={runtime => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, fatal) }}><Host /></StoreProvider>)
+      attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); return attachWorklistPool(runtime, fatal) }}><Host /></StoreProvider>)
     await waitFor(() => expect(pool).toBeTruthy())
-    await act(async () => { await owner.access.refreshRepos() })
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Web pool missing')
     // Complete the lazy attachment while closed; no choice projection is read.
@@ -90,7 +90,7 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
       expect(screen.getByText('p1', { exact: true })).toBeTruthy()
       cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
     } else expect(screen.getByLabelText('Title')).toBeTruthy()
-    cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); return owner.access.refreshRepos() }))
+    cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); fixture.putMachinesAndRepos({ repos }) }))
     expect(requireHere(attached.model('repository', JSON.stringify(['host-one', '/synthetic/project']))).branch).toBe('updated')
     cells.push(await measured('usage', () => fixture.patch('session', 'synthetic-session-0', { createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' })))
     cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))

@@ -150,7 +150,7 @@ root.render(
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
+        fixture.bindHub(runtime.hub, undefined, runtime.live)
         const detach = attachMobilePool(runtime, (error) => failures.push(error.message))
         fixture.publishMachines()
         fixture.publishMetrics(0)

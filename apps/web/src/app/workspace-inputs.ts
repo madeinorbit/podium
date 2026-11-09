@@ -4,7 +4,8 @@ import { allTabIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback } from 'react'
-import { useRuntimeActions, useRuntimeList } from './keyed-runtime'
+import { usePoolRepositories } from './header-data'
+import { useRuntimeActions } from './keyed-runtime'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 const ACTIONS = [
@@ -84,7 +85,7 @@ export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingI
   const dockShells = useUiValue('dockShells')
   const workspaces = useUiValue('workspaces')
   const fileTabs = useUiValue('fileTabList')
-  const repos = useRuntimeList('repos')
+  const repos = usePoolRepositories()
   const workspaceKey = useUiValue('workspaceKeyValue')
   const workspaceLoading = useUiValue('workspaceLoading')
   const layout = workspaceLoading ? undefined : workspaces[workspaceKey]

@@ -94,9 +94,9 @@ it('matches the original repository grouping, pinned filtering and open order on
       isMain: tree.isMain, repoName: tree.repoName, repoId: tree.repoId, machineId: tree.machineId, sessions: tree.sessions, issues: tree.issues })),
   }))
   try {
-    expect(render(migrated)).toEqual(render(old.newWork() as ReturnType<typeof migrated.newWork>))
+    expect(render(migrated)).toEqual(render(old.newWork() as unknown as ReturnType<typeof migrated.newWork>))
     expect(migrated.repositoryPaths).toEqual(old.repositoryPaths)
-    expect(() => expect({ ...render(migrated)[0], name: 'wrong' }).toEqual(render(old.newWork() as ReturnType<typeof migrated.newWork>)[0])).toThrow()
+    expect(() => expect({ ...render(migrated)[0], name: 'wrong' }).toEqual(render(old.newWork() as unknown as ReturnType<typeof migrated.newWork>)[0])).toThrow()
     const first = migrated.repos.find(repo => repo.path === '/repo/z')!
     const branches: (string | undefined)[] = []
     const stop = autorun(() => branches.push(first.worktrees[0]?.branch))

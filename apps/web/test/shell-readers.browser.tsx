@@ -282,7 +282,7 @@ root.render(
     onFatalError={(message) => failures.push(message)}
     attachRuntime={(owner) => {
       runtime = owner
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.hub, undefined, owner.live)
       fixture.publishMachines()
       Object.assign(owner.hub, {
         dismissOpenUrl: () => {
@@ -292,7 +292,6 @@ root.render(
           effects.callbacks++
         },
       })
-      void referenceState(owner).refreshRepos()
       return attachWorklistPool(owner, (error) => failures.push(error.message))
     }}
   >

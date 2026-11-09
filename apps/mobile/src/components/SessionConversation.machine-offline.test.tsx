@@ -109,40 +109,19 @@ function LiveConversation() {
 }
 
 async function renderLive(initial: MachineWire[]) {
-  // The engine re-runs discovery.refreshRepos when the machines scope
-  // signature (id:online) moves, and the test stub's refresh REPLACES the
-  // machine list. If it kept answering the initial ONLINE list, an
-  // online->offline emit would be immediately overwritten. Answer the latest
-  // emitted list instead, so the transition under test survives the refresh.
-  let current: MachineWire[] = initial
+  // Machines are records; online and presence are the LiveStore's condition
+  // (POD-6644). A move after mount writes both, as the server and live feed do.
   const view = await renderWithMobileStore(<LiveConversation />, {
     sessions: [session],
     machines: initial,
-    machineProjections: initial.map((row) => ({
-      id: row.id,
-      name: row.name,
-      loggedOutHarnesses: [],
-    })),
     api: {
-      discovery: {
-        refreshRepos: {
-          mutate: async () => ({
-            repositories: [],
-            diagnostics: [],
-            machines: current,
-          }),
-        },
-      },
       sessions: {
         transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
         answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
       },
     },
   })
-  const emitMachines = (next: MachineWire[]) => {
-    current = next
-    view.emit('machines', next)
-  }
+  const emitMachines = (next: MachineWire[]) => view.setMachines(next)
   return { ...view, emitMachines }
 }
 
@@ -232,9 +211,10 @@ describe('phone offline machine label from session homes', () => {
   })
 
   it('ignores a stale session label until the machine home arrives', async () => {
+    // The machine's presence has arrived, its named record not yet (POD-6644).
     const { replica } = await renderWithMobileStore(<LiveConversation />, {
       sessions: [session],
-      machines: OFFLINE_SUPERVISOR,
+      machines: OFFLINE_SUPERVISOR.map((row) => ({ ...row, name: '' })),
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
     expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('desk')

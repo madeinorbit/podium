@@ -166,7 +166,7 @@ async function mount() {
     runtime = useStoreHandle() as ClientRuntime
     if (!configured.has(runtime)) {
       const subscribeHealth = runtime.hub.onConnectionHealth.bind(runtime.hub)
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       runtime.hub.onConnectionHealth = subscribeHealth
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.

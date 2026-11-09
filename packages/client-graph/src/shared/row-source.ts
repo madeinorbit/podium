@@ -1,11 +1,11 @@
-import { isFinished } from './predicates'
 import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import { machinePathKey, machinePathsEqual } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
-import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
-import { SCHEMA } from './schema'
 import { compareStructural, runInAction } from 'mobx'
+import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { IssueSessionFactsIndex } from './issue-session-facts'
+import { isFinished } from './predicates'
+import { SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * The feed folds the supplied per-row transaction lists over kernel truth. There is no runtime record snapshot or whole-list optimism fold.
  * Kernel addresses and transaction repaint calls name exactly the touched
@@ -24,28 +24,33 @@ import {
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import {
   asIssueId,
+  asMachineId,
   asSessionId,
   asUserId,
+  type CheckoutWire,
   INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   layoutRowId,
+  machineAccessRowId,
   normalizeOriginUrl,
-  parseIssueUserStateRowId,
-  parseSessionUserStateRowId,
-  subscriptionRowId,
-  type WorkflowBindingTarget,
-  workflowBindingRowId,
-  repoNameFromOrigin,
   type PinKind,
+  parseIssueUserStateRowId,
+  parseMachineAccessRowId,
+  parseSessionUserStateRowId,
   pinRowId,
   readPositionRowId,
+  repoNameFromOrigin,
   resolveInstancePreferences,
   resolveUserPreferences,
   sessionUserStateRowId,
+  subscriptionRowId,
   superagentThreadRowId,
   tabOrderRowId,
   userPreferencesRowId,
+  type WorkflowBindingTarget,
+  workflowBindingRowId,
 } from '@podium/model'
+import { repositoriesFromCheckouts } from './checkout-repositories'
 import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
@@ -75,18 +80,12 @@ interface RepoEntry {
   worktrees?: readonly { path: string; branch?: string; isMain?: boolean }[]
 }
 
-/** The runtime discovery surface. Entity rows come from the replica and
- *  PoolTransactions, by id; discovery follows the keyed `repos` local. */
+/** The runtime surface. Entity rows come from the replica and
+ *  PoolTransactions, by id; repositories and their lanes come from the
+ *  replica's `checkout` records (POD-6644). */
 export interface RowSourceRuntime {
-  /** Keyed locals (POD-5433): the feed wakes on discovery (`repos`) and, while
-   *  discovery reports a changed scan. */
-  onLocals(keys: readonly RowSourceLocal[], listener: () => void): () => void
-  readLocal(key: 'repos'): readonly RepoEntry[]
   readonly principal?: { userId: string }
 }
-
-/** The runtime locals the feed follows: discovery, only. Replicated records use the kernel address channel. */
-export type RowSourceLocal = 'repos'
 
 /** The replica surface the row source reads. `row()` and the addressed seam
  *  are optional on the replica contract; this source refuses to start without
@@ -139,6 +138,7 @@ export type RepaintKind =
   | 'effect'
   | 'subscription'
   | 'userLayout'
+  | 'machine'
   | 'pin'
   | 'tabOrder'
   | 'userPreferences'
@@ -155,7 +155,9 @@ export interface RowSourceRepaint {
    * log, so the change and the visible row land together. Visits exactly the
    * rows named.
    */
-  repaint(rows: Iterable<{ readonly kind: RepaintKind; readonly id: string }>): RowSourceEvent | null
+  repaint(
+    rows: Iterable<{ readonly kind: RepaintKind; readonly id: string }>,
+  ): RowSourceEvent | null
   /**
    * The server-truth row a pending overlay is judged against, by overlay
    * target and row id: the session view with this principal's truth markers
@@ -201,6 +203,9 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'subscriptions',
   // POD-6677: the instance settings.
   'instancePreferences',
+  // POD-6644: my machine access rows (joined onto the machine), and checkouts.
+  'machineAccess',
+  'checkouts',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -218,6 +223,8 @@ const OVERLAID: readonly OverlayTarget[] = [
   // A trigger subscription's toggle or removal (POD-6676).
   'subscriptions',
   'instancePreferences',
+  // A machine's spec, painted on its record (POD-6644).
+  'machines',
 ]
 
 /**
@@ -276,7 +283,10 @@ const PER_USER_KINDS = {
 } as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
 type PerUserKind = keyof typeof PER_USER_KINDS
 const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
-  (Object.keys(PER_USER_KINDS) as PerUserKind[]).map((kind) => [PER_USER_KINDS[kind].replica, kind]),
+  (Object.keys(PER_USER_KINDS) as PerUserKind[]).map((kind) => [
+    PER_USER_KINDS[kind].replica,
+    kind,
+  ]),
 )
 const isPerUserKind = (kind: string): kind is PerUserKind => Object.hasOwn(PER_USER_KINDS, kind)
 const NO_OVERLAYS: readonly PendingOverlay[] = []
@@ -378,7 +388,6 @@ export function createRowSource(
         )
       }
     }
-
   }
 
   const sessionUserKeys = new Map<string, string>()
@@ -399,7 +408,6 @@ export function createRowSource(
         )
       }
     }
-
   }
   /** One session's view: its row joined with this principal's per-user row
    *  (read, snooze) folded over that row's own pending overlays (POD-4974 S3),
@@ -426,7 +434,13 @@ export function createRowSource(
       userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
       userState: userState as { readAt: string | null; snoozedUntil?: string | null } | undefined,
     })
-    const { machineName: _machineName, condition: _condition, handoffTarget: _handoffTarget, displayRef: _displayRef, ...own } = value
+    const {
+      machineName: _machineName,
+      condition: _condition,
+      handoffTarget: _handoffTarget,
+      displayRef: _displayRef,
+      ...own
+    } = value
     let memo = composedSessions
     for (const key of [raw, userState ?? NO_USER_STATE]) {
       let next = memo.next.get(key)
@@ -446,13 +460,11 @@ export function createRowSource(
       return current
     memo.value = { ...own, readAt, unread, snoozedUntil }
     return memo.value
-
   }
 
   // Pending signals since the last flush.
   const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
-  let discoveryDirty = false
   let scheduled = false
 
   /** Last published values, including bootstrap snapshots. Compare by the
@@ -516,14 +528,6 @@ export function createRowSource(
     schedule()
   }
 
-  /** Only discovery is read from runtime publications: a change to
-   *  the `repos` array is a signal. */
-  function onTruthPublication(): void {
-    if (disposed || currentRepos() === heldFrom) return
-    discoveryDirty = true
-    schedule()
-  }
-
   function readPending(): PendingByRow {
     return {
       sessions: pooled.byRow('sessions'),
@@ -539,6 +543,7 @@ export function createRowSource(
       superagentThreads: pooled.byRow('superagentThreads'),
       subscriptions: pooled.byRow('subscriptions'),
       instancePreferences: pooled.byRow('instancePreferences'),
+      machines: pooled.byRow('machines'),
     }
   }
 
@@ -665,14 +670,10 @@ export function createRowSource(
     )
     const gitState = authority('issueGitStates', id)
     const deps = outgoing.get(id) ?? EMPTY
-    const blocked = deps.some((edge) => edge.type === 'blocked-by' && closedInput(edge.id) === false)
-    return issueInput(
-      projection,
-      userState,
-      gitState,
-      deps,
-      blocked,
+    const blocked = deps.some(
+      (edge) => edge.type === 'blocked-by' && closedInput(edge.id) === false,
     )
+    return issueInput(projection, userState, gitState, deps, blocked)
   }
 
   function laneFor(
@@ -741,12 +742,35 @@ export function createRowSource(
     return lanes
   }
 
+  /** The registered repositories, derived from the checkout records (POD-6644). */
   function currentRepos(): readonly RepoEntry[] {
     try {
-      return runtime.readLocal('repos')
+      return repositoriesFromCheckouts(replica.rows('checkouts') as readonly CheckoutWire[])
     } catch {
       return EMPTY
     }
+  }
+
+  /**
+   * One machine as the pool holds it: its record, joined with my own access
+   * row (POD-6644). Live facts (online, presence) are the model's, from the
+   * LiveStore; nothing here reads them.
+   */
+  function machineRow(
+    id: string,
+    pending: PendingByRow | null = readPending(),
+  ): AnyRow | undefined {
+    // A rename or pin queued on this device shows at once (ADR 12 D3).
+    const record = folded('machines', id, pending)
+    if (!record) return undefined
+    const principal = runtime.principal?.userId
+    const access =
+      principal === undefined
+        ? undefined
+        : authority('machineAccess', machineAccessRowId(asUserId(principal), asMachineId(id)))
+    if (!access) return record
+    const { userId: _user, machineId: _machine, ...mine } = access as Record<string, unknown>
+    return { ...mine, ...record }
   }
 
   /** The repo roots (standalone duplicates of linked worktrees dropped) and
@@ -755,7 +779,8 @@ export function createRowSource(
   function indexFor(repos: readonly RepoEntry[]): RepoIndex {
     if (repoIndex?.from === repos) return repoIndex
     const linked = new Set<string>()
-    for (const repo of repos) for (const wt of repo.worktrees ?? []) linked.add(machinePathKey(wt.path))
+    for (const repo of repos)
+      for (const wt of repo.worktrees ?? []) linked.add(machinePathKey(wt.path))
     const roots: RepoEntry[] = []
     const byId = new Map<string, RepoEntry[]>()
     for (const repo of repos) {
@@ -770,7 +795,9 @@ export function createRowSource(
     const groups = new Map<string, RepoEntry[]>()
     for (const repo of roots) {
       const origin = normalizeOriginUrl(repo.originUrl)
-      const key = repoIdOf(repo) ?? (origin || `__no_remote__:${repo.machineId ?? ''}:${machinePathKey(repo.path)}`)
+      const key =
+        repoIdOf(repo) ??
+        (origin || `__no_remote__:${repo.machineId ?? ''}:${machinePathKey(repo.path)}`)
       const group = groups.get(key)
       if (group) group.push(repo)
       else groups.set(key, [repo])
@@ -813,7 +840,9 @@ export function createRowSource(
   function repoRow(id: string): AnyRow | undefined {
     const raw = authority('repos', id)
     if (!raw) return undefined
-    const roots = indexFor(currentRepos()).byId.get(id)
+    // The repositories the arms hold: kept current by every checkout address
+    // and every replace, so a repo change reads no checkout list (POD-6644).
+    const roots = indexFor(heldFrom).byId.get(id)
     return { ...raw, repoPath: raw.repoPath ?? roots?.[0]?.path ?? '' }
   }
 
@@ -832,11 +861,17 @@ export function createRowSource(
    * server truth, a subscription with this device's pending toggle or removal
    * folded on, keyed and stamped with its feed id.
    */
-  function recordRow(kind: RecordCompanion, feedId: string, pending: PendingByRow | null): AnyRow | undefined {
+  function recordRow(
+    kind: RecordCompanion,
+    feedId: string,
+    pending: PendingByRow | null,
+  ): AnyRow | undefined {
     const raw = authority(RECORD_COMPANIONS[kind], feedId)
     if (kind === 'subscription') {
       const value = foldRowOverlays(raw, pending?.subscriptions.get(feedId) ?? NO_OVERLAYS)
-      return value === undefined ? undefined : { ...value, id: feedId, subscriptionId: raw?.id ?? value.id }
+      return value === undefined
+        ? undefined
+        : { ...value, id: feedId, subscriptionId: raw?.id ?? value.id }
     }
     if (raw === undefined) return undefined
     return kind === 'workflowBinding' ? { ...raw, id: feedId } : raw
@@ -877,7 +912,11 @@ export function createRowSource(
    * resolved, each group whole with its defaults, so a reader reads
    * `roles.coding.model` as it reads it everywhere else.
    */
-  function perUserRow(kind: PerUserKind, id: string, pending: PendingByRow | null): AnyRow | undefined {
+  function perUserRow(
+    kind: PerUserKind,
+    id: string,
+    pending: PendingByRow | null,
+  ): AnyRow | undefined {
     const { replica: replicaKind, target } = PER_USER_KINDS[kind]
     const raw = authority(replicaKind, id)
     const value =
@@ -907,7 +946,8 @@ export function createRowSource(
     }
     if (target !== undefined) for (const id of pending?.[target].keys() ?? []) ids.add(id)
     const principal = runtime.principal?.userId
-    if (kind === 'userPreferences' && principal !== undefined) ids.add(userPreferencesRowId(asUserId(principal)))
+    if (kind === 'userPreferences' && principal !== undefined)
+      ids.add(userPreferencesRowId(asUserId(principal)))
     const out: RowRecord[] = []
     for (const id of ids) {
       stats.rowsVisited += 1
@@ -917,13 +957,34 @@ export function createRowSource(
     return out
   }
 
-  function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun' | 'effect'): RowRecord[] {
-    const replicaKind = { repo: 'repos', machine: 'machines', automation: 'automations', automationRun: 'automationRuns', effect: 'effects' } as const
-    return replica.rows(replicaKind[kind]).flatMap(raw => {
+  function companions(
+    kind: 'repo' | 'machine' | 'automation' | 'automationRun' | 'effect',
+  ): RowRecord[] {
+    const replicaKind = {
+      repo: 'repos',
+      machine: 'machines',
+      automation: 'automations',
+      automationRun: 'automationRuns',
+      effect: 'effects',
+    } as const
+    return replica.rows(replicaKind[kind]).flatMap((raw) => {
       const id = idOf(raw)
       if (!id) return []
       stats.rowsVisited += 1
-      return [{ kind, id, value: kind === 'repo' ? repoRow(id) : kind === 'effect' ? effectRow(foldRowOverlays(raw, readPending().effects.get(id) ?? NO_OVERLAYS)) : raw }]
+      return [
+        {
+          kind,
+          id,
+          value:
+            kind === 'repo'
+              ? repoRow(id)
+              : kind === 'machine'
+                ? machineRow(id)
+                : kind === 'effect'
+                  ? effectRow(foldRowOverlays(raw, readPending().effects.get(id) ?? NO_OVERLAYS))
+                  : raw,
+        },
+      ]
     })
   }
 
@@ -1013,11 +1074,9 @@ export function createRowSource(
     const recovering = diagnostics.resyncPending
     const hadReplace = pendingReplace !== null || recovering
     const addresses = [...pendingAddresses.values()]
-    const hadRuntime = discoveryDirty
     pendingAddresses.clear()
     pendingReplace = null
-    discoveryDirty = false
-    if (!hadReplace && addresses.length === 0 && !hadRuntime) return null
+    if (!hadReplace && addresses.length === 0) return null
 
     const pending = readPending()
 
@@ -1050,7 +1109,9 @@ export function createRowSource(
           ...companions('repo'),
           ...companions('machine'),
           ...companions('effect'),
-          ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, pending)),
+          ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) =>
+            perUserRows(kind, pending),
+          ),
         ],
       }
       emit(event, recovering)
@@ -1058,14 +1119,19 @@ export function createRowSource(
     }
 
     const byKey = new Map<string, RowRecord>()
-    // 0. Discovery: lanes the new `repos` answer moved (O(1) when it did not).
-    discoveryRows(byKey)
+    // 0. Discovery: lanes a checkout change moved. Only a checkout address
+    //    reads the checkout list (POD-6644).
+    if (addresses.some((address) => address.kind === 'checkouts')) discoveryRows(byKey)
     // 1. Resolve kernel-addressed rows; publish only changed client values.
     const addressed = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const address of addresses) {
       if (address.kind === 'repos') {
         stats.rowsVisited += 1
-        byKey.set(`repo:${address.id}`, { kind: 'repo', id: address.id, value: repoRow(address.id) })
+        byKey.set(`repo:${address.id}`, {
+          kind: 'repo',
+          id: address.id,
+          value: repoRow(address.id),
+        })
         continue
       }
       if (address.kind === 'sessionUserStates') {
@@ -1075,30 +1141,67 @@ export function createRowSource(
       }
       if (address.kind === 'machines') {
         stats.rowsVisited += 1
-        byKey.set(`machine:${address.id}`, { kind: 'machine', id: address.id, value: authority('machines', address.id) })
+        byKey.set(`machine:${address.id}`, {
+          kind: 'machine',
+          id: address.id,
+          value: machineRow(address.id),
+        })
         continue
       }
+      if (address.kind === 'machineAccess') {
+        let machineId: string
+        try {
+          machineId = parseMachineAccessRowId(address.id).machineId
+        } catch {
+          continue
+        }
+        stats.rowsVisited += 1
+        byKey.set(`machine:${machineId}`, {
+          kind: 'machine',
+          id: machineId,
+          value: machineRow(machineId),
+        })
+        continue
+      }
+      // A checkout moved: the lanes follow through discovery above.
+      if (address.kind === 'checkouts') continue
       const perUser = PER_USER_BY_REPLICA.get(address.kind)
       if (perUser !== undefined) {
         stats.rowsVisited += 1
-        byKey.set(`${perUser}:${address.id}`, { kind: perUser, id: address.id, value: perUserRow(perUser, address.id, pending) })
+        byKey.set(`${perUser}:${address.id}`, {
+          kind: perUser,
+          id: address.id,
+          value: perUserRow(perUser, address.id, pending),
+        })
         continue
       }
       if (address.kind === 'effects') {
         stats.rowsVisited += 1
-        byKey.set(`effect:${address.id}`, { kind: 'effect', id: address.id, value: effectOf(address.id, readPending()) })
+        byKey.set(`effect:${address.id}`, {
+          kind: 'effect',
+          id: address.id,
+          value: effectOf(address.id, readPending()),
+        })
         continue
       }
       const record = RECORD_COMPANION_BY_REPLICA.get(address.kind)
       if (record !== undefined) {
         stats.rowsVisited += 1
-        byKey.set(`${record}:${address.id}`, { kind: record, id: address.id, value: recordRow(record, address.id, readPending()) })
+        byKey.set(`${record}:${address.id}`, {
+          kind: record,
+          id: address.id,
+          value: recordRow(record, address.id, readPending()),
+        })
         continue
       }
       if (address.kind === 'automations' || address.kind === 'automationRuns') {
         const kind = address.kind === 'automations' ? 'automation' : 'automationRun'
         stats.rowsVisited += 1
-        byKey.set(`${kind}:${address.id}`, { kind, id: address.id, value: authority(address.kind, address.id) })
+        byKey.set(`${kind}:${address.id}`, {
+          kind,
+          id: address.id,
+          value: authority(address.kind, address.id),
+        })
         continue
       }
       if (address.kind === 'issueUserStates') {
@@ -1218,12 +1321,22 @@ export function createRowSource(
     seededKinds.add(kind)
     // Message and interaction rows belong to NoticeSource; this source only
     // enumerates its own core records when the generic pool asks for a kind.
-    const rows = isPerUserKind(kind) ? perUserRows(kind, readPending())
-      : isRecordCompanion(kind) ? recordRows(kind, readPending())
-      : kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' || kind === 'effect' ? companions(kind)
-      : kind === 'worktree' ? allLanes()
-      : kind === 'issue' || kind === 'session' ? enumerate(kind, readPending()) : []
-    return rows.map(record => {
+    const rows = isPerUserKind(kind)
+      ? perUserRows(kind, readPending())
+      : isRecordCompanion(kind)
+        ? recordRows(kind, readPending())
+        : kind === 'repo' ||
+            kind === 'machine' ||
+            kind === 'automation' ||
+            kind === 'automationRun' ||
+            kind === 'effect'
+          ? companions(kind)
+          : kind === 'worktree'
+            ? allLanes()
+            : kind === 'issue' || kind === 'session'
+              ? enumerate(kind, readPending())
+              : []
+    return rows.map((record) => {
       const key = `${record.kind}:${record.id}`
       const value = retain(key, record.value)
       // Later snapshots may serve fresh truth before its scheduled flush.
@@ -1277,7 +1390,16 @@ export function createRowSource(
       const index = createColdIndex(SCHEMA, coldHeld)
       index.apply({
         type: 'replace',
-        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree'), ...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect')],
+        rows: [
+          ...snapshot('session'),
+          ...snapshot('issue'),
+          ...snapshot('worktree'),
+          ...snapshot('repo'),
+          ...snapshot('machine'),
+          ...snapshot('automation'),
+          ...snapshot('automationRun'),
+          ...snapshot('effect'),
+        ],
       })
       coldIndex = index
     }
@@ -1293,9 +1415,17 @@ export function createRowSource(
     // fixture) paints them from its first publication, not only after the next
     // replace.
     // POD-6676's profiles, workflows and subscriptions likewise.
-    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect'),
-      ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, readPending())),
-      ...RECORD_COMPANION_KINDS.flatMap((kind) => snapshot(kind))],
+    companions: () => [
+      ...snapshot('repo'),
+      ...snapshot('machine'),
+      ...snapshot('automation'),
+      ...snapshot('automationRun'),
+      ...snapshot('effect'),
+      ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) =>
+        perUserRows(kind, readPending()),
+      ),
+      ...RECORD_COMPANION_KINDS.flatMap((kind) => snapshot(kind)),
+    ],
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind
@@ -1331,7 +1461,6 @@ export function createRowSource(
   // The feed reads no runtime publication but discovery: kernel addresses and the log's repaint
   // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(runtime.onLocals(['repos'], onTruthPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: RepaintKind; readonly id: string }>,
@@ -1347,6 +1476,13 @@ export function createRowSource(
       if (isPerUserKind(kind)) {
         const held = published.get(key)
         const value = retain(key, perUserRow(kind, id, pending))
+        if (value !== held) byKey.set(key, { kind, id, value })
+        continue
+      }
+      // A machine's spec, painted on its record (POD-6644).
+      if (kind === 'machine') {
+        const held = published.has(key) ? published.get(key) : machineRow(id, null)
+        const value = retain(key, machineRow(id, pending))
         if (value !== held) byKey.set(key, { kind, id, value })
         continue
       }
@@ -1409,6 +1545,8 @@ export function createRowSource(
         return authority('effects', id)
       case 'subscriptions':
         return authority('subscriptions', id)
+      case 'machines':
+        return authority('machines', id)
     }
   }
 
@@ -1432,6 +1570,10 @@ export function createRowSource(
         }
         if (kind === 'subscriptions') {
           published.set(`subscription:${id}`, recordRow('subscription', id, pending))
+          continue
+        }
+        if (kind === 'machines') {
+          published.set(`machine:${id}`, machineRow(id, pending))
           continue
         }
         const row = kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue'

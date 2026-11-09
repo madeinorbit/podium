@@ -50,10 +50,7 @@ root.render(
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
       runtimeOwners.add(runtime)
-      fixture.bindHub(runtime.hub)
-      void referenceState(runtime)
-        .refreshRepos()
-        .catch(() => failures.push('fixture-discovery-failure'))
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, () => failures.push('pool-failure'))
     }}
   >
@@ -90,7 +87,7 @@ const driver = {
     fixture.remove('issueProjection', 'synthetic-0')
     fixture.remove('session', 'synthetic-session-0')
     fixture.machines[0] = { ...fixture.machines[0]!, online: false }
-    await referenceState(owner!).refreshRepos()
+    fixture.publishMachineList()
     await frame()
   },
   check: () => (pool && owner ? checkWorkflows(pool, referenceState(owner), fixture) : null),

@@ -1,7 +1,7 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { observer } from '@podium/client-graph/react'
-import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
+import type { MachineFacts, MachineId, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
 import { submitNow } from '@podium/protocol'
 import { useTerminalSession } from '@podium/terminal-client-react'
@@ -56,7 +56,9 @@ export const DockShellPanel = observer(function DockShellPanel({
     setDockVisibleSession: useUiValue('setDockVisibleSession'),
   }
   const pendingId = useRef<string | null>(null)
-  const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(
+  // The shell renders under the first-sync gate, so repositories (records,
+  // POD-6644) are already here: nothing more to wait for before resolving.
+  const { mapped, session, pendingPresent, hasSessions, loading } = useDockPaneInputs(
     cwd,
     pendingId.current,
   )
@@ -100,7 +102,6 @@ export const DockShellPanel = observer(function DockShellPanel({
   const needsResolve =
     !parked &&
     !loading &&
-    reposLoaded &&
     pendingId.current === null &&
     reconciledFor.current !== resolveKey &&
     (!mapped || !!session || hasSessions)
@@ -200,7 +201,7 @@ export const DockShellPanel = observer(function DockShellPanel({
  * useful target indicator while a newly-created session is still arriving. */
 export function resolveShellMachineLabel(
   session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
-  machines: Pick<MachineWire, 'id' | 'name'>[],
+  machines: Pick<MachineFacts, 'id' | 'name'>[],
   requestedMachineId?: MachineId,
 ): string | undefined {
   if (session?.machineName) return session.machineName

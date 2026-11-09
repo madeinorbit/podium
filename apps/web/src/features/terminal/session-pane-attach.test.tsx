@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { knownReading } from '@podium/client-core/live'
+import { machineRecords } from '@podium/client-core/test-support/machine-records'
+import { runInAction } from 'mobx'
 import { observer } from '@podium/client-graph/react'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -87,9 +90,6 @@ const api = {
   settings: { get: { query: async () => ({ roles: { coding: { startScreen: 'chat' } } }) } },
   quota: { summary: { query: async () => [] } },
   sessions: { transcriptRead: { query: transcriptRead } },
-  discovery: {
-    refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines }) },
-  },
 } as unknown as PodiumClientApi
 const originalUrl = window.location.href
 let runtime: ClientRuntime | undefined
@@ -99,7 +99,9 @@ const errors: (Error | string)[] = []
 function replicaFactory() {
   const cache = new ScenarioCache()
   for (const row of [live, shell, offline]) cache.put('session', row.sessionId, row)
-  for (const row of machines) cache.put('machine', row.id, row)
+  // Each machine's record and my access row (POD-6644); online is the live condition.
+  for (const record of machines.flatMap((row) => machineRecords('session-pane-attach', row)))
+    cache.put(record.entity, record.entityId, record.value)
   return createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -110,9 +112,10 @@ function binding(next: ClientRuntime): () => void {
   runtime = next
   next.access.setPanelMode(live.sessionId, 'chat')
   next.access.setDockShell(shell.cwd, shell.sessionId)
-  void next.access
-    .refreshRepos()
-    .catch((error) => errors.push(error))
+  runInAction(() => {
+    for (const row of machines)
+      next.live.applyTopic('machine.condition', row.id, knownReading({ online: row.online, since: null }, Date.now()))
+  })
   return attachWorklistPool(next, (error) => errors.push(error))
 }
 

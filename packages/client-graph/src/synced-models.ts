@@ -1,17 +1,25 @@
 import { lazy } from '@podium/mobx-helpers'
-import type {
-  AutomationRunWire,
-  AutomationWire,
-  HostMetricsWire,
-  MachineProjection,
-  MachineWire,
+import {
+  type AutomationRunWire,
+  type AutomationWire,
+  effectiveServiceReport,
+  type HostMetricsWire,
+  type MachineAccessWire,
+  type MachineProjection,
+  type MachineServiceReport,
+  serverMoveEligibilityOf,
 } from '@podium/model'
+import type { MachineConditionPayload } from '@podium/protocol'
+import { here } from './lookup'
 import { EntityModel, type ModelHost, registerModels } from './models'
 import type { FieldSource, ModelSchema } from './shared/schema'
 
 /** Deferred definitions only. Record storage and ingestion stay in the generic
  * pool tables; field access uses the shared schema installer. */
-const machineWire = (): FieldSource => ({ schema: 'MachineWire', arrivesOn: 'engine:machines' })
+const machineAccess = (): FieldSource => ({
+  schema: 'MachineAccessWire',
+  arrivesOn: 'replica:machineAccess',
+})
 const machineProjection = (): FieldSource => ({
   schema: 'MachineProjection',
   arrivesOn: 'replica:machines',
@@ -25,18 +33,20 @@ const automationRunWire = (): FieldSource => ({
   arrivesOn: 'replica:automationRuns',
 })
 
+type Condition = Omit<MachineConditionPayload, 'online' | 'since'>
+
 /**
- * Stored identity, execution and update fields are schema-installed.
+ * One machine: its `machine` record (every member) joined with my own
+ * `machineAccess` row (POD-6644). Stored fields are schema-installed.
  *
  * LIVE FIELDS (POD-5798; guide rule 1). Whether the machine is online, since
- * when, and its load are CONDITIONS: they come from this user's LiveStore, not
- * the record. None is known before its first reading, so an app started offline
- * shows "unknown", never yesterday's answer. Reading `metrics` from an observer
- * is what asks the machine's daemon to sample.
+ * when, its presence and its load are CONDITIONS: they come from this user's
+ * LiveStore, not the record. None is known before its first reading, so an app
+ * started offline shows "unknown", never yesterday's answer. Reading `metrics`
+ * from an observer is what asks the machine's daemon to sample.
  */
 export class MachineModel extends EntityModel {
-  static override readonly answers: ReadonlySet<string> = new Set(['online'])
-  declare readonly id: MachineWire['id']
+  declare readonly id: MachineProjection['id']
   constructor(id: string, host: ModelHost) {
     super('machine', id, host)
   }
@@ -64,6 +74,41 @@ export class MachineModel extends EntityModel {
     const reading = this.host.live?.conditionOf(this.id)
     return reading?.known ? reading.value.since : undefined
   }
+  /** The newest presence facts, known or last known (a lost link keeps them). */
+  @lazy private get condition(): Condition | undefined {
+    const reading = this.host.live?.conditionOf(this.id)
+    if (reading === undefined) return undefined
+    return (reading.known ? reading.value : reading.last) as Condition | undefined
+  }
+  /** When the server last heard from the machine; undefined until read. */
+  @lazy get lastSeenAt(): string | undefined {
+    return this.condition?.lastSeenAt
+  }
+  @lazy get presenceSource(): Condition['presenceSource'] {
+    return this.condition?.presenceSource
+  }
+  /** What the current boot is observed to run; undefined until read. */
+  @lazy get availability(): Condition['availability'] {
+    return this.condition?.availability
+  }
+  @lazy get daemonReadiness(): Condition['daemonReadiness'] {
+    return this.condition?.daemonReadiness
+  }
+  /** The supervisor's last report as it stands now (its record, joined with
+   *  the live availability: an agent plane that has gone is not available). */
+  @lazy get services(): MachineServiceReport | undefined {
+    return effectiveServiceReport(
+      here(this.row)?.['services'] as MachineServiceReport | undefined,
+      this.availability,
+    )
+  }
+  /** Whether a server move to this machine is possible now. */
+  @lazy get serverMoveEligibility(): ReturnType<typeof serverMoveEligibilityOf> {
+    return serverMoveEligibilityOf(
+      here(this.row) as Pick<MachineAccessWire, 'hostsServer' | 'serverMoveSupported'> | undefined,
+      this.online,
+    )
+  }
 
   // Live load
   /** The newest host sample (CPU, memory, load, disk, loop); undefined until known. */
@@ -72,9 +117,15 @@ export class MachineModel extends EntityModel {
     return reading?.known ? reading.value : undefined
   }
 }
+type MachineLiveFields =
+  | 'services'
+  | 'lastSeenAt'
+  | 'presenceSource'
+  | 'availability'
+  | 'daemonReadiness'
 export interface MachineModel
-  extends Readonly<Omit<MachineWire, 'online'>>,
-    Readonly<MachineProjection> {}
+  extends Readonly<MachineProjection>,
+    Readonly<Partial<Omit<MachineAccessWire, 'userId' | 'machineId' | MachineLiveFields>>> {}
 
 /** Stored target, schedule and agent instruction fields are schema-installed. */
 export class AutomationModel extends EntityModel {
@@ -104,14 +155,14 @@ const schema = {
         arrivesOn: 'replica:machines',
         joinKey: 'id',
         precedence: 0,
-        why: 'Replicated name and logged-out harness facts remain available without live presence.',
+        why: 'The machine record every member reads: name, custody, logged-out harnesses, build and update (POD-6644).',
       },
-      live: {
-        schema: 'MachineWire',
-        arrivesOn: 'engine:machines',
-        joinKey: 'id',
+      access: {
+        schema: 'MachineAccessWire',
+        arrivesOn: 'replica:machineAccess',
+        joinKey: 'machineId',
         precedence: 1,
-        why: 'Principal-scoped machine detail; the existing applying path preserves live/replicated precedence.',
+        why: 'My own access row: my verdicts and the operational facts I may read (POD-6644). The row source joins it by my user id.',
       },
     },
     fields: {
@@ -120,50 +171,48 @@ const schema = {
       name: { type: 'string', source: machineProjection() },
       // Who holds custody (POD-6291): what moves a task's worktree between readers.
       custodian: { type: 'id', optional: true, nullable: true, source: machineProjection() },
-      hostname: { type: 'string', source: machineWire() },
-      revokedAt: { type: 'isoDate', optional: true, nullable: true, source: machineWire() },
-      supersededBy: { type: 'id', optional: true, nullable: true, source: machineWire() },
-      supersedable: { type: 'boolean', optional: true, source: machineWire() },
-      use: { type: 'enum', optional: true, source: machineWire() },
-      owned: { type: 'boolean', optional: true, source: machineWire() },
-      transferable: { type: 'boolean', optional: true, source: machineWire() },
-      unowned: { type: 'boolean', optional: true, source: machineWire() },
-      adoptable: { type: 'boolean', optional: true, source: machineWire() },
-      podiumManaged: { type: 'boolean', optional: true, source: machineWire() },
-      // Presence and execution. `online` is answered by the model from the
-      // LiveStore (POD-5798); the record's copy goes with POD-6644.
-      online: { type: 'boolean', source: machineWire() },
-      lastSeenAt: { type: 'isoDate', source: machineWire() },
-      presenceSource: { type: 'enum', optional: true, source: machineWire() },
-      services: { type: 'object', optional: true, source: machineWire() },
-      serviceAssignment: { type: 'object', optional: true, source: machineWire() },
-      availability: { type: 'object', optional: true, source: machineWire() },
-      daemonReadiness: { type: 'object', optional: true, source: machineWire() },
-      components: { type: 'object', optional: true, source: machineWire() },
-      inventory: { type: 'object', optional: true, source: machineWire() },
-      harnessVersions: { type: 'object', optional: true, source: machineWire() },
       loggedOutHarnesses: { type: 'object', source: machineProjection() },
-      deliveryCaps: { type: 'object', optional: true, source: machineWire() },
-      serverMoveEligibility: { type: 'object', optional: true, source: machineWire() },
+      // My verdicts (absent: I may not see the machine's operational facts)
+      use: { type: 'enum', optional: true, source: machineAccess() },
+      owned: { type: 'boolean', optional: true, source: machineAccess() },
+      transferable: { type: 'boolean', optional: true, source: machineAccess() },
+      unowned: { type: 'boolean', optional: true, source: machineAccess() },
+      adoptable: { type: 'boolean', optional: true, source: machineAccess() },
+      supersedable: { type: 'boolean', optional: true, source: machineAccess() },
+      // Identity and lifecycle
+      hostname: { type: 'string', optional: true, source: machineAccess() },
+      revokedAt: { type: 'isoDate', optional: true, nullable: true, source: machineAccess() },
+      supersededBy: { type: 'id', optional: true, nullable: true, source: machineAccess() },
+      podiumManaged: { type: 'boolean', optional: true, source: machineAccess() },
+      hostsServer: { type: 'boolean', optional: true, source: machineAccess() },
+      serverMoveSupported: { type: 'boolean', optional: true, source: machineAccess() },
+      // Services and transport. `services`, presence and availability are the
+      // model's, joined with the LiveStore (above).
+      serviceAssignment: { type: 'object', optional: true, source: machineAccess() },
+      components: { type: 'object', optional: true, source: machineAccess() },
+      deliveryCaps: { type: 'object', optional: true, source: machineAccess() },
+      wireSchemaDigest: { type: 'string', optional: true, nullable: true, source: machineAccess() },
+      buildReportedAt: { type: 'isoDate', optional: true, nullable: true, source: machineAccess() },
+      // Execution detail (present only with `use`)
+      harnessVersions: { type: 'object', optional: true, source: machineAccess() },
+      inventory: { type: 'object', optional: true, source: machineAccess() },
       // Build and update authority
-      updateChannel: { type: 'enum', optional: true, source: machineWire() },
+      updateChannel: { type: 'enum', optional: true, source: machineProjection() },
       updateChannelOverride: {
         type: 'enum',
         optional: true,
         nullable: true,
-        source: machineWire(),
+        source: machineProjection(),
       },
-      appVersion: { type: 'string', optional: true, nullable: true, source: machineWire() },
-      wireSchemaDigest: { type: 'string', optional: true, nullable: true, source: machineWire() },
-      installKind: { type: 'string', optional: true, nullable: true, source: machineWire() },
-      buildReportedAt: { type: 'isoDate', optional: true, nullable: true, source: machineWire() },
-      versionState: { type: 'enum', optional: true, source: machineWire() },
-      targetVersion: { type: 'string', optional: true, nullable: true, source: machineWire() },
+      appVersion: { type: 'string', optional: true, nullable: true, source: machineProjection() },
+      installKind: { type: 'string', optional: true, nullable: true, source: machineProjection() },
+      versionState: { type: 'enum', optional: true, source: machineProjection() },
+      targetVersion: { type: 'string', optional: true, nullable: true, source: machineProjection() },
       targetUnavailableReason: {
         type: 'string',
         optional: true,
         nullable: true,
-        source: machineWire(),
+        source: machineAccess(),
       },
     },
     relations: {},

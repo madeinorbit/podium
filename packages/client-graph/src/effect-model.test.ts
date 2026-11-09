@@ -69,9 +69,8 @@ function fixture(effects: readonly Readonly<Record<string, unknown>>[]) {
     ['effects', new Map(effects.map((row) => [row.id as string, row]))],
   ])
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
-  const discovery: readonly never[] = []
   const feed = createRowSource(
-    { principal: { userId: 'operator' }, readLocal: () => discovery, onLocals: () => () => {} },
+    { principal: { userId: 'operator' } },
     {
       rows: vi.fn((kind: ReplicaKind) => [...(rows.get(kind)?.values() ?? [])]),
       row: (kind, id) => rows.get(kind)?.get(id),

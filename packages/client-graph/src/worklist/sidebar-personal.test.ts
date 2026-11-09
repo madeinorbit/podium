@@ -82,7 +82,7 @@ function fixture() {
   // Bob opened Alice's task: a read marker only.
   state('alice-task', { readAt: stamp })
   const source = createRowSource(
-    { principal: { userId: BOB }, readLocal: () => [], onLocals: () => () => {} },
+    { principal: { userId: BOB } },
     {
       row: (kind, id) => tables.get(kind)?.get(id),
       rows: (kind) => [...(tables.get(kind)?.values() ?? [])],

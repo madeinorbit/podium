@@ -60,7 +60,7 @@ import { NO_LIFECYCLE } from '../../store/types'
 import type { EventBus } from '../bus'
 import type { WriteFunnel } from '../funnel'
 import type { DaemonRpcService } from '../machines/rpc'
-import type { MachineListing, MachinesService, MachineUseResolver } from '../machines/service'
+import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { resolveShellOwningIssue } from '../shells/service'
 import type { HeadlessService } from '../superagent/headless'
 import type { SessionClientControl } from './client-control'
@@ -1040,9 +1040,8 @@ export class SessionLifecycle {
   onClientAttached(
     principal: ClientPrincipal,
     client: ClientConn,
-    machines: readonly MachineListing[],
   ): Promise<void> {
-    return this.sessionClientPlane.onClientAttached(principal, client, machines)
+    return this.sessionClientPlane.onClientAttached(principal, client)
   }
   onRoomJoined(...args: any[]): void {
     ;(this.sessionClientPlane as any).onRoomJoined(...args)

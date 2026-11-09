@@ -5,7 +5,7 @@ import type {
   HostMetricsWire,
   MachineId,
   MachineQuotaWire,
-  MachineWire,
+  MachineFacts,
   QuotaWindowHistoryWire,
   UsageBucketWire,
 } from '@podium/model'
@@ -81,7 +81,7 @@ export interface PulseFeed {
   /** Streamed, so never cold in the way the polled pair is. */
   hosts: readonly HostMetricsWire[]
   /** The same per-principal projection the desktop machine surface receives. */
-  machines: readonly MachineWire[]
+  machines: readonly MachineFacts[]
   /** Answers only for machines whose live `use` gate admitted the daemon walk. */
   capacityReadings: MachineCapacityReadings
   /** The auto-park threshold the load meter fills against; null = policy off. */

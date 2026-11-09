@@ -1,3 +1,4 @@
+import type { MachineFacts } from '@podium/model/browser'
 import { issueRefText } from '@podium/protocol'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -68,7 +69,6 @@ export class ShellChrome {
         return LOADING
       return {
         view: state.view,
-        reposLoaded: state.reposLoaded,
         superOpen: state.superOpen,
         paletteOpen: state.paletteOpen,
         selectedIssueId: state.selectedIssueId,
@@ -287,13 +287,9 @@ function createShellViews(pool: MobxPool) {
       }),
     )
   }
-  function machines(): Store['machines'] {
-    return memo('machines', () =>
-      headerIds(pool, 'machine').flatMap((id) => {
-        const value = here(pool.model('machine', id))
-        return value ? [value] : []
-      }),
-    )
+  /** My fleet's machine models (POD-6644): the header's one answer. */
+  function machines(): MachineFacts[] {
+    return memo('machines', () => headerView(pool).machines())
   }
   function files() {
     const keys = catalog()

@@ -1,10 +1,12 @@
 import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { machineViewsFromWire } from '@podium/client-core/values'
-import { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
+import { type FixtureRecord, machineRecords } from '@podium/client-core/test-support/machine-records'
+import { AutomationRunWire, AutomationWire, MachineAccessWire, MachineProjection, MachineWire } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createWorklistPool } from './create'
+import { liveFixture } from './live-fixture'
 import { headerEntities } from './header-entities'
 import { automationViews } from './automation-views'
 import { workflowMachines } from './workflow-views'
@@ -29,26 +31,31 @@ const machine = { ...MachineWire.parse({ id: 'host', name: 'Workstation', hostna
   deliveryCaps: ['synthetic'], serverMoveEligibility: { eligible: true },
   updateChannel: 'stable', appVersion: '1.0', wireSchemaDigest: 'synthetic', installKind: 'source',
   buildReportedAt: stamp, versionState: 'current', targetUnavailableReason: null }),
-  loggedOutHarnesses: ['codex'], custodian: 'mem_custodian' }
+  loggedOutHarnesses: ['codex'], custodian: 'mem_custodian', serverMoveSupported: true }
+// The listing above as the app receives it (POD-6644): the shared record, my
+// access row, and the presence facts as a LiveStore condition.
+const [machineRecord, machineAccess] = machineRecords('operator', machine) as [FixtureRecord, FixtureRecord]
+const projection = machineRecord.value as Readonly<Record<string, unknown>> & { id: string }
+const presence = (value: typeof machine) => ({ online: value.online, since: null, lastSeenAt: value.lastSeenAt,
+  presenceSource: value.presenceSource, availability: value.availability, daemonReadiness: value.daemonReadiness })
 const automation = { id: 'scheduled', name: 'Daily task', enabled: true, repoPath: '/synthetic',
   scheduleKind: 'cron', cron: '0 9 * * *', runAt: null, targetSessionId: null,
   agentKind: 'codex', model: 'auto', effort: 'auto', prompt: 'Synthetic task', sessionMode: 'fresh',
   nextRunAt: stamp, lastRunAt: null, createdAt: stamp }
 const run = { id: 'fire', automationId: 'scheduled', firedAt: stamp, sessionId: null,
   outcome: 'missed', detail: 'Offline' }
-const examples = [['machine', 'machines', machine], ['automation', 'automations', automation],
+const examples = [['machine', 'machines', projection], ['automation', 'automations', automation],
   ['automationRun', 'automationRuns', run]] as const
 
 function fixture() {
   const rows = new Map<ReplicaKind, Map<string, Readonly<Record<string, unknown>>>>()
   for (const [, kind, row] of examples) rows.set(kind, new Map([[row.id, row]]))
+  rows.set('machineAccess', new Map([[machineAccess.entityId, machineAccess.value]]))
   rows.set('sessions', new Map([['seat', { sessionId: 'seat', cwd: '/synthetic', title: 'Spawned session',
     status: 'live', archived: false, agentKind: 'codex', lastActiveAt: stamp, createdAt: stamp }]]))
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
   const enumerate = vi.fn((kind: ReplicaKind) => [...(rows.get(kind)?.values() ?? [])])
-  const discovery: readonly never[] = []
-  const feed = createRowSource({ principal: { userId: 'operator' },
-    readLocal: () => discovery, onLocals: () => () => {} }, {
+  const feed = createRowSource({ principal: { userId: 'operator' } }, {
     rows: enumerate, row: (kind, id) => rows.get(kind)?.get(id),
     subscribeAddressedBatch(listener) { addressed = listener; return () => {} },
   }, { pending: EMPTY_PENDING })
@@ -58,7 +65,17 @@ function fixture() {
       ? { machines: ['host'], repositories: [] } : { automations: ['scheduled'], runs: ['fire'] } },
     dispose() {},
   })
-  return { pool: handle.pool, feed, enumerate,
+  const live = liveFixture(handle.pool)
+  live.condition('host', presence(machine) as never)
+  return { pool: handle.pool, feed, enumerate, live,
+    /** A machine listing as its record and its live condition. */
+    publishMachine(value: typeof machine) {
+      const [next] = machineRecords('operator', value) as [FixtureRecord]
+      live.condition('host', presence(value) as never)
+      rows.get('machines')!.set('host', next.value)
+      addressed({ type: 'update', rows: [{ kind: 'machines', id: 'host' }] })
+      feed.flush()
+    },
     publish(kind: ReplicaKind, id: string, value: Readonly<Record<string, unknown>> | undefined) {
       if (value) rows.get(kind)!.set(id, value)
       else rows.get(kind)!.delete(id)
@@ -73,12 +90,22 @@ function fixture() {
 it('schema-installed model fields preserve every old wire answer on the same fixtures', () => {
   const f = fixture()
   try {
+    // Every stored machine fact is a schema field: the record's and my access
+    // row's (the live condition is the model's own, POD-6644).
+    const live = new Set(['services', 'lastSeenAt', 'presenceSource', 'availability', 'daemonReadiness'])
+    const machineFields = [...new Set([...Object.keys(MachineProjection.shape), ...Object.keys(MachineAccessWire.shape)])]
+      .filter(field => field !== 'userId' && field !== 'machineId' && !live.has(field))
+    expect(Object.keys(SCHEMA.machine.fields).sort()).toEqual(machineFields.sort())
+    // The model answers every field the old listing had.
+    const host = requireHere(f.pool.model('machine', 'host'))
+    for (const field of Object.keys(machine))
+      expect(Reflect.get(host, field), `machine.${field}`).toEqual(Reflect.get(machine, field))
     for (const [entity, , row] of examples) {
-      const wireFields = entity === 'machine'
-        ? [...new Set([...Object.keys(MachineWire.shape), ...Object.keys(MachineProjection.shape)])]
-        : Object.keys((entity === 'automation' ? AutomationWire : AutomationRunWire).shape)
-      expect(Object.keys(SCHEMA[entity].fields).sort()).toEqual(wireFields.sort())
-      expect(Object.keys(row).sort()).toEqual(wireFields.sort())
+      if (entity !== 'machine') {
+        const wireFields = Object.keys((entity === 'automation' ? AutomationWire : AutomationRunWire).shape)
+        expect(Object.keys(SCHEMA[entity].fields).sort()).toEqual(wireFields.sort())
+        expect(Object.keys(row).sort()).toEqual(wireFields.sort())
+      }
       const model = requireHere(f.pool.model(entity, row.id))
       if (process.env.PODIUM_RECORD_NEGATIVE_CONTROL && entity === 'machine')
         Object.defineProperty(model, 'name', { value: 'Wrong answer' })
@@ -113,13 +140,15 @@ it('live machine presence and replicated facts share one model across replacemen
   const f = fixture()
   try {
     const model = requireHere(f.pool.model('machine', 'host'))
-    f.pool.ingestLiveMachines([{ id: 'host', value: { ...machine, name: 'Live rename', online: false } }])
+    f.publishMachine({ ...machine, name: 'Live rename', online: false })
     expect(Reflect.get(model, 'name')).toBe('Live rename')
     expect(Reflect.get(model, 'online')).toBe(false)
     expect(Reflect.get(model, 'loggedOutHarnesses')).toEqual(['codex'])
     f.replace()
     expect(f.pool.model('machine', 'host')).toBe(model)
-    expect(Reflect.get(model, 'name')).toBe(machine.name)
+    expect(Reflect.get(model, 'name')).toBe('Live rename')
+    f.live.online('host', true)
+    expect(Reflect.get(model, 'online')).toBe(true)
     f.publish('machines', 'host', undefined)
     expect(here(f.pool.model('machine', 'host'))).toBeUndefined()
   } finally { f.dispose() }
@@ -139,7 +168,7 @@ it('machine settings, workflow placement, automations, runs and session links re
     expect(automationViews(f.pool).list().automations[0]).toBe(f.pool.model('automation', 'scheduled'))
     expect(automationViews(f.pool).run('fire')).toBe(f.pool.model('automationRun', 'fire'))
     expect(automationViews(f.pool).session('seat')).toBe(f.pool.model('session', 'seat'))
-    f.publish('machines', 'host', { ...machine, name: 'Renamed host', online: false })
+    f.publishMachine({ ...machine, name: 'Renamed host', online: false })
     expect(placement.views[0]!.machine.name).toBe('Renamed host')
     expect(settingsMachines[0]!.name).toBe('Renamed host')
     expect(values(workflowMachines(f.pool).views)).toEqual(values(machineViewsFromWire([{ ...machine, name: 'Renamed host', online: false } as unknown as MachineWire])))

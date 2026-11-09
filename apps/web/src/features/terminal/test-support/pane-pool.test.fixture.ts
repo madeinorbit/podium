@@ -1,3 +1,6 @@
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
+import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -102,7 +105,10 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     replica.applySnapshot('issueProjections', normalized.issueProjections)
     replica.applySnapshot('issueUserStates', normalized.issueUserStates)
     replica.applySnapshot('issueGitStates', normalized.issueGitStates)
-    replica.applySnapshot('machines', machines.map(machine => ({ id: machine.id, name: machine.name, loggedOutHarnesses: (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [] })) as never)
+    // Each machine's record and my access row (POD-6644).
+    const machineRows = machines.flatMap(machine => machineRecords('fixture-user', { ...machine, loggedOutHarnesses: (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [] }))
+    replica.applySnapshot('machines', machineRows.filter(row => row.entity === 'machine').map(row => row.value) as never)
+    replica.applySnapshot('machineAccess', machineRows.filter(row => row.entity === 'machineAccess').map(row => row.value) as never)
     replica.applySnapshot('sessions', sessions)
     for (const listener of listeners) listener()
     if (!pool) {
@@ -125,7 +131,6 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
       pool.sources.register(SESSION_EXIT_ENTITIES, createSessionExitSource(runtime))
       release = () => { handle.dispose(); rows.dispose(); transactions.dispose() }
     }
-    pool.ingestLiveMachines(machines.map(machine => ({ id: machine.id, value: machine })))
     // A machine's online is a LiveStore condition (POD-5798): the fixture's
     // `online` is its reading, so a session on an offline machine reads as
     // reconnecting (ADR 12 D1).

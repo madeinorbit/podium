@@ -12,6 +12,8 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  type MachineAccessWire,
+  machineAccessRowId,
   resolveTelegramPrincipal,
   type SessionId,
 } from '@podium/model'
@@ -28,7 +30,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { MessageDeliveryService } from './modules/messages/service'
-import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
 import type { SessionRow } from './store'
@@ -1598,7 +1600,7 @@ describe('SessionRegistry', () => {
     )
   })
 
-  it('scopes machine bootstrap and broadcasts to each authenticated principal', async () => {
+  it('scopes each member\'s machine access rows to that member', async () => {
     const colleague = asUserId('colleague')
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // The host's own row, as setup enrollment writes it (boot no longer does,
@@ -1640,45 +1642,40 @@ describe('SessionRegistry', () => {
       actorId: colleague,
       onBehalfOf: colleague,
     })
+    // The colleague is a member, so the server writes their access rows too.
+    await store.users.create(
+      { id: colleague, displayName: 'Colleague', role: 'member', createdAt: '2026-08-02T00:00:00.000Z', disabledAt: null },
+      'hash',
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const owner = sink()
-    const other = sink()
-    attachTestClient(reg.clientGateway, {
-      send: owner.send,
-      machines: await machinesForPrincipal(
-        reg.modules,
-        userCommandPrincipal(firstAdminMemberId(), 'admin'),
-      ),
-    })
-    attachTestClient(reg.clientGateway, {
-      send: other.send,
-      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(colleague, 'member')),
-      userId: colleague,
-      userRole: 'member',
-    })
+    await reg.modules.machines.publishMachines()
 
-    const lastMachines = (sent: ServerMessage[]) =>
-      sent
-        .filter(
-          (message): message is Extract<ServerMessage, { type: 'machinesChanged' }> =>
-            message.type === 'machinesChanged',
+    // Each member's machines are their own `machineAccess` rows (POD-6644).
+    const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
+    const accessOf = async (user: string) =>
+      (
+        await store.sync.installedStates(
+          rawIds.map((machine) => ({
+            entity: 'machineAccess',
+            entityId: machineAccessRowId(asUserId(user), asMachineId(machine)),
+          })),
         )
-        .at(-1)?.machines ?? []
+      ).flatMap((row) => {
+        if (row.payload === null) return []
+        const access = JSON.parse(row.payload) as MachineAccessWire
+        // The predicates read the live condition beside the record: offline.
+        return [{ ...access, id: access.machineId, online: false }]
+      })
 
     // The admin SEES every machine (80bc92021 POD-3960: administration grants
     // see and manage, never execution consent); the member sees only what it
-    // owns or was granted. So the two bootstraps still differ, by principal.
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
-    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
-    const ownerInitial = lastMachines(owner.sent)
-    const otherInitial = lastMachines(other.sent)
-    const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
+    // owns or was granted. So the two members' rows differ, by principal.
+    const ownerInitial = await accessOf(firstAdminMemberId())
+    const otherInitial = await accessOf(colleague)
 
     expect(rawIds).toEqual(['hidden', TEST_MACHINE, 'shared'])
     expect(ownerInitial.map((machine) => machine.id).sort()).toEqual(rawIds)
     expect(otherInitial.map((machine) => machine.id).sort()).toEqual(['hidden', 'shared'])
-    expect(ownerInitial.every((machine) => machine.use !== undefined)).toBe(true)
-    expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
     // Seeing is not using: the colleague's machines, granted `see` or not, are
     // denied to the admin, and a denied row carries no inventory (paths and
     // provider identities need USE even for an admin).
@@ -1695,28 +1692,22 @@ describe('SessionRegistry', () => {
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
     const hostRow = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
-    expect(denied).toMatchObject({ online: false, use: 'denied' })
-    expect(hostRow).toMatchObject({ online: false, use: 'granted' })
+    expect(denied).toMatchObject({ use: 'denied' })
+    expect(hostRow).toMatchObject({ use: 'granted' })
     expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
     // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` runs the server
     // only: agent execution is not assigned to it, so the honest answer is that
-    // it runs no daemon — NOT that it is offline, which would tell its user to
-    // wait for something that will never come. The unauthorized-vs-not
-    // distinction this test exists for is unchanged and asserted above; what
-    // follows pins the split so the two cannot quietly collapse back into one.
-    // Since 34aa06cf2 the structural axis reads the ASSIGNMENT, not the
-    // observed components (`structuralRejection`).
+    // it runs no daemon, NOT that it is offline. The structural axis reads the
+    // ASSIGNMENT (34aa06cf2).
     expect(hostRow?.components).toEqual(['server'])
     expect(hostRow?.serviceAssignment?.agentExecution).toBe(false)
     expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
     // A machine ASSIGNED to run agents whose daemon is merely disconnected
-    // still answers `offline` — the distinction, stated as a comparison against
-    // the SAME row rather than asserted about one of them in isolation.
+    // still answers `offline`.
     expect(
       agentCapabilityRejection(
         {
           ...hostRow!,
-          id: TEST_MACHINE,
           online: false,
           serviceAssignment: { ...hostRow!.serviceAssignment!, agentExecution: true },
         },
@@ -1724,18 +1715,11 @@ describe('SessionRegistry', () => {
       ),
     ).toBe('offline')
 
-    owner.sent.length = 0
-    other.sent.length = 0
-    reg.modules.machines.broadcastMachines()
-
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
-    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
-    const ownerBroadcast = lastMachines(owner.sent)
-    const otherBroadcast = lastMachines(other.sent)
-    expect(ownerBroadcast).toEqual(ownerInitial)
-    expect(otherBroadcast).toEqual(otherInitial)
-    expect(ownerBroadcast).not.toEqual(otherBroadcast)
-    expect(otherBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
+    // Writing the records again changes nothing: each member's rows stay theirs.
+    await reg.modules.machines.publishMachines()
+    expect(await accessOf(firstAdminMemberId())).toEqual(ownerInitial)
+    expect(await accessOf(colleague)).toEqual(otherInitial)
+    expect(otherInitial.map((machine) => machine.id).sort()).not.toEqual(rawIds)
   })
 
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', async () => {

@@ -6,7 +6,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { MessageModel } from '@podium/client-graph/message-models'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
-import type { MachineWire, SessionId } from '@podium/model'
+import type { MachineFacts, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { compareShallow, reaction } from 'mobx'
 import { useCallback, useLayoutEffect, useMemo } from 'react'
@@ -111,7 +111,7 @@ export function useSessionContextIssues() {
   return useRead(issuesRead, EMPTY_ISSUES)
 }
 
-export function useSessionContextMachine(id: string | undefined): MachineWire | undefined {
+export function useSessionContextMachine(id: string | undefined): MachineFacts | undefined {
   const read = useCallback((reader: Reader) => reader.machine(id), [id])
   return useRead(read, undefined)
 }

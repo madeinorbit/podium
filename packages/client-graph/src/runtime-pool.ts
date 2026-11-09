@@ -431,17 +431,13 @@ export function createRuntimeWorklistPool(
       attachPreferenceSource(handle.pool, runtime.deviceState)
     }
     if (options.settings) {
-      const owner = runtime as unknown as Partial<SettingsOwner> & Pick<SettingsOwner, 'readLocal'>
-      if (
-        typeof owner.onList !== 'function' ||
-        !Array.isArray(owner.readLocal('machines')) ||
-        owner.ui === undefined
-      ) {
-        throw new Error('Settings require the existing runtime catalog and window owner')
+      const owner = runtime as unknown as Partial<SettingsOwner>
+      if (owner.replica === undefined || owner.ui === undefined) {
+        throw new Error('Settings require the existing runtime replica and window owner')
       }
-      // The shared row-source seam exposes only its repo inputs. The provider
-      // runtime also owns the catalog/window fields checked above.
-      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner, !options.header)
+      // Machines and repositories come from the replica's records (POD-6644);
+      // the provider runtime owns the window field checked above.
+      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner)
     }
     if (options.header)
       stopHeader = attachHeaderSource(

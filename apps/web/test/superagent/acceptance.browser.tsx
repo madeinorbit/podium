@@ -58,12 +58,11 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => errors.push(error)}
     attachRuntime={(owner) => {
-      data.bindHub(owner.hub)
+      data.bindHub(owner.hub, undefined, owner.live)
       owner.readPosition.replace({
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })
       const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-      void referenceState(owner).refreshRepos()
       return stop
     }}
   >

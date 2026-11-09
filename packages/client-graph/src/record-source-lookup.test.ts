@@ -36,7 +36,7 @@ it('server deletion and revoked visibility remain distinct through the replica a
   })
   replica.connect()
   await replica.settled()
-  const rows = createRowSource({ onLocals: () => () => {}, readLocal: () => [], principal: { userId: 'lookup-user' } }, facade, { pending: { byRow: () => new Map() } })
+  const rows = createRowSource({ principal: { userId: 'lookup-user' } }, facade, { pending: { byRow: () => new Map() } })
   const locals = fixedLocals({ selectedIssueId: null, coarseNow: Date.parse('2026-10-09T00:00:00Z') })
   const schedule = vi.fn(() => () => {})
   const handle = createWorklistPool(rows.source, locals.source, { schedule })

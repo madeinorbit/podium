@@ -1,7 +1,6 @@
 import './requested-models'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
-import { discoveryRepoId } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
@@ -17,13 +16,17 @@ import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
+import {
+  type CheckoutRepository,
+  checkoutRepositoryId,
+  repositoriesFromCheckouts,
+} from './shared/checkout-repositories'
 import { defineSource, type PoolSource, type PoolSourceRows } from './source-registry'
 import type { Loaded } from './worklist/rollup'
 
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
  * acquired from the runtime, and only resident session rows enter the indexes. */
 export class CommandLaunchSource implements PoolSource<CommandEntity> {
-  @observable private accessor windowVersion = 0
   private readonly window = Object.defineProperties(
     {},
     {
@@ -33,13 +36,6 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
         ),
       ),
       paletteOpen: { enumerable: true, get: () => this.runtime.palette.open },
-      reposLoaded: {
-        enumerable: true,
-        get: () => {
-          void this.windowVersion
-          return this.runtime.readLocal('reposLoaded')
-        },
-      },
     },
   ) as CommandLaunchRows['commandWindow']
 
@@ -94,49 +90,46 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       }),
       { equals: compareStructural },
     )
-    // Keyed (POD-5433): the window wakes on its own locals; machines and
-    // repos arrive by id, and a repo change re-links only the sessions under
-    // a path whose targets moved.
-    const locals = () =>
-      runInAction(() => {
-        this.windowVersion++
-      })
+    // The window reads UiStore where it is shown; a repository change
+    // re-links only the sessions under a path whose targets moved.
+    // Repositories from the `checkout` records, machines from the `machine`
+    // records (POD-6644): each re-read when a batch touches its kinds.
+    let checkoutsFrom: unknown
     const repos = () => {
       if (this.disposed) return
+      const rows = runtime.replica.rows('checkouts')
+      if (rows === checkoutsFrom) return
+      checkoutsFrom = rows
       runInAction(() => {
-        this.repositories(
-          runtime.listIds('repos').flatMap((id) => runtime.listRow('repos', id) ?? []),
-        )
+        this.repositories(repositoriesFromCheckouts(rows))
         this.counts.repoChanges++
       })
     }
     const machines = () => {
       if (this.disposed) return
-      this.pool.ingestLiveMachines(
-        runtime.listIds('machines').map((id) => ({ id, value: runtime.listRow('machines', id) })),
-      )
       runInAction(() =>
         this.replace(
           'commandMachine',
-          runtime.listIds('machines').flatMap((id) => {
-            const row = runtime.listRow('machines', id)
-            return row ? [[id, { id }] as const] : []
-          }),
+          // By name, then id: the replica's order is its keys' (POD-6644).
+          [...runtime.replica.rows('machines')]
+            .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || a.id.localeCompare(b.id))
+            .map((row) => [row.id, { id: row.id }] as const),
         ),
       )
     }
     repos()
     machines()
-    locals()
     // Attach links every resident member once; later only addressed rows and
     // the sessions under a moved discovery path are visited.
     runInAction(() => {
       for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row)
     })
     this.stops.push(
-      runtime.onLocals(['reposLoaded'], locals),
-      runtime.onList('repos', repos),
-      runtime.onList('machines', machines),
+      runtime.replica.subscribeAddressedBatch?.((batch) => {
+        if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) repos()
+        if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'machines'))
+          machines()
+      }) ?? (() => {}),
       observe(pool.tables.session, (change) => {
         if (this.disposed) return
         this.counts.sessionChanges++
@@ -184,7 +177,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   /** Discovery is a small roster: its rows are rebuilt and compared (only a
    *  moved row is written). Sessions are re-linked only under the paths whose
    *  worktree or repository targets moved. */
-  private repositories(repos: readonly Store['repos'][number][]): void {
+  private repositories(repos: readonly CheckoutRepository[]): void {
     const linked = new Set(
       repos.flatMap((repo) => repo.worktrees.map((tree) => machinePathKey(tree.path))),
     )
@@ -197,7 +190,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     const add = (index: Map<string, string[]>, key: string, value: string) =>
       index.set(key, [...(index.get(key) ?? []), value])
     for (const discovery of repos) {
-      const id = discoveryRepoId(discovery)
+      const id = checkoutRepositoryId(discovery)
       const origin = normalizeOriginUrl(discovery.originUrl)
       const groupId =
         discovery.repoId ??

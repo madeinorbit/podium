@@ -629,6 +629,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
+  'apps/server/src/modules/checkouts/service.ts#CheckoutsDeps.writer': {
+    kind: 'contained',
+    why: "The checkout record feed's writer [POD-6644]: composition binds it to the server's system-scoped writer, whose capture appends the scan's checkout changes to the change log through Ledger.capture inside the reconcile's own transaction, and subscriber delivery waits for the outermost commit. A rollback takes the appended changes with the checkout rows and nothing outside the process saw them.",
+  },
   'packages/sync/src/ledger.ts#LedgerWriter.capture': {
     kind: 'contained',
     why: "A scoped capture [POD-6592]: `Ledger.capture` bound to one write scope. It appends the declared changes to the change log inside the caller's own transaction, and subscriber delivery waits for the outermost commit because relay.ts wires `AuthorityDeps.postCommit` (ledger §A row 3; the immediate arm stays adjudicated at its own span root, authority.ts). A rollback takes the appended rows with it and nothing outside the process saw them.",

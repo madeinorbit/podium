@@ -95,7 +95,6 @@ describe('declared window input readers', () => {
       paneA: asSessionId('other-pane'),
       selectedIssueId: null,
       selectedWorktree: '/other',
-      reposLoaded: false,
       superOpen: false,
       paletteOpen: false,
       autoContinuePromptSessionId: null,

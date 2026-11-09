@@ -30,6 +30,7 @@ import type {
   INSTANCE_PREFERENCES_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
+  MACHINE_RECORD,
   PIN_RECORD,
   RecordField,
   RecordOp,
@@ -134,6 +135,8 @@ interface RecordKindTable {
   readonly workflowBinding: typeof WORKFLOW_BINDING_RECORD
   // The instance settings (POD-6677): an admin's edits, leaf by leaf.
   readonly instancePreferences: typeof INSTANCE_PREFERENCES_RECORD
+  // A machine's spec: its name and update-channel pin (POD-6644).
+  readonly machine: typeof MACHINE_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -162,6 +165,7 @@ export function recordKinds(): RecordKindTable {
     subscription: d.SUBSCRIPTION_RECORD,
     workflowBinding: d.WORKFLOW_BINDING_RECORD,
     instancePreferences: d.INSTANCE_PREFERENCES_RECORD,
+    machine: d.MACHINE_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -298,6 +302,7 @@ export const RECORD_HOMES: {
       | 'superagentThreads'
       | 'subscriptions'
       | 'instancePreferences'
+      | 'machines'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -328,6 +333,8 @@ export const RECORD_HOMES: {
   workflowBinding: null,
   // POD-6677: the one instance settings record, keyed by its feed id.
   instancePreferences: { target: 'instancePreferences', row: (id) => id },
+  // A machine's spec, painted on its record (POD-6644).
+  machine: { target: 'machines', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

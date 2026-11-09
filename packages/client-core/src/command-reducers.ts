@@ -64,6 +64,8 @@ export type OverlayTarget =
   | 'effects'
   // A trigger subscription's toggle or removal (POD-6676).
   | 'subscriptions'
+  // A machine's spec: its name and update-channel pin (POD-6644).
+  | 'machines'
 
 /** The record kinds that are pool rows of their own, keyed by their feed id:
  *  the per-user records (POD-6673) and the one instance settings record

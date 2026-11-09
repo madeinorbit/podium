@@ -73,6 +73,8 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   effect: 'effects',
   pin: 'pins',
   tabOrder: 'tabOrders',
+  machineAccess: 'machineAccess',
+  checkout: 'checkouts',
   userPreferences: 'userPreferences',
   userReadPosition: 'userReadPositions',
   superagentThread: 'superagentThreads',

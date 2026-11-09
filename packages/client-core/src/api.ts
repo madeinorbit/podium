@@ -25,14 +25,12 @@ import type {
   AgentKind,
   ArtifactId,
   GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
   HarnessAgent,
   IssueId,
   IssueReport,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
-  MachineWire,
   MutationId,
   QuotaWindowHistoryWire,
   SessionId,
@@ -127,14 +125,9 @@ export interface PodiumClientApi {
     status: ApiQuery<{ repoPath: string; name?: string }, LockWire[]>
   }
   discovery: {
-    refreshRepos: ApiMutation<
-      void,
-      {
-        repositories: GitRepositoryWire[]
-        diagnostics: GitDiscoveryDiagnosticWire[]
-        machines: MachineWire[]
-      }
-    >
+    /** Look again at my machines (POD-6644): the checkouts reach every device
+     *  as records; the answer is the scans' diagnostics, for the view that asked. */
+    refreshRepos: ApiMutation<void, { diagnostics: GitDiscoveryDiagnosticWire[] }>
   }
   models?: {
     catalog: ApiQuery<

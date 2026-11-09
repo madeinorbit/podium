@@ -5,7 +5,7 @@ import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { assertReactiveRead } from '@podium/mobx-helpers'
-import { asSessionId, type IssueId, type IssueStatus, type MachineWire, type SessionId } from '@podium/model/browser'
+import { asSessionId, type IssueId, type IssueStatus, type MachineFacts, type SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
@@ -16,11 +16,10 @@ function sessionPanes(pool: MobxPool): SessionPanes {
   return view
 }
 
-const EMPTY_MACHINES: MachineWire[] = []
+const EMPTY_MACHINES: MachineFacts[] = []
 const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   panelMode: {},
   dockShells: {},
-  reposLoaded: false,
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
   const read = useCallback((pool: MobxPool) => sessionPanes(pool).session(id), [id])
@@ -38,7 +37,7 @@ export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {
   const read = useCallback((pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null, [id])
   return useWorklistPoolProjection(read, null)
 }
-export function usePaneMachines(): MachineWire[] {
+export function usePaneMachines(): MachineFacts[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }
 function windowRead(pool: MobxPool) {
@@ -59,7 +58,6 @@ export interface DockPaneInputs {
   session: SessionModel | undefined
   pendingPresent: boolean
   hasSessions: boolean
-  reposLoaded: boolean
   loading: boolean
 }
 const EMPTY_DOCK: DockPaneInputs = {
@@ -67,7 +65,6 @@ const EMPTY_DOCK: DockPaneInputs = {
   session: undefined,
   pendingPresent: false,
   hasSessions: false,
-  reposLoaded: false,
   loading: true,
 }
 /** Read inside the dock shell's observer: each answer is its own field, so a
@@ -86,7 +83,6 @@ export function useDockPaneInputs(cwd: string, pending: string | null): DockPane
     session: present === true && mapped ? pool.sessionObject(mapped) : undefined,
     pendingPresent: !!panes.loaded(pending),
     hasSessions: panes.hasSessions(),
-    reposLoaded: controls.reposLoaded,
     loading: present === LOADING,
   }
 }

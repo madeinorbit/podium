@@ -44,7 +44,7 @@ type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
 /** A pool row a change lands on: a session or issue, or one of POD-6673's
  *  standalone per-user records, keyed by its feed id. */
-export type PoolRowKind = 'session' | 'issue' | 'effect' | 'subscription' | PerUserPoolKind
+export type PoolRowKind = 'session' | 'issue' | 'effect' | 'subscription' | 'machine' | PerUserPoolKind
 type PoolRow = { readonly kind: PoolRowKind; readonly id: string }
 
 /** POD-6673: the overlay target of each standalone per-user record, and its
@@ -73,6 +73,8 @@ const poolRowKind = (entity: OverlayTarget): PoolRowKind =>
         ? 'effect'
         : entity === 'subscriptions'
           ? 'subscription'
+        : entity === 'machines'
+          ? 'machine'
           : 'issue'
 
 /** An applied change whose outbox entry still awaits confirmation. */
@@ -100,6 +102,8 @@ const TARGETS: readonly OverlayTarget[] = [
   // A trigger subscription's toggle or removal (POD-6676).
   'subscriptions',
   'instancePreferences',
+  // A machine's spec (POD-6644).
+  'machines',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -234,6 +238,8 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
       return `effect:${id}`
     case 'subscriptions':
       return `subscription:${id}`
+    case 'machines':
+      return `machine:${id}`
     default:
       return undefined
   }
@@ -269,6 +275,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     superagentThreads: new Map(),
     subscriptions: new Map(),
     instancePreferences: new Map(),
+    machines: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []

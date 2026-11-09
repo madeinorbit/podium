@@ -1,11 +1,13 @@
+import { machineFacts } from '@podium/client-graph/machine-facts'
+import type { MachineModel } from '@podium/client-graph'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { headerModel } from '@podium/client-graph/header-companion'
 import { headerRequests } from '@podium/client-graph/header-requests'
 import { headerView } from '@podium/client-graph/header-views'
-import { omitGone } from '@podium/client-graph/lookup'
+import { here } from '@podium/client-graph/lookup'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { MachineId, MachineWire } from '@podium/model/browser'
+import type { CheckoutRepository, MachineId, MachineFacts } from '@podium/model/browser'
 import { useEffect, useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
@@ -96,18 +98,37 @@ export function usePoolPanelMetric(machineId: MachineId | undefined) {
   )
   return useWorklistPoolProjection(read, undefined)
 }
-const readMachines = (pool: MobxPool) => headerView(pool).machines()
-const EMPTY_MACHINES: ReturnType<typeof readMachines> = []
-export function usePoolMachines() {
+/** My fleet as plain values for React code: a new array when any machine's
+ *  facts move (POD-6644). Observer screens read the models directly. */
+const readMachines = (pool: MobxPool): MachineFacts[] => headerView(pool).machines().map(machineFacts)
+const EMPTY_MACHINES: MachineFacts[] = []
+export function usePoolMachines(): MachineFacts[] {
   return useWorklistPoolProjection(readMachines, EMPTY_MACHINES)
 }
+/** One machine's facts (online and presence are the LiveStore's), as a value
+ *  that changes when one of them does (POD-6644). */
 export function usePoolMachine(id: string | undefined) {
   const read = useMemo(
-    () => (pool: MobxPool) =>
-      id ? (omitGone(pool.row('machine', id)) as MachineWire | undefined) : undefined,
+    () => (pool: MobxPool): MachineFacts | undefined => {
+      const model = id ? here(pool.model('machine', id)) : undefined
+      return model ? machineFacts(model as MachineModel) : undefined
+    },
     [id],
   )
   return useWorklistPoolProjection(read, undefined)
+}
+/** The registered repositories and their worktrees, from the `checkout`
+ *  records (POD-6644). */
+const readRepositories = (pool: MobxPool): CheckoutRepository[] =>
+  headerView(pool)
+    .ids('repository')
+    .flatMap((id) => {
+      const repo = headerView(pool).row('repository', id)
+      return repo ? [repo as CheckoutRepository] : []
+    })
+const EMPTY_REPOSITORIES: CheckoutRepository[] = []
+export function usePoolRepositories(): CheckoutRepository[] {
+  return useWorklistPoolProjection(readRepositories, EMPTY_REPOSITORIES)
 }
 export function usePoolHostAggregate(id: MachineId | undefined) {
   const read = useMemo(() => (pool: MobxPool) => headerView(pool).aggregate(id), [id])

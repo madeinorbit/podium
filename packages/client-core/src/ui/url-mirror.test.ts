@@ -47,8 +47,7 @@ function fixture(initial = '/workspace') {
       subscribe: () => () => {},
     },
     router,
-    repos: () => [],
-    reposLoaded: () => true,
+    repositories: () => [],
     isVisible: () => true,
   })
   const mirror = new UrlMirror(ui, router, (route) =>

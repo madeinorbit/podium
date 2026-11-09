@@ -779,7 +779,6 @@ async function measureScreenCells(
           mapped,
           present: !!mappedPane,
           hasSessions: panes.hasSessions(),
-          reposLoaded: controls.reposLoaded,
           status: mappedPane?.session.status,
           archived: mappedPane?.session.archived,
           machineId: mappedPane?.session.machineId,

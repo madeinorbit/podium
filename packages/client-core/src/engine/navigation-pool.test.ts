@@ -239,6 +239,9 @@ describe('addressed worktree reactions', () => {
     new Reactions({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
+      // The registered repositories are checkout records now (POD-6644).
+      repositories: () => (st as unknown as { repos?: never[] }).repos ?? [],
+      checkoutsKnown: () => true,
       hub: {} as never,
       notices: { info } as never,
       isVisible: () => true,

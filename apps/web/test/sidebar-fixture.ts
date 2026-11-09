@@ -2,6 +2,7 @@
  * connection, operator cache, export, or second runtime is used by this fixture. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import {
   asIssueId,
   asSessionId,
@@ -45,6 +46,9 @@ export function createSidebarFixture(
         ]
       : []),
   ]
+  // The registered repositories and their worktrees are checkout records (POD-6644).
+  for (const record of machineAndRepoRecords({ userId, repos: repos as never }))
+    put(record.entity, record.entityId, record.value)
   for (const repo of repos)
     put('repo', repo.repoId, {
       id: repo.repoId,
@@ -166,11 +170,6 @@ export function createSidebarFixture(
     } })
   }
   const api = {
-    discovery: {
-      refreshRepos: {
-        mutate: async () => ({ repositories: repos, machines: [], diagnostics: [] }),
-      },
-    },
     settings: { get: { query: async () => ({ sessionDefaults: { agent: 'codex' } }) } },
     features: { state: { query: async () => ({ devMode: true, channel: 'edge', flags: [] }) } },
   } as unknown as PodiumClientApi
@@ -189,6 +188,28 @@ export function createSidebarFixture(
       if (!current) throw new Error(`Unknown synthetic ${entity}:${id}`)
       const record = put(entity, id, { ...(current.value as object), ...patch })
       replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+    },
+    /**
+     * Machines and repositories as their synced records (POD-6644): each
+     * machine's record and my access row, each repository's checkouts. A
+     * repository the input no longer lists loses its checkout records.
+     */
+    putMachinesAndRepos(input: {
+      machines?: readonly ({ id: string } & Record<string, unknown>)[]
+      repos?: readonly ({ path: string; kind: string } & Record<string, unknown>)[]
+    }) {
+      const nextRecords = machineAndRepoRecords({ userId, ...input } as never)
+      const kept = new Set(nextRecords.map((next) => `${next.entity}:${next.entityId}`))
+      if (input.repos)
+        for (const [key, record] of records)
+          if (record.entity === 'checkout' && !kept.has(key)) {
+            records.delete(key)
+            replica.onKernelEvent({ type: 'removed', entity: 'checkout', entityId: record.entityId })
+          }
+      for (const next of nextRecords) {
+        const record = put(next.entity, next.entityId, next.value)
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      }
     },
     /** Pin or unpin a task for the fixture's user: its `pin` record (POD-6692). */
     pinIssue(id: string, pinned: boolean) {

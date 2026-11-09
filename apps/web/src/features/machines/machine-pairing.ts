@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/model'
+import type { MachineFacts } from '@podium/model'
 import { useCallback, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 
@@ -17,7 +17,7 @@ export interface MachinePairingController {
   error: string | null
   loading: boolean
   podiumManaged: boolean
-  newMachine: MachineWire | null
+  newMachine: MachineFacts | null
   mint: (options?: MintMachinePairingOptions) => Promise<void>
   /** Start live detection from now, or from a durable pre-pairing baseline after reload. */
   watchForNewMachine: (baselineIds?: ReadonlySet<string>) => void
@@ -26,10 +26,10 @@ export interface MachinePairingController {
 }
 
 export function findNewMachine(
-  machines: readonly MachineWire[],
+  machines: readonly MachineFacts[],
   baselineIds: ReadonlySet<string>,
-  eligible: (machine: MachineWire) => boolean = () => true,
-): MachineWire | null {
+  eligible: (machine: MachineFacts) => boolean = () => true,
+): MachineFacts | null {
   return machines.find((machine) => !baselineIds.has(machine.id) && eligible(machine)) ?? null
 }
 
@@ -48,8 +48,8 @@ export function useMachinePairing({
   initialPodiumManaged = true,
 }: {
   trpc: Store['trpc']
-  machines: readonly MachineWire[]
-  isNewMachineEligible?: (machine: MachineWire) => boolean
+  machines: readonly MachineFacts[]
+  isNewMachineEligible?: (machine: MachineFacts) => boolean
   initialPodiumManaged?: boolean
 }): MachinePairingController {
   const [pairingCode, setPairingCode] = useState<string | null>(null)

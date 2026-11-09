@@ -1,15 +1,16 @@
+import { machineFacts } from './machine-facts'
 import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
+import { headerView } from './header-views'
 import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueId, IssuePanelArtifact, MachineWire } from '@podium/model'
+import type { IssueId, IssuePanelArtifact, MachineFacts } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { issueRefText, type PendingInteractionWire } from '@podium/protocol'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
-import { headerIds } from './enumerate'
 import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { superagentState } from './superagent'
@@ -277,11 +278,11 @@ class ReferenceSessionSummary {
     return projected
   }
 }
-export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
-  return headerIds(pool, 'machine').flatMap((id) => {
-    const row = omitGone(pool.row('machine', id))
-    return row && !loading(row) ? [row as MachineWire] : []
-  })
+/** My fleet's machine models: online is the LiveStore's (POD-6644). */
+/** My machines as plain facts for the composer (POD-6644): a new value when
+ *  one of them moves, so React readers see the change. */
+export function chatReferenceMachines(pool: MobxPool): MachineFacts[] {
+  return headerView(pool).machines().map(machineFacts)
 }
 export function chatRepositoryKey(pool: MobxPool): string {
   // This opaque key only drives a path-change effect. The header owner

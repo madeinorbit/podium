@@ -40,7 +40,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal } from '@podium/model'
-import type { MachineWire, SessionStatus } from '@podium/model/browser'
+import type { MachineFacts, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */
@@ -279,7 +279,7 @@ export function panelChatCapable(
  */
 export function panelOfflineMachine(
   session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
-  machines: readonly Pick<MachineWire, 'id' | 'name' | 'online' | 'availability'>[],
+  machines: readonly Pick<MachineFacts, 'id' | 'name' | 'online' | 'availability'>[],
 ): string | null {
   if (!session?.machineId) return null
   const machine = machines.find((m) => m.id === session.machineId)

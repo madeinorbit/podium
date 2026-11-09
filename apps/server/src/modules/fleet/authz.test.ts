@@ -51,6 +51,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 import { MACHINE_SCAN_KIND } from './discovery-effects'
+import { renameMachine } from '../../test-support/machine-records'
 
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
@@ -141,8 +142,9 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(24)
-    expect(MACHINE_COMMANDS).toHaveLength(23)
+    // Renames and update-channel pins are `machine` record edits (POD-6644).
+    expect(NAMES).toHaveLength(22)
+    expect(MACHINE_COMMANDS).toHaveLength(21)
   })
 })
 
@@ -166,7 +168,7 @@ describe('the role floor is read from the contract', () => {
     // column stays reachable. If the floor refused members, this would be a
     // FORBIDDEN about the floor rather than the machine.
     expect(
-      await fleetAuthzFailure('machines.rename', anyInput, deps(user(OWNER), { role: 'member' })),
+      await fleetAuthzFailure('machines.revoke', anyInput, deps(user(OWNER), { role: 'member' })),
     ).toBeUndefined()
   })
 
@@ -179,7 +181,7 @@ describe('the role floor is read from the contract', () => {
     expect(roleSatisfiesFloor('admin', 'admin')).toBe(true)
     expect(roleSatisfiesFloor('member', 'admin')).toBe(false)
 
-    const refusal = await fleetAuthzFailure('machines.rename', anyInput, {
+    const refusal = await fleetAuthzFailure('machines.revoke', anyInput, {
       ...deps(user(OWNER)),
       role: undefined,
     })
@@ -229,7 +231,7 @@ describe('the machine verb is read from the contract, per command', () => {
 
   it('a `see` grant is not enough for a `manage` command, and IS enough to be told forbidden', async () => {
     const seeOnly = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'see' }] })
-    const refusal = await fleetAuthzFailure('machines.rename', anyInput, seeOnly)
+    const refusal = await fleetAuthzFailure('machines.revoke', anyInput, seeOnly)
 
     // Inside the `see` set the answer changes from "does not exist" to "you may
     // not" — which is the M5 distinction, and the reason `see` is a real verb.
@@ -239,7 +241,7 @@ describe('the machine verb is read from the contract, per command', () => {
   it('a `manage` grant admits the manage family and NOT the use family', async () => {
     const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
 
-    expect(await fleetAuthzFailure('machines.rename', anyInput, manage)).toBeUndefined()
+    expect(await fleetAuthzFailure('machines.revoke', anyInput, manage)).toBeUndefined()
     expect(await fleetAuthzFailure('repos.add', anyInput, manage)).toBeUndefined()
     // `discovery.scanMachine` walks the target's filesystem through its daemon —
     // POD-384 classified it `use` for exactly this reason, and a manage grant
@@ -310,7 +312,7 @@ describe('the machine verb is read from the contract, per command', () => {
 
     // A manage grantee holds every other manage-family command on this machine…
     const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
-    expect(await fleetAuthzFailure('machines.rename', anyInput, manage)).toBeUndefined()
+    expect(await fleetAuthzFailure('machines.revoke', anyInput, manage)).toBeUndefined()
     // …and still may not give the machine away. Delegated manage is not
     // authority over the root of the delegation.
     expect((await fleetAuthzFailure('machines.transferOwnership', input, manage))?.code).toBe(
@@ -455,7 +457,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // This is what separates "the floor fired" from "this principal is inert".
     expect(
       await fleetAuthzFailure(
-        'machines.rename',
+        'machines.revoke',
         anyInput,
         deps(memberPrincipal, { owner: COLLEAGUE }),
       ),
@@ -705,8 +707,8 @@ describe('the derived fleet router actually calls the gate', () => {
 
   it('renames a machine the caller owns', async () => {
     const { call } = await caller(firstAdminMemberId())
-    const after = await call.machines.rename({ id: 'm1', name: 'renamed' })
-    expect(after.find((m) => m.id === 'm1')?.name).toBe('renamed')
+    await renameMachine(call, 'm1', 'renamed')
+    expect((await call.machines.list()).find((m) => m.id === 'm1')?.name).toBe('renamed')
   })
 
   it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
@@ -783,7 +785,7 @@ describe('the derived fleet router actually calls the gate', () => {
       expect(await store.machines.custodian('m1')).toBe(COLLEAGUE)
       // Role preserves manage after transfer; execution still needs consent.
       expect(after.map((m) => m.id)).toContain('m1')
-      await call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })
+      await renameMachine(call, 'm1', 'not-mine-anymore')
       expect((await store.machines.getMachine('m1'))?.name).toBe('not-mine-anymore')
       await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(
         /do not have access/,
@@ -890,7 +892,7 @@ describe('the derived fleet router actually calls the gate', () => {
 
   it('an admin manages an unowned row without use', async () => {
     const { call, store } = await caller(null)
-    await call.machines.rename({ id: 'm1', name: 'renamed' })
+    await renameMachine(call, 'm1', 'renamed')
     expect((await store.machines.getMachine('m1'))?.name).toBe('renamed')
     const rows = await call.machines.list()
     expect(rows.find((m) => m.id === 'm1')).toMatchObject({
@@ -941,10 +943,10 @@ describe('the derived fleet router actually calls the gate', () => {
 
   it('admin manage survives removal of a share without granting use', async () => {
     const { call, store } = await caller('someone-else')
-    await call.machines.rename({ id: 'm1', name: 'before' })
+    await renameMachine(call, 'm1', 'before')
     await store.grants.upsert(edge('manage'))
     await store.grants.remove('machine', 'm1', firstAdminMemberId(), 'manage')
-    await call.machines.rename({ id: 'm1', name: 'after' })
+    await renameMachine(call, 'm1', 'after')
     expect((await store.machines.getMachine('m1'))?.name).toBe('after')
     await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(
       /do not have access/,
@@ -1057,7 +1059,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
       expect(
         (
           await fleetAuthzFailure(
-            'machines.rename',
+            'machines.revoke',
             { id: 'joiner' },
             deps(user(OWNER), { machines: [] }),
           )

@@ -58,13 +58,12 @@ function setup(delayed = false) {
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
           let detach: (() => void) | undefined
           start = () => {
             detach = attachWorklistPool(runtime, fatal)
           }
           if (!delayed) start()
-          void referenceState(runtime).refreshRepos()
           return () => detach?.()
         }}
       >

@@ -1,13 +1,13 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
-import { liveFixture } from '@podium/client-graph/live-fixture'
+import '@podium/client-graph/synced-models'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 // @vitest-environment happy-dom
 
-import type { HeaderRows } from '@podium/client-graph/header-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { MobxPool as Pool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -32,13 +32,18 @@ it('the actual offline indicator hook reads only displayed machines and releases
   for (const scale of [1, 4]) {
     const pool = new Pool({ selectedIssueId: null, coarseNow: now })
     state.pool = pool
-    const machine = (id: string, online: boolean, seen: number): HeaderRows['machine'] => ({
+    // A machine as the app receives it (POD-6644): its record (with my access
+    // row) in the pool, its presence on the LiveStore.
+    const machine = (id: string, online: boolean, seen: number) => ({
       id: id as MachineId,
       name: id,
       hostname: id,
       online,
       lastSeenAt: new Date(seen).toISOString(),
     })
+    const place = (values: ReturnType<typeof machine>[]) =>
+      headerEntities(pool).apply(seedFixtureMachines(pool, values) as never)
+    const names = (answer: readonly { name: string }[]) => answer.map((value) => value.name)
     const online = Array.from({ length: 128 * scale }, (_, at) =>
       machine(`online-${at}`, true, now),
     )
@@ -46,48 +51,35 @@ it('the actual offline indicator hook reads only displayed machines and releases
       machine(`history-${at}`, false, now - 2 * week),
     )
     const target = machine('target', false, now - week + 1000)
-    headerEntities(pool).apply(
-      [...online, ...history].map((value) => ({ kind: 'machine', id: value.id, value })),
-    )
+    place([...online, ...history])
     const row = vi.spyOn(pool, 'row'),
       all = vi.spyOn(headerView(pool), 'ids')
     const view = renderHook(() => usePoolOfflineMachines())
     try {
       expect(view.result.current).toEqual([])
       expect(row).not.toHaveBeenCalled()
-      act(() => headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: target }]))
-      expect(view.result.current).toEqual([target])
+      act(() => place([target]))
+      expect(names(view.result.current)).toEqual(['target'])
       const first = row.mock.calls.length
-      expect(row.mock.calls).toEqual([['machine', 'target']])
+      // Only the displayed machine's row is read.
+      expect(row.mock.calls.every(([kind, id]) => kind === 'machine' && id === 'target')).toBe(true)
       row.mockClear()
-      act(() =>
-        headerEntities(pool).apply([
-          {
-            kind: 'machine',
-            id: history[17]!.id,
-            value: { ...history[17]!, name: 'Changed history' },
-          },
-        ]),
-      )
+      act(() => place([{ ...history[17]!, name: 'Changed history' }]))
       expect(row).not.toHaveBeenCalled()
       act(() => pool.clock.advance(now + 1001))
       expect(view.result.current).toEqual([])
       expect(row).not.toHaveBeenCalled()
-      act(() =>
-        headerEntities(pool).apply([
-          { kind: 'machine', id: 'target', value: { ...target, name: 'Expired target' } },
-        ]),
-      )
+      act(() => place([{ ...target, name: 'Expired target' }]))
       expect(row).not.toHaveBeenCalled()
       act(() => pool.clock.advance(now))
-      expect(view.result.current.map((value) => value.name)).toEqual(['Expired target'])
+      expect(names(view.result.current)).toEqual(['Expired target'])
       const restored = row.mock.calls.length
-      expect(row.mock.calls).toEqual([['machine', 'target']])
+      expect(row.mock.calls.every(([kind, id]) => kind === 'machine' && id === 'target')).toBe(true)
       expect(all).not.toHaveBeenCalled()
       view.unmount()
       row.mockClear()
       act(() => {
-        headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: target }])
+        place([target])
         pool.clock.advance(now + 2000)
       })
       expect(row).not.toHaveBeenCalled()
@@ -119,19 +111,13 @@ it('asks for only the default or named live metric and releases closed hook dema
           sampledAt: '2026-10-05T07:00:00Z',
         }) as HostMetricsWire,
     )
+    // My fleet: machine records with my access row (POD-6644).
     act(() => {
       headerEntities(pool).apply(
-        ids.map((id) => ({
-          kind: 'machine' as const,
-          id,
-          value: {
-            id,
-            name: id,
-            hostname: id,
-            online: true,
-            lastSeenAt: '2026-10-05T07:00:00Z',
-          } as MachineWire,
-        })),
+        seedFixtureMachines(
+          pool,
+          ids.map((id) => ({ id, name: id, hostname: id, online: true, lastSeenAt: '2026-10-05T07:00:00Z' })),
+        ) as never,
       )
       headerEntities(pool).order('machine', ids)
     })

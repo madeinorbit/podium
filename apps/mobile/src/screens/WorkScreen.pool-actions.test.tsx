@@ -321,9 +321,6 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
       {probeId ? <MenuProbe id={probeId} /> : null}
     </StoreProvider>,
   )
-  await act(async () => {
-    await referenceState(runtime).refreshRepos()
-  })
   await waitFor(
     () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
     { timeout: 30_000 },

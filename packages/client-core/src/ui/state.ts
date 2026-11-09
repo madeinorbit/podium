@@ -26,14 +26,7 @@ export * from '../engine/navigation-provider'
  * to wait for it to arrive.
  */
 
-import type {
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  IssueId,
-  MachineWire,
-  SessionId,
-  ThreadId,
-} from '@podium/model'
+import type { IssueId, SessionId, ThreadId } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import type { IssueVisitBaseline, UserFocus } from '../engine/types'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
@@ -56,11 +49,6 @@ import {
 export interface ScreenState {
   /** Pool navigation port, loading until the principal's pool attaches. */
   navigation: NavigationProvider
-  repos: GitRepositoryWire[]
-  reposLoading: boolean
-  reposLoaded: boolean
-  repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  machines: MachineWire[]
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null

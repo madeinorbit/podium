@@ -11,7 +11,6 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import { mayReachPrivate } from '../../issue-authz'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
-import type { MachineListing } from '../machines/service'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { SessionInbox } from './inbox'
@@ -40,7 +39,6 @@ export interface SessionClientControlPorts {
   ensureTranscript?(session: Session): Promise<void>
   state: SessionStateService
   inbox: SessionInbox
-  machinesForPrincipal(principal: ClientPrincipal): Promise<MachineListing[]>
   browserOpen: BrowserOpenGateway
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
@@ -97,18 +95,9 @@ const RELEASING_FRAMES: ReadonlySet<string> = new Set(['detach', 'transcriptUnsu
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
-  async prepareMachines(principal: ClientPrincipal): Promise<MachineListing[]> {
-    try {
-      return await this.ports.machinesForPrincipal(principal)
-    } catch {
-      return []
-    }
-  }
-
   async onAttached(
     principal: ClientPrincipal,
     client: ClientConn,
-    machines: readonly MachineListing[] = [],
   ): Promise<void> {
     await this.ports.state.replayDrafts(
       sessionStatePrincipalFor(
@@ -117,10 +106,6 @@ export class SessionClientControl {
       ),
       client.send,
     )
-    client.send({
-      type: 'machinesChanged',
-      machines: [...machines],
-    })
   }
 
   async onDetached(_principal: ClientPrincipal, client: ClientConn): Promise<void> {

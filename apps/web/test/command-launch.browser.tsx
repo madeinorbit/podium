@@ -54,11 +54,8 @@ const repos = [
     worktrees: [],
   },
 ]
-api.discovery = {
-  refreshRepos: {
-    mutate: async () => ({ repositories: repos, machines: [machine], diagnostics: [] }),
-  },
-}
+// Machines and repositories are records; online is the live condition (POD-6644).
+fixture.putMachinesAndRepos({ machines: [machine], repos })
 api.sessions = {
   create: {
     mutate: async (input: unknown) => {
@@ -97,14 +94,8 @@ function Surface() {
   const [newIssue, setNewIssue] = useState(false),
     [opened, setOpened] = useState('')
   useEffect(() => {
-    let active = true
-    void referenceState(runtime)
-      .refreshRepos()
-      .then(() => {
-        if (active) booted = true
-      })
+    booted = true
     return () => {
-      active = false
       booted = false
     }
   }, [runtime])
@@ -151,7 +142,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >

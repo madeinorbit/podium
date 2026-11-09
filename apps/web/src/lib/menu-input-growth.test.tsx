@@ -1,3 +1,5 @@
+import '@podium/client-graph/synced-models'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { omitGone, requireHere } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool, LOADING, type MobxPool as Pool } from '@podium/client-graph'
@@ -85,8 +87,9 @@ function fixture(scale: number) {
         ...Array.from({ length: 32 * scale }, (_, i) => ({ path: `/repo/.worktrees/hidden-${i}`, branch: `hidden-${i}` }))] } },
     ...Array.from({ length: 32 * scale }, (_, i) => ({ kind: 'repository' as const, id: `other-repo-${i}`,
       value: { kind: 'repository' as const, path: `/other-${i}`, machineId: sourceId, worktrees: [] } })),
-    ...['source', 'target', 'other-target'].map(id => ({ kind: 'machine' as const, id, value: machine(id) })),
-  ])
+    // Machine records with my access row; online is their live condition (POD-6644).
+    ...seedFixtureMachines(pool, ['source', 'target', 'other-target'].map(machine) as never),
+  ] as never)
   headerEntities(pool).order('machine', ['source', 'target', 'other-target'])
   pools.push(pool)
   return { pool, issue }
@@ -144,11 +147,11 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       await probe('targets-open', () => fireEvent.click(handoff))
       const targetMenu = screen.getByRole('menu', { name: 'Handoff targets' })
       expect(within(targetMenu).getAllByRole('menuitem').map(row => row.textContent)).toEqual(['target', 'other-target'])
-      await probe('candidate-update', () => headerEntities(pool).apply([{ kind: 'machine', id: targetId,
-        value: { ...machine(targetId), online: false } }]))
+      await probe('candidate-update', () => liveFixture(pool).condition(targetId,
+        { online: false, since: null, lastSeenAt: stamp, availability: machine(targetId).availability } as never))
       expect(within(targetMenu).getByRole('menuitem', { name: /target offline/ }).textContent).toContain('offline')
-      await probe('heartbeat', () => headerEntities(pool).apply([{ kind: 'machine', id: targetId,
-        value: { ...machine(targetId), online: false, lastSeenAt: '2026-10-06T12:01:00Z' } }]))
+      await probe('heartbeat', () => liveFixture(pool).condition(targetId,
+        { online: false, since: null, lastSeenAt: '2026-10-06T12:01:00Z', availability: machine(targetId).availability } as never))
       const before = requireHere(pool.row('session', sessionId)) as unknown as SessionView
       await probe('sender-heartbeat', () => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessionId,
         value: { ...before, lastActiveAt: '2026-10-06T12:01:00Z' } }] }))

@@ -9,7 +9,6 @@ import type { Loaded } from './worklist/rollup'
 /** Read-side attachment. Locals are already authoritative engine values;
  * replica deltas read just the addressed lane, not the legacy ship collection. */
 export class ShellSource implements PoolSource<ShellEntity> {
-  @observable private accessor discoveryVersion = 0
   private readonly window = Object.defineProperties(
     {},
     {
@@ -23,13 +22,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
       autoContinuePromptSessionId: {
         enumerable: true,
         get: () => this.runtime.autoContinueDialog.sessionId,
-      },
-      reposLoaded: {
-        enumerable: true,
-        get: () => {
-          void this.discoveryVersion
-          return this.runtime.readLocal('reposLoaded')
-        },
       },
     },
   ) as ShellRows['shellWindow']
@@ -59,21 +51,9 @@ export class ShellSource implements PoolSource<ShellEntity> {
   constructor(
     private readonly runtime: Pick<
       ClientRuntime,
-      | 'ui'
-      | 'palette'
-      | 'autoContinueDialog'
-      | 'readLocal'
-      | 'onLocals'
-      | 'onList'
-      | 'listIds'
-      | 'listRow'
-      | 'replica'
+      'ui' | 'palette' | 'autoContinueDialog' | 'replica'
     >,
   ) {
-    const update = () =>
-      runInAction(() => {
-        this.discoveryVersion++
-      })
     const lanes = () => {
       this.counts.laneCollections++
       this.replace(
@@ -86,7 +66,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
     if (!runtime.replica.row || !runtime.replica.subscribeAddressedBatch)
       throw new Error('Shell controls require the existing addressed replica')
     this.stops = [
-      runtime.onLocals(['reposLoaded'], update),
       runtime.replica.subscribeAddressedBatch((batch) => {
         if (this.disposed) return
         runInAction(() => {

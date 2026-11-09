@@ -269,12 +269,25 @@
       "variant": "full",
       "wire": {
         "online": true,
-        "since": "since"
+        "since": "since",
+        "lastSeenAt": "lastSeenAt",
+        "presenceSource": "supervisor",
+        "availability": {
+          "epoch": "availability.epoch",
+          "server": true,
+          "daemon": true,
+          "supervisor": true
+        },
+        "daemonReadiness": {
+          "state": "attached",
+          "reason": "daemonReadiness.reason",
+          "quarantinedBindings": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"online\":true,\"since\":\"since\"}"
+      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1}}"
     },
     {
       "schema": "MachineProcessesPayload",

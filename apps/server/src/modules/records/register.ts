@@ -22,6 +22,7 @@ import { registerWorkflowBindingRecord } from '../workflows/binding-record'
 import { registerEffectRecord } from './effect-record'
 import { registerIssueRecord } from './issue-record'
 import { registerIssueUserStateRecord } from './issue-user-state-record'
+import { registerMachineRecord } from './machine-record'
 import { registerSessionLifecycleRecord } from './session-lifecycle-record'
 import { registerSessionUserStateRecord } from './session-user-state-record'
 
@@ -83,4 +84,5 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
     settings: () => deps.modules().settings,
     roleOf: async (user) => await deps.store().users.roleOf(user),
   })
+  registerMachineRecord(registry, deps)
 }

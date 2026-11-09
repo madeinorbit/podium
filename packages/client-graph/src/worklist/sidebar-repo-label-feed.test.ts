@@ -1,3 +1,5 @@
+import { repositoryCheckouts } from '@podium/client-core/test-support/machine-records'
+import { checkoutRowId } from '@podium/model'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
@@ -50,32 +52,16 @@ function fixture() {
       createdAt: stamp,
       updatedAt: stamp,
     })
-  let discovery = [
-    {
-      path: home,
-      repoId,
-      machineId: 'ludovico',
-      originUrl: 'https://github.com/madeinorbit/podium.git',
-      worktrees: [],
-    },
-    {
-      path: backup,
-      repoId,
-      machineId: 'mac',
-      originUrl: 'git@github.com:madeinorbit/podium.git',
-      worktrees: [],
-    },
-  ]
-  let localChanged = () => {}
+  // Two registered checkouts of the same repo, as checkout records (POD-6644).
+  const checkout = (path: string, machineId: string, originUrl: string) => {
+    for (const record of repositoryCheckouts({ path, repoId, kind: 'repository', originUrl, worktrees: [] } as never, machineId))
+      put('checkouts', record.entityId, record.value)
+    return checkoutRowId(machineId as never, path)
+  }
+  checkout(home, 'ludovico', 'https://github.com/madeinorbit/podium.git')
+  checkout(backup, 'mac', 'git@github.com:madeinorbit/podium.git')
   const source = createRowSource(
-    {
-      principal: { userId: 'operator' },
-      readLocal: () => discovery,
-      onLocals: (_keys, listener) => {
-        localChanged = listener
-        return () => {}
-      },
-    },
+    { principal: { userId: 'operator' } },
     {
       row: (kind, id) => tables.get(kind)?.get(id),
       rows: (kind) => [...(tables.get(kind)?.values() ?? [])],
@@ -106,17 +92,8 @@ function fixture() {
       put('repos', repoId, { ...tables.get('repos')?.get(repoId), ...patch })
     },
     addCheckout(path: string, machineId: string) {
-      discovery = [
-        ...discovery,
-        {
-          path,
-          repoId,
-          machineId,
-          originUrl: 'git@github.com:madeinorbit/podium.git',
-          worktrees: [],
-        },
-      ]
-      localChanged()
+      const id = checkout(path, machineId, 'git@github.com:madeinorbit/podium.git')
+      addressed({ type: 'update', rows: [{ kind: 'checkouts', id }] })
       return source.flush()
     },
     dispose() {

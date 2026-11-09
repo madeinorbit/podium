@@ -596,6 +596,8 @@ function recordPartition(input: { kind: RecordKind; id: string }): string {
   if (home.target === 'subscriptions') return `subscription:${row}`
   // The instance settings (POD-6677): one record, one partition.
   if (home.target === 'instancePreferences') return 'instance-preferences'
+  // A machine's spec edits queue with each other (POD-6644).
+  if (home.target === 'machines') return `machine:${row}`
   // A session's own record and its per-user row order with the session's other
   // writes (an offer dismissal), as the per-command kinds did.
   return home.target === 'sessionUserStates' || home.target === 'sessions'

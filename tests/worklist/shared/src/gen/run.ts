@@ -37,6 +37,8 @@ import { upsertIssue } from '../scenarios'
  * a wall-clock wait. No step reads `Date.now()` or `Math.random()`.
  */
 
+import { FIXTURE_MACHINE_ID } from '@podium/client-core/test-support/machine-records'
+import { asMachineId, checkoutRowId } from '@podium/model'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import type { RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
@@ -434,19 +436,20 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'newWorktree': {
-        const at = (ctx.discovery.repos as { repoId?: string; worktrees?: unknown[] }[]).findIndex(
+        const repo = (ctx.corpus.repos as { repoId?: string; path: string; machineId?: string }[]).find(
           (r) => r.repoId === c.repoId,
         )
-        if (at < 0) return `repo ${c.repoId} not discovered`
-        const repos = [...ctx.discovery.repos] as { worktrees?: unknown[] }[]
-        const repo = repos[at] as { worktrees?: unknown[] }
-        repos[at] = {
-          ...repo,
-          worktrees: [...(repo.worktrees ?? []), { path: c.path, branch: 'gen' }],
-        }
-        ctx.discovery.repos = repos
-        // The server's push; the runtime refreshes discovery itself.
-        ctx.hub.emit('worktreesChanged')
+        if (!repo) return `repo ${c.repoId} not discovered`
+        // The server writes the new worktree's checkout record (POD-6644).
+        const machineId = asMachineId(repo.machineId ?? FIXTURE_MACHINE_ID)
+        upsert(ctx, 'checkout', checkoutRowId(machineId, c.path), {
+          machineId,
+          path: c.path,
+          root: repo.path,
+          kind: 'worktree',
+          ...(repo.repoId ? { repoId: repo.repoId } : {}),
+          branch: 'gen',
+        })
         return null
       }
       case 'newOrphanSession': {

@@ -19,8 +19,8 @@ import type { SyncWriteContext } from '../sync-write/registry'
  */
 
 import { describeError } from '@podium/logger'
-import type { MachineId, UpdateChannel, UserId } from '@podium/model'
-import { asMachineId, HOST_REPOS, isMachinePathWithinRoot, joinMachinePath, machinePathsEqual, mintDeviceId, resolveMachineChannel } from '@podium/model'
+import type { MachineId, UserId } from '@podium/model'
+import { asMachineId, HOST_REPOS, isMachinePathWithinRoot, joinMachinePath, machinePathsEqual, mintDeviceId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
@@ -35,7 +35,7 @@ import { awaitEffect } from '../effects/await'
 import type { ScanReposResult } from '../machines/rpc'
 import { linkedOperationId, operationIdForEffect } from '../operations/effects'
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
-import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
+import { machinesForPrincipal } from '../sessions/command-ctx'
 import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
 import type { MachineApplyOutcome } from '../updates/service'
 import { type FleetAuthzDeps, fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
@@ -153,37 +153,6 @@ export const machineSetAssignmentHandler = async ({
     input.assignment,
     input.requestId,
   )
-  return await machinesFor(env)
-}
-
-export const machineRenameHandler = async ({
-  env,
-  input,
-}: FleetSyncArgs<{ id: string; name: string }>) => {
-  await env.modules.machines.renameMachine(asMachineId(input.id), input.name)
-  return await machinesFor(env)
-}
-
-export const machineSetUpdateChannelHandler = async ({
-  env,
-  input,
-}: FleetSyncArgs<{ id: string; channel: UpdateChannel | null }>) => {
-  const modules = env.modules
-  const machineId = asMachineId(input.id)
-  await modules.machines.setUpdateChannel(machineId, input.channel)
-  // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
-  // is the fleet default rather than anything in the input (POD-1882) — and the
-  // fleet default is asked for, not assumed to be a literal (POD-2100). The
-  // release feed is the network: asked once the pin has committed (POD-6417),
-  // and the clients hear the target it found.
-  const channel = resolveMachineChannel(
-    await modules.machines.updateChannel(machineId),
-    modules.updates.fleetDefaultChannel(),
-  )
-  afterCommit(async () => {
-    await modules.updates.refreshTarget(channel)
-    await modules.machines.broadcastMachines()
-  }, 'machines:channel:refresh-target')
   return await machinesFor(env)
 }
 
@@ -693,20 +662,15 @@ export const repoRenameFolderHandler = async ({
  * them all would walk a colleague's filesystem through their daemon, which is
  * precisely what `use` is a boundary against.
  */
-export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => {
-  const result = await ctx.repos.scanReposAll(
-    fleetUsePredicate(await fleetAuthzDeps(ctx), 'use'),
-    fleetUsePredicate(await fleetAuthzDeps(ctx), 'see'),
-  )
-  // Repositories and machines are one authorization snapshot for the client.
-  // Returning the repo rows alone lets a page reload scope a valid durable
-  // fallback against an independently timed machine list and hide the project
-  // until another event happens to refresh both sides in the right order.
-  return {
-    ...result,
-    machines: await visibleMachinesFor(mods(ctx), ctx.capability),
-  }
-}
+/**
+ * Look again at every machine the caller may use (POD-6644). The checkouts the
+ * scans find reach every device as `checkout` records; the reply is only the
+ * scans' diagnostics, a request answer for the view that asked. No client asks
+ * this at boot: the records are the boot read.
+ */
+export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => ({
+  diagnostics: await ctx.repos.rescanUsable(fleetUsePredicate(await fleetAuthzDeps(ctx), 'use')),
+})
 
 /** A `folder.scan` effect record (POD-6396). */
 export const discoveryScanFolderHandler = async ({

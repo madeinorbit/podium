@@ -190,6 +190,8 @@ const DEMO_SLICE_KINDS = [
   'workflowRuns',
   'subscriptions',
   'instancePreferences',
+  'machineAccess',
+  'checkouts',
 ] as const
 
 /**

@@ -5,6 +5,7 @@ import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { makeFeedVisibility } from '../feed-visibility'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
+import { CheckoutsRepository } from '../store/checkouts'
 import { IssuesRepository } from '../store/issues'
 import { SessionsRepository } from '../store/sessions'
 import { ShippingRepository } from '../store/shipping'
@@ -49,6 +50,7 @@ export function bootstrapVisibility(database: SqlDatabase) {
       users: new UsersRepository(q),
       grants,
       sync,
+      checkouts: new CheckoutsRepository(q),
     },
     audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
     // A job-local cache lives only as long as this immutable read snapshot.

@@ -6,7 +6,6 @@ import type {
   IssueProjection,
   LayoutWire,
   MachineId,
-  MachineWire,
   MessageRecordWire,
   RepoProjection,
   SessionId,
@@ -486,11 +485,6 @@ export interface WireSkew {
  * `on*`/`subscribe*` methods below are thin wrappers over it.
  */
 export interface HubEvents {
-  machines: [machines: MachineWire[]]
-  /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
-   *  this is a one-shot invalidation; the subscriber re-fetches through the same
-   *  path it already uses at boot. */
-  worktreesChanged: [repoPath: string, machineId: MachineId | undefined]
   /** Full issue list after any change. */
   /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
    *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
@@ -631,7 +625,6 @@ export class SocketHub {
   private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
-  private machinesList: MachineWire[] = []
   /** The normalized issue list [POD-796]. Separate from `issueList` rather than
    *  replacing it: the two shapes coexist for the whole transition, and the feed
    *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
@@ -1354,10 +1347,6 @@ export class SocketHub {
       | undefined
   }
 
-  machines(): MachineWire[] {
-    return this.machinesList
-  }
-
   /** The newest `welcome`'s server facts; null before the first one. */
   serverIdentity(): ServerIdentity | null {
     return this.serverIdentityValue
@@ -1377,13 +1366,6 @@ export class SocketHub {
     const moved = this.clockSkew?.skewMs !== skewMs
     this.clockSkew = { skewMs, rttMs }
     if (moved) this.emit('clockSkew', skewMs)
-  }
-
-  /** @deprecated Use `on('machines', cb)` (no replay — read `machines()`). */
-  onMachines(cb: (m: MachineWire[]) => void): () => void {
-    const off = this.on('machines', cb)
-    cb(this.machinesList)
-    return off
   }
 
   /**
@@ -2174,13 +2156,6 @@ export class SocketHub {
         ...(msg.editedAt !== undefined ? { editedAt: msg.editedAt } : {}),
       })
     },
-    machinesChanged: (msg) => {
-      this.machinesList = msg.machines
-      this.emit('machines', this.machinesList)
-    },
-    worktreesChanged: (msg) => {
-      this.emit('worktreesChanged', msg.repoPath, msg.machineId)
-    },
     // Session-scoped terminal stream: forwarded to the matching SessionConnection
     // (or dropped when no view is attached — same as the old fall-through arm).
     attached: (msg) => this.forwardToSession(msg),
@@ -2315,6 +2290,9 @@ export class SocketHub {
         case 'issueGitState':
         case 'sessionUserState':
         case 'machine':
+        // POD-6644: a machine's access rows and its checkouts.
+        case 'machineAccess':
+        case 'checkout':
         case 'effect':
         // POD-6673: my pins, tab orders, settings and read positions.
         case 'pin':

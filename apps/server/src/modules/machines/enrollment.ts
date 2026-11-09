@@ -9,8 +9,9 @@ import { afterCommit, spanOpen } from '../../store/executor/executor'
 /** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
   readonly deps: MachinesDeps
-  /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
-  broadcastMachines(): Promise<void>
+  /** Write these machines' synced records (all when omitted) after a write
+   *  that moved them (owner transfer, adoption, supersession; POD-6644). */
+  publishMachines(ids?: readonly MachineId[]): Promise<void>
   hasSupervisor(machineId: MachineId): boolean
   retireIncarnation(machineId: MachineId): void
 }
@@ -98,14 +99,10 @@ export async function machineTransition(
   })
 }
 
-/** The clients' `machinesChanged` after a write they can see: after the commit
- *  inside a unit of work, at once outside one. */
-export async function broadcastAfterWrite(host: EnrollmentHost, label: string): Promise<void> {
-  if (spanOpen()) {
-    afterCommit(async () => await host.broadcastMachines(), label)
-    return
-  }
-  await host.broadcastMachines()
+/** The machines' synced records after a write that moved them (POD-6644).
+ *  They are database writes, so inside a unit of work they commit with it. */
+export async function publishAfterWrite(host: EnrollmentHost, ids: readonly MachineId[]): Promise<void> {
+  await host.publishMachines(ids)
 }
 
 export async function authenticateDaemon(host: EnrollmentHost, frame: MachineAuthenticationFrame, options: DaemonAuthenticationOptions = {}) {
@@ -249,7 +246,7 @@ export async function transferOwnership(
   if (!row || row.revokedAt) throw new Error(`unknown machine '${machineId}'`)
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
-  await host.broadcastMachines()
+  await host.publishMachines([machineId])
 }
 
 /** Authenticated transport attribution and agent-scope narrowing, never payload input. */
@@ -290,7 +287,7 @@ export async function transferMachineOwnership(
       })
     })
   }, async () => {}, 'machines:transfer')
-  await broadcastAfterWrite(host, 'machines:transfer:broadcast')
+  await publishAfterWrite(host, [id])
 }
 
 export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
@@ -318,7 +315,7 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
       })
     })
   }, async () => {}, 'machines:adopt')
-  await broadcastAfterWrite(host, 'machines:adopt:broadcast')
+  await publishAfterWrite(host, [id])
 }
 
 /** One admin-authorized decision for client enrollment and retained revoked identity.

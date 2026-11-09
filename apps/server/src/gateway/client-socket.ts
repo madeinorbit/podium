@@ -22,7 +22,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineWire, UserId, UserRole } from '@podium/model'
+import type { UserId, UserRole } from '@podium/model'
 import {
   ClientPtyInputMetadata,
   decodeBinaryEnvelope,
@@ -44,7 +44,6 @@ export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
   userRole?: UserRole
-  machines?: readonly MachineWire[]
 }
 
 /**
@@ -83,7 +82,6 @@ export function wireClientSocket(
     sendSequence: sink.sendSequence,
     userId: auth.userId,
     userRole: auth.userRole,
-    machines: auth.machines ?? [],
   })
   sink.describe(id)
   let failed = false

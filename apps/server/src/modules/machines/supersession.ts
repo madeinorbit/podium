@@ -1,5 +1,5 @@
 import type { MachineId, UserId } from '@podium/model'
-import { broadcastAfterWrite, type EnrollmentHost, type MachineManagementContext, machineTransition } from './enrollment'
+import { publishAfterWrite, type EnrollmentHost, type MachineManagementContext, machineTransition } from './enrollment'
 
 /** An explicit admin decision; cancelling authority never grants it to a new identity. */
 export async function supersedeMachine(
@@ -36,5 +36,5 @@ export async function supersedeMachine(
     // No retirement step: superseding sets `revoked_at`, and the machines
     // table's commit funnel retires a revoked machine once the write commits.
   }, async () => {}, 'machines:supersede')
-  await broadcastAfterWrite(host, 'machines:supersede:broadcast')
+  await publishAfterWrite(host, [id, replacementId])
 }

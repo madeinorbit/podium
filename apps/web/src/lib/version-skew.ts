@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import type { Store } from '@/app/store'
 
@@ -33,7 +33,7 @@ export function useServerAppVersion(trpc: Store['trpc']): string | null {
  * for compatibility with older servers that did not project channel targets.
  */
 export function machineNeedsUpdate(
-  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState' | 'installKind'>,
+  machine: Pick<MachineFacts, 'inventory' | 'targetVersion' | 'versionState' | 'installKind'>,
   serverAppVersion: string | null,
 ): boolean {
   const daemonVersion = machine.inventory?.podiumVersion

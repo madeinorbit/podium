@@ -171,7 +171,10 @@ export function checkChatContext(
     sessionFacts(sessions.sessions),
     sessions.pending > 0,
   )
-  compare('referenceMachines', state.machines, chatReferenceMachines(pool))
+  // What the composer reads of a machine (POD-6644: the pool's are its facts).
+  const machineView = (rows: readonly { id: string; name: string; online: boolean }[]) =>
+    rows.map(({ id, name, online }) => ({ id, name, online }))
+  compare('referenceMachines', machineView(state.machines), machineView(chatReferenceMachines(pool)))
   compare(
     'referenceRepos',
     state.repos

@@ -52,8 +52,7 @@ function setup(
       subscribe: () => () => {},
     },
     router,
-    repos: () => [],
-    reposLoaded: () => false,
+    repositories: () => [],
     isVisible: () => visible,
   })
   const persistence = new UiPersistence(ui, device, legacy, visibility)

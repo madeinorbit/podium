@@ -96,13 +96,7 @@ function failAfter(o: Oracle, method: 'renameMachine' | 'revokeMachine' | 'setUp
   vi.spyOn(machines, method).mockImplementation((async (...args: unknown[]) => {
     await original(...args)
     wrote = true
-  }) as never)
-  const list = machines.listMachines.bind(machines)
-  vi.spyOn(machines, 'listMachines').mockImplementation((async (
-    ...args: Parameters<typeof list>
-  ) => {
     if (wrote) throw new Error('forced rollback after the write')
-    return await list(...args)
   }) as never)
 }
 
@@ -130,18 +124,17 @@ describe('the fleet writes are on the sync write entry point', () => {
     }
   })
 
-  it('machines.rename arrives through sync.submit with provenance and a receipt; a replay runs nothing', async () => {
+  it('a machine rename (records.machine.edit) arrives through sync.submit with provenance and a receipt; a replay runs nothing', async () => {
     const o = await oracle()
     const rename = vi.spyOn(o.reg.modules.machines, 'renameMachine')
     const { result } = await expectAppliedOnPath(
       o,
-      envelope('machines.rename', { id: OFFLINE, name: 'renamed-6417' }, 'm-fleet-rename-1'),
+      envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'renamed-6417' } }, 'm-fleet-rename-1'),
       // The machine's feed projection is written in the unit, with provenance.
       { writes: true },
     )
-    expect((result as { id: string; name: string }[]).find((m) => m.id === OFFLINE)?.name).toBe(
-      'renamed-6417',
-    )
+    expect(result).toEqual({ ok: true })
+    expect((await o.store.machines.getMachine(OFFLINE))?.name).toBe('renamed-6417')
     expect(rename).toHaveBeenCalledTimes(1)
   })
 
@@ -162,7 +155,9 @@ describe('the fleet writes are on the sync write entry point', () => {
     )
     const repoId = await repoIdOf()
     expect(repoId).toBeDefined()
-    expect(added.rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([
+    // The registered root's checkout record commits with it (POD-6644).
+    expect(added.rows.filter((r) => r.entity === 'checkout').map((r) => r.op)).toEqual(['upsert'])
+    expect(added.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op])).toEqual([
       ['repo', repoId, 'upsert'],
     ])
     expect(added.rows[0]?.mutationId).toBe('m-fleet-add-1')
@@ -185,9 +180,11 @@ describe('the fleet writes are on the sync write entry point', () => {
       envelope('repos.remove', { path, machineId: host }, 'm-fleet-remove-1'),
       { writes: true },
     )
-    expect(removed.rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([
+    expect(removed.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op])).toEqual([
       ['repo', repoId, 'remove'],
     ])
+    // ...and the root's checkout record goes with the registration (POD-6644).
+    expect(removed.rows.filter((r) => r.entity === 'checkout').map((r) => r.op)).toEqual(['remove'])
   })
 
   it('a repo write that changes nothing appends no repo row', async () => {
@@ -240,10 +237,10 @@ describe('the fleet writes are on the sync write entry point', () => {
   it('the kept routes are adapters onto submit, as the tRPC transport', async () => {
     const o = await oracle()
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
-    const rows = await o.call.machines.rename({ id: OFFLINE, name: 'via-route' })
-    expect(rows.find((m) => m.id === OFFLINE)?.name).toBe('via-route')
+    const rows = await o.call.machines.revoke({ id: OFFLINE })
+    expect(rows.find((m) => m.id === OFFLINE)?.revokedAt).toEqual(expect.any(String))
     expect(entry).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'machines.rename', version: 1 }),
+      expect.objectContaining({ command: 'machines.revoke', version: 1 }),
       expect.anything(),
       'trpc',
     )
@@ -257,8 +254,6 @@ describe('the fleet writes are on the sync write entry point', () => {
       expect(machines[name.split('.')[1]!], name).toBeUndefined()
     }
     for (const key of [
-      'rename',
-      'setUpdateChannel',
       'transferOwnership',
       'adopt',
       'supersede',
@@ -281,7 +276,7 @@ describe('the target check is the fleet gate, before the handler', () => {
     const { reply } = await submitAs(
       o,
       user,
-      envelope('machines.rename', { id: OFFLINE, name: 'nope' }, 'm-fleet-refused-1'),
+      envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'nope' } }, 'm-fleet-refused-1'),
     )
     // The gate's own words, the ones a never-paired id gets (no existence oracle).
     expect(reply).toMatchObject({
@@ -291,7 +286,7 @@ describe('the target check is the fleet gate, before the handler', () => {
     const absent = await submitAs(
       o,
       user,
-      envelope('machines.rename', { id: 'm-never-paired', name: 'nope' }, 'm-fleet-refused-2'),
+      envelope('records.machine.edit', { id: 'm-never-paired', patch: { name: 'nope' } }, 'm-fleet-refused-2'),
     )
     expect(absent.reply).toMatchObject({
       outcome: 'rejected',
@@ -305,7 +300,7 @@ describe('the target check is the fleet gate, before the handler', () => {
     const user = await member(o)
     await grantManage(o, OFFLINE, user)
     const rename = vi.spyOn(o.reg.modules.machines, 'renameMachine')
-    const env = envelope('machines.rename', { id: OFFLINE, name: 'by-member' }, 'm-fleet-grant-1')
+    const env = envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'by-member' } }, 'm-fleet-grant-1')
 
     // `action: write` with the `member` floor: the coarse check admits the
     // member, and the machine verb decides the row.
@@ -328,7 +323,7 @@ describe('the target check is the fleet gate, before the handler', () => {
       servesHub: () => false,
     }
     const operator = userCommandPrincipal(firstAdminMemberId(), 'admin')
-    const target = await fleetTarget(deps, 'machines.rename', { id: OFFLINE, name: 'x' }, operator)
+    const target = await fleetTarget(deps, 'machines.revoke', { id: OFFLINE }, operator)
     expect(isTargetRefused(target) && target.syncWriteRefused.kind).toBe('target-not-found')
     // A core command is still served there.
     const core = await fleetTarget(
@@ -342,27 +337,27 @@ describe('the target check is the fleet gate, before the handler', () => {
 })
 
 describe('work outside the database runs once after the commit, never after a rollback', () => {
-  it('rename: the bus and the clients hear it once after the commit, not after a rollback', async () => {
+  it('rename: the bus hears it once after the commit, and a rollback leaves no record', async () => {
     const o = await oracle()
-    const broadcast = vi.spyOn(o.reg.modules.machines, 'broadcastMachines')
     const heard: unknown[] = []
     o.reg.bus.on('machine.metadataChanged', (e) => heard.push(e))
+    const rename = (name: string, mutationId: string) =>
+      envelope('records.machine.edit', { id: OFFLINE, patch: { name } }, mutationId)
 
     failAfter(o, 'renameMachine')
-    await expect(
-      submit(o, envelope('machines.rename', { id: OFFLINE, name: 'rolled-back' }, 'm-fleet-rb-1')),
-    ).rejects.toThrow('forced rollback')
+    await expect(submit(o, rename('rolled-back', 'm-fleet-rb-1'))).rejects.toThrow('forced rollback')
     await settle()
-    expect(broadcast).not.toHaveBeenCalled()
     expect(heard).toEqual([])
     expect((await o.store.machines.getMachine(OFFLINE))?.name).not.toBe('rolled-back')
+    // The record's change rolled back with the row (POD-6644).
+    expect(await rowsOf(o, 'm-fleet-rb-1')).toEqual([])
 
     vi.restoreAllMocks()
-    const broadcastAgain = vi.spyOn(o.reg.modules.machines, 'broadcastMachines')
-    await submit(o, envelope('machines.rename', { id: OFFLINE, name: 'committed' }, 'm-fleet-rb-2'))
+    await submit(o, rename('committed', 'm-fleet-rb-2'))
     await settle()
-    expect(broadcastAgain).toHaveBeenCalledTimes(1)
     expect(heard).toHaveLength(1)
+    // The machine record's change carries the command's provenance.
+    expect((await rowsOf(o, 'm-fleet-rb-2')).some((row) => row.entity === 'machine')).toBe(true)
   })
 
   it('revoke: the machine is retired once after the commit, not after a rollback', async () => {
@@ -394,7 +389,7 @@ describe('work outside the database runs once after the commit, never after a ro
     await expect(
       submit(
         o,
-        envelope('machines.setUpdateChannel', { id: OFFLINE, channel: 'edge' }, 'm-fleet-ch-1'),
+        envelope('records.machine.edit', { id: OFFLINE, patch: { updateChannelOverride: 'edge' } }, 'm-fleet-ch-1'),
       ),
     ).rejects.toThrow('forced rollback')
     await settle()
@@ -404,7 +399,7 @@ describe('work outside the database runs once after the commit, never after a ro
     const refreshAgain = vi.spyOn(o.reg.modules.updates, 'refreshTarget').mockResolvedValue(true)
     await submit(
       o,
-      envelope('machines.setUpdateChannel', { id: OFFLINE, channel: 'edge' }, 'm-fleet-ch-2'),
+      envelope('records.machine.edit', { id: OFFLINE, patch: { updateChannelOverride: 'edge' } }, 'm-fleet-ch-2'),
     )
     await settle()
     expect(refreshAgain).toHaveBeenCalledTimes(1)
@@ -542,11 +537,13 @@ describe('cloud and the repository refresh are plain commands', () => {
     expect((error as TRPCError).code).toBe('PRECONDITION_FAILED')
   })
 
-  it('refreshRepos answers its snapshot through the plain entry', async () => {
+  it('refreshRepos answers its scans\' diagnostics through the plain entry, no machine list', async () => {
     const o = await oracle()
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
-    const snapshot = await o.call.discovery.refreshRepos()
-    expect(snapshot.machines.length).toBeGreaterThan(0)
+    const answer = await o.call.discovery.refreshRepos()
+    expect(Array.isArray(answer.diagnostics)).toBe(true)
+    expect(answer).not.toHaveProperty('machines')
+    expect(answer).not.toHaveProperty('repositories')
     expect(entry).not.toHaveBeenCalled()
   })
 })

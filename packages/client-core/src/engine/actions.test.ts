@@ -203,8 +203,7 @@ function harness(
     keys,
     router,
     revealTranscript,
-    repos: () => state.repos,
-    reposLoaded: () => true,
+    repositories: () => [],
     isVisible: () => true,
     changed: () => {
       publish()

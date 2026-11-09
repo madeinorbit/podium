@@ -1,10 +1,12 @@
-import { omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
+import type { MachineModel } from './models'
+import { here, omitGone } from './lookup'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { dedupeSessionsByResume } from '@podium/model'
-import { type MachineWire } from '@podium/model/browser'
+import { type MachineFacts } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import { chatInteractions, chatMentionIssues, chatRecords } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
@@ -75,8 +77,13 @@ export function createMobileSessionReader(pool: MobxPool) {
     // presentation values only.
     sessions: () => pooledMobileSessions(pool),
     issues: () => chatMentionIssues(pool),
-    machine: (id: string | undefined): MachineWire | undefined =>
-      id === undefined ? undefined : (omitGone(pool.row('machine', id)) as MachineWire | undefined),
+    // The machine's facts, online and presence the LiveStore's (POD-6644), as a
+    // value: the phone's offline banner is plain React and needs a new one
+    // when the machine goes offline.
+    machine: (id: string | undefined): MachineFacts | undefined => {
+      const model = id === undefined ? undefined : here(pool.model('machine', id))
+      return model ? machineFacts(model as MachineModel) : undefined
+    },
     /** Feed companion display name for the offline banner (POD-5661):
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>

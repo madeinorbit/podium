@@ -41,11 +41,8 @@ function Fixture() {
   const pool = useWorklistPool()
   useEffect(() => {
     runtime = owner
-    void referenceState(owner)
-      .refreshRepos()
-      .then(() => {
-        ready = pool !== null
-      })
+    // Repositories are in the fixture's checkout records (POD-6644).
+    ready = pool !== null
     return () => {
       runtime = undefined
       ready = false

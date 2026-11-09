@@ -45,7 +45,7 @@ import type { MobileClientVersions } from './mobile-client-versions'
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineWire, SessionId, UserId, UserRole } from '@podium/model'
+import type { SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
@@ -152,7 +152,6 @@ export interface ClientTransport {
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
   userRole?: UserRole
-  machines?: readonly MachineWire[]
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
@@ -307,7 +306,7 @@ export class ClientMux {
     // dispatches drafts by session id. Their frames may arrive after feed data.
     // Each task owns its rejection; failure must not prevent feed admission.
     void this.deps.ports.sessions
-      .onClientAttached(conn.principal, conn, transport.machines ?? [])
+      .onClientAttached(conn.principal, conn)
       .catch((error: unknown) => {
         log.error('client session bootstrap failed', { clientId: id, error })
       })

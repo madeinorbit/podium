@@ -114,9 +114,6 @@ async function mount(layer: 'pool', count = 12) {
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => {
-    await referenceState(runtime).refreshRepos()
-  })
   await waitFor(() => expect(screen.getByTestId('work-scroll')).toBeTruthy(), { timeout: 10000 })
   if (layer === 'pool') await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Only responsive target')).toBeTruthy(), {

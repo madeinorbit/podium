@@ -9,6 +9,8 @@ import {
   type RuntimeState,
 } from '@podium/client-core/engine'
 import { MobxPool } from '@podium/client-graph'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { asMachineId, asSessionId } from '@podium/model/browser'
@@ -18,7 +20,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
 import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
-import { useDraftValue, usePendingSpawnPrompt, useRuntimeList } from './keyed-runtime'
+import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({
@@ -144,46 +146,11 @@ it('wakes the native draft bridge only for its own document, including clears', 
   expect(screen.getByTestId('draft').textContent).toBe('')
 })
 
-it('preserves discovery list order and responds to changed, added and removed ids', () => {
-  const a = { id: 'a', name: 'A' },
-    b = { id: 'b', name: 'B' }
-  state.machines = [a, b] as RuntimeState['machines']
-  inputs.emit(new Set(['machines']))
-  let renders = 0
-  function Machines() {
-    renders++
-    return (
-      <output data-testid="machines">
-        {useRuntimeList('machines')
-          .map((row) => row.name)
-          .join('|')}
-      </output>
-    )
-  }
-  render(<Machines />)
-  expect(screen.getByTestId('machines').textContent).toBe('A|B')
-  const before = renders
-  act(() => (f.pool as MobxPool).clock.advance(60_000))
-  expect(renders).toBe(before)
-  act(() => {
-    state.machines = [
-      b,
-      { ...a, name: 'Renamed' },
-      { id: 'c', name: 'C' },
-    ] as RuntimeState['machines']
-    inputs.emit(new Set(['machines']))
-  })
-  expect(screen.getByTestId('machines').textContent).toBe('B|Renamed|C')
-  act(() => {
-    state.machines = [b] as RuntimeState['machines']
-    inputs.emit(new Set(['machines']))
-  })
-  expect(screen.getByTestId('machines').textContent).toBe('B')
-})
-
-it('preserves harness availability and discovery changes without legacy list reads', () => {
+it('preserves harness availability and discovery changes, read from the records', () => {
+  // Machines and repositories are records in the pool (POD-6644).
   const machineId = asMachineId('mine')
-  state.repos = [{ path: '/repo', kind: 'repository', worktrees: [], machineId }]
+  const pool = f.pool as MobxPool
+  const repo = { path: '/repo', kind: 'repository' as const, worktrees: [], machineId }
   const machine = {
     id: machineId,
     name: 'mine',
@@ -193,14 +160,20 @@ it('preserves harness availability and discovery changes without legacy list rea
     availability: { epoch: 'boot', server: false, daemon: true, supervisor: true },
     lastSeenAt: new Date(0).toISOString(),
     inventory: {
-      os: 'linux',
-      arch: 'x64',
+      os: 'linux' as const,
+      arch: 'x64' as const,
       agents: [{ kind: 'cursor' as const, installed: false, login: { state: 'in' as const } }],
       tools: [],
     },
-  } satisfies RuntimeState['machines'][number]
-  state.machines = [machine]
-  inputs.emit(new Set(['repos', 'machines']))
+  }
+  const install = (next: typeof machine, repos: (typeof repo)[]) =>
+    act(() => {
+      headerEntities(pool).apply([
+        ...(seedFixtureMachines(pool, [next]) as never[]),
+        { kind: 'repository', id: JSON.stringify([machineId, '/repo']), value: repos[0] } as never,
+      ])
+    })
+  install(machine, [repo])
   function Fleet() {
     const status = useAgentFleetOptions({ repoPath: '/repo' }).find(
       (option) => option.value === 'cursor',
@@ -215,23 +188,16 @@ it('preserves harness availability and discovery changes without legacy list rea
   expect(screen.getByTestId('fleet').textContent).toBe(
     'Cursor is not installed on mine.|not installed',
   )
-  act(() => {
-    state.machines = [
-      {
-        ...machine,
-        inventory: {
-          ...machine.inventory,
-          agents: [{ ...machine.inventory.agents[0]!, installed: true }],
-        },
+  install(
+    {
+      ...machine,
+      inventory: {
+        ...machine.inventory,
+        agents: [{ ...machine.inventory.agents[0]!, installed: true }],
       },
-    ]
-    inputs.emit(new Set(['machines']))
-  })
-  expect(screen.getByTestId('fleet').textContent).toBe('available|')
-  act(() => {
-    state.repos = []
-    inputs.emit(new Set(['repos']))
-  })
+    },
+    [repo],
+  )
   expect(screen.getByTestId('fleet').textContent).toBe('available|')
 })
 

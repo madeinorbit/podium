@@ -13,10 +13,10 @@ it('holds processes only while open, applies pushed memory/reclaim and forgets t
       return release
     }),
     on: vi.fn(() => () => {}),
-    machines: () => [],
     refreshTopic: vi.fn(),
   }
-  const view = new MachineProcessesView(hub as never, asMachineId('machine'))
+  const machines = { serverMachineId: () => undefined, subscribe: () => () => {} }
+  const view = new MachineProcessesView(hub as never, machines, asMachineId('machine'))
   expect(hub.subscribeTopic).not.toHaveBeenCalled()
   view.open()
   expect(hub.subscribeTopic).toHaveBeenCalledWith('machine.processes', 'machine', expect.anything())

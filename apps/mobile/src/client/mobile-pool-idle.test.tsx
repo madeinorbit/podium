@@ -48,8 +48,7 @@ it.each([
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub)
-        void owner.access.refreshRepos()
+        data.bindHub(owner.hub, undefined, owner.live)
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >

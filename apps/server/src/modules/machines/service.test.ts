@@ -12,7 +12,6 @@ import type { CommandPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import type { MachineOwnershipIndex } from '../../machine-access'
 import { SessionStore } from '../../store'
-import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import { EventBus } from '../bus'
 import { machinesForPrincipal } from '../sessions/command-ctx'
@@ -40,8 +39,6 @@ function makeService(): MachinesService {
     } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -93,8 +90,6 @@ async function storedService(
     recoveryOnly,
     hostMachineId: store.hostMachineId,
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps)
   return { svc, store }
 }
@@ -489,8 +484,6 @@ describe('promoted server host identity', () => {
       store,
       hostMachineId: target,
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     const before = (await store.machines.listMachines()).map(({ id }) => id)
 
@@ -621,8 +614,6 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
         },
       },
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -723,8 +714,6 @@ describe('MachinesService inventory persistence (#222)', () => {
       store,
       hostMachineId: store.hostMachineId,
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -764,8 +753,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       store,
       hostMachineId: store.hostMachineId,
       bus,
-      clients: () => [],
-      machinesForPrincipal: async () => [],
+
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
       assignment: { server: false, agentExecution: true },
@@ -1039,13 +1027,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       hostMachineId: store.hostMachineId,
       userExists: (id) => known.has(id),
 
-      clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
-      // Called once per client on every broadcast. Reading the owner here is the
-      // load-bearing part: a broadcast sent before the write lands a stale
-      // entry in this array.
-      machinesForPrincipal: async () => {
-        broadcasts.push((await svc.effectiveOwner(MACHINE)))
-        return []
+      // Called on every write of the machine's records (POD-6644). Reading the
+      // owner here is the load-bearing part: a write made before the custody
+      // change lands a stale entry in this array.
+      publishMachineRecords: async () => {
+        broadcasts.push(await svc.effectiveOwner(MACHINE))
       },
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
@@ -1056,6 +1042,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId(OWNER_A),
     })
+    // The fixture's custody edge republishes the records after its commit;
+    // only what the transfer writes is counted.
+    for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setTimeout(resolve, 0))
+    broadcasts.length = 0
     return { svc, store, dir, broadcasts }
   }
 
@@ -1066,7 +1056,6 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       // Read on the pre-transfer fleet first, so the read-back is a second read.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_A)
-      expect(broadcasts).toHaveLength(0)
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
@@ -1075,10 +1064,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // 2 — THE FLEET. The same public read as above, with no manual step in
       // between.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_B)
-      // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
-      // it was built from already showed the new owner — so it was emitted
-      // AFTER the transition committed, not before.
-      expect(broadcasts).toEqual([OWNER_B])
+      // 3 — THE RECORDS, and their ORDERING: they were written, and every
+      // write already read the new owner, so none was made before the
+      // transition committed (the grant change may republish them too).
+      expect(broadcasts.length).toBeGreaterThan(0)
+      expect(broadcasts.every((owner) => owner === OWNER_B)).toBe(true)
       // 4 — THE LEDGER, which is the commit point the row merely projects.
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
     } finally {
@@ -1274,8 +1264,6 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         hostMachineId: store.hostMachineId,
         userExists: (id) => known.has(id),
 
-        clients: () => [],
-        machinesForPrincipal: async () => [],
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({
@@ -1512,8 +1500,6 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
         return 'stable'
       },
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     for (const id of ['m-1', 'm-2', 'm-3']) {
       await store.machines.upsertMachine({
@@ -1550,7 +1536,7 @@ describe('retained revocation and explicit replacement', () => {
         peek: (code) => codes.get(code),
         redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
       },
-       clients: () => [], machinesForPrincipal: async () => [],
+      
     })
     if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }
@@ -1670,8 +1656,7 @@ describe('administrator client registration recovery', () => {
       store,
       hostMachineId: store.hostMachineId,
       pairing,
-      clients: () => [],
-      machinesForPrincipal: async () => [],
+
     })
     const actor = firstAdminMemberId()
     const key = publicKeyWire(mintSigningKeyPair())

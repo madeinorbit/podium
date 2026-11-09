@@ -66,6 +66,6 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('operator'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
   api={fixture.api as unknown as MobileTrpc} networkEnabled={false}
   createReplicaFn={() => Object.assign(fixture.newReplica(), { transcripts: fakeTranscriptCache({ items, savedAt: Date.now() }) })}
-  attachRuntime={runtime => { fixture.bindHub(runtime.hub); fixture.publishMachines(); return attachMobilePool(runtime, error => { throw error }) }}>
+  attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); fixture.publishMachines(); return attachMobilePool(runtime, error => { throw error }) }}>
   <Surface />
 </StoreProvider>)

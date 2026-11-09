@@ -1,5 +1,7 @@
+import { machineFacts } from './machine-facts'
+import type { MachineModel } from './models'
 import { leafTasks } from '@podium/model/browser'
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 
 import { displayRefOf } from './views'
@@ -27,7 +29,7 @@ import {
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
 import { coordinatorLive, machinePathsEqual, type SeatRole, type TaskWord, type TaskWords } from '@podium/model'
-import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
+import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
 import { asIssueId, type asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueModel, ModelOf, SessionModel } from './models'
@@ -1221,7 +1223,7 @@ export interface MissionActionInputs {
   allIssues: IssueNavigationModel[]
   sessions: SessionView[]
   repos: GitRepositoryWire[]
-  machines: MachineWire[]
+  machines: MachineFacts[]
   session?: SessionView
   issue?: IssueNavigationModel
   handoff?: MissionMenuHandoff
@@ -1269,8 +1271,10 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   // payload so its login/capability changes cannot wake this menu.
   const machines = targetsOpen && needsTargets ? headerView(view.pool).ids('machine').flatMap(id => {
     if (id === subject?.machineId) return []
-    const machine = headerView(view.pool).row('machine', id)
-    return machine ? [machine] : []
+    // The machine's facts as a value (POD-6644): the menu is plain React, and
+    // a target going offline must give it a new one.
+    const machine = here(view.pool.model('machine', id))
+    return machine ? [machineFacts(machine as MachineModel)] : []
   }) : []
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
     machines, session, issue: selected[0], handoff }

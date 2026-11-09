@@ -5,7 +5,7 @@ import {
   hostMemoryView,
 } from '@podium/client-core/values'
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
-import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId, MachineFacts } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
@@ -200,7 +200,7 @@ export function HeaderHostIndicators(): JSX.Element {
 type OpenHostInfo = (info: { tab: HostInfoTab; machineId?: MachineId }) => void
 interface MachineChipProps {
   host: HostMetricsWire
-  machine: MachineWire | undefined
+  machine: MachineFacts | undefined
   aggregate: HeaderAggregate
   lifecycle: ReturnType<typeof useHostLifecycleSettings>
   serverAppVersion: ReturnType<typeof useServerAppVersion>

@@ -46,7 +46,7 @@ async function mount(element: import('react').ReactNode) {
     attachRuntime(owner) {
       runtime = owner
 
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.hub, undefined, owner.live)
       return state.host!.host.attach(owner, (error) => {
         throw error
       })

@@ -1,3 +1,5 @@
+import '@podium/client-graph/synced-models'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -93,8 +95,9 @@ export async function createChatContextFixture(resumeTwins = false) {
     // My synced thread record (POD-6675), its feed id stamped as `id`.
     { kind: 'superagentThread' as const, id: ownThreadId, value: { ...ownThread, id: ownThreadId } as never },
   ] })
-  headerEntities(pool).apply([{ kind: 'machine', id: 'chat-machine', value: state.machines[0]! },
-    { kind: 'repository', id: '/synthetic/project', value: state.repos[0]! }])
+  // The machine record (with my access row) and its online condition (POD-6644).
+  headerEntities(pool).apply([...seedFixtureMachines(pool, state.machines as never),
+    { kind: 'repository', id: '/synthetic/project', value: state.repos[0]! }] as never)
   headerEntities(pool).order('machine', ['chat-machine']); headerEntities(pool).order('repository', ['/synthetic/project'])
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(owner))
   pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(owner))

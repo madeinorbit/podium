@@ -17,8 +17,6 @@ import type { FleetContractName } from './contracts'
 
 export const SYNCED_FLEET_COMMANDS = [
   'machines.setAssignment',
-  'machines.rename',
-  'machines.setUpdateChannel',
   'machines.share',
   'machines.unshare',
   'machines.transferOwnership',
@@ -39,8 +37,8 @@ export const isSyncedFleetCommand = (name: string): name is SyncedFleetCommand =
 
 /**
  * A client's `machines` procedures with the listed writes sent on `sync.submit`:
- * `machineWrites(trpc).rename.mutate(input)` in place of
- * `trpc.machines.rename.mutate(input)`, same procedures, same types.
+ * `machineWrites(trpc).revoke.mutate(input)` in place of
+ * `trpc.machines.revoke.mutate(input)`, same procedures, same types.
  * LEGACY(remove-after: 2027-03): an older server takes each command's own route.
  */
 export function machineWrites<C extends { readonly machines: object }>(client: C): C['machines'] {

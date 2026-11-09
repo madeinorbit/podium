@@ -1,16 +1,17 @@
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { WorktreeView } from '@podium/client-core/values'
+import type { CheckoutRepository } from './shared/checkout-repositories'
 import type { SliceIssue } from './shared/slice-types'
 
 /** Read-side declarations; the existing runtime still owns every write. */
 export interface CommandLaunchRows {
-  commandWindow: Pick<Store, 'paletteOpen' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles'> & Partial<Pick<Store, 'reposLoaded'>>
+  commandWindow: Pick<Store, 'paletteOpen' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles'>
   commandCatalog: { repositories: readonly string[]; repos: readonly string[]; worktrees: readonly string[]; machines: readonly string[]; issues: readonly string[]; sessions: readonly string[] }
-  commandRepository: Pick<Store['repos'][number], 'path' | 'machineId'> & { groupId: string; linked: boolean }
+  commandRepository: Pick<CheckoutRepository, 'path' | 'machineId'> & { groupId: string; linked: boolean }
   commandRepo: { id: string }
   commandWorktree: Pick<WorktreeView, 'path'> & { repositoryId: string; groupId: string }
-  commandMachine: Pick<Store['machines'][number], 'id'>
+  commandMachine: { id: string }
   commandIssue: SliceIssue
 }
 export type CommandEntity = keyof CommandLaunchRows
@@ -20,12 +21,12 @@ declare module './source-registry' {
 }
 
 export const COMMAND_LAUNCH_SCHEMA = {
-  commandWindow: { key: 'window', source: 'engine:locals', cold: 'never', fields: ['paletteOpen', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles', 'reposLoaded'] },
+  commandWindow: { key: 'window', source: 'engine:locals', cold: 'never', fields: ['paletteOpen', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles'] },
   commandCatalog: { key: 'catalog', source: 'pool:keys', cold: 'never' },
-  commandRepository: { key: 'machineId,path', source: 'engine:repos', cold: 'never' },
-  commandRepo: { key: 'repoId ?? origin ?? machineId,path', source: 'engine:repos', cold: 'never' },
-  commandWorktree: { key: 'repositoryId,path', source: 'engine:repos.worktrees', cold: 'never' },
-  commandMachine: { key: 'id', source: 'engine:machines', cold: 'never' },
+  commandRepository: { key: 'machineId,path', source: 'replica:checkouts', cold: 'never' },
+  commandRepo: { key: 'repoId ?? origin ?? machineId,path', source: 'replica:checkouts', cold: 'never' },
+  commandWorktree: { key: 'repositoryId,path', source: 'replica:checkouts', cold: 'never' },
+  commandMachine: { key: 'id', source: 'replica:machines', cold: 'never' },
   commandIssue: { key: 'id', source: 'pool:issue', cold: 'summary' },
 } as const satisfies Record<CommandEntity, object>
 export const COMMAND_ENTITIES = Object.keys(COMMAND_LAUNCH_SCHEMA) as CommandEntity[]

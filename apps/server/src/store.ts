@@ -103,6 +103,7 @@ import { ObservationCheckpointsRepository } from './store/observation-checkpoint
 import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
+import { CheckoutsRepository } from './store/checkouts'
 import { ServerSecretsRepository } from './store/server-secrets'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
@@ -164,6 +165,8 @@ export class SessionStore {
   /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
   private readonly snapshotVerifier: SnapshotVerifier
   readonly repos: ReposRepository
+  /** Each machine's checkouts, as its scans reported them (POD-6644). */
+  readonly checkouts: CheckoutsRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
   readonly observationCheckpoints: ObservationCheckpointsRepository
@@ -416,6 +419,7 @@ export class SessionStore {
       async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
       this.tableWrites,
     )
+    this.checkouts = new CheckoutsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries)
     // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it

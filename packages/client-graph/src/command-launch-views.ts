@@ -1,3 +1,6 @@
+import { machineFacts } from './machine-facts'
+import type { MachineModel } from './models'
+import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
 import { launchRecords, type LaunchRepository } from './launch-records'
 import type { RepositoryModel } from './requested-models'
 import { launchOptionViews } from './launch-option-views'
@@ -24,12 +27,12 @@ import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
-  repos: Store['repos']
+  repos: GitRepositoryWire[]
   repoViews: RepoView[]
-  machines: Store['machines']
+  machines: MachineFacts[]
   sessionIds: readonly string[]
   issues: IssueViewModel[]
-  repoChoices: Store['repos']
+  repoChoices: GitRepositoryWire[]
   initialRepoPath: string
   spawnTargets: SpawnTarget[]
   usage: Readonly<Record<string, number>>
@@ -89,9 +92,11 @@ function createCommandLaunchViews(pool: MobxPool) {
   const machines = computed(() => {
     const catalog = read('commandCatalog', 'catalog')
     if (!catalog || catalog === LOADING) return []
+    // Plain facts (POD-6644): the launch catalog reaches React, which needs a
+    // new value when a machine's online or harnesses move.
     return catalog.machines.flatMap(id => {
-      const row = here(pool.model('machine', id))
-      return row ? [row] : []
+      const model = here(pool.model('machine', id))
+      return model ? [machineFacts(model as MachineModel)] : []
     })
   })
   const sessionMembership = computed(() => {
@@ -132,7 +137,7 @@ function createCommandLaunchViews(pool: MobxPool) {
           roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
         })
       }
-      const repoTime = (repo: Store['repos'][number]) =>
+      const repoTime = (repo: GitRepositoryWire) =>
         usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] ?? 0
       const choices = repos.filter((repo) => repo.kind !== 'worktree')
       const initialRepoPath =

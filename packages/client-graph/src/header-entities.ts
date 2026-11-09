@@ -19,6 +19,12 @@ import {
 import { createKeyedAnswer } from './query-result'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
+/** What the offline list reads of a machine's live condition. */
+export interface MachineLiveCondition {
+  readonly online: boolean
+  readonly lastSeenAt?: string
+  readonly availability?: { readonly daemon: boolean }
+}
 interface OfflineMachine {
   id: string
   order: string
@@ -30,11 +36,11 @@ interface OfflineMachine {
 export function createHeaderEntities(
   shared?: Pick<PoolTables, 'machine' | 'repository'>,
   /**
-   * The machine is online right now by its LiveStore condition (POD-5798). A
-   * daemon the server sees connected is never listed offline, whatever the
-   * record says; the header source refreshes a machine when it changes.
+   * The machine's LiveStore condition (POD-5798, POD-6644): whether it is
+   * online, its daemon's availability and when the server last heard from it.
+   * Undefined until read; the header source refreshes a machine when it changes.
    */
-  liveOnline: (machineId: string) => boolean = () => false,
+  liveCondition: (machineId: string) => MachineLiveCondition | undefined = () => undefined,
 ) {
   // Approved applying-action indexes (POD-5542): these reverse lookups and
   // scalar totals avoid rebuilding all rows for each header question.
@@ -61,20 +67,39 @@ export function createHeaderEntities(
   let offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
   const offlineRevision = observable.box(0)
   const offlineListeners = new Set<(id: string | undefined) => void>()
+  /**
+   * My fleet (POD-6644): the machines that carry my own access row (`use` is
+   * set). Every member holds every machine record, so the fleet is not the
+   * machine table. Kept per machine write, so fleet readers read no row.
+   */
+  const fleet = observable.set<string>(undefined, { deep: false, name: debugName(() => 'header.fleet') })
+  const placeInFleet = (id: string, value: unknown) => {
+    if (value !== null && typeof value === 'object' && (value as { use?: unknown }).use !== undefined) fleet.add(id)
+    else fleet.delete(id)
+  }
+  runInAction(() => {
+    for (const [id, value] of tables.machine) placeInFleet(id, value)
+  })
+  const stopFleet = observe(tables.machine, (change) =>
+    runInAction(() => placeInFleet(change.name, change.type === 'delete' ? undefined : change.newValue)),
+  )
   const machineArrival = new Map<string, number>()
   let machineSequence = 0
   let machineOrder = new Map<string, number>()
 
   function refreshOffline(id: string): boolean {
     const machine = tables.machine.get(id) as HeaderRows['machine'] | undefined
-    const seen = machine && Date.parse(machine.lastSeenAt)
+    // Presence is the LiveStore's, never the record's (POD-6644): a machine
+    // whose condition is not read yet is not listed.
+    const condition = liveCondition(id)
+    const seen = condition?.lastSeenAt === undefined ? Number.NaN : Date.parse(condition.lastSeenAt)
     const eligible =
       machine &&
-      isMachineOfflineForLiveTerminal(machine) &&
+      condition &&
+      isMachineOfflineForLiveTerminal(condition) &&
       !machine.revokedAt &&
       !machine.supersededBy &&
       machine.serviceAssignment?.agentExecution !== false &&
-      !liveOnline(id) &&
       Number.isFinite(seen)
     const explicit = machineOrder.get(id)
     const order =
@@ -142,6 +167,10 @@ export function createHeaderEntities(
   return {
     tables,
     orders,
+    /** Whether `id` is in my fleet: its record carries my access row. Reads no row. */
+    inFleet: (id: string): boolean => fleet.has(id),
+    /** Stop following the machine table (the view's disposal). */
+    stopFleet,
     /** A machine's live condition changed: re-decide whether it is offline. */
     refreshMachines(ids: Iterable<string>): void {
       runInAction(() => flushOffline(ids))
@@ -295,7 +324,15 @@ export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEn
   return pool.sources.view('header.entities', () => {
     const view = createHeaderEntities(pool.tables, (id) => {
       const reading = pool.live?.conditionOf(id)
-      return reading?.known === true && reading.value.online
+      if (reading === undefined) return undefined
+      // A lost link keeps its last facts but is not known online.
+      const value = reading.known ? reading.value : reading.last
+      if (value === undefined) return undefined
+      return {
+        online: reading.known && value.online,
+        ...(value.lastSeenAt !== undefined ? { lastSeenAt: value.lastSeenAt } : {}),
+        ...(value.availability !== undefined ? { availability: value.availability } : {}),
+      }
     })
     pool.sources.register(['repository'], { read: (_entity, id) => view.get('repository', id) as PoolRows['repository'] | undefined, dispose() {} })
     // A machine the server sees connected is never listed offline (POD-5798):
@@ -316,6 +353,7 @@ export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEn
       dispose: () => {
         stopLive()
         stopConditions?.()
+        view.stopFleet()
         view.clear()
       },
     })

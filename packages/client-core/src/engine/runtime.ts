@@ -64,7 +64,13 @@ import type {
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
-import { readPositionRowId, resolveUserPreferences, userPreferencesRowId } from '@podium/model'
+import {
+  type CheckoutRepository,
+  readPositionRowId,
+  repositoriesFromCheckouts,
+  resolveUserPreferences,
+  userPreferencesRowId,
+} from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import { action, actionBound, reaction, runInAction } from 'mobx'
@@ -99,19 +105,14 @@ import {
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
 import { createEngineActions, type EngineActions } from './actions'
-import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
 import {
   createKeyedInputs,
   type KeyedInputStats,
   type KeyedInputsChannel,
-  type KeyedListChange,
-  type KeyedListName,
-  type KeyedListRow,
   type LocalKey,
   type LocalsListener,
 } from './keyed-inputs'
-import { machinesMaterialSignature } from './machines-material'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
   asIssueIdOrNull,
@@ -308,7 +309,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly uiPersistence: UiPersistence
   private readonly urlMirror: UrlMirror
   private readonly reactions: Reactions
-  private readonly boot: BootFetches<TApi>
 
   private readonly api: TApi
   get spawnNotices(): StoreNotices {
@@ -367,7 +367,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.sessionPhases = undefined
     }
   }
-  private lastMachinesMaterial: string | undefined
   private started = false
   /** Set by destroy(). The state choke point refuses everything after it, so a
    *  superseded principal's late callback cannot reach any consumer. */
@@ -394,8 +393,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly drafts: DraftStore
   private conversationCache: ConversationCache | undefined
   private readonly networkEnabled: boolean
-  /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
-   *  even across a StrictMode dispose/re-start cycle. */
+  /** One-time boot work, once per runtime, even across a StrictMode
+   *  dispose/re-start cycle. */
   private booted = false
 
   constructor(init: ClientRuntimeInit<TApi>) {
@@ -441,8 +440,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onMetricsDemand: (id, watched) => feed?.watchMetrics(id, watched),
       onUsageDemand: (watched) => feed?.watchUsage(watched),
     })
+    const replica = this.replica
     this.liveFeed = feed = new LiveFeed({
       hub: this.hub,
+      // The machines whose condition is held: the `machine` records (POD-6644).
+      machines: {
+        ids: () => replica.rows('machines').map((machine) => String(machine.id)),
+        subscribe: (changed) =>
+          replica.subscribeAddressedBatch?.((batch) => {
+            if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'machines')) {
+              changed()
+            }
+          }) ?? (() => {}),
+      },
       live: this.live,
       userId: init.principal.userId,
     })
@@ -500,10 +510,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       local: localUi,
       onError: (message) => this.notices.error(message),
     })
-    this.boot = new BootFetches<TApi>({
-      api: this.api,
-      publish: (patch) => this.apply(patch),
-    })
     this.deviceState = createUiKeys(() => this.ui, localUi, this.layout)
     this.ui = new UiStore({
       api: this.api,
@@ -511,8 +517,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       notices: this.notices,
       keys: this.deviceState,
       router: this.router,
-      repos: () => this.state.repos,
-      reposLoaded: () => this.state.reposLoaded,
+      repositories: () => this.repositories(),
       isVisible: () => this.visibility.isVisible(),
       revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       changed: (changed) => {
@@ -591,6 +596,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         ? { pruneGraceMs: init.workspacePruneGraceMs }
         : {}),
       linkedWorktree: () => this.paneLink?.worktree ?? null,
+      repositories: () => this.repositories(),
+      // The checkouts are known once the replica holds a feed position (a saved
+      // copy or a first bootstrap) or holds checkout records at all.
+      checkoutsKnown: () =>
+        this.replica.getCursor() !== null || (this.replica.rowCount?.('checkouts') ?? 0) > 0,
     })
     this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
     // Hydrate-first, like the entity slices: the outbox constructor has already
@@ -651,14 +661,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.inputs.onLocals(keys, listener)
   /** The value of one local as the last batch published it. */
   readonly readLocal = <K extends LocalKey>(key: K): EngineState[K] => this.inputs.readLocal(key)
-  /** Discovery and window lists by id: the ids whose row changed per batch. */
-  readonly onList = <N extends KeyedListName>(
-    name: N,
-    listener: (change: KeyedListChange) => void,
-  ): (() => void) => this.inputs.onList(name, listener)
-  readonly listIds = (name: KeyedListName): readonly string[] => this.inputs.listIds(name)
-  readonly listRow = <N extends KeyedListName>(name: N, id: string): KeyedListRow<N> | undefined =>
-    this.inputs.listRow(name, id)
   /** Wake and diff counters of the keyed inputs (adapter meters). */
   get keyedInputStats(): KeyedInputStats {
     return this.inputs.stats
@@ -721,43 +723,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     installReadPositions()
     offs.push(this.replica.subscribeRows('userReadPositions', installReadPositions))
 
-    // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
-    // (machines, drafts) follows hub events through keyed channels; host
-    // metrics are LiveStore readings, held by the live feed while watched.
-    // Apply the scoped machine snapshot immediately so a SEE revocation hides
-    // its repositories, then reconcile repos and machines from one authorized
-    // server snapshot when visibility, reachability, or USE changed. Full
-    // machine broadcasts also carry inventory/build metadata; treating those as
-    // repo invalidations repeatedly supersedes an in-flight scan-backed refresh
-    // and can starve its durable fallback during daemon rebind. The id+online+use
-    // set detects equal-count replacement, SEE revocation, and scan-authority
-    // changes without including unrelated metadata.
-    let machineScopeSignature: string | undefined
-    offs.push(
-      this.hub.on('machines', (m) => {
-        // Scope equality below only gates repo refresh. Publication equality
-        // includes every material field, including unknown future wire fields.
-        const material = machinesMaterialSignature(m)
-        if (material === undefined || material !== this.lastMachinesMaterial) {
-          this.apply({ machines: m })
-          this.lastMachinesMaterial = material
-        }
-        const nextSignature = m
-          .map(
-            (machine) =>
-              `${machine.id}:${machine.online ? 'online' : 'offline'}:${machine.use ?? 'unknown'}`,
-          )
-          .sort()
-          .join('|')
-        if (nextSignature !== machineScopeSignature) {
-          machineScopeSignature = nextSignature
-          void this.boot.refreshRepos().catch(() => {})
-        }
-      }),
-    )
-    // A daemon-created worktree is otherwise invisible in every repo menu until
-    // reload (POD-665) — re-fetch through the same path used at boot.
-    offs.push(this.hub.on('worktreesChanged', () => void this.boot.refreshRepos().catch(() => {})))
+    // Machines, their access and their checkouts are replica records
+    // (POD-6644): a moved checkout re-checks the selected worktree.
+    const offCheckouts = this.replica.subscribeAddressedBatch?.((batch) => {
+      if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) {
+        this.heldRepositories = repositoriesFromCheckouts(this.replica.rows('checkouts'))
+        if (!this.pendingNavigationTopology) this.worktreeFallback()
+      }
+    })
+    // Held repositories are valid only while this subscription follows them:
+    // derived here once, and again by each batch that moves a checkout.
+    this.heldRepositories = repositoriesFromCheckouts(this.replica.rows('checkouts'))
+    offs.push(() => {
+      offCheckouts?.()
+      this.heldRepositories = undefined
+    })
     // Reconnect drains the outbox: the browser 'online' event (the outbox's own
     // trigger) misses a server restart behind a healthy network, but the hub's
     // heartbeat-derived health catches both.
@@ -845,12 +825,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.booted = true
       if (this.networkEnabled) {
         this.readPosition.drainLegacy()
-        // These enrichments are network-derived, not the source of truth for the
-        // principal slice. A cold offline boot must keep serving the persisted
-        // replica instead of replacing it with a fatal connection screen.
-        // Superagent threads are synced records (POD-6675): the replica holds
-        // them, so nothing is fetched for them here.
-        void this.boot.refreshRepos().catch(() => {})
+        // Nothing is fetched at boot: superagent threads (POD-6675), machines
+        // and repositories (POD-6644) are synced records the replica holds.
       }
     }
   }
@@ -866,7 +842,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  — see {@link destroy}. */
   @actionBound dispose(): void {
     this.liveFeed.stop()
-    this.lastMachinesMaterial = undefined
     this.started = false
     bindSwitchTraceUi(null)
     if (this.connectTimer !== null) {
@@ -1141,7 +1116,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * disappears, before another principal or pool can attach. */
   private apply(patch: Partial<EngineState & ScreenState>): void {
     if (this.destroyed) return
-    if ('machines' in patch) this.lastMachinesMaterial = undefined
     this.batch(() => {
       if (patch.paletteOpen !== undefined) this.palette.setOpen(patch.paletteOpen)
       if (patch.autoContinuePromptSessionId !== undefined) {
@@ -1152,15 +1126,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (patch.issueVisitBaseline !== undefined)
         this.reactions.setIssueVisitBaseline(patch.issueVisitBaseline)
       const screenPatch = Object.fromEntries(
-        Object.entries(patch).filter(
-          ([key]) => Object.hasOwn(this.ui.screen, key) && !['repos', 'reposLoaded'].includes(key),
-        ),
+        Object.entries(patch).filter(([key]) => Object.hasOwn(this.ui.screen, key)),
       )
       if (Object.keys(screenPatch).length) this.ui.patch(screenPatch)
       const changed = new Set<keyof (EngineState & ScreenState)>()
       for (const k of Object.keys(patch) as Array<keyof (EngineState & ScreenState)>) {
         if (
-          (Object.hasOwn(this.ui.screen, k) && !['repos', 'reposLoaded'].includes(k)) ||
+          Object.hasOwn(this.ui.screen, k) ||
           k === 'paletteOpen' ||
           k === 'autoContinuePromptSessionId' ||
           k === 'issueVisitBaseline'
@@ -1216,11 +1188,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           if (changed.size > 0 && !this.destroyed) {
             this.inputs.emit(
               new Set(
-                [...changed].filter((key): key is keyof EngineState =>
-                  ['repos', 'reposLoading', 'reposLoaded', 'repoDiagnostics', 'machines'].includes(
-                    key,
-                  ),
-                ),
+                [...changed].filter((key): key is LocalKey => Object.hasOwn(this.state, key)),
               ),
             )
           }
@@ -1236,12 +1204,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       keys.some((k) => changed.has(k))
 
     // Worktree fallback selection.
-    if (any('repos', 'reposLoaded', 'selectedWorktree') && !this.pendingNavigationTopology) {
-      if (!this.reactions.worktreeFallback() && this.state.navigation) {
-        this.pendingWorktreeFallback = true
-        this.queueNavigationWake(this.state.navigation)
-      }
-    }
+    if (any('selectedWorktree') && !this.pendingNavigationTopology) this.worktreeFallback()
     // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
     // the truth; the pane scalars follow whichever workspace is now on screen.
     // Pool navigation invalidates the mission root when issue topology moves.
@@ -1435,7 +1398,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       route.worktree !== prev?.worktree &&
       route.worktree !== st.selectedWorktree
     ) {
-      let canShow = !st.reposLoaded
+      let canShow = this.replica.getCursor() === null
       if (!canShow && st.navigation.registeredWorktree && st.navigation.hasWorktreeSession) {
         const known = st.navigation.registeredWorktree(route.worktree)
         const anchored = known === true ? false : st.navigation.hasWorktreeSession(route.worktree)
@@ -1446,7 +1409,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           anchored === NAVIGATION_LOADING
       } else if (!canShow) {
         const worktree = route.worktree
-        const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
+        const worktrees = reposToViews(this.repositories()).flatMap((repo) => repo.worktrees)
         const crew = st.navigation.worktreeSessions?.()
         canShow =
           worktrees.some((w) => machinePathsEqual(w.path, worktree)) ||
@@ -1508,7 +1471,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const meta = navigationSession(this.state, sessionId)
     if (!meta) return false
     this.dropPaneLink()
-    const selection = sessionLinkSelection(this.state, meta, worktree)
+    const selection = sessionLinkSelection(this.state, this.repositories(), meta, worktree)
     // Already the active tab of the workspace it lands in (a plain reload):
     // nothing to move, and a split's focus stays where it was.
     const key = workspaceKeyForState(this.state)
@@ -1595,6 +1558,24 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return this.poolWriter
   }
 
+  /** The registered repositories and their worktrees, from the replica's
+   *  `checkout` records (POD-6644). Memoized by the replica's answer. */
+  private repositories(): readonly CheckoutRepository[] {
+    // Held between checkout changes (dropped by the batch that moves one), so
+    // navigation and session switches read no replica list.
+    this.heldRepositories ??= repositoriesFromCheckouts(this.replica.rows('checkouts'))
+    return this.heldRepositories
+  }
+  private heldRepositories: readonly CheckoutRepository[] | undefined
+
+  /** Keep the selected worktree valid against the registered worktrees. */
+  private worktreeFallback(): void {
+    if (!this.reactions.worktreeFallback() && this.state.navigation) {
+      this.pendingWorktreeFallback = true
+      this.queueNavigationWake(this.state.navigation)
+    }
+  }
+
   private createActions(): EngineActions<TApi> {
     return createEngineActions({
       palette: this.palette,
@@ -1662,7 +1643,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         edit: (id, input) => this.outbox.edit(id, input),
         discard: (id) => this.outbox.discard(id),
       },
-      refreshRepos: () => this.boot.refreshRepos(),
       ...actions,
       navigateWorkspace: this.ui.navigateWorkspace,
       setView: this.ui.setView,

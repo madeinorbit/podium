@@ -127,7 +127,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >

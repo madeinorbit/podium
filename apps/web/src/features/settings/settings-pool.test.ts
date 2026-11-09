@@ -5,13 +5,13 @@ import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { dedupeSessionsByResume } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { checkSettings } from '../../../../../tests/worklist/diagnostics/settings-check'
+import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 
 const disposals: (() => void)[] = []
 afterEach(() => {
@@ -68,12 +68,14 @@ function fixture(sessions: SliceSession[] = []) {
     undefined,
     { settings: true, load, schedule: () => () => {} },
   )
-  attachSettingsSource(pool, owner)
-  attachPreferenceSource(pool, ui)
+  // The whole-pool install first: the settings fixture then adds the machine
+  // records (POD-6644), which a later replace would remove.
   pool.apply({
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })),
   })
+  attachSettingsSource(pool, owner)
+  attachPreferenceSource(pool, ui)
   disposals.push(() => pool.dispose())
   // Attaching feeds the live machine list into the pool at once (c7efbe9cac):
   // that is the machines' own path. The reads these tests count are the

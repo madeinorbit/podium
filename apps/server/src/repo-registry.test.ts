@@ -84,34 +84,10 @@ it.each([
   expect(inferRepoFromRoots([root], sibling)).toBeUndefined()
 })
 
-it('machine paths: repo scan matches case-folded keys without rewriting display paths', async () => {
-  const machineId = asMachineId('windows-scan')
-  const root = String.raw`C:\Src\Podium`
-  const repoId = asRepoId('repo-stored')
-  const row = { machineId, path: root, repoId, prefix: null, originUrl: null }
-  const registry = new RepoRegistry(
-    {
-      modules: {
-        machines: { onlineMachineIds: () => [machineId] },
-        rpc: {
-          scanRepos: async () => ({
-            repositories: [{ path: 'c:/src/podium', kind: 'repository', worktrees: [] }],
-            diagnostics: [],
-          }),
-        },
-      },
-    } as unknown as SessionRegistry,
-    {
-      repos: { listRepos: async () => [row], listRepoPaths: async () => [root] },
-    } as unknown as SessionStore,
-  )
-  const result = await registry.scanReposAll()
-  expect(result.repositories).toEqual([expect.objectContaining({ path: 'c:/src/podium', repoId })])
-})
-
 // POD-6246: the logical repo row (its chosen root and its name) is a function
 // of the registered checkouts and their remotes, so it is republished when a
-// checkout leaves or a scan reports a new remote, and not on an unchanged scan.
+// checkout leaves. (A scan's new remote is the checkouts service's to record,
+// `modules/checkouts/service.test.ts`, POD-6644.)
 describe('republishing the logical repo row', () => {
   const machineId = asMachineId('mac')
   const root = '/Users/mw/Source/other/bak_podium'
@@ -130,6 +106,7 @@ describe('republishing the logical repo row', () => {
       {
         modules: {
           machines: { onlineMachineIds: () => [machineId], defaultMachine: async () => machineId },
+          checkouts: { registrationsChanged: async () => {}, rescanSoon: () => {} },
           rpc: {
             scanRepos: async () => ({
               repositories: scanned.map((r) => ({ ...r, kind: 'repository', worktrees: [] })),
@@ -162,22 +139,6 @@ describe('republishing the logical repo row', () => {
     )
     return { registry, published, updates }
   }
-
-  it('publishes once when a scan reports a new remote for a registered checkout', async () => {
-    const { registry, published, updates } = make(null, [{ path: root, originUrl: origin }])
-    await registry.scanReposAll()
-    expect(updates).toEqual([`${root} ${origin}`])
-    expect(published).toHaveLength(1)
-  })
-
-  it('publishes nothing when the remote is unchanged or the checkout is not registered', async () => {
-    const unchanged = make(origin, [{ path: root, originUrl: origin }])
-    await unchanged.registry.scanReposAll()
-    expect(unchanged.published).toHaveLength(0)
-    const stranger = make(origin, [{ path: '/Users/mw/elsewhere', originUrl: origin }])
-    await stranger.registry.scanReposAll()
-    expect(stranger.published).toHaveLength(0)
-  })
 
   it('publishes when a checkout is removed', async () => {
     const { registry, published } = make(origin, [])

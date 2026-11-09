@@ -226,7 +226,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.hub)
+          data.bindHub(owner.hub, undefined, owner.live)
           return state.host!.host.attach(owner, (error) => errors.push(error.message))
         }}
       >

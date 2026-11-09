@@ -52,7 +52,6 @@ async function mount() {
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => { await referenceState(runtime).refreshRepos() })
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Synthetic task 0')).toBeTruthy())
   return fixture

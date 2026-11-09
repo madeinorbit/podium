@@ -1,8 +1,10 @@
 import {
+  DaemonReadiness,
   HostMetricsWire,
   IssueId,
   joinKeyParts,
   MachineId,
+  MachinePresenceSource,
   MachineQuotaWire,
   splitKeyParts,
   UsageBucketWire,
@@ -58,6 +60,23 @@ export const MachineConditionPayload = z.object({
    * at least the server's start", never an invented time.
    */
   since: z.string().nullable(),
+  // The rest of the connection's condition (POD-6644): facts about the live
+  // link, so they are never record fields. Optional: absent until known.
+  /** When the server last heard from the machine (ISO 8601). */
+  lastSeenAt: z.string().optional(),
+  /** Which compatibility-window path represents the machine now. */
+  presenceSource: MachinePresenceSource.optional(),
+  /** What the current boot is observed to run. */
+  availability: z
+    .object({
+      epoch: z.string(),
+      server: z.boolean(),
+      daemon: z.boolean(),
+      supervisor: z.boolean(),
+    })
+    .optional(),
+  /** The daemon's recovery after attaching. */
+  daemonReadiness: DaemonReadiness.optional(),
 })
 export type MachineConditionPayload = z.infer<typeof MachineConditionPayload>
 

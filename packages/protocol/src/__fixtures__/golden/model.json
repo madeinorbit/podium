@@ -1576,6 +1576,57 @@
       "encoded": "{\"entity\":\"entity\",\"entityId\":\"entityId\"}"
     },
     {
+      "schema": "CheckoutKind",
+      "variant": "minimal",
+      "wire": "repository",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"repository\""
+    },
+    {
+      "schema": "CheckoutKind",
+      "variant": "full",
+      "wire": "repository",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"repository\""
+    },
+    {
+      "schema": "CheckoutWire",
+      "variant": "minimal",
+      "wire": {
+        "machineId": "machineId",
+        "path": "path",
+        "root": "root",
+        "kind": "repository"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"path\":\"path\",\"root\":\"root\",\"kind\":\"repository\"}"
+    },
+    {
+      "schema": "CheckoutWire",
+      "variant": "full",
+      "wire": {
+        "machineId": "machineId",
+        "path": "path",
+        "root": "root",
+        "kind": "repository",
+        "repoId": "repoId",
+        "branch": "branch",
+        "originUrl": "originUrl",
+        "locked": true,
+        "prunable": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"path\":\"path\",\"root\":\"root\",\"kind\":\"repository\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"originUrl\":\"originUrl\",\"locked\":true,\"prunable\":true}"
+    },
+    {
       "schema": "ClientSessionAggregate",
       "variant": "minimal",
       "wire": {
@@ -6989,6 +7040,135 @@
       "encoded": "{\"at\":1,\"utilizationPct\":1,\"runqueueWaitPct\":1,\"blockedMs\":1,\"stalls\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}}}"
     },
     {
+      "schema": "MachineAccessWire",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "machineId": "machineId",
+        "use": "granted",
+        "owned": true,
+        "transferable": true,
+        "unowned": true,
+        "adoptable": true,
+        "supersedable": true,
+        "hostname": "hostname"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"hostname\":\"hostname\"}"
+    },
+    {
+      "schema": "MachineAccessWire",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "machineId": "machineId",
+        "use": "granted",
+        "owned": true,
+        "transferable": true,
+        "unowned": true,
+        "adoptable": true,
+        "supersedable": true,
+        "hostname": "hostname",
+        "revokedAt": "revokedAt",
+        "supersededBy": "supersededBy",
+        "podiumManaged": true,
+        "hostsServer": true,
+        "serverMoveSupported": true,
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "systemd",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "active"
+          }
+        },
+        "serviceAssignment": {
+          "server": true,
+          "agentExecution": true
+        },
+        "components": ["daemon"],
+        "deliveryCaps": ["deliveryCaps[0]"],
+        "wireSchemaDigest": "wireSchemaDigest",
+        "buildReportedAt": "buildReportedAt",
+        "targetUnavailableReason": "targetUnavailableReason",
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "lastSeen": "harnessVersions[0].lastSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": true
+          }
+        ],
+        "inventory": {
+          "os": "linux",
+          "arch": "x64",
+          "podiumVersion": "inventory.podiumVersion",
+          "agents": [
+            {
+              "kind": "claude-code",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 1
+              },
+              "version": "inventory.agents[0].version",
+              "path": "inventory.agents[0].path",
+              "login": {
+                "state": "in",
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 1
+              }
+            }
+          ],
+          "runtimeDrivers": [
+            {
+              "harness": "claude-code",
+              "id": "inventory.runtimeDrivers[0].id",
+              "family": "server"
+            }
+          ],
+          "tools": [
+            {
+              "name": "inventory.tools[0].name",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 1
+              },
+              "version": "inventory.tools[0].version",
+              "path": "inventory.tools[0].path"
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"targetUnavailableReason\":\"targetUnavailableReason\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+    },
+    {
       "schema": "MachineComponent",
       "variant": "minimal",
       "wire": "daemon",
@@ -7110,12 +7290,18 @@
         "id": "id",
         "name": "name",
         "loggedOutHarnesses": ["claude-code"],
-        "custodian": "custodian"
+        "custodian": "custodian",
+        "appVersion": "appVersion",
+        "updateChannel": "dev",
+        "updateChannelOverride": "dev",
+        "targetVersion": "targetVersion",
+        "versionState": "unreported",
+        "installKind": "installKind"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"loggedOutHarnesses\":[\"claude-code\"],\"custodian\":\"custodian\"}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"loggedOutHarnesses\":[\"claude-code\"],\"custodian\":\"custodian\",\"appVersion\":\"appVersion\",\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"targetVersion\":\"targetVersion\",\"versionState\":\"unreported\",\"installKind\":\"installKind\"}"
     },
     {
       "schema": "MachineQuotaWire",
@@ -7309,6 +7495,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"granted\""
+    },
+    {
+      "schema": "MachineVersionState",
+      "variant": "minimal",
+      "wire": "unreported",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unreported\""
+    },
+    {
+      "schema": "MachineVersionState",
+      "variant": "full",
+      "wire": "unreported",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unreported\""
     },
     {
       "schema": "MachineWire",

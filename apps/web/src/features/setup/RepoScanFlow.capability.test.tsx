@@ -54,7 +54,7 @@ const SLEEPING = {
   availability: { ...LAPTOP.availability, daemon: false, supervisor: false },
 }
 
-const store: { machines: unknown[]; trpc: unknown; refreshRepos: unknown; uiState: unknown } = {
+const store: { machines: unknown[]; trpc: unknown; uiState: unknown } = {
   machines: [],
   trpc: {
     repos: {
@@ -66,9 +66,12 @@ const store: { machines: unknown[]; trpc: unknown; refreshRepos: unknown; uiStat
       createFolder: { mutate: vi.fn() },
       renameFolder: { mutate: vi.fn() },
     },
-    discovery: { scanMachine: { mutate: vi.fn() } },
+    discovery: {
+      scanMachine: { mutate: vi.fn() },
+      // The explicit rescan (POD-6644): its finds arrive as checkout records.
+      refreshRepos: { mutate: refreshRepos },
+    },
   },
-  refreshRepos,
   // POD-3911: the routed preference source retains a subscription.
   uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
 }

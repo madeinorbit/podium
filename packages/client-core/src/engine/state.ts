@@ -1,24 +1,16 @@
-import type { GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineWire } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { Store } from './types'
 
 export * from '../ui/state'
 
-/** Legacy discovery data. Device screen state belongs only to UiStore. */
-export interface EngineState {
-  repos: GitRepositoryWire[]
-  reposLoading: boolean
-  reposLoaded: boolean
-  repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  machines: MachineWire[]
-}
+/**
+ * The engine's own state: nothing since POD-6644. Machines, their access and
+ * the registered repositories with their worktrees are synced records (the
+ * replica holds them, the pool models them); device screen state belongs only
+ * to UiStore. The name stays for the store types built on it.
+ */
+export type EngineState = Record<never, never>
 export type EngineStatics<TApi extends PodiumClientApi> = Omit<Store<TApi>, keyof RuntimeState>
-export const initialEngineState = (): EngineState => ({
-  repos: [],
-  reposLoading: false,
-  reposLoaded: false,
-  repoDiagnostics: [],
-  machines: [],
-})
+export const initialEngineState = (): EngineState => ({})
 
 export type RuntimeState = EngineState & import('../ui/state').ScreenState

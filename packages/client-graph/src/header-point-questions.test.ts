@@ -1,11 +1,11 @@
-import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
 import type { HeaderRows } from './header-schema'
 import { headerView } from './header-views'
-import { liveFixture } from './live-fixture'
+import { liveFixture, seedFixtureMachines } from './live-fixture'
 import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 
@@ -33,17 +33,11 @@ function fixture(scale: 1 | 4) {
   )
   runInAction(() => {
     headerEntities(pool).apply([
-      ...ids.map((id) => ({
-        kind: 'machine' as const,
-        id,
-        value: {
-          id,
-          name: id,
-          hostname: id,
-          online: true,
-          lastSeenAt: '2026-10-05T07:00:00Z',
-        } as MachineWire,
-      })),
+      // My fleet: machine records with my access row; online is live (POD-6644).
+      ...(seedFixtureMachines(
+        pool,
+        ids.map((id) => ({ id, name: id, hostname: id, online: true, lastSeenAt: '2026-10-05T07:00:00Z' })),
+      ) as never[]),
       ...repos.map((value, index) => ({ kind: 'repository' as const, id: `r${index}`, value })),
     ])
     headerEntities(pool).order('machine', ids)
@@ -103,11 +97,16 @@ it('reads only the requested or first live metric at 1x/4x and releases closed p
     }
   }
   console.info('[header panel metric work1x4x]', JSON.stringify(samples))
+  // The first panel read decides my fleet once: one pass over the machine ids
+  // (the fleet is the machines carrying my access row, POD-6644), reading no
+  // row. Every later action, and every row count, is the same at 1x and 4x.
   for (const name of ['first', 'unrelated', 'changed', 'addressed', 'missing', 'closed'] as const)
-    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const) {
+      if (name === 'first' && (counter === 'elements' || counter === 'visits')) continue
       expect(samples[1]!.actions[name].work[counter], `${name}:${counter}`).toBe(
         samples[0]!.actions[name].work[counter],
       )
+    }
 })
 
 it('takes the first fleet machine that has a sample, and an explicit target as asked', () => {

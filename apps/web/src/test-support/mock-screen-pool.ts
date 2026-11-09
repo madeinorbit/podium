@@ -1,3 +1,5 @@
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
 import { isDeepStrictEqual } from 'node:util'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -76,6 +78,10 @@ type Inputs = Partial<Store> & {
   selectedIssueWasFolded?: boolean | null
   /** My synced superagent thread records (POD-6675), as the replica holds them. */
   superagentThreads?: readonly SuperagentThreadWire[]
+  /** Test inputs in the listing shape (POD-6644): the fake pool serves them as
+   *  its machine and repository rows. */
+  machines?: import('@podium/model/browser').MachineFacts[]
+  repos?: import('@podium/model/browser').GitRepositoryWire[]
 }
 const none = () => () => {}
 let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
@@ -97,8 +103,8 @@ const useFixtureIssues = () =>
 const selectInputs = (state: Store): Inputs => ({
   openIssueId: (state as Inputs).openIssueId,
   sessions: state.sessions,
-  machines: state.machines,
-  repos: state.repos,
+  machines: (state as Inputs).machines,
+  repos: (state as Inputs).repos,
   drafts: state.drafts,
   attachedSessionId: state.attachedSessionId,
   messageRecords: state.messageRecords,
@@ -579,8 +585,12 @@ function useFixturePool(): MobxPool {
           case 'repo':
             return repos().find((row) => row.repoId === id)
           case 'machine':
-          case 'settingsMachine':
-            return machines().find((row) => row.id === id)
+          case 'settingsMachine': {
+            // A listed machine is one of mine: its row carries my access row's
+            // verdict (POD-6644), granted unless the test says otherwise.
+            const row = machines().find((entry) => entry.id === id)
+            return row ? { use: 'granted', ...row } : undefined
+          }
           case 'repository':
             return repos().find((row) => row.path === id)
           case 'settingsRepository':

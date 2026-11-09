@@ -23,7 +23,7 @@
 import {
   asMachineId,
   type MachineId,
-  type MachineWire,
+  type MachineFacts,
   machinesWithRepo,
   type RecentSession,
   type RepoMachines,
@@ -131,10 +131,10 @@ export function usableMachines<M extends SelectableMachine>(views: readonly Mach
 }
 
 /**
- * The verbs a CLIENT can read off `MachineWire`, for every surface that offers
+ * The verbs a CLIENT can read off `MachineFacts`, for every surface that offers
  * a code-execution affordance.
  *
- * `MachineWire.use` is optional and an omitted value means NOT EVALUATED — never
+ * `MachineFacts.use` is optional and an omitted value means NOT EVALUATED — never
  * "granted" (see its home in `@podium/model`). Reading an omission as *denied*
  * per-machine would leave today's single-machine deployments with an empty
  * picker, and single-user parity is the regression guard for the whole
@@ -155,7 +155,7 @@ export function usableMachines<M extends SelectableMachine>(views: readonly Mach
  * server's per-principal projection already dropped what the principal cannot
  * see, and a machine that arrived is a machine that is visible.
  */
-export function machineViewsFromWire(machines: readonly MachineWire[]): MachineView<MachineWire>[] {
+export function machineViewsFromWire(machines: readonly MachineFacts[]): MachineView<MachineFacts>[] {
   const scoped = machines.some((m) => m.use !== undefined)
   return machineViews(machines, (m) => ({
     see: true,

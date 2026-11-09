@@ -79,10 +79,10 @@ export interface MachinesDaemonPort {
   ): Promise<void>
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void | Promise<void>
-  broadcastMachines(): Promise<void>
-  /** Live-only fan-out. A socket attach/detach cannot yield, so it schedules
-   *  this and the service logs any rejection (rule 51b). */
-  scheduleBroadcastMachines(): void
+  /** Write a machine's synced records after a write that may have moved them
+   *  (POD-6644). A socket attach cannot yield, so it schedules this and the
+   *  service logs any rejection (rule 51b). */
+  schedulePublishMachines(ids?: readonly MachineId[]): void
   recordDaemonReadiness(machineId: MachineId, readiness: DaemonFrame<'hostMetrics'>['daemonReadiness']): void
   recordInventory(
     machineId: MachineId,

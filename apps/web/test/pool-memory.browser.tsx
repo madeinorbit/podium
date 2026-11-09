@@ -49,11 +49,6 @@ document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 
 const answers: Record<string, unknown> = {
-  'discovery.refreshRepos.mutate': {
-    repositories: corpus.repos,
-    machines: corpus.machines,
-    diagnostics: [],
-  },
   'settings.get.query': {
     sessionDefaults: { agent: 'codex' },
     roles: { coding: { startScreen: 'chat' } },
@@ -84,7 +79,7 @@ const apiAt = (path: string[] = []): unknown =>
   })
 const api = apiAt() as PodiumClientApi
 let seedRecords: ReturnType<ReturnType<typeof seedCacheFromCorpus>['readEntities']> | null =
-  seedCacheFromCorpus(corpus).readEntities()
+  seedCacheFromCorpus(corpus, { principal: 'acceptance-alice' }).readEntities()
 const database = await IndexedDbSyncStore.open({
   factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'],
   databaseName: 'pool-memory-synthetic',
@@ -132,9 +127,8 @@ function Fixture() {
   graph = pool
   useEffect(() => {
     ready = false
-    void runtime.access.refreshRepos().then(() => {
-      ready = pool !== null
-    })
+    // Repositories and machines are in the seeded records (POD-6644).
+    ready = pool !== null
     return () => {
       ready = false
     }

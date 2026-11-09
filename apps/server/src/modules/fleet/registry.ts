@@ -29,9 +29,7 @@ import {
   machineSupersedeHandler,
   machineApplyUpdateHandler,
   machinePairingCodeHandler,
-  machineRenameHandler,
   machineSetAssignmentHandler,
-  machineSetUpdateChannelHandler,
   machineRevokeHandler,
   machineShareHandler,
   machineTransferOwnershipHandler,
@@ -69,17 +67,9 @@ export interface FleetCommand {
  */
 export const FLEET_COMMANDS = {
   'machines.setAssignment': { contract: FLEET_CONTRACTS['machines.setAssignment'], handler: machineSetAssignmentHandler },
-  'machines.rename': {
-    contract: FLEET_CONTRACTS['machines.rename'],
-    handler: machineRenameHandler,
-  },
   'machines.applyUpdate': {
     contract: FLEET_CONTRACTS['machines.applyUpdate'],
     handler: machineApplyUpdateHandler,
-  },
-  'machines.setUpdateChannel': {
-    contract: FLEET_CONTRACTS['machines.setUpdateChannel'],
-    handler: machineSetUpdateChannelHandler,
   },
   'machines.share': {
     contract: FLEET_CONTRACTS['machines.share'],

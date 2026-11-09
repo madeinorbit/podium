@@ -16,6 +16,9 @@ const id = asMatrixRowId
 export const ROW = {
   instanceId: id('instance-id'),
   machine: id('machine'),
+  /** A machine's spec, the fields a manager writes (POD-6644, ADR 12 D3): its
+   *  name and its update-channel pin, each its own field-LWW group. */
+  machineSpec: id('machine-spec'),
   pairingToken: id('pairing-token'),
   daemonIdentityFile: id('daemon-identity-file'),
   enrollmentLedger: id('enrollment-ledger'),

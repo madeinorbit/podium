@@ -3,12 +3,14 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MachineWire } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { beforeAll, expect, it, vi } from 'vitest'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { checkSessionPanes } from '../../../tests/worklist/diagnostics/session-pane-check'
 import { SESSION_PANE_NOW, sessionPaneFixture } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { headerEntities } from './header-entities'
+import { liveFixture, seedFixtureMachines } from './live-fixture'
 import { omitGone } from './lookup'
+import { loadSyncedModels } from './models'
 import { MobxPool } from './pool'
 import { paneSession, paneSpawnConfirmed, paneWindow } from './session-pane'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
@@ -17,11 +19,14 @@ import { sessionPaneView } from './session-pane-view'
 import { LOADING } from './worklist/rollup'
 
 
+// The pane's machines are machine models (POD-6644): load their classes first.
+beforeAll(() => loadSyncedModels())
+
 function fixture(attachLog = true) {
   const sessions = sessionPaneFixture()
   const machines = [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false, loggedOutHarnesses: ['codex'] }] as MachineWire[]
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
-    reposLoaded: true, coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
+    coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
   const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }) as unknown as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find(row => row.sessionId === id))
@@ -30,7 +35,8 @@ function fixture(attachLog = true) {
   const spawnPrompts = observable.map<string, string | null>([['pane-11', null]])
   if (attachLog) pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never)
   pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })) })
-  headerEntities(pool).apply(machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
+  // Machine records, online on the LiveStore (POD-6644).
+  headerEntities(pool).apply(seedFixtureMachines(pool, machines) as never)
   headerEntities(pool).order('machine', machines.map(row => row.id))
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
   return { sessions, machines, pool, load, listeners, spawnPrompts,
@@ -52,7 +58,7 @@ it('follows a panel-mode change through the keyed locals (POD-5433)', () => {
 it('matches all pane status, urgency, header, recovery and control inputs over the synthetic corpus', () => {
   const f = fixture()
   try {
-    expect(f.settle()).toMatchObject({ differences: 0, pending: 0, positions: f.sessions.length + f.machines.length })
+    expect(f.settle()).toMatchObject({ differences: 0, pending: 0, first: null, positions: f.sessions.length + f.machines.length })
     const id = f.sessions[1]!.sessionId
     const next = { ...f.sessions[1]!, status: 'hibernated' as const, queuedMessageCount: 3 }
     f.sessions[1] = next
@@ -78,9 +84,10 @@ it('reports a wrong status, model, queued wake, host and mode by position withou
       expect(JSON.stringify(result)).not.toContain('wrong-model')
     }
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: row.sessionId, value: row as never }] })
-    headerEntities(f.pool).apply([{ kind: 'machine', id: 'machine-a', value: { ...f.machines[0]!, online: false } }])
+    // A machine going offline is its live condition (POD-6644).
+    liveFixture(f.pool).online('machine-a', false)
     expect(checkSessionPanes(f.pool, f.state()).first?.section).toBe(2)
-    headerEntities(f.pool).apply([{ kind: 'machine', id: 'machine-a', value: f.machines[0]! }])
+    liveFixture(f.pool).online('machine-a', true)
     const changed = { ...f.state(), panelMode: { [row.sessionId]: 'native' as const } }
     expect(checkSessionPanes(f.pool, changed).first?.section).toBe(1)
   } finally { f.pool.dispose() }

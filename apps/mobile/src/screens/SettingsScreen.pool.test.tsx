@@ -142,12 +142,8 @@ async function mount(count = 8, scale?: number) {
         lastSeenAt: '2026-10-06T10:00:00Z',
       }))
     : null
-  if (scaledMachines) {
-    const discovery = await data.api.discovery.refreshRepos.mutate()
-    Object.assign(data.api.discovery.refreshRepos, {
-      mutate: async () => ({ ...discovery, machines: scaledMachines }),
-    })
-  }
+  // Machines are records; online is the live condition (POD-6644).
+  if (scaledMachines) data.putMachinesAndRepos({ machines: scaledMachines })
   // Include archived, deleted and draft rows in the count, and resume twins in
   // the session summary; count parity must not inherit worklist filtering.
   const issue = data.records.get('issueProjection:synthetic-0')!
@@ -202,7 +198,7 @@ async function mount(count = 8, scale?: number) {
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => errors.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub)
+        data.bindHub(owner.hub, undefined, owner.live)
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
@@ -339,12 +335,11 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     enabled.data.activity(1)
     enabled.data.publishMachines()
     enabled.data.publishMetrics(2)
+    // A rename is a change of each machine's record (POD-6644).
     const machines = referenceState(enabled.runtime).machines
-    const hub = enabled.runtime.hub as unknown as { emit: (kind: string, rows: unknown) => void }
-    hub.emit(
-      'machines',
-      machines.map((machine) => ({ ...machine, name: `${machine.name} updated` })),
-    )
+    enabled.data.putMachinesAndRepos({
+      machines: machines.map((machine) => ({ ...machine, name: `${machine.name} updated` })) as never,
+    })
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
   expect(roster).not.toHaveBeenCalled()

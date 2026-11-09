@@ -33,6 +33,8 @@ import {
   LayoutKeyField,
   LayoutWire,
   MAX_AGENT_PROFILE_INSTRUCTIONS,
+  MachineIdField,
+  MachineProjection,
   NewIssueId,
   PinWire,
   parseInstancePreferencesRowId,
@@ -62,6 +64,7 @@ import {
   SubscriptionWire,
   TabOrderWire,
   ThreadIdField,
+  UpdateChannel,
   USER_PREFERENCE_LEAVES,
   UserIdField,
   UserPreferencesWire,
@@ -1105,6 +1108,67 @@ export const INSTANCE_PREFERENCES_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// machine: its spec, a manager's (POD-6644, design POD-5620 §1.12)
+// ---------------------------------------------------------------------------
+
+const MACHINE_EDIT: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'machine',
+  machineVerb: 'manage',
+  confirmation: 'none',
+  rationale:
+    'ADR 9 D6 M1: renaming a machine and choosing its update authority are `manage` acts, held by ' +
+    'its owner and the admins, as `machines.rename` and `machines.setUpdateChannel` were. The floor ' +
+    'is `member` so the OWNER reaches it; which machines a member may touch is the fleet gate’s ' +
+    'per-machine check. Neither runs anything on the machine, so both work while it is offline.',
+}
+
+/**
+ * A MACHINE'S SPEC. The `machine` record is display facts every member reads;
+ * its two spec fields are the name and the update-channel pin, written by its
+ * owner or an admin. Each is its own field-LWW group, as their commands always
+ * were. Everything else on the record is status, written by the server.
+ */
+export const MACHINE_RECORD = defineSyncedKind({
+  kind: 'machine',
+  title: 'machine',
+  wire: MachineProjection,
+  ref: MachineIdField,
+  conflict: 'field-LWW',
+  fields: {
+    // As `machines.rename` took it; stored trimmed, so it parses so.
+    name: spec(z.string().trim().min(1).max(80), ROW.machineSpec),
+    // `null`: no pin, the machine follows the fleet default (POD-1882).
+    updateChannelOverride: spec(UpdateChannel.nullable(), ROW.machineSpec),
+  },
+  ops: {
+    edit: {
+      policy: MACHINE_EDIT,
+      note: 'Rename a machine, or pin or unpin the channel it updates from.',
+    },
+  },
+  visibility: 'owned-compute',
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A machine name and a channel name; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A machine the caller cannot manage fails exactly as an unknown id (Amendment 1 D20.2). An ' +
+      'edit never reaches the machine, so there is no unreachable state to report.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -1122,6 +1186,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   SUBSCRIPTION_RECORD,
   WORKFLOW_BINDING_RECORD,
   INSTANCE_PREFERENCES_RECORD,
+  MACHINE_RECORD,
 ]
 
 /**
@@ -1154,7 +1219,14 @@ export const NOT_YET_GENERIC: Readonly<
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
   pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },
   message: { reason: 'Chat delivery is an effect on its own record.', by: 'POD-6357' },
-  machine: { reason: 'Machine spec moves with POD-5802.', by: 'POD-5802' },
+  machineAccess: {
+    reason: 'All status: each member’s access, decided by the server from grants and custody.',
+    by: 'never (status)',
+  },
+  checkout: {
+    reason: 'All status: written by the server from the machine’s scans, never client-written.',
+    by: 'never (status)',
+  },
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
     by: 'never (status)',

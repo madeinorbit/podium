@@ -94,14 +94,10 @@ export const SERVER_PLANE_CLASS = {
   turnPreview: 'stream.live',
 
   // Advisory broadcasts re-served in full on attach — not (yet) oplog entities.
-  // machinesChanged is a candidate for a durable entity kind; promoting it is an
-  // ADR 7 D6 amendment, not a silent reclassification here.
-  machinesChanged: 'stream.live',
+  // (`machinesChanged` was promoted to the `machine`/`machineAccess` records and
+  // `worktreesChanged` to `checkout`, POD-6644.)
   hostMetricsChanged: 'stream.live',
   attentionEvent: 'stream.live',
-  // One-shot invalidation (POD-665): NOT re-served on attach — the client
-  // already fetches repos at boot, so a missed push is caught by that.
-  worktreesChanged: 'stream.live',
   // Browser-open family (ADR 7 D8, [spec:SP-a43e]).
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',

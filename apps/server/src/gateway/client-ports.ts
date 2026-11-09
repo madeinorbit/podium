@@ -14,7 +14,7 @@
  * whose signature never had it.
  */
 
-import type { MachineWire, SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { RoomRef } from '@podium/protocol'
 import type { SessionsClientFrame } from './client-frame-routing'
 import type { ClientPrincipal } from './client-principal'
@@ -36,7 +36,6 @@ export interface SessionsClientPort {
   onClientAttached(
     principal: ClientPrincipal,
     conn: ClientConn,
-    machines: readonly MachineWire[],
   ): Promise<void>
   /** Move controller roles from a reconnecting user's stale connection before
    * the gateway evicts it. Both principals were authenticated by the gateway. */

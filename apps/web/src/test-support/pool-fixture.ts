@@ -1,8 +1,10 @@
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerRequests } from '@podium/client-graph/header-requests'
 import { referenceView } from '@podium/client-graph/issue-reference'
-import { liveFixture } from '@podium/client-graph/live-fixture'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { observable, runInAction } from 'mobx'
@@ -82,6 +84,9 @@ export function syncPoolFixture(
     issues?: readonly unknown[]
     selectedIssueWasFolded?: boolean
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
+    /** Test inputs in the listing shape; seeded as records and conditions (POD-6644). */
+    machines?: import('@podium/model/browser').MachineFacts[]
+    repos?: import('@podium/model/browser').GitRepositoryWire[]
   }
   fixtureState = fixtureStoreSnapshot({
     ...state,
@@ -203,9 +208,7 @@ export function syncPoolFixture(
             : ['coarseNow'],
       ),
     )
-    headerEntities(pool).apply(
-      (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
-    )
+    headerEntities(pool).apply(seedFixtureMachines(pool, state.machines ?? []) as never)
     headerEntities(pool).order(
       'machine',
       (state.machines ?? []).map((value) => value.id),

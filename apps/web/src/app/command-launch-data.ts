@@ -5,7 +5,7 @@ import { LOADING } from '@podium/client-graph'
 import type { CommandPaletteData, RecentCommand } from '@podium/client-graph/command-launch-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
-import type { MachineWire } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { runInAction } from 'mobx'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -84,7 +84,7 @@ export function useCommandLaunchOrigin(path: string, machineId?: string) {
     readLaunchOrigin(pool, path, machineId), [path, machineId])
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
-export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
+export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineFacts[], kinds: readonly string[]) {
   const pool = useWorklistPool()
   const kindsKey = JSON.stringify(kinds)
   const path = repo?.path

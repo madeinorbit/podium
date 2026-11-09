@@ -62,15 +62,6 @@ export function keyedInputsOverStore(store: {
       previous.set(key, value)
       return value
     },
-    onList: (name, listener) => follow([name], channel.onList(name, listener)),
-    listIds: (name) => {
-      previous.set(name, state()[name])
-      return channel.listIds(name)
-    },
-    listRow: (name, id) => {
-      if (!previous.has(name)) previous.set(name, state()[name])
-      return channel.listRow(name, id)
-    },
     dispose() {
       off?.()
       off = null

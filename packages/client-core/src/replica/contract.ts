@@ -3,6 +3,7 @@
 import type {
   AgentProfileWire,
   AutomationRunWire,
+  CheckoutWire,
   AutomationWire,
   ConversationSummaryWire,
   EffectRecordWire,
@@ -13,6 +14,7 @@ import type {
   IssueProjection,
   IssueUserStateWire,
   LayoutWire,
+  MachineAccessWire,
   MachineProjection,
   MessageRecordWire,
   PinWire,
@@ -140,6 +142,10 @@ export interface ReplicaRows {
    *  `INSTANCE_PREFERENCES_ROW_ID`. Kept offline like every other kind, so an
    *  app started without a connection knows them. */
   instancePreferences: InstancePreferencesWire
+  /** POD-6644: my access to each machine I may see, and the checkouts on the
+   *  machines I may use. Kept, so an app started offline shows them. */
+  machineAccess: MachineAccessWire
+  checkouts: CheckoutWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -180,6 +186,8 @@ export interface ReplicaHydrateResult {
   workflowRuns: WorkflowRunRecord[]
   subscriptions: SubscriptionWire[]
   instancePreferences: InstancePreferencesWire[]
+  machineAccess: MachineAccessWire[]
+  checkouts: CheckoutWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

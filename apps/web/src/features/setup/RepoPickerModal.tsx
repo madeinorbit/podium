@@ -4,7 +4,7 @@ import {
   HOST_REPOS,
   type MachineActionCopy,
   type MachineId,
-  type MachineWire,
+  type MachineFacts,
   machinePathSeparator,
 } from '@podium/model/browser'
 import {
@@ -70,7 +70,7 @@ type DirectoryListing = {
 /** POD-2700 adds `components` and `use`: this screen states a REQUIREMENT now,
  *  and the predicate that answers it reads the structural and `use` axes. */
 type RepoPickerMachine = Pick<
-  MachineWire,
+  MachineFacts,
   'id' | 'name' | 'hostname' | 'online' | 'inventory' | 'components' | 'use'
 >
 

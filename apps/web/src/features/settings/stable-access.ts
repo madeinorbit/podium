@@ -3,7 +3,8 @@ import type { Store } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 
 interface SettingsClient extends Pick<Store,
-  'trpc' | 'uiState' | 'navigateToSession' | 'refreshRepos' | 'setSettingsTab' |
+  'trpc' | 'uiState' | 'navigateToSession' | 'setSettingsTab' |
+  'renameMachine' | 'setMachineUpdateChannel' |
   'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'startIssueSession' |
   'setSelectedIssueId' |
   'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId' |
@@ -21,7 +22,8 @@ export function useSettingsClient(): SettingsClient {
     trpc: state.trpc,
     uiState: state.uiState,
     navigateToSession: state.navigateToSession,
-    refreshRepos: state.refreshRepos,
+    renameMachine: state.renameMachine,
+    setMachineUpdateChannel: state.setMachineUpdateChannel,
     setSettingsTab: state.setSettingsTab,
     focusIssueSession: state.focusIssueSession,
     spawnDraftAgent: state.spawnDraftAgent,

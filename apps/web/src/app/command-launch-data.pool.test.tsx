@@ -42,7 +42,7 @@ it('declares launch and palette demand after attachment, follows window updates 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
           let detach: (() => void) | undefined
           attach = () => {
             detach = attachWorklistPool(runtime, fatal)
@@ -73,7 +73,6 @@ it('declares launch and palette demand after attachment, follows window updates 
   await act(async () => {
     attach()
     fixture.publishMachines()
-    await referenceState(result.current.owner).refreshRepos()
   })
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)
@@ -113,7 +112,7 @@ it('mounts the actual closed palette without issue/session demand at 1x/4x, then
       return <StoreProvider principal={asClientPrincipal(asUserId(`closed-palette-${scale}`))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
         createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-        attachRuntime={runtime => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, fatal) }}>
+        attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); return attachWorklistPool(runtime, fatal) }}>
         <ConfirmProvider><CommandPalette />{children}</ConfirmProvider>
       </StoreProvider>
     }

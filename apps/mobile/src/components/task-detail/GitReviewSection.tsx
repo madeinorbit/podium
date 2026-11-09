@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { checkoutRefresh } from '@podium/client-graph/answer-refresh'
+import { checkoutRefresh, replicaAnswerMachines } from '@podium/client-graph/answer-refresh'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -30,11 +30,12 @@ export const GitReviewSection = observer(function GitReviewSection({
 }) {
   const {
     hub,
+    replica,
     access: { gitStatus, readFileScoped, gitDiffFile },
   } = useStoreHandle()
   const refreshSignal = useMemo(
     () => (changed: () => void) => {
-      const stop = checkoutRefresh(hub, machineId, root)(changed)
+      const stop = checkoutRefresh(hub, replicaAnswerMachines(replica), machineId, root)(changed)
       const state = AppState.addEventListener('change', (next) => {
         if (next === 'active') changed()
       })
@@ -43,7 +44,7 @@ export const GitReviewSection = observer(function GitReviewSection({
         state.remove()
       }
     },
-    [hub, machineId, root],
+    [hub, replica, machineId, root],
   )
   const view = useMemo(
     () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile, refreshSignal }),

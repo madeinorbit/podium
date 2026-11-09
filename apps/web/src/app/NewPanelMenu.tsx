@@ -9,7 +9,7 @@ import {
   asMachineId,
   type IssueId,
   type MachineId,
-  type MachineWire,
+  type MachineFacts,
   machinePathBasename,
   machinePathsEqual,
   machinesForRepoOrClone,
@@ -479,7 +479,7 @@ function HeadlessDriverItems({
   onCreate,
   agents,
 }: {
-  machine: MachineWire
+  machine: MachineFacts
   onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
@@ -520,7 +520,7 @@ function MachineSubmenu({
   runtimeDriversEnabled,
   agents,
 }: {
-  machine: MachineWire
+  machine: MachineFacts
   onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   runtimeDriversEnabled: boolean
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]

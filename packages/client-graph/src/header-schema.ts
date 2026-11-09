@@ -1,14 +1,17 @@
 import type { Store } from '@podium/client-core/engine'
-import type { MachineWire } from '@podium/model/browser'
 import type { ShipOrderProjection } from '@podium/model/shipping-projection'
+import type { PoolRows } from './pool'
+import type { GitRepositoryWire } from '@podium/model/browser'
 
 /** Header source declarations. Machine storage is the shared schema table.
  * Live readings (host metrics, quota, the connection) are LiveStore
  * conditions (POD-5798), read through the machine model and the store, never
  * copied into rows here. All extension relations are declared here. */
 export interface HeaderRows {
-  machine: MachineWire
-  repository: Store['repos'][number]
+  /** The machine record joined with my access row; a fact not mine is absent. */
+  machine: Pick<PoolRows['machine'], 'id' | 'name'> & Partial<PoolRows['machine']>
+  /** A registered repository and its worktrees, from the checkout records. */
+  repository: GitRepositoryWire
   shipOrder: ShipOrderProjection
   window: Pick<Store, 'view' | 'paneA' | 'fileTabs'>
 }
@@ -24,10 +27,10 @@ export interface HeaderRecord<E extends HeaderEntity = HeaderEntity> {
 }
 
 export const HEADER_SCHEMA = {
-  machine: { key: 'id', source: 'engine:machines', model: 'MachineWire', cold: 'never' },
+  machine: { key: 'id', source: 'replica:machines', model: 'MachineProjection', cold: 'never' },
   repository: {
     key: 'machineId,path',
-    source: 'engine:repos',
+    source: 'replica:checkouts',
     model: 'GitRepositoryWire',
     cold: 'never',
     revisionFields: { paths: 'path' },

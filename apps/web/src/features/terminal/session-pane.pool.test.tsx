@@ -1,3 +1,5 @@
+import '@podium/client-graph/synced-models'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -238,7 +240,8 @@ beforeEach(() => {
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session', id: row.sessionId, value: row as never })),
   })
-  headerEntities(f.pool).apply(state.machines.map((row) => ({ kind: 'machine', id: row.id, value: row })))
+  // Machine records with my access row, online on the LiveStore (POD-6644).
+  headerEntities(f.pool).apply(seedFixtureMachines(f.pool, state.machines as never) as never)
   headerEntities(f.pool).order(
     'machine',
     state.machines.map((row) => row.id),

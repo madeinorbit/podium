@@ -2,7 +2,8 @@
 import { listReclaimableWorktreesClient } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
-import { liveFixture } from '@podium/client-graph/live-fixture'
+import '@podium/client-graph/synced-models'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { RowRecord } from '@podium/client-graph/shared/source'
@@ -81,6 +82,7 @@ let processTopic = processesTopicFixture(async () => ({
   breakdown: await trpc.hosts.memoryBreakdown.mutate(),
   reclaim: await reclaimInventory(),
 }))
+const noAccessRows = { rows: () => [], subscribeAddressedBatch: () => () => {} }
 const store = {
   trpc,
   machines: [],
@@ -100,7 +102,8 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ access: store, hub: processTopic.hub }),
+  // My access rows (POD-6644): none here, so no machine hosts the server.
+  useStoreHandle: () => ({ access: store, hub: processTopic.hub, replica: noAccessRows }),
 }))
 vi.mock('@/app/store', () => ({
   useStore: () => store,
@@ -154,14 +157,13 @@ function fixture(scale: 1 | 4) {
   })
   pool.apply({ type: 'replace', rows })
   // POD-5798: the machine and its live sample (LiveStore); the lifecycle
-  // settings are the synced instance settings record (POD-6677).
-  headerEntities(pool).apply([
-    {
-      kind: 'machine',
-      id: MACHINE,
-      value: { id: MACHINE, name: 'fixture-host', hostname: 'fixture-host', online: true, lastSeenAt: stamp(NOW) },
-    },
-  ])
+  // settings are the synced instance settings record (POD-6677). The machine
+  // is its record with my access row, online its condition (POD-6644).
+  headerEntities(pool).apply(
+    seedFixtureMachines(pool, [
+      { id: MACHINE, name: 'fixture-host', hostname: 'fixture-host', online: true, lastSeenAt: stamp(NOW) },
+    ] as never) as never,
+  )
   headerEntities(pool).order('machine', [MACHINE])
   liveFixture(pool, () => now).metric(MACHINE, metric)
   seedInstancePreferences(pool, lifecycle)

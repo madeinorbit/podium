@@ -116,11 +116,8 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     { ...repos[0]!, path: '/synthetic/project' },
     { ...repos[1]!, path: '/synthetic/project' },
   )
-  fixture.api.discovery.refreshRepos.mutate = vi.fn(async () => ({
-    repositories: repos,
-    machines,
-    diagnostics: [],
-  })) as never
+  // Machines and repositories are records; online is the live condition (POD-6644).
+  fixture.putMachinesAndRepos({ machines, repos })
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <StoreProvider
@@ -131,7 +128,7 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >
@@ -143,9 +140,6 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool(), targets: useAutomationTargets('/synthetic/offline') }),
     { wrapper: Wrapper },
   )
-  await act(async () => {
-    await referenceState(result.current.owner).refreshRepos()
-  })
   await waitFor(() => expect(result.current.targets.pending).toBe(0))
   const state = referenceState(result.current.owner)
   const choices = result.current.targets.ids.map(id => automationViews(result.current.pool!).target(id))
@@ -207,7 +201,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >
@@ -228,7 +222,6 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   ).result
   await act(async () => {
     fixture.publishMachines()
-    await referenceState(result.current.owner).refreshRepos()
   })
   await waitFor(() =>
     expect(
@@ -328,7 +321,7 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >

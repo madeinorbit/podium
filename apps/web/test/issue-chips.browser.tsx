@@ -74,9 +74,6 @@ function Fixture() {
     runtime = owner
     pool = attached
     open = setShown
-    void referenceState(owner)
-      .refreshRepos()
-      .catch((error) => failures.push(String(error)))
     return () => {
       runtime = undefined
       pool = null
@@ -136,7 +133,7 @@ const proof = {
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,
-    repos: runtime?.access.repos.length,
+    repos: runtime ? referenceState(runtime).repos.length : undefined,
     issues: count,
     sessions: runtime?.replica.rows('sessions').length,
   }),

@@ -1,8 +1,9 @@
+import { machineFacts } from '@podium/client-graph/machine-facts'
 import type { IssueReferenceModel } from '@podium/client-core/values'
 import { headerView } from '@podium/client-graph/header-views'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
-import type { HostMetricsWire, MachineWire } from '@podium/model'
+import type { HostMetricsWire, MachineFacts } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { useCallback, useEffect, useRef } from 'react'
 import { demoEnabled } from './demoData'
@@ -22,7 +23,7 @@ const EMPTY_CHIP: { known: boolean; model: IssueReferenceModel | null } = {
   known: false,
   model: null,
 }
-const EMPTY_LIVE: { machines: readonly MachineWire[]; hosts: readonly HostMetricsWire[] } = {
+const EMPTY_LIVE: { machines: readonly MachineFacts[]; hosts: readonly HostMetricsWire[] } = {
   machines: [],
   hosts: [],
 }
@@ -34,7 +35,9 @@ const EMPTY_LINK = {
 type Pool = Parameters<typeof mobileInboxViews>[0]
 const readInbox = (pool: Pool) => mobileInboxViews(pool)?.inbox() ?? EMPTY_INBOX
 const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_QUEUE
-const readMachines = (pool: Pool) => headerView(pool).machines()
+/** My fleet as plain values: new when a machine's facts move, never on a
+ *  health sample (POD-6644; Pulse memoizes on this array). */
+const readMachines = (pool: Pool): MachineFacts[] => headerView(pool).machines().map(machineFacts)
 const readHosts = (pool: Pool) => headerView(pool).metrics()
 /** This account's quota, pushed by the server (LiveStore, POD-5798). */
 const readQuota = (pool: Pool) => pool.live?.quota

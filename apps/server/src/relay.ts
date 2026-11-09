@@ -175,7 +175,9 @@ import { LogIngestService } from './modules/logs/service'
 import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
+import { type MachineRecordsDeps, writeMachineRecords } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
+import { CheckoutsService } from './modules/checkouts/service'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
@@ -445,6 +447,8 @@ export interface RegistryModules {
   funnel: WriteFunnel
   sessions: SessionLifecycle
   machines: MachinesService
+  /** Each machine's checkouts as synced records (POD-6644). */
+  checkouts: CheckoutsService
   updates: UpdatesService
   /**
    * Durable long-running operations (POD-2097) — the generic engine plus its
@@ -658,6 +662,10 @@ export class SessionRegistry {
   /** The write contexts over {@link ledger} (ADR 12 D9): the only source of a
    *  write scope in the process. */
   private readonly writes: WriteContexts
+  /** What the machine records are written from (POD-6644). */
+  private machineRecordsDeps!: () => MachineRecordsDeps
+  /** Each machine's checkouts as synced records (POD-6644). */
+  private checkouts!: CheckoutsService
   /** Curated issue-event window, resolved during async registry hydration. */
   private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
@@ -736,7 +744,22 @@ export class SessionRegistry {
     await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
     await this.writes
       .system('boot.reconcile')
-      .reconcile('machine', await this.modules.machines.projectionRows())
+      .reconcile(
+        'machine',
+        (await this.modules.machines.recordFacts()).map((fact) => ({
+          id: fact.machine.id,
+          value: fact.machine,
+        })),
+      )
+    // Every member's access rows (POD-6644): a member who joined or changed
+    // role while the server was down sees the machines they now may.
+    await asSystemWrite(
+      async () =>
+        await writeMachineRecords(this.machineRecordsDeps(), this.writes.system('boot.reconcile')),
+    )
+    // Every stored checkout onto the log (POD-6644): the migration's back-filled
+    // roots, and rows written while a device was away.
+    await this.writes.system('boot.reconcile').reconcile('checkout', await this.checkouts.allRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.messageFeed.resolve()
@@ -936,6 +959,8 @@ export class SessionRegistry {
      */
     let targetChanged: ((channel: UpdateChannel) => Promise<void>) | undefined
     let seedSuperagentDefaults: (() => Promise<void>) | undefined
+    // The condition topic is composed below the machines service (POD-6644).
+    let machineConditionChanged: ((machineId: MachineId) => void) | undefined
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -946,14 +971,26 @@ export class SessionRegistry {
       // derivation of the machine row, republished whenever that row changes. It
       // is not the caller's input, so it is allowed when a plain command's work
       // triggers it (`setup.complete` enrolling the host, POD-6360).
-      publishMachineProjection: async (id, value) => {
+      // POD-6644: the machine and each member's access row. On the command's
+      // own writer when one moved them (a rename), else the server's own write:
+      // the records are its derivation of the machine row and the grants, so
+      // they are allowed when a plain command's work triggers them (POD-6360).
+      publishMachineRecords: async (ids, writer) => {
+        const deps = this.machineRecordsDeps()
+        if (writer) {
+          await writeMachineRecords(deps, writer, ids === undefined ? {} : { ids })
+          return
+        }
         await asSystemWrite(
           async () =>
-            await this.writes
-              .system('machines.projection')
-              .capture([{ entity: 'machine', id, op: 'upsert', value }]),
+            await writeMachineRecords(
+              deps,
+              this.writes.system('machines.records'),
+              ids === undefined ? {} : { ids },
+            ),
         )
       },
+      conditionChanged: (machineId) => machineConditionChanged?.(machineId),
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
@@ -998,12 +1035,15 @@ export class SessionRegistry {
         )
       },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
-      clients: () => clientRegistry.values(),
-      machinesForPrincipal: async (principal, machineService) =>
-        await machinesForPrincipal(
-          { machines: machineService },
-          userCommandPrincipal(asUserId(principal.user), principal.role),
-        ),
+    })
+    this.machineRecordsDeps = (): MachineRecordsDeps => ({
+      facts: async (ids) => await machines.recordFacts(ids),
+      // The grant edges themselves, in one read through the operation's loader.
+      grants: async (ids) => await this.store.grants.loadForResources('machine', ids),
+      members: async () =>
+        (await this.store.users.list())
+          .filter((member) => member.disabledAt === null)
+          .map((member) => ({ id: asUserId(member.id), role: member.role })),
     })
     // AGENT PROFILES (POD-6107). Composed right after machines because the launch
     // resolver asks the machine service which candidate harness can run where.
@@ -1357,10 +1397,11 @@ export class SessionRegistry {
       usage?: AccountUsageTopic
     } = {}
     const machineConditions = new MachineConditionTopic({
-      online: (machineId) => machines.hasDaemon(machineId),
+      condition: (machineId) => machines.condition(machineId),
       now: () => this.now(),
       publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
     })
+    machineConditionChanged = (machineId) => machineConditions.changed(machineId)
     const processReadState = () => ({ ...this.modules, repos: fleetRepos })
     const processTopic = new MachineProcessesTopic({
       supports: (id) => machines.daemonSupports(id, CAP_MACHINE_PROCESSES_V1),
@@ -1511,20 +1552,16 @@ export class SessionRegistry {
     // Advisory named lease locks [spec:SP-85d1]. Worktree invalidation is an
     // event callback into the already-constructed gateway registry, not a
     // deferred service dependency.
-    // POD-665: fan out the invalidation raw (imitating MachinesService.
-    // broadcastMachines) — no repo payload, just "go re-fetch" (see
-    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
-    // Shared by every path that creates or destroys a worktree behind the
-    // clients' backs: issue start, and handoff import (POD-821).
-    const broadcastWorktreesChanged = (repoPath: string, machineId?: MachineId): void => {
-      const msg: LiveServerMessage = {
-        type: 'worktreesChanged',
-        repoPath,
-        // Server-side callers pass a machine id they already hold (issue start,
-        // handoff import); the brand is asserted rather than re-parsed.
-        ...(machineId ? { machineId: asMachineId(machineId) } : {}),
-      }
-      for (const c of clientRegistry.values()) c.send(msg)
+    // A worktree the server created or removed (an issue start, a handoff
+    // import, POD-821) is a change of that machine's checkouts: it is scanned,
+    // and what moved reaches every device as `checkout` records (POD-6644).
+    // The service is composed below the daemon RPC it scans through.
+    let checkouts: CheckoutsService | undefined
+    const broadcastWorktreesChanged = (_repoPath: string, machineId?: MachineId): void => {
+      void (async () => {
+        const id = machineId ? asMachineId(machineId) : await machines.defaultMachine()
+        checkouts?.rescanSoon(id)
+      })().catch((err: unknown) => log.warn('checkout rescan failed', { err }))
     }
     const memory = new MemoryService(
       {
@@ -1555,6 +1592,31 @@ export class SessionRegistry {
         repairSubagentSegmentPaths: !backgroundDisabled,
       },
     )
+    const rpcLate: { rpc?: DaemonRpcService } = {}
+    checkouts = new CheckoutsService({
+      store: this.store,
+      scan: async (machineId, roots) => {
+        if (!rpcLate.rpc) return { repositories: [], diagnostics: [] }
+        return await rpcLate.rpc.scanRepos(roots, { includeHome: false, maxDepth: 0 }, machineId)
+      },
+      online: (machineId) => machines.hasDaemon(machineId),
+      writer: () => ({
+        capture: async (specs) =>
+          await asSystemWrite(async () => await this.writes.system('checkouts.scan').capture(specs)),
+      }),
+      // Scan-reported origins are the server's own write (POD-6417).
+      publishRepos: async () => {
+        try {
+          await asSystemWrite(async () => await this.modules.issues.reports.store.publishRepos())
+        } catch (err) {
+          log.warn('repo projection publish failed', { err })
+        }
+      },
+      now: () => new Date(this.now()).toISOString(),
+    })
+    this.checkouts = checkouts
+    // A daemon that connects may have created or removed worktrees while away.
+    this.bus.on('machine.connected', ({ machineId }) => checkouts?.rescanSoon(machineId))
     const rpc = new DaemonRpcService({
       broker: requestBroker,
       memory,
@@ -1590,6 +1652,7 @@ export class SessionRegistry {
           : undefined
       },
     })
+    rpcLate.rpc = rpc
     // ONE machines read, then a pure per-machine answer (POD-3257). The
     // single-machine dep below is this one applied to one id, so the eligibility
     // rules cannot drift between the fleet path and the point lookup — and a
@@ -4600,6 +4663,7 @@ export class SessionRegistry {
       funnel,
       sessions: sessionsSvc,
       machines,
+      checkouts: this.checkouts,
       updates: updatesService,
       operations: operationsModule,
       updatesReconciler: reconciler,
@@ -5043,13 +5107,20 @@ export class SessionRegistry {
     })
     // ACCESS CHANGES TAKE EFFECT AT THEIR COMMIT (POD-6293). A disable, removal
     // or sign-out-everywhere closes the member's open connections; a role change
-    // rescopes them and re-sends the role-dependent machine listing.
+    // rescopes them and rewrites their machine access rows.
     const accessChangeSubscriptions = [
       this.store.users.onAccessChange((change) => {
         this.clientGateway.applyAccessChange(change)
       }),
+      // A member's machine access follows their role (POD-6644): their access
+      // rows are rewritten, and a member who can no longer act loses theirs.
       this.store.users.afterAccessChange(async (change) => {
-        if (change.effect === 'rescoped') await machines.broadcastMachines()
+        await asSystemWrite(
+          async () =>
+            await writeMachineRecords(this.machineRecordsDeps(), this.writes.system('members.access'), {
+              formerMembers: [change.memberId],
+            }),
+        )
       }),
     ]
     this.unsubscribeAccessChanges = () => {

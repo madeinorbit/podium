@@ -252,6 +252,42 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     open: [],
   },
   {
+    id: ROW.machineSpec,
+    section: 'identity-and-deployment-scope',
+    title: 'Machine spec (`name`, `updateChannelOverride`) on the synced `machine` record',
+    sites: [
+      'packages/commands/src/records/kinds.ts',
+      'apps/server/src/modules/records/machine-record.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator'],
+    replication: 'server-to-clients',
+    conflict: 'field-LWW',
+    conflictNote:
+      'ADR 12 D3 (POD-6644): the name and the update-channel pin are each their own independent group at `field-LWW`, which is what `machines.rename` and `machines.setUpdateChannel` always did (they carried no revision). Clock: the Authority-assigned event time at commit. Every other field of the record is status, written by the server.',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Follows the machine: revoked, never deleted.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.machine },
+    visibility: 'owned-compute',
+    grants: { kind: 'inherits', from: ROW.machine },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The transport principal’s pair through `sync.submit`, gated by `manage` on the machine.',
+    },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['grant-see', 'grant-use', 'grant-manage', 'revoke'],
+      note: 'Follows the machine.',
+    },
+    open: [],
+  },
+  {
     id: ROW.machine,
     section: 'identity-and-deployment-scope',
     title: 'Machine (fleet row / `machines`)',
@@ -3468,6 +3504,8 @@ export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   // group per target.
   ROW.agentProfiles,
   ROW.workflowBindings,
+  // ADR 12 D3 (POD-6644): a machine's name and update-channel pin.
+  ROW.machineSpec,
 ]
 
 /**

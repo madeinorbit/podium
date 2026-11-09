@@ -6,6 +6,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
+import type { MachineFacts } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPool } from './store-worklist-pool'
@@ -95,9 +96,6 @@ export function useShellWindow() {
     get superOpen() {
       return ui.superOpen
     },
-    get reposLoaded() {
-      return owner.readLocal('reposLoaded')
-    },
     get paletteOpen() {
       return owner.palette.open
     },
@@ -165,7 +163,7 @@ export function useShellClose() {
     value = pool ? shellView(pool).close() : LOADING
   return value && value !== LOADING ? value : undefined
 }
-const EMPTY_MACHINES: Store['machines'] = []
+const EMPTY_MACHINES: MachineFacts[] = []
 export function useShellMachines() {
   if (import.meta.env.DEV) assertReactiveRead('useShellMachines')
   const pool = useWorklistPool()

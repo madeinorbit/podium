@@ -32,14 +32,18 @@ import {
   canonicalShippingDestination,
   type IssueExecutionFacts,
   type IssueId,
+  type MachineId,
   issueDepFromPrefix,
   issueExecutionAccess,
   issueExecutionSessionIds,
   parseInteractionRowId,
+  checkoutRowId,
+  parseCheckoutRowId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
+  parseMachineAccessRowId,
   parseMessageRecordRowId,
   parsePinRowId,
   parseReadPositionRowId,
@@ -90,6 +94,8 @@ type BootstrapReadPhase =
   | 'visibility.workflow.facts'
   | 'visibility.workflow.adminIds'
   | 'visibility.workflow.grants'
+  | 'visibility.checkout.rootPaths'
+  | 'visibility.checkout.adminIds'
 
 interface BootstrapReadTrace {
   readonly phases: Map<BootstrapReadPhase, number>
@@ -119,6 +125,15 @@ type BootstrapVisibilityPrefetch = {
    *  absent = nobody holds custody. Issue grants are no longer read: they
    *  decide nothing about a task. */
   readonly machineCustodians: ReadonlyMap<string, UserId>
+  /** For each machine a `checkout` in the batch is on, the members holding
+   *  `use` there (POD-6644): an explicit use edge while somebody holds custody. */
+  readonly machineUsers: ReadonlyMap<string, ReadonlySet<string>>
+  /** For each such machine, the members who may MANAGE it: a manage edge
+   *  while somebody holds custody, and the instance's admins (ADR 9). */
+  readonly machineManagers: ReadonlyMap<string, ReadonlySet<string>>
+  /** The registered root paths of those machines: a root (unlike a worktree)
+   *  is readable with MANAGE as well as USE (POD-6644, coordinator decision). */
+  readonly checkoutRoots: ReadonlyMap<string, ReadonlySet<string>>
   readonly automationIds: ReadonlySet<string>
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
@@ -349,6 +364,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         }
         // A superagent thread (POD-6675): its owner's alone, as ADR 9 D8 S2 says.
         if (entity === 'superagentThread') return 'per-user-state'
+        // A member's own access to a machine (POD-6644): their row alone.
+        if (entity === 'machineAccess') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
@@ -383,7 +400,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'workflowRevision' ||
           entity === 'workflowBinding' ||
           entity === 'workflowRun' ||
-          entity === 'subscription'
+          entity === 'subscription' ||
+          // A checkout on a machine (POD-6644): a registered root is readable
+          // with MANAGE or USE, a worktree only with USE (ADR 9), the
+          // `mayRead` arm below.
+          entity === 'checkout'
         )
           return 'personal'
         return null
@@ -444,6 +465,20 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }
         }
         if (ref.entity === 'session') return maySeeSession(userId, ref.entityId)
+        if (ref.entity === 'checkout') {
+          try {
+            const { machineId, path } = parseCheckoutRowId(ref.entityId)
+            if (prefetch.machineUsers.get(machineId)?.has(userId) === true) return true
+            // A root is a MANAGE fact too. A checkout whose row is gone (a
+            // removal) is read as a worktree: USE only, never a path leak.
+            return (
+              prefetch.checkoutRoots.get(machineId)?.has(path) === true &&
+              prefetch.machineManagers.get(machineId)?.has(userId) === true
+            )
+          } catch {
+            return false
+          }
+        }
         if (ref.entity === 'conversation') {
           if (!prefetch.resumeValues.has(ref.entityId)) return false
           const row = prefetch.sessionsByResumeValue.get(ref.entityId)
@@ -522,6 +557,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'userReadPosition') {
           try {
             return parseReadPositionRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'machineAccess') {
+          try {
+            return parseMachineAccessRowId(ref.entityId).userId
           } catch {
             return null
           }
@@ -630,6 +672,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const workflowRevisionIds = new Set<string>()
     const workflowBindingIds = new Set<string>()
     const workflowRunIds = new Set<string>()
+    const checkoutMachineIds = new Set<string>()
     for (const ref of refs) {
       if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
@@ -691,6 +734,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         workflowBindingIds.add(ref.entityId)
       } else if (ref.entity === 'workflowRun') {
         workflowRunIds.add(ref.entityId)
+      } else if (ref.entity === 'checkout') {
+        try {
+          checkoutMachineIds.add(parseCheckoutRowId(ref.entityId).machineId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
       }
     }
     // Effects resolve to their targets before the issue, session and grant reads,
@@ -842,7 +891,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // loader (POD-6189). Issue edges are not read: tasks are shared, so a legacy
     // issue grant decides nothing (POD-6288); nor session edges (POD-6283).
     const machineIds = [
-      ...new Set([...issues.values()].flatMap((row) => (row.machineId ? [row.machineId] : []))),
+      ...new Set([
+        ...[...issues.values()].flatMap((row) => (row.machineId ? [row.machineId] : [])),
+        ...checkoutMachineIds,
+      ]),
     ]
     const found: ReadonlyMap<
       string,
@@ -854,10 +906,54 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           async () => await store.grants.loadForResourcesOfKinds({ machine: machineIds }),
         )
     const machineCustodians = new Map<string, UserId>()
+    const machineUsers = new Map<string, Set<string>>()
+    const machineManagers = new Map<string, Set<string>>()
+    // Roots are read only for a batch that carries checkouts: one grouped read,
+    // plus the admins (who MANAGE every machine) when one of them is a root.
+    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> =
+      checkoutMachineIds.size === 0
+        ? new Map()
+        : await measure('visibility.checkout.rootPaths', async () =>
+            await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[]),
+          )
+    const rootAsked = refs.some((ref) => {
+      if (ref.entity !== 'checkout') return false
+      try {
+        const { machineId, path } = parseCheckoutRowId(ref.entityId)
+        return checkoutRoots.get(machineId)?.has(path) === true
+      } catch {
+        return false
+      }
+    })
+    const checkoutAdmins: ReadonlySet<string> = rootAsked
+      ? adminIds.size > 0
+        ? adminIds
+        : await measure('visibility.checkout.adminIds', async () => await store.users.activeAdminIds())
+      : new Set()
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
       if (custodian) machineCustodians.set(machineId, custodian)
+      // `use` and `manage` are explicit edges, and retained shares are inert
+      // once nobody holds custody (`machine-access.ts`); a revocation removes
+      // the edges. Administration grants MANAGE, never USE (D19.4b).
+      if (custodian && checkoutMachineIds.has(machineId)) {
+        machineUsers.set(
+          machineId,
+          new Set(edges.filter((edge) => edge.verb === 'use').map((edge) => edge.grantee)),
+        )
+        machineManagers.set(
+          machineId,
+          new Set([
+            ...edges.filter((edge) => edge.verb === 'manage').map((edge) => edge.grantee),
+            ...checkoutAdmins,
+          ]),
+        )
+      }
     }
+    // A machine nobody holds custody of: only the admins manage it.
+    for (const machineId of checkoutMachineIds)
+      if (!machineManagers.has(machineId) && checkoutAdmins.size > 0)
+        machineManagers.set(machineId, new Set(checkoutAdmins))
     return makeVisibilityState({
       issueIds,
       issues,
@@ -870,6 +966,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       resumeValues,
       sessionsByResumeValue,
       machineCustodians,
+      machineUsers,
       automationIds,
       automationOwners,
       automationRunIds,
@@ -879,6 +976,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       workflowFacts,
       workflowReadGrants,
       workflowAdminIds,
+      machineManagers,
+      checkoutRoots,
     })
   }
 
@@ -1143,12 +1242,29 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const machineIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
       ]
-      const [audiences, departures, custody] = await Promise.all([
+      // A member's access row moving is the edge for that machine's checkouts
+      // (POD-6644): gaining `use` hands them over, losing it takes them away.
+      const accessMachines = [
+        ...new Set(
+          refs.flatMap((ref) => {
+            if (ref.entity !== 'machineAccess') return []
+            try {
+              return [parseMachineAccessRowId(ref.entityId).machineId]
+            } catch {
+              return []
+            }
+          }),
+        ),
+      ]
+      const [audiences, departures, custody, checkoutPaths] = await Promise.all([
         issueIds.length === 0
           ? new Map<string, readonly string[]>()
           : deps.audiencesFor('issue', issueIds),
         laneDepartureEdges(orderIds),
         custodyEdges(machineIds),
+        accessMachines.length === 0
+          ? new Map<string, string[]>()
+          : store.checkouts.pathsOfMachines(accessMachines),
       ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
@@ -1156,6 +1272,23 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       return refs.map((ref): VisibilityEdge | null => {
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
         if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
+        if (ref.entity === 'machineAccess') {
+          let key: ReturnType<typeof parseMachineAccessRowId>
+          try {
+            key = parseMachineAccessRowId(ref.entityId)
+          } catch {
+            return null
+          }
+          const paths = checkoutPaths.get(key.machineId) ?? []
+          if (paths.length === 0) return null
+          return {
+            audience: [key.userId],
+            subjects: paths.map((path) => ({
+              entity: 'checkout' as const,
+              entityId: checkoutRowId(key.machineId, path),
+            })),
+          }
+        }
         if (ref.entity !== 'issueProjection') return null
         const audience = audiences.get(ref.entityId) ?? []
         if (audience.length === 0) return null

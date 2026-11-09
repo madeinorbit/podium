@@ -1,3 +1,5 @@
+import { machineFacts } from './machine-facts'
+import type { MachineModel } from './models'
 import { launchRecords } from './launch-records'
 import { isGone } from './lookup'
 import { here } from './lookup'
@@ -24,7 +26,19 @@ export function launchOptionViews(pool: MobxPool) {
       counts.repositoryBuilds++
       return launchRecords(pool).group(id)
     })
-    const machines = computed(() => headerEntities(pool).orders.get('machine')?.flatMap(id => here(pool.model('machine', id)) ?? []) ?? [...pool.tables.machine.keys()].flatMap(id => here(pool.model('machine', id)) ?? []), { equals: compareShallow })
+    // My machines as fact snapshots (POD-6644: the launch pickers are plain
+    // React and need a new value when one goes offline), in the explicit order,
+    // else by name: the records' own order is their keys'.
+    const machines = computed(() => {
+      const facts = (ids: Iterable<string>) => [...ids].flatMap(id => {
+        const model = here(pool.model('machine', id))
+        return model ? [machineFacts(model as MachineModel)] : []
+      })
+      const ordered = headerEntities(pool).orders.get('machine')
+      return ordered
+        ? facts(ordered)
+        : facts(pool.tables.machine.keys()).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    }, { equals: compareShallow })
     // My pinned repos, from my synced pin records (POD-6673).
     const pins = computed(() => ({ repos: pinnedIds(pool, 'repo') }))
     const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>) => launchRecords(pool).byId(repo.id, true)!
@@ -165,7 +179,6 @@ export class LaunchWorkPicker {
     const catalog = this.pool.row('commandCatalog', 'catalog')
     if (isGone(window)) return window
     if (isGone(catalog)) return catalog
-    if (window !== LOADING && window.reposLoaded === false) return LOADING
     // Before a source attaches, resident scans already answer nonempty choices.
     // An empty table answers only after authoritative membership has arrived.
     if (catalog === LOADING && !headerEntities(this.pool).orders.has('repository') && this.pool.tables.repository.size === 0) return LOADING

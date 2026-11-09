@@ -220,6 +220,11 @@
       "types": "./test-support/navigation.ts",
       "import": "./test-support/navigation.ts"
     },
+    "./test-support/machine-records": {
+      "@podium/source": "./test-support/machine-records.ts",
+      "types": "./test-support/machine-records.ts",
+      "import": "./test-support/machine-records.ts"
+    },
     "./test-support/keyed-inputs": {
       "@podium/source": "./test-support/keyed-inputs.ts",
       "types": "./test-support/keyed-inputs.ts",

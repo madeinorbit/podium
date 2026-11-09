@@ -7,7 +7,7 @@
  * gateway's already-tested client and daemon protocol layers.
  */
 
-import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
+import type { ServerReadiness, UserId, UserRole } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
@@ -215,7 +215,6 @@ interface SocketData {
   userRole?: UserRole
   credentialId?: string
   maintain?: () => Promise<boolean>
-  machines?: readonly MachineWire[]
   socket?: NativeGatewaySocket
 }
 
@@ -427,7 +426,6 @@ export function attachWebSockets(
       const id = wireClientSocket(socket, native.data.url, registry, {
         userId: native.data.userId,
         userRole: native.data.userRole,
-        machines: native.data.machines,
       })
       if (id === undefined) {
         clients.delete(socket)
@@ -571,18 +569,11 @@ export function attachWebSockets(
             headers: { connection: 'close' },
           })
         }
-        const machines =
-          userId === undefined || userRole === undefined
-            ? []
-            : await registry.modules.sessions.clientControl.prepareMachines(
-                userClientPrincipal('upgrade', userId, userRole),
-              )
         data = {
           kind: 'client',
           url: request.url,
           userId,
           userRole,
-          machines,
           ...(resolved?.maintain ? { maintain: resolved.maintain } : {}),
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }

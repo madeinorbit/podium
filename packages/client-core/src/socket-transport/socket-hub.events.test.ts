@@ -77,8 +77,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     agentExit: noop,
     sessionDraftChanged: noop,
     hostMetricsChanged: noop,
-    machinesChanged: noop,
-    worktreesChanged: noop,
     attentionEvent: noop,
     transcriptDelta: noop,
     turnPreview: noop,
@@ -234,12 +232,12 @@ describe('SocketHub subscription seam (on/emit)', () => {
     const { sock, hub } = setup()
     const a: number[] = []
     const b: number[] = []
-    const offA = hub.on('machines', (m) => a.push(m.length))
-    hub.on('machines', (m) => b.push(m.length))
+    const offA = hub.on('sessionDraft', (_id, text) => a.push(text.length))
+    hub.on('sessionDraft', (_id, text) => b.push(text.length))
     hub.connect()
     sock.open()
     offA()
-    sock.recv({ type: 'machinesChanged', machines: [] })
+    sock.recv({ type: 'sessionDraftChanged', sessionId: asSessionId('s1'), text: '' })
     expect(a).toEqual([])
     expect(b).toEqual([0])
   })

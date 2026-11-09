@@ -155,7 +155,7 @@ describe('header pool values', () => {
   }, 180_000)
 
   it('declares the machine identity and its relations; live readings are not tables (POD-5798)', () => {
-    expect(HEADER_SCHEMA.machine.source).toBe('engine:machines')
+    expect(HEADER_SCHEMA.machine.source).toBe('replica:machines')
     // Host samples, quota and the connection are LiveStore conditions.
     for (const live of ['hostMetric', 'quota', 'connection', 'history', 'lifecycle'])
       expect(Object.hasOwn(HEADER_SCHEMA, live), live).toBe(false)

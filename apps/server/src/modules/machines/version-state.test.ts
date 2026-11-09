@@ -106,8 +106,7 @@ describe('deriveVersionState', () => {
       store,
       hostMachineId: asMachineId('host'),
       channelTarget: () => (target === undefined ? {} : { version: target }),
-      clients: () => [],
-      machinesForPrincipal: async () => [],
+
     })
 
     expect((await service.listMachines())[0]).toMatchObject({
@@ -172,8 +171,7 @@ describe('per-machine harness versions', () => {
       instanceId: 'default',
       store,
       hostMachineId: id,
-      clients: () => [],
-      machinesForPrincipal: async () => [],
+
     })
     const mux = new DaemonMux({
       ports: { machines: service } as unknown as DaemonFeaturePorts,
@@ -222,8 +220,7 @@ describe('per-machine harness versions', () => {
         instanceId: 'default',
         store,
         hostMachineId: id,
-        clients: () => [],
-        machinesForPrincipal: async () => [],
+
       })
       expect(
         (await fresh.listMachines()).find((machine) => machine.id === id)?.harnessVersions,

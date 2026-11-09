@@ -16,9 +16,6 @@ installMobxWarnTrap({ errors: true })
 
 function stubRuntime() {
   const runtime = {
-    listIds: () => [],
-    listRow: () => undefined,
-    onList: () => () => {},
     readLocal: () => undefined,
     onLocals: () => () => {},
     access: { trpc: { settings: { get: { query: async () => ({}) } } } },

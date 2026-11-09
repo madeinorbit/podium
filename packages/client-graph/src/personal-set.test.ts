@@ -35,7 +35,7 @@ function feed() {
     },
   }
   const source = createRowSource(
-    { principal: { userId: VIEWER }, readLocal: () => [], onLocals: () => () => {} },
+    { principal: { userId: VIEWER } },
     replica,
     { pending: EMPTY_PENDING },
   )

@@ -23,7 +23,8 @@ export class DeviceModel extends EntityModel {
   }
 }
 export interface DeviceModel extends Readonly<MobileClientSession> {}
-/** Existing per-machine scan storage, now read through the pool's model identity. */
+/** One registered repository on one machine, with its worktrees: derived from
+ *  the `checkout` records (POD-6644), read through the pool's model identity. */
 export class RepositoryModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('repository', id, host)
@@ -153,9 +154,11 @@ registerModels(
       ['lastSeenAt'],
     ),
     repository: (() => {
+      // A registered root and its worktrees, derived from the `checkout`
+      // records (POD-6644, `shared/checkout-repositories.ts`).
       const scan = record(
         'GitRepositoryWire',
-        'engine:repos',
+        'replica:checkouts',
         'id',
         {
           path: 'string',
@@ -173,7 +176,7 @@ registerModels(
         ...scan,
         fields: {
           ...scan.fields,
-          id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'engine:repos' } },
+          id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'replica:checkouts' } },
         },
       }
     })(),

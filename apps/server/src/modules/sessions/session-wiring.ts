@@ -32,7 +32,6 @@ import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { HeadlessService } from '../superagent/headless'
 import { SessionActivityHistory } from './activity-history'
 import { SessionClientControl } from './client-control'
-import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
@@ -780,11 +779,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     ensureTranscript: (session) => bag.repository.ensureTranscript(session),
     state: bag.state,
     inbox,
-    machinesForPrincipal: async (principal) =>
-      await projectMachinesForPrincipal(
-        { machines },
-        userCommandPrincipal(asUserId(principal.user), principal.role),
-      ),
     browserOpen: bag.browserOpen,
     mutate: (sessionId, change, issueRelevant) =>
       bag.repository.mutateSessionView(sessionId, change, issueRelevant),

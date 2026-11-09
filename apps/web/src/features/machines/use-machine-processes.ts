@@ -1,4 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import { replicaAnswerMachines } from '@podium/client-graph/answer-refresh'
 import { MachineProcessesView } from '@podium/client-graph/machine-processes-view'
 import type { MachineId } from '@podium/model'
 import { reaction } from 'mobx'
@@ -8,8 +9,11 @@ import { useTabVisible } from '@/lib/use-polled-query'
 /** The view owns one demand-bound processes value; memory/reclaim readers share
  * the underlying topic key through the hub's reference count. */
 export function useMachineProcesses(machineId?: MachineId) {
-  const { hub } = useStoreHandle()
-  const view = useMemo(() => new MachineProcessesView(hub, machineId), [hub, machineId])
+  const { hub, replica } = useStoreHandle()
+  const view = useMemo(
+    () => new MachineProcessesView(hub, replicaAnswerMachines(replica), machineId),
+    [hub, replica, machineId],
+  )
   const visible = useTabVisible()
   useEffect(() => {
     if (visible) view.open()

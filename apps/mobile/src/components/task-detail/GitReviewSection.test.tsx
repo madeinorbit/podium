@@ -41,7 +41,7 @@ describe('GitReviewSection accessibility', () => {
     )
     fireEvent.click(await screen.findByLabelText('remote.ts, modified'))
     expect(await screen.findByLabelText('Added line: current')).toBeTruthy()
-    await act(async () => view.emit('machines', []))
+    await act(async () => view.setMachines([]))
     fireEvent.click(screen.getByLabelText('Refresh changed files'))
     await waitFor(() => expect(status).toHaveBeenCalledTimes(2))
     expect(owners.size).toBe(1)

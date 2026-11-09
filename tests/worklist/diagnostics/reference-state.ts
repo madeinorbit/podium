@@ -4,7 +4,7 @@ import type { ReplicaRows } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { PendingRows } from '@podium/client-graph/shared/row-source'
 import type { IssueProjection } from '@podium/model'
-import { dedupeSessionsByResume, type SessionMeta } from '@podium/model'
+import { dedupeSessionsByResume, repositoriesFromCheckouts, type SessionMeta } from '@podium/model'
 import { runInAction } from 'mobx'
 
 export type ReferenceState<
@@ -14,6 +14,10 @@ export type ReferenceState<
   Omit<{ [K in keyof ReplicaRows]: ReplicaRows[K][] }, 'sessions' | 'repos' | 'machines'> & {
     coarseNow: number
     sessions: SessionView[]
+    /** Test inputs and oracle answers in the listing shape (POD-6644): the
+     *  registered repositories (from checkout records) and my machines. */
+    repos: import('@podium/model').CheckoutRepository[]
+    machines: import('@podium/model').MachineFacts[]
     pendingSpawnIds: ReadonlySet<string>
     pendingSpawnPrompts: Readonly<Record<string, string>>
   }
@@ -105,10 +109,32 @@ export function referenceState<
       }),
     )
     const prompts = log?.spawnPrompts ?? new Map<string, string>()
+    // Machines and repositories are records (POD-6644): my machines joined with
+    // my access rows, and the repositories derived from the checkouts.
+    const live = (
+      runtime as {
+        live?: {
+          conditionOf(id: string): { known: boolean; value?: { online: boolean } } | undefined
+        }
+      }
+    ).live
+    const access_ = new Map(replica.rows('machineAccess').map((row) => [String(row.machineId), row]))
+    const machines = replica.rows('machines').flatMap((machine) => {
+      const mine = access_.get(String(machine.id))
+      if (!mine) return []
+      // Online and presence are the LiveStore's condition (unknown reads offline).
+      const reading = live?.conditionOf(String(machine.id))
+      const condition = reading?.known ? reading.value : undefined
+      const { since: _since, ...presence } = (condition ?? { online: false }) as Record<string, unknown>
+      return [{ ...mine, ...machine, ...presence, id: machine.id, online: condition?.online === true }]
+    })
+    const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
     return {
       ...access,
       coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(),
       ...records,
+      repos,
+      machines,
       sessions,
       pendingSpawnIds: new Set(prompts.keys()),
       pendingSpawnPrompts: Object.fromEntries(prompts),

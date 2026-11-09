@@ -466,7 +466,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const { setSelectedIssueId, setSuperOpen, setPaletteOpen, setView, uiState, trpc } =
     useShellActions()
   const {
-    reposLoaded,
     superOpen,
     paletteOpen,
     view,
@@ -478,6 +477,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     settled: chromeSettled,
   } = useShellChrome()
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
+  // Repositories and worktrees are records (POD-6644): they are here once the
+  // replica holds a synced copy, saved or fresh. A warm launch has one at once;
+  // a cold one waits for the first bootstrap to install.
+  const reposLoaded = !sync.firstSync || sync.hasInstalled || sync.phase === 'ready'
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the
   // sheet returns you to the one you actually came from rather than always
@@ -882,15 +885,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     />
   )
 
-  // THE FIRST-SYNC GATE (POD-1249). `reposLoaded` alone is the wrong condition
-  // on a cold replica: it flips when the discovery tRPC call answers, which is
-  // unrelated to the feed bootstrap — the old gate dropped the loader while the
-  // whole world was still downloading and left a fully-chromed empty shell. A
-  // cold launch therefore also waits for the bootstrap to INSTALL, and shows the
-  // detailed sync screen instead of the splash; warm launches keep the splash
-  // for the enrichment beat exactly as before.
-  const firstSyncPending = sync.firstSync && !sync.hasInstalled && sync.phase !== 'ready'
-  if (!reposLoaded || firstSyncPending) {
+  // THE FIRST-SYNC GATE (POD-1249). A cold launch waits for the bootstrap to
+  // INSTALL, and shows the detailed sync screen instead of the splash. The
+  // repositories are records in that bootstrap (POD-6644), so there is no
+  // separate repository read to wait for.
+  if (!reposLoaded) {
     return (
       <>
         {menuHost}

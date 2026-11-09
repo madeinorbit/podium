@@ -2,7 +2,6 @@ import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { checkPreferences } from './preference-check'
@@ -25,8 +24,21 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   let pending = Number(catalog === LOADING) + Number(window === LOADING) + setup.pending
   const rows = (values: readonly (readonly [string, object])[]): CheckRow[] =>
     values.map(([id, value]) => ({ id, fields: { value } }))
-  const machineRows = rows(state.machines.map((row) => [row.id, row]))
-  const repositoryRows = rows(state.repos.map((row) => [settingsRepositoryId(row), row]))
+  // What Settings shows (POD-6644): a machine's name, and a repository's path,
+  // kind and worktree paths. The pool's rows are records (a machine joined with
+  // my access row, a repository derived from its checkouts on its machine).
+  const machineView = (row: { id: string; name: string }) => ({ id: row.id, name: row.name })
+  const repositoryView = (row: {
+    path: string
+    kind: string
+    worktrees?: readonly { path: string }[]
+  }) => ({
+    path: row.path,
+    kind: row.kind,
+    worktrees: (row.worktrees ?? []).map((tree) => tree.path),
+  })
+  const machineRows = rows(state.machines.map((row) => [row.id, machineView(row)]))
+  const repositoryRows = rows(state.repos.map((row) => [row.path, repositoryView(row)]))
   const expected: CheckSection[] = [
     { key: 'machines', fields: {}, rows: machineRows },
     { key: 'repositories', fields: {}, rows: repositoryRows },
@@ -47,7 +59,14 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     ids.map((id) => {
       const row = omitGone(pool.row(entity, id))
       if (row === LOADING) pending++
-      return { id, pending: row === LOADING, fields: row === LOADING || !row ? {} : { value: row } }
+      const value =
+        row === LOADING || !row
+          ? undefined
+          : entity === 'settingsMachine'
+            ? machineView(row as { id: string; name: string })
+            : repositoryView(row as { path: string; kind: string })
+      const key = value && 'path' in value ? value.path : id
+      return { id: key, pending: row === LOADING, fields: value ? { value } : {} }
     })
   const actual: CheckSection[] = [
     {

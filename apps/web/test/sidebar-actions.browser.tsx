@@ -62,11 +62,8 @@ function Fixture() {
     runtime = owner
     pool = graph
     const stop = owner.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
-    void referenceState(owner)
-      .refreshRepos()
-      .then(() => {
-        ready = graph !== null
-      })
+    // Repositories are in the fixture's checkout records (POD-6644).
+    ready = graph !== null
     return stop
   }, [owner, graph])
   return (

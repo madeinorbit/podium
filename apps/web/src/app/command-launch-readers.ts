@@ -3,7 +3,7 @@ import type { commandLaunchViews } from '@podium/client-graph/command-launch-vie
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { RepoView } from '@podium/client-core/values'
-import { agentCapabilityRejectionForSelection, onlineMachinesForRepoOrClone, type MachineWire } from '@podium/model/browser'
+import { agentCapabilityRejectionForSelection, onlineMachinesForRepoOrClone, type MachineFacts } from '@podium/model/browser'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 // Shared with the structural work harness: measure the app's actual consumers.
@@ -16,7 +16,7 @@ function launchOptions(pool: MobxPool) {
 }
 export const readLaunchOptions = launchOptions
 export const readLaunchOrigin = (pool: MobxPool, path: string, machineId?: string) => launchOptions(pool)?.origin(path, machineId) ?? LOADING
-export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {
+export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineFacts[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {
   return Object.fromEntries(kinds.map(kind => {
     if (!repo) return [kind, undefined]
     const eligible = onlineMachinesForRepoOrClone(repo, machines)

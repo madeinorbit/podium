@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { type OutcomeIssueFacts, type SessionIssueOutcome, sessionIssueOutcome } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
-import { asIssueId, type IssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
+import { asIssueId, type IssueId, type MachineFacts, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { omitGone } from './lookup'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
@@ -11,7 +11,7 @@ import type { SessionPaneRows } from './session-pane-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 import { worklistView } from './worklist/view-model'
 
-const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {}, reposLoaded: false }
+const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {} }
 
 /** The session pane's rules over one shared session: what the pane stamps and
  * shows of it. Reads the session's own scalar fields, so a heartbeat (a new
@@ -96,7 +96,7 @@ export class SessionPanes {
     const value = paneWindow(this.pool)
     return !value || value === LOADING ? EMPTY_WINDOW : value
   }
-  machines(): MachineWire[] { return paneMachines(this.pool) }
+  machines(): MachineFacts[] { return paneMachines(this.pool) }
   spawnConfirmed(id: string): boolean { return paneSpawnConfirmed(this.pool, id) }
   hasSessions(): boolean { return paneHasSessions(this.pool) }
 

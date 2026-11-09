@@ -72,7 +72,7 @@ async function publishMachines(
   // A scope change also refreshes repositories. Its answer must agree with the
   // pushed roster rather than restoring the fixture's original machine state.
   fixture.machines = machines
-  await act(async () => { app.emit('machines', machines) })
+  await act(async () => { app.setMachines(machines) })
 }
 
 it('publishes one unchanged plan even when its parent rebuilds the configuration', async () => {

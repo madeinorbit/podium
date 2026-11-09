@@ -5,7 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { emptyWorkspace, missionRootFor, openTab, workspaceKeyFor } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { liveFixture } from '@podium/client-graph/live-fixture'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
@@ -43,7 +43,7 @@ export function shellFixture(count = 40) {
   let state = { view: 'workspace', paneA: sessions[0]!.sessionId, selectedIssueId: issues[1]!.id, selectedWorktree: '/synthetic/project/w1', reposLoaded: true,
     superOpen: true, paletteOpen: true, autoContinuePromptSessionId: sessions[0]!.sessionId, coarseNow: SHELL_NOW,
     fileTabs, workspaces: { [workspace.key]: workspace }, sessions, shipOrders, shipLanes,
-    machines: [{ id: machineId, name: 'Synthetic host', hostname: 'synthetic', online: true, lastSeenAt: stamp }],
+    machines: [{ id: machineId, name: 'Synthetic host', hostname: 'synthetic', online: true, lastSeenAt: stamp, use: 'granted' }],
     repos: [{ repoId, path: '/synthetic/project', machineId, kind: 'repository', branch: 'main', worktrees: [{ path: '/synthetic/project/w1', branch: 'issue/synthetic-1' }] }],
     workspaceKey: () => { const selected = issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt); return workspaceKeyFor({ missionRootId: selected ? missionRootFor(issues, selected.id)?.id : null, issueId: state.selectedIssueId, worktreePath: state.selectedWorktree }) },
   } as unknown as Store
@@ -68,17 +68,16 @@ export function shellFixture(count = 40) {
       ...[...headerEntities(pool).tables.machine.keys()].filter(id => !keepMachines.has(id)).map(id => ({ kind: 'machine' as const, id, value: undefined })),
       ...[...headerEntities(pool).tables.shipOrder.keys()].filter(id => !keepOrders.has(id)).map(id => ({ kind: 'shipOrder' as const, id, value: undefined })),
       ...state.repos.map(value => ({ kind: 'repository' as const, id: JSON.stringify([value.machineId ?? '', value.path]), value })),
-      ...state.machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
+      ...(seedFixtureMachines(pool, state.machines) as never[]),
       ...state.shipOrders.map(value => ({ kind: 'shipOrder' as const, id: value.id, value })),
     ])
     headerEntities(pool).order('repository', state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
     headerEntities(pool).order('machine', state.machines.map(value => value.id)); headerEntities(pool).order('shipOrder', state.shipOrders.map(value => value.id))
   }
   syncHeader()
-  // Online is a LiveStore condition (ADR 12 D1, POD-5798), not a record field:
-  // give the pool the same reading the reference machine row carries.
+  // Online and presence are a LiveStore condition (ADR 12 D1, POD-5798), not
+  // record fields: syncHeader wrote the reference machine's facts there.
   const live = liveFixture(pool, () => SHELL_NOW)
-  live.online(machineId, true)
   const source = new ShellSource(runtime)
   pool.sources.register(SHELL_ENTITIES, source)
   return { issues, sessions, fileTabs, shipOrders, shipLanes, pool, live, source, loads, listeners, addressed,

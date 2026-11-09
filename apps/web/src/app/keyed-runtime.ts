@@ -1,4 +1,3 @@
-import type { KeyedInputs, KeyedListName, KeyedListRow, LocalKey } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { SessionId } from '@podium/model/browser'
@@ -7,44 +6,6 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import type { Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 import type { Trpc } from './trpc'
-
-/** The provider's existing runtime, with its keyed publication surface. */
-function useInputs(): KeyedInputs {
-  return useStoreHandle<Trpc>() as unknown as KeyedInputs
-}
-
-export function useRuntimeLocal<K extends LocalKey>(
-  key: K,
-): import('@podium/client-core/engine').EngineState[K] {
-  const inputs = useInputs()
-  const subscribe = useCallback(
-    (notify: () => void) => inputs.onLocals([key], notify),
-    [inputs, key],
-  )
-  const read = useCallback(() => inputs.readLocal(key), [inputs, key])
-  return useSyncExternalStore(subscribe, read)
-}
-
-/** Discovery/window lists arrive by id; retain the array while its rows agree. */
-export function useRuntimeList<N extends KeyedListName>(name: N): KeyedListRow<N>[] {
-  const inputs = useInputs()
-  const view = useMemo(() => {
-    let previous: KeyedListRow<N>[] = []
-    return {
-      subscribe: (notify: () => void) => inputs.onList(name, notify),
-      read: () => {
-        const next = inputs.listIds(name).flatMap((id) => {
-          const row = inputs.listRow(name, id)
-          return row === undefined ? [] : [row]
-        })
-        if (next.length !== previous.length || next.some((row, at) => row !== previous[at]))
-          previous = next
-        return previous
-      },
-    }
-  }, [inputs, name])
-  return useSyncExternalStore(view.subscribe, view.read)
-}
 
 /** Identity-stable actions/services acquired from their runtime owner. */
 export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pick<Store, K> {
