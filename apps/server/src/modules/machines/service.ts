@@ -24,6 +24,7 @@ import {
   type MachineRequirement,
   type MachineServiceAssignment,
   type MachineServiceReport,
+  type SyncedServiceReport,
   type MachineUseDecision,
   type MachineWire,
   machineRejection,
@@ -1924,12 +1925,13 @@ export class MachinesService {
           serverMoveSupported:
             m.wireSchemaDigest === wireSchemaDigest() &&
             m.deliveryCaps.includes(SERVER_MOVE_CAPABILITY),
-          ...(m.serviceReport ? { services: m.serviceReport } : {}),
+          // No heartbeat times on a synced record: they moved every few seconds
+          // and rewrote every member's access row (see SyncedServiceReport).
+          ...(m.serviceReport ? { services: withoutObservedAt(m.serviceReport) } : {}),
           serviceAssignment: m.serviceAssignment,
           components: m.components ?? [],
           deliveryCaps: m.deliveryCaps,
           wireSchemaDigest: m.wireSchemaDigest,
-          buildReportedAt: m.buildReportedAt,
           targetUnavailableReason: targetUnavailableReason ?? null,
         },
         use: {
@@ -2423,4 +2425,10 @@ export class MachinesService {
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     return id
   }
+}
+
+function withoutObservedAt(report: MachineServiceReport): SyncedServiceReport {
+  const { observedAt: _server, ...server } = report.server
+  const { observedAt: _agents, ...agentExecution } = report.agentExecution
+  return { ...report, server, agentExecution }
 }

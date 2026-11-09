@@ -55,6 +55,14 @@ import {
   UpdateChannel,
 } from './machine'
 
+/** {@link MachineServiceReport} as a synced record carries it: no heartbeat times. */
+const SyncedServiceStatus = MachineServiceReport.shape.server.omit({ observedAt: true })
+export const SyncedServiceReport = MachineServiceReport.extend({
+  server: SyncedServiceStatus,
+  agentExecution: SyncedServiceStatus,
+})
+export type SyncedServiceReport = z.infer<typeof SyncedServiceReport>
+
 // ---------------------------------------------------------------------------
 // machine: display facts, every member
 // ---------------------------------------------------------------------------
@@ -162,8 +170,13 @@ export const MachineAccessWire = z.object({
    */
   serverMoveSupported: z.boolean().optional(),
   // Services and transport (SEE)
-  /** The last supervisor report, kept while offline. */
-  services: MachineServiceReport.optional(),
+  /**
+   * The last supervisor report, kept while offline. Without each status's
+   * `observedAt`: that time moves on every heartbeat, and on a synced record it
+   * rewrote every member's access row every few seconds, which re-sent their
+   * checkouts and restarted cold clients' bootstraps.
+   */
+  services: SyncedServiceReport.optional(),
   /** The server's intent for what the machine runs. */
   serviceAssignment: MachineServiceAssignment.optional(),
   /** Desired services as a list (compatibility projection of the assignment). */

@@ -5896,6 +5896,7 @@ type Output_setup_complete = {
     uiUrl?: string | undefined;
     updateChannel?: "dev" | "edge" | "stable" | undefined;
     updateFeed?: string | undefined;
+    updateFeedPolling?: boolean | undefined;
     updateScope?: "all" | "fleet-only" | undefined;
     workspaceId?: string | undefined;
 };
@@ -5998,6 +5999,10 @@ type Output_setup_provenance = {
         source: SettingSource;
     };
     updateFeed: {
+        env?: string;
+        source: SettingSource;
+    };
+    updateFeedPolling: {
         env?: string;
         source: SettingSource;
     };
