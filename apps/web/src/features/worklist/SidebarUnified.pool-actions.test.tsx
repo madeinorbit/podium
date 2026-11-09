@@ -817,23 +817,30 @@ describe('real pool row mutations and receipts', () => {
     await act(async () => {
       await drag.options!.onDrop({ sourceScope, targetScope, movedId, order })
     })
-    const sort = await request('records.issueProjection.edit', movedId)
-    const pin = await request(`records.pin.${pinned ? 'create' : 'remove'}`, issuePinId(movedId))
-    expect(requests).toHaveLength(2)
+    const sort = await request('issues.update', movedId)
+    // The compatibility outbox sends one promise at a time. Both optimistic
+    // records are present before either deferred transport is answered.
+    expect(runtime.outbox.pending()).toHaveLength(2)
+    expect(runtime.outbox.pending()).toContainEqual(expect.objectContaining({
+      kind: pinned ? 'recordCreate' : 'recordRemove',
+      input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),
+    }))
     expect(sort.input).toMatchObject({
       id: movedId,
       patch: { sortKey: expect.any(String) },
     })
     expect(sort.input['patch']).not.toHaveProperty('pinned')
+    expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
+    await settle()
+    await refuse(sort)
+    const pin = await request(`records.pin.${pinned ? 'create' : 'remove'}`, issuePinId(movedId))
+    expect(requests).toHaveLength(2)
     expect(pin.input).toMatchObject({
       id: issuePinId(movedId),
       ...(pinned
         ? { fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: movedId } }
         : {}),
     })
-    expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
-    await settle()
-    await refuse(sort)
     await refuse(pin)
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(!pinned)
     expect(sidebarView(pool!).sections().pinnedIds).toEqual(beforePinned)

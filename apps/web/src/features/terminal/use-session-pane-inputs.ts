@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
@@ -51,7 +52,10 @@ export function usePaneSpawnConfirmed(id: SessionId) {
   return useWorklistPoolProjection(read, false)
 }
 export function usePanePanelModes() {
-  return usePoolPaneWindow().panelMode
+  // UiStore owns this choice. The session row can become available before
+  // the optional pane-window source installs; its empty fallback must never
+  // replace a saved choice while that source is loading.
+  return useUiValue('panelMode')
 }
 export interface DockPaneInputs {
   mapped: SessionId | undefined

@@ -271,13 +271,16 @@ describe('memory chip is machine-aware', () => {
 
   it('keeps memory process labels for addressed sessions and unknown ids', async () => {
     hibernationEnabled = true
-    hibernationMemoryPct = 30
+    // The producer admits thresholds from 50 through 95; put this sample
+    // above a valid threshold so the active-pressure explainer is exercised.
+    hibernationMemoryPct = 50
     sessions = [
       agentSession('known-session', 'working'),
       { ...agentSession('parked-session', 'idle'), status: 'hibernated' },
     ]
     memoryBreakdown.mockResolvedValue({
       ...breakdownFor('vmi'),
+      memory: { ...breakdownFor('vmi').memory, availableBytes: 8e9 },
       agents: [
         { sessionId: 'known-session', bytes: 1e9, processCount: 2 },
         { sessionId: 'missing-session', bytes: 1e8, processCount: 1 },

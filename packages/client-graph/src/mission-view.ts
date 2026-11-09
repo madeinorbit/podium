@@ -696,6 +696,7 @@ export class MissionViewReader {
     const readAt = this.pool.readCursor(id) ?? null, readTime = Date.parse(readAt ?? '')
     return menuIssueOverlay(row, {
       readAt,
+      pinned: this.facts(id).pinned,
       unread: !row.deletedAt && (!Number.isFinite(readTime) || Date.parse(row.updatedAt) > readTime || (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
       ...this.pool.queries.issueChildCounts(id),
       sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },

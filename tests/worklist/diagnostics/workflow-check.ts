@@ -1,7 +1,7 @@
 import type { ReferenceState as Store } from './reference-state'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
 import type { WorkflowRunWire } from '@podium/protocol'
-import { MachineWire } from '@podium/model'
+import { MachineProjection, MachineWire } from '@podium/model'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineModel } from '@podium/client-graph/models'
@@ -9,6 +9,9 @@ import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 import { modelFields } from './model-fields'
+
+// Preserve every legacy field and include the current shared record fields.
+const machineFields = [...new Set([...Object.keys(MachineWire.shape), ...Object.keys(MachineProjection.shape)])]
 
 /** RPC rows are borrowed from the caller's sole service. No query, subscription
  * or retained RPC replica is installed by this on-demand comparison. */
@@ -41,7 +44,7 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
     { key: 'placement', fields: Object.fromEntries(Object.entries(options).map(([key, machines]) => [key,
-      machines.map((machine: MachineModel) => modelFields('machine', machine, Object.keys(MachineWire.shape))),
+      machines.map((machine: MachineModel) => modelFields('machine', machine, machineFields)),
     ])), pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
