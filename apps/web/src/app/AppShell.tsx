@@ -14,6 +14,7 @@ import { chordLabel } from '@/features/chat/use-composer-chord'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import {
   hasActivationState,
+  hasStaleActivation,
   isActivationEligible,
   shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
@@ -608,6 +609,18 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     await vpsActivation.persist(next)
     navigateActivation(next.route)
   }
+
+  // A setup flag or URL step left on an instance that already has sessions is
+  // stale (see isActivationEligible): retire it, so the device heals itself.
+  const staleActivation = hasStaleActivation({
+    loaded: reposLoaded,
+    sessionCount,
+    setupInProgress,
+    hasActivationCheckpoint,
+  })
+  useEffect(() => {
+    if (staleActivation) clearActivation()
+  }, [staleActivation, clearActivation])
 
   const completeActivation = (): void => {
     clearActivation()

@@ -3,6 +3,7 @@ import {
   activationUrl,
   DEFAULT_ACTIVATION_STATE,
   hasActivationState,
+  hasStaleActivation,
   isActivationEligible,
   projectIntakeReturnRoute,
   readActivationState,
@@ -99,6 +100,27 @@ describe('activation route persistence', () => {
     expect(
       isActivationEligible({ ...settled, sessionCount: 1, hasActivationCheckpoint: true }),
     ).toBe(true)
+  })
+
+  it('lets a stale setup flag go once the instance has sessions, and retires it', () => {
+    // Seen 2026-11-09: a broken build read placeholder zero counts, opened setup
+    // and saved the flag; every later load of a populated instance stayed in setup.
+    const populated = {
+      loaded: true,
+      repoCount: 52,
+      sessionCount: 400,
+      setupInProgress: true,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(isActivationEligible(populated)).toBe(false)
+    expect(hasStaleActivation(populated)).toBe(true)
+    // A URL step is authoritative (the first-task step has a session).
+    expect(isActivationEligible({ ...populated, hasActivationCheckpoint: true })).toBe(true)
+    expect(hasStaleActivation({ ...populated, hasActivationCheckpoint: true })).toBe(false)
+    // Before any session the flag still holds setup (POD-1200).
+    expect(isActivationEligible({ ...populated, sessionCount: 0 })).toBe(true)
+    expect(hasStaleActivation({ ...populated, sessionCount: 0 })).toBe(false)
   })
 
   it('keeps unfinished setup on screen once its first step has created a repo', () => {
