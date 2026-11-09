@@ -25,9 +25,9 @@ import type { MutationId } from '@podium/model'
 import type { OutboxRejectionReason, RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../../api'
 import { OutboxSettlements } from '../../conversation/sends'
-import type { StoreNotices } from '../../engine/types'
 import type { LiveFrameQueue } from '../../live/frame-queue'
 import type { LiveStore } from '../../live/live-store'
+import type { NoticeSink } from '../../notices'
 import type { OnlineEvents, OutboxEntry } from '../../outbox'
 import type { Replica } from '../../replica/kernel/facade'
 import {
@@ -84,7 +84,7 @@ export interface OutboxServiceOptions {
   readonly live: LiveStore
   /** The root's frame queue: the counts go in with every other reading. */
   readonly frames: LiveFrameQueue
-  readonly notices: StoreNotices
+  readonly notices: NoticeSink
   /** When the connection's health returns, the queue drains. */
   readonly connection: OutboxReconnectSignal
   /** False for a local-only boot: the queue keeps everything and sends nothing. */

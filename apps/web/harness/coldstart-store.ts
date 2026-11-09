@@ -148,6 +148,6 @@ const store = {
   },
 }
 
-export function useRuntimeSelector<T>(selector: Selector<T>): T {
+export function readFixture<T>(selector: Selector<T>): T {
   return selector(store)
 }

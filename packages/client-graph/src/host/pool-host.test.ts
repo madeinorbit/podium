@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
 import { createPoolHost } from './pool-host'

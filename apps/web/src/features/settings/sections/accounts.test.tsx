@@ -99,7 +99,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => storeSnapshot
   return {
     useStore,
-    useRuntimeSelector: useTestStoreSelector,
+    readFixture: useTestStoreSelector,
   }
 })
 

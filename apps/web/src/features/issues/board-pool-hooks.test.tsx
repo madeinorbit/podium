@@ -26,7 +26,7 @@ const state = vi.hoisted(() => ({
   update: vi.fn(async () => {}),
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (store: object) => unknown) =>
+  readFixture: (read: (store: object) => unknown) =>
     read({
       get sessions() {
         state.sessionReads()

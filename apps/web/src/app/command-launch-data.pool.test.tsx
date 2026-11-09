@@ -41,7 +41,7 @@ it('declares launch and palette demand after attachment, follows window updates 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+          fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
           let detach: (() => void) | undefined
           attach = () => {
             detach = attachWorklistPool(runtime, fatal)
@@ -90,7 +90,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   expect(palette.paletteOpen).toBe(false)
   expect(palette.selectedIssueId).toBeNull()
   expect(actions.setPaletteOpen).toBe(owner.palette.setOpen)
-  expect(actions.updateIssue).toBe(owner.root.commands.issues.update)
+  expect(actions.updateIssue).toBe(owner.commands.issues.update)
 
   storeStats.enable()
   storeStats.reset()
@@ -122,7 +122,7 @@ it('mounts the actual closed palette without issue/session demand at 1x/4x, then
           networkEnabled={false}
           onFatalError={fatal}
           attachRuntime={(runtime) => {
-            fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+            fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
             return attachWorklistPool(runtime, fatal)
           }}
         >

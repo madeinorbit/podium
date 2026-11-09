@@ -7,9 +7,9 @@ import type { SessionId } from '@podium/model/browser'
 
 // @vitest-environment happy-dom
 
-import type { NavigationProvider } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
+import type { NavigationProvider } from '@podium/client-core/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
 import { screenOptions } from '@podium/client-graph/host'
@@ -71,7 +71,7 @@ const state = vi.hoisted(() => ({
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })
 const handoffLogs = new Map<SessionId, TranscriptLog>()
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state),
+  readFixture: (read: (store: typeof state) => unknown) => read(state),
   useSessionDraft: () => '',
 }))
 vi.mock('@podium/client-core/react', async (original) => {
@@ -263,7 +263,7 @@ describe('rendered mission pane parity', () => {
       pool.dispose()
       pool = handle.pool
       state.pool = pool
-      state.replica = ctx.engine.root.replica
+      state.replica = ctx.engine.replica
       state.selectedIssueId = id
       state.paneA = 's0'
       const errors = vi.spyOn(console, 'error')

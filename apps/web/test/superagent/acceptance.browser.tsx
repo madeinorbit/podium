@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -58,7 +58,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => errors.push(error)}
     attachRuntime={(owner) => {
-      data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+      data.bindHub(owner.services.connection.hub, undefined, owner.live)
       owner.readPosition.replace({
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })

@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'

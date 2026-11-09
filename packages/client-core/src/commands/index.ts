@@ -63,3 +63,5 @@ export function createCommands<TApi extends PodiumClientApi>(
     },
   }
 }
+
+export type { SpawnPlaceholderEvent } from './spawn-events'

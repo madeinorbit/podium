@@ -619,7 +619,7 @@ describe('SuperagentScreen chrome', () => {
     expect(requestFrame).toHaveBeenCalledTimes(4)
     view.unmount()
     // A warm model outlives its screen; principal destruction cancels its frame.
-    view.runtime.destroy()
+    view.runtime.dispose()
     expect(cancelFrame).toHaveBeenCalledWith(4)
   })
 

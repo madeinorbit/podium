@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { useClientRuntime } from '@podium/client-core/react'
 import {
@@ -11,6 +10,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asIssueId,

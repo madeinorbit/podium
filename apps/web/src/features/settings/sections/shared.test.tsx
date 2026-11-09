@@ -1,18 +1,18 @@
-import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
-import { asAccountId, asMachineId } from '@podium/model'
-import type { MachineModel, MobxPool } from '@podium/client-graph'
-import { SettingsMachines } from '../settings-machine-readers'
 import type { ModelCatalogState } from '@podium/client-core/react'
-import type { Trpc } from '@/app/trpc'
-import { useState } from 'react'
-import { observable, runInAction } from 'mobx'
-import * as modelCatalogHooks from '@/lib/use-model-catalog'
-import { saveSettingsAsCommands } from '../save-settings'
+import type { MachineModel, MobxPool } from '@podium/client-graph'
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
+import { asAccountId, asMachineId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { nativeAccountId, normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Trpc } from '@/app/trpc'
+import * as modelCatalogHooks from '@/lib/use-model-catalog'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import { saveSettingsAsCommands } from '../save-settings'
+import { SettingsMachines } from '../settings-machine-readers'
 import { accountOptions, managedCodingHarnesses, providerLabel, RoleBackendEditor } from './shared'
 
 const fleet = vi.hoisted(() => ({
@@ -35,7 +35,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({ trpc: {} })
   return {
     useStore,
-    useRuntimeSelector: (selector: (store: unknown) => unknown) => selector(useStore()),
+    readFixture: (selector: (store: unknown) => unknown) => selector(useStore()),
   }
 })
 
@@ -319,32 +319,56 @@ describe('managed pairing reads descriptor.provider', () => {
   })
 })
 
-
 it('accepts a typed default model in Settings when no live list is reported', async () => {
   const onChange = vi.fn()
   // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
-  render(<RoleBackendEditor role="coding" backend={{ accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' }} accounts={[]} onChange={onChange} />)
+  render(
+    <RoleBackendEditor
+      role="coding"
+      backend={{ accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' }}
+      accounts={[]}
+      onChange={onChange}
+    />,
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.change(await screen.findByPlaceholderText('Model name…'), { target: { value: 'managed-custom-model' } })
+  fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
+    target: { value: 'managed-custom-model' },
+  })
   fireEvent.click(screen.getByRole('menuitem', { name: /Use “managed-custom-model”/ }))
-  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ model: 'managed-custom-model', effort: 'auto' }))
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({ model: 'managed-custom-model', effort: 'auto' }),
+  )
 })
-
 
 it('shows stored effort inert for a Settings harness with no reported levels', () => {
   // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
-  render(<RoleBackendEditor role="coding" backend={{ accountId: nativeAccountId('cursor'), model: 'stored', effort: 'high' }} accounts={[]} onChange={vi.fn()} />)
+  render(
+    <RoleBackendEditor
+      role="coding"
+      backend={{ accountId: nativeAccountId('cursor'), model: 'stored', effort: 'high' }}
+      accounts={[]}
+      onChange={vi.fn()}
+    />,
+  )
   const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(pill.disabled).toBe(true)
   expect(pill.textContent).toContain('High')
 })
 
-
 function warningMachine(id: string, name: string, patch: Partial<MachineModel> = {}): MachineModel {
-  return observable({ id: asMachineId(id), name, use: 'granted', online: true, ...patch }) as MachineModel
+  return observable({
+    id: asMachineId(id),
+    name,
+    use: 'granted',
+    online: true,
+    ...patch,
+  }) as MachineModel
 }
 
-function reportedCodex(model = 'gpt-5.4', status: ModelCatalogState['status'] = 'ready'): ModelCatalogState {
+function reportedCodex(
+  model = 'gpt-5.4',
+  status: ModelCatalogState['status'] = 'ready',
+): ModelCatalogState {
   return { catalog: { codex: [{ value: model, label: model }] }, status }
 }
 
@@ -352,7 +376,12 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
   function show(model = 'gpt-5.5', effort = 'auto') {
     return render(
       // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
-      <RoleBackendEditor role={role} backend={{ accountId: nativeAccountId('codex'), model, effort }} accounts={[]} onChange={vi.fn()} />,
+      <RoleBackendEditor
+        role={role}
+        backend={{ accountId: nativeAccountId('codex'), model, effort }}
+        accounts={[]}
+        onChange={vi.fn()}
+      />,
     )
   }
 
@@ -365,8 +394,12 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
     show()
     const warning = screen.getByRole('status')
     expect(warning.textContent).toBe('Not offered on Studio Mac')
-    expect(warning.previousElementSibling?.textContent).toContain(role === 'coding' ? 'Model' : 'Default model')
-    expect(warning.nextElementSibling?.textContent).toContain(role === 'coding' ? 'Effort' : 'Default effort')
+    expect(warning.previousElementSibling?.textContent).toContain(
+      role === 'coding' ? 'Model' : 'Default model',
+    )
+    expect(warning.nextElementSibling?.textContent).toContain(
+      role === 'coding' ? 'Effort' : 'Default effort',
+    )
   })
 
   it('names two machines, comma-separated, including an offline stored list', () => {
@@ -389,7 +422,10 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
   })
 
   it('has no warning when no machine has reported a list for the harness', () => {
-    modelCatalogFixture.byMachine.studio = { catalog: { grok: [{ value: 'grok-4', label: 'Grok 4' }] }, status: 'ready' }
+    modelCatalogFixture.byMachine.studio = {
+      catalog: { grok: [{ value: 'grok-4', label: 'Grok 4' }] },
+      status: 'ready',
+    }
     show()
     expect(screen.queryByRole('status')).toBeNull()
   })
@@ -442,7 +478,9 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
   })
 
   it('writes the chosen model to personal settings while the warning is shown', async () => {
-    const previous = normalizeSettings({ roles: { [role]: { accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' } } })
+    const previous = normalizeSettings({
+      roles: { [role]: { accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' } },
+    })
     // My personal leaves are an edit of my `userPreferences` record (POD-6673).
     const updatePersonal = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
     const trpc = { settings: {} } as unknown as Trpc
@@ -451,20 +489,43 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
       return (
         <>
           {/* biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute */}
-          <RoleBackendEditor role={role} backend={settings.roles[role]} accounts={[]} onChange={(backend) => setSettings({ ...settings, roles: { ...settings.roles, [role]: { ...settings.roles[role], ...backend } } })} />
-          <button type="button" onClick={() => saveSettingsAsCommands(trpc, previous, settings, { personal: async (values) => await updatePersonal({ values: { ...values } }) })}>Save</button>
+          <RoleBackendEditor
+            role={role}
+            backend={settings.roles[role]}
+            accounts={[]}
+            onChange={(backend) =>
+              setSettings({
+                ...settings,
+                roles: { ...settings.roles, [role]: { ...settings.roles[role], ...backend } },
+              })
+            }
+          />
+          <button
+            type="button"
+            onClick={() =>
+              saveSettingsAsCommands(trpc, previous, settings, {
+                personal: async (values) => await updatePersonal({ values: { ...values } }),
+              })
+            }
+          >
+            Save
+          </button>
         </>
       )
     }
     render(<EditableDefault />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.change(await screen.findByPlaceholderText('Model name…'), { target: { value: 'custom-model' } })
+    fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
+      target: { value: 'custom-model' },
+    })
     fireEvent.click(screen.getByRole('menuitem', { name: /Use “custom-model”/ }))
     expect(screen.getByRole('status').textContent).toBe('Not offered on Studio Mac')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(updatePersonal).toHaveBeenCalledWith({
-      values: expect.objectContaining({ [`roles.${role}.model`]: 'custom-model' }),
-    }))
+    await waitFor(() =>
+      expect(updatePersonal).toHaveBeenCalledWith({
+        values: expect.objectContaining({ [`roles.${role}.model`]: 'custom-model' }),
+      }),
+    )
   })
 })
 
@@ -472,6 +533,18 @@ it('has no warning for a managed coding account with no reported list', () => {
   fleet.machines = [warningMachine('studio', 'Studio Mac')]
   modelCatalogFixture.byMachine.studio = { catalog: {}, status: 'unavailable' }
   // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
-  render(<RoleBackendEditor role="coding" backend={{ accountId: asAccountId('managed:openai'), harness: 'codex', model: 'managed-model', effort: 'ultra' }} accounts={[]} onChange={vi.fn()} />)
+  render(
+    <RoleBackendEditor
+      role="coding"
+      backend={{
+        accountId: asAccountId('managed:openai'),
+        harness: 'codex',
+        model: 'managed-model',
+        effort: 'ultra',
+      }}
+      accounts={[]}
+      onChange={vi.fn()}
+    />,
+  )
   expect(screen.queryByRole('status')).toBeNull()
 })

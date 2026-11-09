@@ -1,4 +1,3 @@
-import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 /** The phone uses one shared pool over its existing runtime, replica and outbox.
  * Screens read only that pool; actions keep the existing store API and owner. */
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
@@ -14,6 +13,7 @@ import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-sc
 import { navigationPoolScreen } from '@podium/client-graph/navigation-screen'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
@@ -40,7 +40,7 @@ export function createMobilePool(dev: boolean): MobilePool {
             import('@podium/client-graph/issue-page-source'),
           ])
           await attachMobileScreens(pool, runtime)
-          attachIssuePageSource(pool, { replica: runtime.root.replica })
+          attachIssuePageSource(pool, { replica: runtime.replica })
         },
       },
       {
@@ -97,7 +97,7 @@ export function createMobilePool(dev: boolean): MobilePool {
             createSuperagentSource({
               ui: runtime.ui,
               readPosition: runtime.readPosition,
-              replica: runtime.root.replica,
+              replica: runtime.replica,
             }),
           )
           const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
@@ -109,8 +109,8 @@ export function createMobilePool(dev: boolean): MobilePool {
             NOTICE_ENTITIES,
             () =>
               new NoticeSource({
-                replica: runtime.root.replica,
-                outbox: runtime.root.services.outbox.queue,
+                replica: runtime.replica,
+                outbox: runtime.services.outbox.queue,
               }),
           )
           const [{ MobileInboxSource }, { createMobileInboxViews }] = await Promise.all([
@@ -119,7 +119,7 @@ export function createMobilePool(dev: boolean): MobilePool {
           ])
           await pool.sources.ensure(MOBILE_INBOX_SOURCE_KEY, MOBILE_INBOX_ENTITIES, () => {
             pool.sources.view(MOBILE_INBOX_VIEW_KEY, () => createMobileInboxViews(pool))
-            return new MobileInboxSource({ replica: runtime.root.replica }, pool)
+            return new MobileInboxSource({ replica: runtime.replica }, pool)
           })
           const { attachMobileSessionContext } = await import(
             '@podium/client-graph/mobile-session-context'

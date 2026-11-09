@@ -1,8 +1,8 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
@@ -112,7 +112,7 @@ describe('StoreProvider owns the sidebar pool', () => {
       ...screenOptions(poolBackedScreens, runtime!),
     })
     expect(replicaFactory).toHaveBeenCalledTimes(1)
-    expect(runtime!.root.replica).toBe(referenceState(runtime!).replica)
+    expect(runtime!.replica).toBe(referenceState(runtime!).replica)
     render()
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)
@@ -155,7 +155,7 @@ describe('StoreProvider owns the sidebar pool', () => {
       change === 'rebuild' ? { config: { ...config } } : {},
     )
     expect(destroy).toHaveBeenCalledTimes(1)
-    expect(oldRuntime.isDestroyed).toBe(true)
+    expect(oldRuntime.isDisposed).toBe(true)
     if (change !== 'sign-out') expect(await ready()).not.toBe(old)
   })
 
@@ -205,5 +205,5 @@ describe('StoreProvider owns the sidebar pool', () => {
   })
 })
 
-const originalDestroy = ClientRuntime.prototype.destroy
+const originalDestroy = ClientRuntime.prototype.dispose
 const originalDispose = ClientRuntime.prototype.dispose

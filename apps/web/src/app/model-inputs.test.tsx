@@ -7,7 +7,7 @@ import {
   createKeyedInputs,
   type KeyedInputsChannel,
 } from '@podium/client-core/test-support/keyed-channel'
-import type { RuntimeState } from '@podium/client-core/engine'
+import type { ScreenState } from '@podium/client-core/ui'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
@@ -20,7 +20,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
 import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
-import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
+import { useDraftValue, usePendingSpawnPrompt } from './model-inputs'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', async () => {
@@ -40,7 +40,7 @@ vi.mock('./store-worklist-pool', () => ({
     return useSyncExternalStore(view.subscribe, view.getSnapshot)
   },
 }))
-let state: RuntimeState
+let state: ScreenState
 let drafts: DraftStore
 let inputs: KeyedInputsChannel
 let transactions: ReturnType<typeof createPoolTransactions>
@@ -54,7 +54,7 @@ beforeEach(() => {
     fileTabs: [],
     repos: [],
     machines: [],
-  } as unknown as RuntimeState
+  } as unknown as ScreenState
   transactions = createPoolTransactions({
     userId: 'operator',
     outbox: {

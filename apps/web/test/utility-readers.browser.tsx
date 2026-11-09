@@ -3,13 +3,13 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import type { TaskCostRowWire, TaskCostWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { useWaterfallActivity } from '../src/app/waterfall-activity'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { MissionCostChip } from '../src/app/MissionCostChip'
+import { useWaterfallActivity } from '../src/app/waterfall-activity'
 import { MessageLedgerView } from '../src/features/messages/MessageLedgerView'
 import { UsageView } from '../src/features/usage/UsageView'
 import { createHeaderFixture } from './header-fixture'
@@ -217,7 +217,7 @@ root.render(
     networkEnabled={false}
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return () => {}
     }}
   >

@@ -1,13 +1,12 @@
 import { ConversationService } from '@podium/client-core/conversation'
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // ---------------------------------------------------------------------------
@@ -139,11 +138,11 @@ vi.mock('@/app/store', () => {
     // before the hook existed. A concrete kind here would change what AgentPanel
     // renders; ChatView also requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {
@@ -659,7 +658,12 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
     // is.
     storeMachines = [awayMachine]
     storeSessions = [
-      meta({ agentKind: 'opencode', status: 'live', driverFamily: 'terminal', machineId: 'm-away' } as never),
+      meta({
+        agentKind: 'opencode',
+        status: 'live',
+        driverFamily: 'terminal',
+        machineId: 'm-away',
+      } as never),
     ]
     await render({ active: true })
     await tickPast(60_000)

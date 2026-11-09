@@ -42,7 +42,7 @@ vi.mock('@podium/client-core/react', async () => {
   }
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (s: unknown) => unknown) => read({ trpc }),
+  readFixture: (read: (s: unknown) => unknown) => read({ trpc }),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 afterEach(() => {

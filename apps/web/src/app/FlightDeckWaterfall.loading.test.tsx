@@ -34,7 +34,7 @@ vi.mock('@podium/client-core/react', async (original) => {
   }
 })
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (store: typeof owner.access) => unknown) => read(owner.access),
+  readFixture: (read: (store: typeof owner.access) => unknown) => read(owner.access),
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,

@@ -163,7 +163,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook (refactor) reads slices off the same store shape.
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

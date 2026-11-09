@@ -1,13 +1,13 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import {
   knownTabIdsForWorkspace,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
-  type RuntimeState,
   resolvedWorkspaceKey,
+  type ScreenState,
   workspaceKeyForState,
-} from '@podium/client-core/engine'
-import type { SessionView } from '@podium/client-core/session-values'
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+} from '@podium/client-core/ui'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import {
   allTabIds,
@@ -158,7 +158,7 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(['spawn']),
       fileTabs,
-    } as unknown as RuntimeState & {
+    } as unknown as ScreenState & {
       issueProjections: SliceIssue[]
       sessions: SessionView[]
       issueUserStates: object[]
@@ -201,7 +201,7 @@ describe('web pool navigation', () => {
         ),
       ]),
     )
-    const prune = (st: RuntimeState) => {
+    const prune = (st: ScreenState) => {
       const reactions = new TabPruningService({
         state: () => st,
         publish: (patch) => Object.assign(st, patch),
@@ -271,7 +271,7 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(),
       fileTabs: [],
-    } as unknown as RuntimeState & {
+    } as unknown as ScreenState & {
       issueProjections: SliceIssue[]
       sessions: SessionView[]
       issueUserStates: object[]
@@ -352,7 +352,7 @@ describe('web pool navigation', () => {
         missionLegacyStats.disable()
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle?.dispose()
-        runtime.destroy()
+        runtime.dispose()
       }
     }
   })
@@ -385,7 +385,7 @@ describe('web pool navigation', () => {
           issueProjections: rows,
           selectedIssueId: id,
           selectedWorktree: '/repo',
-        } as unknown as RuntimeState & {
+        } as unknown as ScreenState & {
           issueProjections: SliceIssue[]
           sessions: SessionView[]
           issueUserStates: object[]
@@ -406,7 +406,7 @@ describe('web pool navigation', () => {
         selectedIssueId: 'child',
         selectedWorktree: '/repo',
         navigation: provider,
-      } as unknown as RuntimeState & {
+      } as unknown as ScreenState & {
         issueProjections: SliceIssue[]
         sessions: SessionView[]
         issueUserStates: object[]
@@ -646,7 +646,7 @@ describe('web pool navigation', () => {
       expect(errors).not.toHaveBeenCalled()
     } finally {
       detach()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -744,7 +744,7 @@ describe('web pool navigation', () => {
       }
     } finally {
       detach()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -774,7 +774,7 @@ describe('web pool navigation', () => {
     } finally {
       detach()
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -817,7 +817,7 @@ describe('web pool navigation', () => {
       } finally {
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle?.dispose()
-        runtime.destroy()
+        runtime.dispose()
       }
     }
   })
@@ -830,7 +830,7 @@ describe('web pool navigation', () => {
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
     const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
     const navigation = createPoolNavigationProvider(handle.pool)
-    const markRead = runtime.root.services.markRead
+    const markRead = runtime.services.markRead
     if (!markRead) throw new Error('Mark-read service is not installed')
     const spies = [
       'updateIssueVisitBaseline',
@@ -874,7 +874,7 @@ describe('web pool navigation', () => {
       })
       runtime.setNavigationProvider(loadingNavigationProvider)
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -926,7 +926,7 @@ describe('web pool navigation', () => {
       expect(differences).toBe(0)
     } finally {
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   }, 60_000)
 })

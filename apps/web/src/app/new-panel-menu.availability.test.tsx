@@ -80,7 +80,7 @@ it.each([
       networkEnabled={false}
       onFatalError={fatal}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+        fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
         return attachWorklistPool(runtime, fatal)
       }}
     >

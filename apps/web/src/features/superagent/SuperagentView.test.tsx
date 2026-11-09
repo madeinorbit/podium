@@ -141,7 +141,10 @@ const normalizedIssues = () =>
     const { sessions = [], ...normalized } = issue as typeof issue & {
       sessions?: Array<{ sessionId: string; cwd: string }>
     }
-    return { ...normalized, memberSessionIds: sessions.map((session: { sessionId: string }) => session.sessionId) }
+    return {
+      ...normalized,
+      memberSessionIds: sessions.map((session: { sessionId: string }) => session.sessionId),
+    }
   })
 
 const embeddedSessions = () =>
@@ -177,7 +180,7 @@ vi.mock('@/app/store', () => {
     useStore,
     useSession: (id: string | undefined) =>
       [...storeSessions, ...embeddedSessions()].find((session) => session.sessionId === id),
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 vi.mock('@/lib/hooks/use-is-mobile', () => ({

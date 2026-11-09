@@ -1,11 +1,11 @@
 import {
-  superagentSourcePorts,
   chatSourcePorts,
   replicaSourcePorts,
+  superagentSourcePorts,
 } from '@podium/client-graph/source-ports'
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import { headerEntities } from './header-entities'
+import { omitGone } from './lookup'
 
 // @vitest-environment happy-dom
 
@@ -35,7 +35,6 @@ import { createMobileSettingsSource } from './mobile-settings'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { SessionPaneSource } from './session-pane-source'
 import { SettingsSource } from './settings-source'
-import { createEngineLocals } from './shared/engine-locals'
 import { ShellSource } from './shell-source'
 import { createSuperagentSource } from './superagent'
 
@@ -71,8 +70,6 @@ async function fixture(scale: 1 | 4) {
     /* baseline boot */
   }
   const pool = handle.pool
-  const engineLocals = createEngineLocals(rt)
-  stops.push(() => engineLocals.dispose())
   const board = createIssueBoardSource(pool, rt)
   stops.push(() => board.dispose())
   const pane = new SessionPaneSource(rt)

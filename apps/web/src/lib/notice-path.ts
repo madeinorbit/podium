@@ -10,7 +10,7 @@ import {
  * elision from the HEAD, because the tail is what identifies it.
  *
  * The decision lives HERE, in the web presentation layer, rather than in the
- * `StoreNotices` port: the port is a platform-neutral two-string seam that
+ * `NoticeSink` port: the port is a platform-neutral two-string seam that
  * mobile implements against its own surface, and "render this string as a
  * path" is a fact about how the web draws a toast, not about the notice.
  */

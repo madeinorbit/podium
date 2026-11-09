@@ -73,7 +73,7 @@ root.render(
     networkEnabled={false}
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, () => failures.push('pool-failure'))
     }}
   >
@@ -133,10 +133,10 @@ const driver = {
     const runtimes = storeStats.snapshot().runtimes
     return {
       runtimes: runtimes.length,
-      issues: owner?.root.replica.rowCount?.('issueProjections') ?? 0,
-      sessions: owner?.root.replica.rowCount?.('sessions') ?? 0,
-      automations: owner?.root.replica.rowCount?.('automations') ?? 0,
-      runs: owner?.root.replica.rowCount?.('automationRuns') ?? 0,
+      issues: owner?.replica.rowCount?.('issueProjections') ?? 0,
+      sessions: owner?.replica.rowCount?.('sessions') ?? 0,
+      automations: owner?.replica.rowCount?.('automations') ?? 0,
+      runs: owner?.replica.rowCount?.('automationRuns') ?? 0,
       pool: Boolean(pool),
       publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0),

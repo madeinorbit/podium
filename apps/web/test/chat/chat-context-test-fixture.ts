@@ -1,39 +1,22 @@
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import '@podium/client-graph/synced-models'
-import {
-  noticeSourcePorts,
-  superagentSourcePorts,
-  replicaSourcePorts,
-  chatSourcePorts,
-} from '@podium/client-graph/source-ports'
-import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
+import {
+  chatSourcePorts,
+  noticeSourcePorts,
+  replicaSourcePorts,
+  superagentSourcePorts,
+} from '@podium/client-graph/source-ports'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 
 type Store = ReferenceState & { drafts: Record<string, string> }
 
 import { outboxChatSends } from '@podium/client-core/conversation'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
-import {
-  asIssueId,
-  asMachineId,
-  asRepoId,
-  asMutationId,
-  asSessionId,
-  DEFAULT_HARNESS_AGENT,
-  type SessionId,
-} from '@podium/model/browser'
-import {
-  asThreadId,
-  asUserId,
-  dedupeSessionsByResume,
-  type SuperagentThreadWire,
-  superagentThreadRowId,
-} from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import {
   CHAT_CONTEXT_ENTITIES,
@@ -42,12 +25,28 @@ import {
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
-import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
+import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import {
   createSessionExitSource,
   SESSION_EXIT_SOURCE_KEY,
 } from '@podium/client-graph/session-exit-source'
-import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
+import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
+import {
+  asThreadId,
+  asUserId,
+  dedupeSessionsByResume,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
+} from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asMutationId,
+  asRepoId,
+  asSessionId,
+  DEFAULT_HARNESS_AGENT,
+  type SessionId,
+} from '@podium/model/browser'
 
 import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
@@ -258,8 +257,8 @@ export async function createChatContextFixture(resumeTwins = false) {
     selectedWorktree: null,
     machines: [{ id: 'chat-machine', name: 'Synthetic host', online: true }],
     repos: [{ path: '/synthetic/project', worktrees: [] }],
-    chatSendsFor: (id: SessionId) => outboxChatSends(owner.root.services.outbox.queue, id),
-    replica: owner.root.replica,
+    chatSendsFor: (id: SessionId) => outboxChatSends(owner.services.outbox.queue, id),
+    replica: owner.replica,
     setSessionDraft: (id: string, text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
       drafts.set(id as SessionId, text)

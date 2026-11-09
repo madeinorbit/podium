@@ -1,8 +1,11 @@
 /** Historical corpus adapter: time is fixture input, never a runtime local. */
-import {
-  type LocalsEngine,
-  localsOfEngine as selectedLocals,
-} from '@podium/client-graph/shared/engine-locals'
+import type { UiStore } from '@podium/client-core/ui'
+
+interface LocalsEngine {
+  readonly ui: UiStore
+}
+const selectedLocals = (engine: LocalsEngine) => ({ selectedIssueId: engine.ui.selectedIssueId })
+
 import { createLocalsSource } from '@podium/client-graph/shared/locals-source'
 import { reaction } from 'mobx'
 import { referenceState } from '../../diagnostics/reference-state'

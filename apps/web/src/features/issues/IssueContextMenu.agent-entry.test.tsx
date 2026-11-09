@@ -43,7 +43,7 @@ vi.mock('@podium/client-core/react', async (original) => {
   }
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Task menu used a legacy selector')
   },
 }))

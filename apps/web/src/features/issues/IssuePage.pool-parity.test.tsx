@@ -4,10 +4,10 @@ import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/r
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -138,7 +138,7 @@ const state = {
 }
 vi.mock('@/app/store', () => ({
   useStore: () => state,
-  useRuntimeSelector: (select: (owner: unknown) => unknown) => select(state),
+  readFixture: (select: (owner: unknown) => unknown) => select(state),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => {

@@ -1,9 +1,9 @@
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import {
   createKernelReplica,
   createSideCache,
@@ -13,8 +13,8 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '../lib/work-sections'
 import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -25,6 +25,7 @@ import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
 import type { MobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
 import type { MobileTrpc } from '../client/trpc'
+import type { MobileWorkSection } from '../lib/work-sections'
 
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
@@ -325,13 +326,13 @@ function attachFixtureRuntime(runtime: ClientRuntime<MobileTrpc>): () => void {
     try {
       detach()
     } finally {
-      runtime.destroy()
+      runtime.dispose()
     }
   }
 }
 
 async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
-  if (state.runtime?.isDestroyed) releaseFixtureReferences()
+  if (state.runtime?.isDisposed) releaseFixtureReferences()
   // Corpus construction also creates temporary legacy rollups. Collect those
   // after the builder returns, before attaching the real pool over its records.
   await collectRetiredFixtures()
@@ -658,7 +659,7 @@ describe('mobile WorkScreen pool consumer', () => {
           .find((ref) => ref.id === 'phone-click-target')!
         expect(first).toBeDefined()
         const title = state
-          .runtime!.root.replica.rows('issueProjections')
+          .runtime!.replica.rows('issueProjections')
           .find((issue) => issue.id === first.id)!.title
         const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
         expect(row).not.toBeNull()

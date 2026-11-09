@@ -1,6 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { settingsHasFirstTask } from '@podium/client-graph/settings-views'

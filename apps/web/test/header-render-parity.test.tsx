@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
@@ -73,7 +74,7 @@ async function mount(roster = false) {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        fixture.bindHub(owner.root.services.connection.hub, owner.root.live)
+        fixture.bindHub(owner.services.connection.hub, owner.live)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))

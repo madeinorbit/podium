@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { autorun, observable } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createMobileSessionReader, createMobileSessionSource } from './mobile-session-context'

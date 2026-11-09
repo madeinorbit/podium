@@ -1,5 +1,8 @@
-import type { NavigationTopologyDelta, RuntimeState } from '@podium/client-core/engine'
-import { loadingNavigationProvider } from '@podium/client-core/engine'
+import {
+  loadingNavigationProvider,
+  type NavigationTopologyDelta,
+  type ScreenState,
+} from '@podium/client-core/ui'
 import { autorun, configure, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -104,7 +107,7 @@ it('keeps the loading port addressed before the pool import resolves', () => {
     navigation: loadingNavigationProvider,
     reposLoaded: true,
     selectedWorktree: '/old',
-  } as unknown as RuntimeState
+  } as unknown as ScreenState
   Object.defineProperty(state, 'repos', {
     get() {
       throw new Error('global repositories during loading')
@@ -292,7 +295,7 @@ it('keeps one move, fallback, path lookup and unrelated heartbeat flat at 1x/4x'
       split: false,
       workspaces: {},
       fileTabs: [],
-    } as unknown as RuntimeState
+    } as unknown as ScreenState
     Object.defineProperty(state, 'repos', {
       get() {
         throw new Error('global repository read')
@@ -379,7 +382,7 @@ it('reads the first-worktree fallback imperatively under development diagnostics
     navigation: f.provider,
     reposLoaded: true,
     selectedWorktree: '/gone',
-  } as unknown as RuntimeState
+  } as unknown as ScreenState
   const reactions = new FollowService({
     state: () => state,
     publish: (patch) => Object.assign(state, patch),

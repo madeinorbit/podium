@@ -10,7 +10,7 @@ const storeState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (state: typeof storeState) => unknown) => selector(storeState),
+  readFixture: (selector: (state: typeof storeState) => unknown) => selector(storeState),
 }))
 
 import { NetworkSection } from './network'

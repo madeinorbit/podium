@@ -1,6 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import {
   asSessionId,
@@ -123,8 +123,8 @@ function fixture(initial = [record()]) {
     },
     outbox: { deadLetters: () => [], subscribe: () => () => {} },
   } as unknown as {
-    readonly replica: ClientRuntime['root']['replica']
-    readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+    readonly replica: ClientRuntime['replica']
+    readonly outbox: ClientRuntime['services']['outbox']['queue']
   }
   const source = new NoticeSource(runtime)
   pool.sources.register(NOTICE_ENTITIES, source)
@@ -477,8 +477,8 @@ it('an authority message update crosses the real replica boundary and reaches ev
       replica: facade,
       outbox: { deadLetters: () => [], subscribe: () => () => {} },
     } as unknown as {
-      readonly replica: ClientRuntime['root']['replica']
-      readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+      readonly replica: ClientRuntime['replica']
+      readonly outbox: ClientRuntime['services']['outbox']['queue']
     }),
   )
   const transcript = new TranscriptLog({

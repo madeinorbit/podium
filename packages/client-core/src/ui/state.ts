@@ -1,12 +1,8 @@
 import { isMachinePathWithinRoot } from '@podium/model'
-import {
-  NAVIGATION_LOADING,
-  type NavigationIssue,
-  type NavigationProvider,
-} from '../engine/navigation-provider'
 import type { SessionView } from '../session-values'
+import { NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './state'
 
-export * from '../engine/navigation-provider'
+export * from '../navigation-provider'
 
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
@@ -28,7 +24,6 @@ export * from '../engine/navigation-provider'
 
 import type { IssueId, SessionId, ThreadId } from '@podium/model'
 import { asIssueId } from '@podium/model'
-import type { IssueVisitBaseline, UserFocus } from '../engine/types'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
   allTabIds,
@@ -43,6 +38,7 @@ import {
   type WorkspaceMap,
   workspaceKeyFor,
 } from '../values'
+import type { IssueVisitBaseline, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
  *  that change over time (constants like hub/trpc/replica live outside it). */

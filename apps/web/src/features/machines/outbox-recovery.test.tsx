@@ -50,7 +50,7 @@ const storeState = () => ({
 })
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (s: unknown) => unknown) => select(storeState()),
+  readFixture: (select: (s: unknown) => unknown) => select(storeState()),
 }))
 // The card reads its recovery actions from the outbox service; the indicator's
 // legacy reader records its work against the same owner.

@@ -1,6 +1,6 @@
 import './requested-models'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
@@ -76,7 +76,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     private readonly pool: MobxPool,
     private readonly runtime: ClientRuntime<PodiumClientApi>,
   ) {
-    bindCheckoutRecords(pool, runtime.root.replica)
+    bindCheckoutRecords(pool, runtime.replica)
     // The optional source owns its reader registration. Startup consumers use
     // the registry without pulling launcher derivations into the eager bundle.
     commandLaunchViews(pool)
@@ -98,7 +98,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     let checkoutsFrom: unknown
     const repos = () => {
       if (this.disposed) return
-      const rows = runtime.root.replica.rows('checkouts')
+      const rows = runtime.replica.rows('checkouts')
       if (rows === checkoutsFrom) return
       checkoutsFrom = rows
       runInAction(() => {
@@ -113,7 +113,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
         this.replace(
           'commandMachine',
           // By name, then id: the replica's order is its keys' (POD-6644).
-          [...runtime.root.replica.rows('machines')]
+          [...runtime.replica.rows('machines')]
             .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || a.id.localeCompare(b.id))
             .map((row) => [row.id, { id: row.id }] as const),
         ),
@@ -127,7 +127,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row)
     })
     this.stops.push(
-      runtime.root.replica.subscribeAddressedBatch?.((batch) => {
+      runtime.replica.subscribeAddressedBatch?.((batch) => {
         if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'checkouts')) repos()
         if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'machines'))
           machines()

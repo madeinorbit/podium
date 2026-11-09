@@ -5,16 +5,15 @@
  * analyzer uses as ownership barriers. The analyzer never follows the
  * holder's own edges, so holding them changes no liveness. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useClientRuntime, useRuntimeSelector } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime, useUi, useUiValue } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
   replicaNamespaceKey,
   retainReplicaEntity,
 } from '@podium/client-core/replica'
-import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model/browser'
@@ -123,7 +122,7 @@ const assembly = await assemble('acceptance-alice')
 function Fixture() {
   const runtime = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
-  const selected = useRuntimeSelector((s) => s.selectedIssueId)
+  const selected = useUiValue('selectedIssueId')
   owner = runtime
   graph = pool
   useEffect(() => {

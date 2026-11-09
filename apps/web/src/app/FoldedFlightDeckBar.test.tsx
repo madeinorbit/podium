@@ -13,7 +13,7 @@ import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 const state = vi.hoisted(() => ({ pool: null as unknown }))
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
+  readFixture: (select: (store: Record<string, unknown>) => unknown) =>
     select({ sessions: [], selectedIssueId: 'root' }),
 }))
 vi.mock('./store-worklist-pool', () => ({

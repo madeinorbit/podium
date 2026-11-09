@@ -43,10 +43,10 @@ export class ChatViewModel {
   private release: (() => void) | undefined
   private releaseReveal: (() => void) | undefined
   @observableRef accessor transcriptReveal:
-    | import('@podium/client-core/engine').TranscriptRevealRequest
+    | import('@podium/client-core/ui').TranscriptRevealRequest
     | null = null
   @actionBound revealTranscript(
-    request: import('@podium/client-core/engine').TranscriptRevealRequest,
+    request: import('@podium/client-core/ui').TranscriptRevealRequest,
   ): void {
     this.transcriptReveal = request
   }
@@ -63,10 +63,10 @@ export class ChatViewModel {
     this.reply = new MailReply(
       conversation.pool,
       {
-        show: (id) => conversation.runtime.root.api.messages.show.query({ id }),
-        reply: (id, body) => conversation.runtime.root.api.messages.reply.mutate({ id, body }),
+        show: (id) => conversation.runtime.api.messages.show.query({ id }),
+        reply: (id, body) => conversation.runtime.api.messages.reply.mutate({ id, body }),
       },
-      (id) => currentMessageRecord(conversation.pool, conversation.runtime.root.replica, id),
+      (id) => currentMessageRecord(conversation.pool, conversation.runtime.replica, id),
     )
   }
 
@@ -316,9 +316,7 @@ export class ChatViewModel {
   private saveBackend(choice: { model?: string; effort?: string }): void {
     const thread = this.conversation.thread
     if (this.superThread === undefined || thread === undefined) return
-    void this.conversation.runtime.root.commands.threads
-      .setBackend(thread.id, choice)
-      .catch(() => {})
+    void this.conversation.runtime.commands.threads.setBackend(thread.id, choice).catch(() => {})
   }
   @actionBound captureContext(): void {
     if (!this.compact) return

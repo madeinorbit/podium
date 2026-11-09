@@ -1,9 +1,9 @@
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 /** Cumulative derivations, not a subscription guard: enable before bootstrap
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
@@ -14,6 +14,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { reposToViews } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -33,7 +34,13 @@ const state = vi.hoisted(() => ({
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
-    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, dismissTo: () => {}, setParams: () => {} }),
+    useRouter: () => ({
+      push: () => {},
+      replace: () => {},
+      back: () => {},
+      dismissTo: () => {},
+      setParams: () => {},
+    }),
     useLocalSearchParams: () => ({ missionId: state.missionId }),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },
@@ -50,8 +57,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
       state.host!.host.usePoolProjection(read, empty),
   }
 })
-
-
 
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
@@ -337,8 +342,9 @@ describe('mobile pool-only worklist regressions', () => {
 
     let action!: Promise<void>
     await act(async () => {
-      action = referenceState(state.runtime!)
-        .updateIssue(root.id, { title: 'Mobile optimistic title' })
+      action = referenceState(state.runtime!).updateIssue(root.id, {
+        title: 'Mobile optimistic title',
+      })
       await Promise.resolve()
     })
     await waitFor(() => expect(view.container.textContent).toContain('Mobile optimistic title'))

@@ -1,6 +1,6 @@
-import { type RuntimeState, workspaceKeyForState } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { type ScreenState, workspaceKeyForState } from '@podium/client-core/ui'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -19,7 +19,7 @@ import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 
 const binding = vi.hoisted(() => ({
-  state: {} as RuntimeState,
+  state: {} as ScreenState,
   pool: null as MobxPool | null,
 }))
 const workspaceOwner = withKeyedInputs({
@@ -27,7 +27,7 @@ const workspaceOwner = withKeyedInputs({
   subscribe: () => () => {},
 })
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (state: RuntimeState) => unknown) => select(binding.state),
+  readFixture: (select: (state: ScreenState) => unknown) => select(binding.state),
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => binding.pool,
@@ -114,11 +114,11 @@ it('renders identical workspace labels, tab order and layout after pool navigati
     const key = workspaceKeyForState({ ...initial, selectedIssueId: child.id })
     let layout = emptyWorkspace(key)
     for (const seat of seats) layout = openTab(layout, seat.sessionId, { permanent: true })
-    let legacy: RuntimeState = { ...initial, workspaces: { [key]: layout } }
-    let pool: RuntimeState = { ...legacy, navigation: provider }
+    let legacy: ScreenState = { ...initial, workspaces: { [key]: layout } }
+    let pool: ScreenState = { ...legacy, navigation: provider }
     let route = routeDefaults('issues')
-    const screen = async (state: RuntimeState) => {
-      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as RuntimeState
+    const screen = async (state: ScreenState) => {
+      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as ScreenState
       const view = render(<Workspace />)
       await waitFor(() => {
         handle.pool.hydrate()
@@ -142,6 +142,6 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   } finally {
     binding.pool = null
     handle.dispose()
-    runtime.destroy()
+    runtime.dispose()
   }
 }, 60_000)

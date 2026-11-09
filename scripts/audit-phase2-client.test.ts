@@ -314,7 +314,7 @@ describe('phase-2 client audit — the composition-root detector', () => {
 
 describe('phase-2 client audit — the POD-404 principal-boundary detectors', () => {
   const PROVIDER = 'packages/client-core/src/react/provider.tsx'
-  const RUNTIME = 'packages/client-core/src/engine/runtime.ts'
+  const RUNTIME = 'packages/client-core/src/runtime-root/root.ts'
   const HUB = 'packages/client-core/src/runtime-root/connection/hub.ts'
   const WIRING = 'packages/client-core/src/runtime-root/outbox/wiring.ts'
   const CONNECTION = 'packages/client-core/src/runtime-root/connection/connection-service.ts'
@@ -339,8 +339,8 @@ describe('phase-2 client audit — the POD-404 principal-boundary detectors', ()
 
   it('fires on a runtime root built outside the runtime (POD-6681)', () => {
     const found = constructionOutsideProvider([
-      ...lines('apps/web/src/lib/sneaky.ts', 'const root = createRuntimeRoot({ principal })'),
-      ...lines('apps/mobile/src/client/Preview.tsx', 'const root = new RuntimeRoot(init)'),
+      ...lines('apps/web/src/lib/sneaky.ts', 'const root = createClientRuntime({ principal })'),
+      ...lines('apps/mobile/src/client/Preview.tsx', 'const root = new ClientRuntime(init)'),
     ])
     expect(found).toHaveLength(2)
   })
@@ -361,7 +361,7 @@ describe('phase-2 client audit — the POD-404 principal-boundary detectors', ()
     const found = constructionOutsideProvider([
       ...lines(PROVIDER, 'runtime: createClientRuntime<TApi>({ principal, config, api })'),
       ...lines(RUNTIME, 'return new ClientRuntime(init, root)'),
-      ...lines(RUNTIME, 'const root = createRuntimeRoot<TApi>({ ...init })'),
+      ...lines(RUNTIME, 'const root = createClientRuntime<TApi>({ ...init })'),
       ...lines(CONNECTION, 'this.hub = createEngineHub({ wsClientUrl: options.wsClientUrl })'),
       ...lines(OUTBOX, 'this.queue = (options.createOutboxFn ?? createEngineOutbox)({ api })'),
       ...lines(HUB, 'export function createEngineHub(init: CreateEngineHubInit): SocketHub {'),

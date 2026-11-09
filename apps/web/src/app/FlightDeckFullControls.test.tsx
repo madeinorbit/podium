@@ -14,7 +14,7 @@ import { FlightDeckFullControls } from './FlightDeckFullControls'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
+  readFixture: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
 }))
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),

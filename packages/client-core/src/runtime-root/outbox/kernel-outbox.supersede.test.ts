@@ -14,7 +14,7 @@ import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/
 import { InMemoryOutboxStore, Outbox as KernelOutbox } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -52,7 +52,7 @@ async function openOffline(extra: Partial<EngineOutboxCallbacks>): Promise<Engin
       outboxAwaitingStorage: memoryStorage,
       outboxDeadLetterStorage: memoryStorage,
     } as unknown as Replica,
-    notices: { error: () => {}, info: () => {}, warn: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {}, warn: () => {} } as unknown as NoticeSink,
     isOnline: () => false,
     onlineEvents: { add: () => {}, remove: () => {} },
     ...extra,

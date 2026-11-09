@@ -72,7 +72,12 @@ const fakeReplica = {
 }
 
 let storeSessions: SessionView[] = []
-let storeMachines: Array<{ id: string; name: string; online: boolean; availability?: { daemon: boolean } }> = []
+let storeMachines: Array<{
+  id: string
+  name: string
+  online: boolean
+  availability?: { daemon: boolean }
+}> = []
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -98,7 +103,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -153,7 +158,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -172,7 +177,9 @@ describe('ChatView machine-offline history (POD-4808)', () => {
       reads[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
     })
     await flush()
-    await waitFor(() => expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull(),
+    )
     const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
     expect(marker?.textContent).toContain('desk')
     expect(marker?.textContent?.toLowerCase()).toContain('offline')
@@ -308,7 +315,9 @@ describe('ChatView machine-offline history (POD-4808)', () => {
       reads[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
     })
     await flush()
-    await waitFor(() => expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull(),
+    )
     // Machine reconnects: the chat re-reads and the offline message is
     // replaced by history — no reload.
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
@@ -332,16 +341,41 @@ describe('ChatView machine-offline history (POD-4808)', () => {
   })
 })
 
-
 it('the live offline banner uses the replicated session machine name', async () => {
-  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name',
-    agentState: { phase: 'working', since: new Date(Date.now() - 149_380).toISOString(), nativeSubagentCount: 0 } })
+  const raw = meta({
+    status: 'live',
+    machineId: asMachineId('m1'),
+    machineName: 'Old session name',
+    agentState: {
+      phase: 'working',
+      since: new Date(Date.now() - 149_380).toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
   storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
   storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
-  act(() => { setFakeStore({}); root.render(<ChatView sessionId={asSessionId('s1')} />) })
-  await act(async () => { reads[0]?.resolve({ items: [{ id: 'tool-home', cursor: 'c-home', role: 'tool',
-    text: '', toolName: 'Bash', toolInput: 'pwd', ts: new Date(Date.now() - 149_380).toISOString() } as TranscriptItem],
-    head: 'c-home', tail: 'c-home', hasMore: false }) })
+  act(() => {
+    setFakeStore({})
+    root.render(<ChatView sessionId={asSessionId('s1')} />)
+  })
+  await act(async () => {
+    reads[0]?.resolve({
+      items: [
+        {
+          id: 'tool-home',
+          cursor: 'c-home',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'pwd',
+          ts: new Date(Date.now() - 149_380).toISOString(),
+        } as TranscriptItem,
+      ],
+      head: 'c-home',
+      tail: 'c-home',
+      hasMore: false,
+    })
+  })
   await flush()
   const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
   expect(marker?.textContent).toContain('Renamed home')

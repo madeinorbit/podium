@@ -22,7 +22,7 @@ import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 
 const commands = vi.hoisted(() => ({ promote: vi.fn(), start: vi.fn(), close: vi.fn() }))
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (value: unknown) => unknown) =>
+  readFixture: (read: (value: unknown) => unknown) =>
     read({
       renameSession: vi.fn(),
       trpc: {

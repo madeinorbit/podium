@@ -74,7 +74,7 @@ vi.mock('@/app/store', () => {
   }
   return {
     useStore: () => state,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(state as never),
   }
 })
 

@@ -1,5 +1,5 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
 import { headerEntities } from './header-entities'
@@ -17,7 +17,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
 ): () => void {
-  bindCheckoutRecords(pool, runtime.root.replica)
+  bindCheckoutRecords(pool, runtime.replica)
   let disposed = false
   const known = new Map<HeaderEntity, Set<string>>()
   function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
@@ -42,7 +42,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   let repositoriesFrom: unknown
   const written = new Map<string, string>()
   function repositories(): void {
-    const rows = runtime.root.replica.rows('checkouts')
+    const rows = runtime.replica.rows('checkouts')
     if (rows === repositoriesFrom) return
     repositoriesFrom = rows
     pool.checkoutRecordsChanged()
@@ -83,7 +83,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   function shipping(): void {
     replace(
       'shipOrder',
-      runtime.root.replica.rows('shipOrders').map((order) => [order.id, order]),
+      runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
     )
   }
   runInAction(() => {
@@ -102,10 +102,10 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   repositories()
   replace('window', [['window', window]])
   shipping()
-  attachHeaderRequests(pool, runtime.root.api as unknown as HeaderRequestsApi)
+  attachHeaderRequests(pool, runtime.api as unknown as HeaderRequestsApi)
   const stops = [
     offSessions,
-    runtime.root.replica.subscribeAddressedBatch!((batch) => {
+    runtime.replica.subscribeAddressedBatch!((batch) => {
       if (batch.type === 'replace') {
         shipping()
         repositories()
@@ -116,7 +116,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       const ids = known.get('shipOrder')!
       for (const record of batch.rows) {
         if (record.kind !== 'shipOrders') continue
-        const value = runtime.root.replica.row!('shipOrders', record.id)
+        const value = runtime.replica.row!('shipOrders', record.id)
         if (value) ids.add(record.id)
         else ids.delete(record.id)
         records.push({ kind: 'shipOrder', id: record.id, value })

@@ -14,8 +14,8 @@ export const noticePoolScreen: PoolScreen = {
       NOTICE_ENTITIES,
       () =>
         new NoticeSource({
-          replica: runtime.root.replica,
-          outbox: runtime.root.services.outbox.queue,
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
         }),
     )
   },

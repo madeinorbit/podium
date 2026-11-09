@@ -47,7 +47,7 @@ vi.mock('@/lib/workspace-request', async (importOriginal) => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
+  readFixture: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
 }))
 
 /** Settings → Experimental "Podium development" (POD-1882). */

@@ -26,7 +26,7 @@ const store = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: <T,>(select: (state: { uiState: unknown }) => T): T =>
+  readFixture: <T,>(select: (state: { uiState: unknown }) => T): T =>
     select({ uiState: store.uiState }),
 }))
 

@@ -8,12 +8,12 @@ import {
 } from '@podium/model'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, vi } from 'vitest'
-import { useRuntimeSelector } from '@/app/store'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 
 type SessionsFixture = {
   sessions?: readonly import('@podium/client-core/session-values').SessionView[]
 }
-const selectFixture = useRuntimeSelector as unknown as <T>(read: (state: SessionsFixture) => T) => T
+const selectFixture = readFixture as unknown as <T>(read: (state: SessionsFixture) => T) => T
 let current: MobxPool | undefined
 /** The principal's settings record is always in the app's pool (the row source
  *  publishes its defaults with every publication, POD-6673), so the stand-in
@@ -30,7 +30,11 @@ function myPreferencesRow() {
  *  it (POD-6677); the stand-in holds its defaults until a test seeds others. */
 function instanceRow() {
   const value = { ...resolveInstancePreferences(undefined), id: INSTANCE_PREFERENCES_ROW_ID }
-  return { kind: 'instancePreferences' as const, id: INSTANCE_PREFERENCES_ROW_ID, value: value as never }
+  return {
+    kind: 'instancePreferences' as const,
+    id: INSTANCE_PREFERENCES_ROW_ID,
+    value: value as never,
+  }
 }
 function seeded(pool: MobxPool): MobxPool {
   pool.apply({ type: 'update', rows: [myPreferencesRow(), instanceRow()] })

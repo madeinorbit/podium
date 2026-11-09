@@ -1,6 +1,6 @@
 import './synced-models'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { parseMachineAccessRowId } from '@podium/model'
 import { compareStructural, runInAction } from 'mobx'
@@ -22,7 +22,7 @@ import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type SettingsOwner = Pick<ClientRuntime, 'ui'> & {
-  readonly replica: ClientRuntime['root']['replica']
+  readonly replica: ClientRuntime['replica']
 }
 
 /** Machines are feed records; repositories are derived from the `checkout`

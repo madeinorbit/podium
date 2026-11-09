@@ -1,6 +1,7 @@
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { disposeFixtureUi, patchFixtureScreen } from '@podium/client-core/test-support/ui'

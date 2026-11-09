@@ -1,6 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 // @vitest-environment happy-dom
 import * as values from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -72,7 +72,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        fixture.bindHub(owner.root.services.connection.hub, owner.root.live)
+        fixture.bindHub(owner.services.connection.hub, owner.live)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
@@ -84,7 +84,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
   await waitFor(() => expect(pool).not.toBeNull(), { timeout: 15000 })
   const observedAt = Date.now()
   await act(async () => {
-    runtime!.access.setSelectedIssueId(asIssueId('synthetic-0'))
+    runtime!.ui.setSelectedIssueId(asIssueId('synthetic-0'))
     fixture.idle()
     for (const id of ['synthetic-session-0', 'synthetic-session-1'])
       fixture.patch('session', id, {

@@ -23,6 +23,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
 import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import type { PodiumClientApi } from '../api'
+import {
+  NAVIGATION_LOADING,
+  type NavigationProvider,
+  type NavigationTopologyDelta,
+} from '../navigation-provider'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'
 import type { SocketHub } from '../socket-transport'
@@ -30,12 +35,7 @@ import * as notificationAudio from '../sound/cuelume'
 import type { NotificationSession, SessionPhaseChange } from '../sound/notification-sounds'
 import type { RouterWindow } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane } from '../values'
-import {
-  NAVIGATION_LOADING,
-  type NavigationProvider,
-  type NavigationTopologyDelta,
-} from './navigation-provider'
-import { createClientRuntime } from './runtime'
+import { createClientRuntime } from './root'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -312,10 +312,10 @@ function makeEngine(
   })
   engine.setNavigationProvider(
     fixtureNavigation({
-      issues: () => engine.root.replica.rows('issueProjections'),
-      sessions: () => engine.root.replica.rows('sessions') as unknown as SessionView[],
-      markers: () => engine.root.replica.rows('issueUserStates'),
-      follow: (changed) => engine.root.replica.subscribeRows('sessions', changed),
+      issues: () => engine.replica.rows('issueProjections'),
+      sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
+      markers: () => engine.replica.rows('issueUserStates'),
+      follow: (changed) => engine.replica.subscribeRows('sessions', changed),
     }),
   )
   return { engine, hub, rw, fatals, errors }
@@ -384,7 +384,7 @@ describe('addressed topology navigation', () => {
     const f = addressed(engine)
     try {
       f.rows.set('pane', session('pane', '/old'))
-      engine.access.navigateWorkspace({
+      engine.ui.navigateWorkspace({
         selectedWorktree: '/old',
         tabId: asSessionId('pane'),
         firstPane: true,
@@ -403,10 +403,10 @@ describe('addressed topology navigation', () => {
       })
       f.publish({ reset: true, sessions: [] })
       await settle()
-      expect(engine.access.selectedWorktree).toBe('/dest')
+      expect(engine.ui.selectedWorktree).toBe('/dest')
       expect(info).not.toHaveBeenCalled()
     } finally {
-      engine.destroy()
+      engine.dispose()
     }
   })
 
@@ -445,7 +445,7 @@ describe('addressed topology navigation', () => {
       await settle()
       expect(info).toHaveBeenCalledTimes(1)
     } finally {
-      engine.destroy()
+      engine.dispose()
     }
   })
 })
@@ -564,7 +564,7 @@ describe('saved device screen and cold links', () => {
     expect(frames).toEqual([expected])
     expect(rendered.container.textContent).toBe(JSON.stringify(expected))
     rendered.unmount()
-    engine.destroy()
+    engine.dispose()
   })
   it('keeps a cold pane link while the saved issue workspace waits for navigation', async () => {
     const storage = memoryStorage(),
@@ -588,12 +588,12 @@ describe('saved device screen and cold links', () => {
     })
     engine.start()
     expect(rw.url()).toContain(`pane=${pane}`)
-    engine.dispose()
+    engine.stop()
     engine.start()
     await settle()
     expect(engine.ui.paneA).toBe(pane)
     expect(rw.url()).toContain(`pane=${pane}`)
-    engine.destroy()
+    engine.dispose()
   })
   it.each([
     '/workspace',
@@ -606,7 +606,7 @@ describe('saved device screen and cold links', () => {
     engine.start()
     expect(engine.ui.paneA).toBe(pane)
     expect(rw.url()).toContain(`pane=${pane}`)
-    engine.destroy()
+    engine.dispose()
   })
 })
 
@@ -616,39 +616,37 @@ describe('replicated layout routing', () => {
       const fixture = makeEngine()
       fixture.engine.attachPoolWriter({
         write: async (kind, input) => {
-          await fixture.engine.root.services.outbox.queue.enqueue(kind, input)
+          await fixture.engine.services.outbox.queue.enqueue(kind, input)
         },
       })
       return fixture
     }
     const dock = withWriter()
-    dock.engine.access.setDockTab('git')
+    dock.engine.ui.setDockTab('git')
     await settle()
     // One key: a record edit of my layout row (POD-6404).
     const layout = (key: string, value: unknown) => ({
       kind: 'recordEdit',
       input: { kind: 'userLayout', id: expect.stringContaining(key), patch: { value } },
     })
-    expect(dock.engine.root.services.outbox.queue.pending()).toMatchObject([
-      layout('dockTab', 'git'),
-    ])
-    dock.engine.dispose()
+    expect(dock.engine.services.outbox.queue.pending()).toMatchObject([layout('dockTab', 'git')])
+    dock.engine.stop()
 
     const superPanel = withWriter()
-    superPanel.engine.access.setSuperOpen(false)
+    superPanel.engine.ui.setSuperOpen(false)
     await settle()
-    expect(superPanel.engine.root.services.outbox.queue.pending()).toMatchObject([
+    expect(superPanel.engine.services.outbox.queue.pending()).toMatchObject([
       layout('superOpen', '0'),
     ])
-    superPanel.engine.dispose()
+    superPanel.engine.stop()
 
     const panelMode = withWriter()
-    panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
+    panelMode.engine.ui.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
-    expect(panelMode.engine.root.services.outbox.queue.pending()).toMatchObject([
+    expect(panelMode.engine.services.outbox.queue.pending()).toMatchObject([
       layout('panelMode', JSON.stringify({ 'session-1': 'native' })),
     ])
-    panelMode.engine.dispose()
+    panelMode.engine.stop()
   })
 })
 
@@ -659,7 +657,7 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     await settle()
     expect([...hub.topicHolds.keys()]).toEqual(['account.quota:operator'])
     // The live feed follows the machine records (POD-6644).
-    engine.root.replica.applySnapshot('machines', [
+    engine.replica.applySnapshot('machines', [
       { id: 'm1', name: 'm1', loggedOutHarnesses: [] },
       { id: 'm2', name: 'm2', loggedOutHarnesses: [] },
     ] as never)
@@ -668,11 +666,11 @@ describe('the LiveStore lifetime (POD-5798)', () => {
       'machine.condition:m1',
       'machine.condition:m2',
     ])
-    engine.destroy()
+    engine.dispose()
     expect(hub.topicHolds.size).toBe(0)
-    expect(engine.root.live.isDisposed).toBe(true)
-    expect(engine.root.live.quota.known).toBe(false)
-    expect(engine.root.live.machineConditions.size).toBe(0)
+    expect(engine.live.isDisposed).toBe(true)
+    expect(engine.live.quota.known).toBe(false)
+    expect(engine.live.machineConditions.size).toBe(0)
   })
 
   it('a new runtime starts with every reading unknown: nothing from a previous run survives', async () => {
@@ -680,18 +678,18 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     const first = makeEngine({ storage, networkEnabled: false })
     first.engine.start()
     await settle()
-    first.engine.destroy()
+    first.engine.dispose()
     // Offline from the start: no socket, no topic, no reading.
     const second = makeEngine({ storage, networkEnabled: false })
     second.engine.start()
     await settle()
-    const live = second.engine.root.live
+    const live = second.engine.live
     expect(live.connection.state).toBe('connecting')
     expect(live.connection.serverBuild).toBeUndefined()
     expect(live.quota.known).toBe(false)
     expect(live.machineConditions.size).toBe(0)
     expect(live.machineMetrics.size).toBe(0)
-    second.engine.destroy()
+    second.engine.dispose()
   })
 })
 
@@ -742,7 +740,7 @@ describe('engine lifecycle', () => {
       await settle()
       expect(play).toHaveBeenCalledExactlyOnceWith('success')
 
-      engine.dispose()
+      engine.stop()
       replica.applyChanges(
         'sessions',
         [
@@ -762,7 +760,7 @@ describe('engine lifecycle', () => {
       expect(play).toHaveBeenCalledTimes(1)
     } finally {
       handle?.dispose()
-      engine.dispose()
+      engine.stop()
       play.mockRestore()
       focus.mockRestore()
     }
@@ -774,7 +772,7 @@ describe('engine lifecycle', () => {
     engine.start()
     await settle()
     expect(api.discovery.refreshRepos.mutate).not.toHaveBeenCalled()
-    engine.dispose()
+    engine.stop()
   })
 
   it('asks nothing for superagent threads at boot: they are synced records (POD-6675)', async () => {
@@ -784,8 +782,8 @@ describe('engine lifecycle', () => {
     await settle()
     expect(fatals).toEqual([])
     expect((api as { superagent?: unknown }).superagent).toBeUndefined()
-    expect('superThreads' in engine.access).toBe(false)
-    engine.dispose()
+    expect('superThreads' in engine.ui).toBe(false)
+    engine.stop()
   })
 
   it('start is idempotent; dispose→start re-arms subscriptions (StrictMode)', async () => {
@@ -794,13 +792,13 @@ describe('engine lifecycle', () => {
     engine.start() // double-start must not double-subscribe
     expect(hub.onCalls.filter((k) => k === 'attention')).toHaveLength(1)
     await settle()
-    engine.dispose()
-    engine.dispose() // double-dispose must not throw
+    engine.stop()
+    engine.stop() // double-dispose must not throw
     expect(hub.subscribed('attention')).toBe(0)
     engine.start() // re-start after dispose re-arms everything
     await settle()
     expect(hub.subscribed('attention')).toBe(1)
-    engine.dispose()
+    engine.stop()
     expect(fatals).toEqual([])
   })
 })
@@ -809,7 +807,7 @@ describe('session resurrection (POD-6399)', () => {
   it('reports a refused resume through the runtime notice consumer', async () => {
     const { engine, errors } = makeEngine()
 
-    const result = await engine.root.commands.sessions.resume(asSessionId('sleeping'))
+    const result = await engine.commands.sessions.resume(asSessionId('sleeping'))
 
     // This fixture attaches no pool writer: the edit is refused, and says so.
     expect(result.ok).toBe(false)
@@ -818,38 +816,17 @@ describe('session resurrection (POD-6399)', () => {
   })
 })
 
-describe('runtime gesture batches', () => {
-  it('publishes both UiStore changes once after the gesture', () => {
-    const { engine } = makeEngine()
-    const published: Array<readonly [string | null, string | null]> = []
-    const stop = reaction(
-      () => [engine.ui.selectedIssueId, engine.ui.selectedWorktree] as const,
-      (value) => published.push(value),
-    )
-    try {
-      engine.batch(() => {
-        engine.ui.setSelectedIssueId(asIssueId('issue-batch'))
-        engine.ui.setSelectedWorktree('/batch')
-      })
-      expect(published).toEqual([['issue-batch', '/batch']])
-    } finally {
-      stop()
-      engine.destroy()
-    }
-  })
-})
-
 describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
   it('openArtifact creates an artifact-scoped tab carrying the issue, and focuses it', () => {
     const { engine } = makeEngine()
     engine.start()
-    engine.access.openArtifact({
+    engine.ui.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/wt',
     })
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.fileTabs).toEqual([
       {
         id: 'file:a:iss_1:abc123:index.html',
@@ -865,27 +842,27 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine.access.openArtifact({
+    engine.ui.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
     })
-    expect(engine.access.fileTabs).toHaveLength(1)
-    engine.dispose()
+    expect(engine.ui.fileTabList).toHaveLength(1)
+    engine.stop()
   })
 
   it('openArtifact from the issues view lands on the workspace with the issue selected (#101)', async () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.access.openArtifact({
+    engine.ui.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo/.worktrees/wt1',
     })
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.view).toBe('workspace')
     expect(st.selectedIssueId).toBe('iss_1')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
@@ -893,62 +870,60 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     // the URL landed on the workspace with the tab as the pane and STAYED there
     expect(rw.url()).toContain('/workspace')
     expect(decodeURIComponent(rw.url())).toContain('pane=file:a:iss_1:abc123:index.html')
-    engine.dispose()
+    engine.stop()
   })
 
   it('openArtifact without a worktree still lands (issue-owned tab, no worktree bounce)', async () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.access.openArtifact({
+    engine.ui.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'doc.md',
     })
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.view).toBe('workspace')
     expect(st.selectedIssueId).toBe('iss_1')
     expect(st.paneA).toBe('file:a:iss_1:abc123:doc.md')
     expect(rw.url()).toContain('/workspace')
-    engine.dispose()
+    engine.stop()
   })
 
   it('openFileInWorktree from a non-workspace view navigates to the workspace (#101)', async () => {
     const { engine, rw } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.access.openFileInWorktree({
+    engine.ui.openFileInWorktree({
       root: '/tmp/known-repo/.worktrees/wt1',
       path: 'notes.md',
     })
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.view).toBe('workspace')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.paneA).toBe('file:w:/tmp/known-repo/.worktrees/wt1:notes.md')
     expect(rw.url()).toContain('/workspace')
-    engine.dispose()
+    engine.stop()
   })
 
   it("openFile from the issues view lands on the workspace, resolving the session's worktree", async () => {
     const { engine, rw } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.root.replica.applySnapshot('sessions', [
-      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
-    ])
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
     await settle()
-    engine.access.openFile(asSessionId('s1'), 'notes.md')
+    engine.ui.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.view).toBe('workspace')
     // the containing worktree, not the session's deeper cwd
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.fileTabs[0]?.worktreePath).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.paneA).toBe('file:s:s1:notes.md')
     expect(rw.url()).toContain('/workspace')
-    engine.dispose()
+    engine.stop()
   })
 
   it('readFileScoped routes artifact scope to the artifact input; writes are rejected', async () => {
@@ -971,16 +946,16 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
     } as const
-    await engine.root.commands.files.read(scope, 'index.html')
+    await engine.commands.files.read(scope, 'index.html')
     expect(reads).toEqual([
       { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' },
     ])
     // Immutable snapshot: the write API is never called.
     await expect(
-      engine.root.commands.files.write({ scope, path: 'index.html', content: 'x' }),
+      engine.commands.files.write({ scope, path: 'index.html', content: 'x' }),
     ).rejects.toThrow('artifact snapshots are read-only')
     expect(api.files.write.mutate).not.toHaveBeenCalled()
-    engine.dispose()
+    engine.stop()
   })
 })
 
@@ -989,12 +964,12 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.root.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
     await settle()
-    engine.access.setSelectedIssueId(asIssueId('iss_9'))
-    engine.access.openFile(asSessionId('s1'), 'notes.md')
+    engine.ui.setSelectedIssueId(asIssueId('iss_9'))
+    engine.ui.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.fileTabs[0]?.issueId).toBe('iss_9')
     // reveal keeps the owning issue selected so the strip lists the tab
     expect(st.selectedIssueId).toBe('iss_9')
@@ -1002,58 +977,58 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
       path: 'notes.md',
       worktreePath: '/tmp/known-repo/.worktrees/wt1',
     })
-    engine.dispose()
+    engine.stop()
   })
 
   it("openFile prefers the session's explicit issue over the selection", async () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.root.replica.applySnapshot('sessions', [
+    engine.replica.applySnapshot('sessions', [
       {
         ...session('s1', '/tmp/known-repo/.worktrees/wt1'),
         issueId: asIssueId('iss_own'),
       } as SessionView,
     ])
     await settle()
-    engine.access.setSelectedIssueId(asIssueId('iss_other'))
-    engine.access.openFile(asSessionId('s1'), 'notes.md')
+    engine.ui.setSelectedIssueId(asIssueId('iss_other'))
+    engine.ui.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.access
+    const st = engine.ui.screen
     expect(st.fileTabs[0]?.issueId).toBe('iss_own')
     // navigated to the OWNING issue's workspace, not the stale selection
     expect(st.selectedIssueId).toBe('iss_own')
-    engine.dispose()
+    engine.stop()
   })
 
   it('openFileInWorktree stamps an explicit caller issue, else the selection, else nothing', async () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    const snap = engine.access
+    const snap = engine.ui
     snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: asIssueId('iss_1') })
-    engine.access.setSelectedIssueId(asIssueId('iss_2'))
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
-    engine.access.setSelectedIssueId(null)
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
-    const tabs = engine.access.fileTabs
+    engine.ui.setSelectedIssueId(asIssueId('iss_2'))
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
+    engine.ui.setSelectedIssueId(null)
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    const tabs = engine.ui.fileTabList
     expect(tabs.map((t) => t.issueId)).toEqual(['iss_1', 'iss_2', undefined])
-    engine.dispose()
+    engine.stop()
   })
 
   it('re-opening an existing tab keeps its original owner and reveals THAT issue', async () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.access.setSelectedIssueId(asIssueId('iss_1'))
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
-    engine.access.setSelectedIssueId(asIssueId('iss_2'))
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
-    const st = engine.access
+    engine.ui.setSelectedIssueId(asIssueId('iss_1'))
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    engine.ui.setSelectedIssueId(asIssueId('iss_2'))
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    const st = engine.ui.screen
     expect(st.fileTabs).toHaveLength(1)
     expect(st.fileTabs[0]?.issueId).toBe('iss_1')
     expect(st.selectedIssueId).toBe('iss_1')
-    engine.dispose()
+    engine.stop()
   })
 
   it('opens a file as the workspace preview, and the next preview replaces it (POD-788)', async () => {
@@ -1061,18 +1036,18 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.start()
     await settle()
     const preview = (path: string): void =>
-      engine.access.openFileInWorktree({ root: '/tmp/known-repo', path, permanent: false })
+      engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path, permanent: false })
 
     preview('a.md')
-    let st = engine.access
-    let ws = st.workspaces[st.workspaceKey()]
+    let st = engine.ui.screen
+    let ws = st.workspaces[engine.ui.workspaceKey()]
     expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:a.md')
 
     // The glance moves on: one temporary tab, in the same strip slot, and the
     // record of the file nothing is rendering any more goes with it.
     preview('b.md')
-    st = engine.access
-    ws = st.workspaces[st.workspaceKey()]
+    st = engine.ui.screen
+    ws = st.workspaces[engine.ui.workspaceKey()]
     expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:b.md')
     expect(ws ? allTabIds(ws) : []).toEqual(['file:w:/tmp/known-repo:b.md'])
     expect(st.fileTabs.map((t) => t.path)).toEqual(['b.md'])
@@ -1080,30 +1055,30 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     expect(st.recentFiles.map((r) => r.path)).toEqual(['b.md', 'a.md'])
 
     // A double click (and every caller that has not thought about it) keeps it.
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
-    st = engine.access
-    ws = st.workspaces[st.workspaceKey()]
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    st = engine.ui.screen
+    ws = st.workspaces[engine.ui.workspaceKey()]
     expect(ws?.previewTabId).toBe(null)
     expect(st.fileTabs.map((t) => t.path)).toEqual(['c.md'])
-    engine.dispose()
+    engine.stop()
   })
 
   it('promotes the previewed file in place, so the next glance leaves it alone', async () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
     // What `usePreviewPromotion` fires when the operator types into the panel.
-    engine.access.promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
-    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
-    const st = engine.access
-    const ws = st.workspaces[st.workspaceKey()]
+    engine.ui.promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
+    engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
+    const st = engine.ui.screen
+    const ws = st.workspaces[engine.ui.workspaceKey()]
     expect(ws ? allTabIds(ws) : []).toEqual([
       'file:w:/tmp/known-repo:a.md',
       'file:w:/tmp/known-repo:b.md',
     ])
     expect(st.fileTabs.map((t) => t.path)).toEqual(['a.md', 'b.md'])
-    engine.dispose()
+    engine.stop()
   })
 
   it('recent files dedupe by path, cap at 30, persist, and openArtifact keeps its ids', async () => {
@@ -1112,31 +1087,31 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     first.engine.start()
     await settle()
     for (let i = 0; i < 32; i++) {
-      first.engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
+      first.engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
     }
     // duplicate open moves to front instead of adding
-    first.engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
-    first.engine.access.openArtifact({
+    first.engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
+    first.engine.ui.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo',
     })
-    const recents = first.engine.access.recentFiles
+    const recents = first.engine.ui.recentFiles
     expect(recents).toHaveLength(30)
     expect(recents[0]).toMatchObject({
       path: 'index.html',
       artifact: { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc') },
     })
     expect(recents[1]?.path).toBe('f31.md')
-    first.engine.dispose()
+    first.engine.stop()
     // a fresh engine over the same storage rehydrates the list
     const second = makeEngine({ storage })
     second.engine.start()
     await settle()
-    expect(second.engine.access.recentFiles).toHaveLength(30)
-    expect(second.engine.access.recentFiles[0]?.path).toBe('index.html')
-    second.engine.dispose()
+    expect(second.engine.ui.recentFiles).toHaveLength(30)
+    expect(second.engine.ui.recentFiles[0]?.path).toBe('index.html')
+    second.engine.stop()
   })
 })
 
@@ -1156,10 +1131,10 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'typed with the socket down')
+    engine.commands.sessions.setSessionDraft(SID, 'typed with the socket down')
 
     expect(draftOf(engine)).toBe('typed with the socket down')
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1170,11 +1145,11 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
+    engine.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
 
     expect(draftOf(engine)).toBe('hello world')
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1183,7 +1158,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
+    engine.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
     await settle()
 
@@ -1195,7 +1170,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
       baseRev: 3,
       text: 'hello world',
     })
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1204,11 +1179,11 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
+    engine.commands.sessions.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello')
 
     expect(draftOf(engine)).toBe('hello world')
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1220,7 +1195,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     hub.emit('sessionDraft', SID, 'typed on the phone', { rev: 1 })
 
     expect(draftOf(engine)).toBe('typed on the phone')
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1230,7 +1205,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     const before = hub.draftEdits.length
 
-    const actions = engine.root.commands.sessions
+    const actions = engine.commands.sessions
     actions.setSessionDraft(SID, 'h')
     actions.setSessionDraft(SID, 'he')
     actions.setSessionDraft(SID, 'hel')
@@ -1239,7 +1214,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle(60)
 
     expect(hub.draftEdits.slice(before)).toEqual([{ sessionId: SID, baseRev: 0, text: 'hello' }])
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1250,12 +1225,12 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    const actions = engine.root.commands.sessions
+    const actions = engine.commands.sessions
     actions.setSessionDraft(SID, 'about to send')
     actions.setSessionDraft(SID, '')
 
     expect(hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 0, text: '' })
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1264,7 +1239,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'hello world')
+    engine.commands.sessions.setSessionDraft(SID, 'hello world')
     await settle()
     const sentBeforeEcho = hub.draftEdits.length
 
@@ -1275,7 +1250,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
 
     expect(draftOf(engine)).toBe('hello world')
     expect(hub.draftEdits.length).toBe(sentBeforeEcho)
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1285,7 +1260,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.root.commands.sessions.setSessionDraft(SID, 'typed during the outage')
+    engine.commands.sessions.setSessionDraft(SID, 'typed during the outage')
     await settle()
     expect(hub.draftEdits).toEqual([])
 
@@ -1299,7 +1274,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
       baseRev: 0,
       text: 'typed during the outage',
     })
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1307,14 +1282,14 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const storage = memoryStorage()
     const first = makeEngine({ storage, draftPersistDebounceMs: 60_000 })
     first.hub.connected = false
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'the last unsent keystroke')
+    first.engine.commands.sessions.setSessionDraft(SID, 'the last unsent keystroke')
     await first.engine.prepareReload()
     const restored = makeEngine({ storage })
     expect(restored.engine.drafts.get(SID)).toBe('the last unsent keystroke')
     expect(first.engine.drafts.get(SID)).toBe('the last unsent keystroke')
     expect(first.hub.draftEdits).toEqual([])
-    first.engine.dispose()
-    restored.engine.dispose()
+    first.engine.stop()
+    restored.engine.stop()
   })
 
   it('reload preparation preserves a keystroke typed during local queue commit', async () => {
@@ -1324,16 +1299,16 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const commit = new Promise<void>((resolve) => {
       release = resolve
     })
-    first.engine.root.services.outbox.queue.flushLocalWrites = () => commit
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'before commit')
+    first.engine.services.outbox.queue.flushLocalWrites = () => commit
+    first.engine.commands.sessions.setSessionDraft(SID, 'before commit')
     const prepared = first.engine.prepareReload()
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'typed during commit')
+    first.engine.commands.sessions.setSessionDraft(SID, 'typed during commit')
     release()
     await prepared
     const restored = makeEngine({ storage })
     expect(restored.engine.drafts.get(SID)).toBe('typed during commit')
-    first.engine.dispose()
-    restored.engine.dispose()
+    first.engine.stop()
+    restored.engine.stop()
   })
 
   it('keeps a draft across a reload with no server in reach', async () => {
@@ -1342,16 +1317,16 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'survives the reload')
+    first.engine.commands.sessions.setSessionDraft(SID, 'survives the reload')
     await settle(40)
-    first.engine.dispose()
+    first.engine.stop()
     await settle()
 
     // A NEW runtime over the same device storage — the reload. No hub traffic
     // and no start() before the read: the draft is on screen from frame one.
     const second = makeEngine({ storage })
     expect(second.engine.drafts.get(SID)).toBe('survives the reload')
-    second.engine.dispose()
+    second.engine.stop()
     await settle()
   })
 
@@ -1361,9 +1336,9 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'never reached the server')
+    first.engine.commands.sessions.setSessionDraft(SID, 'never reached the server')
     await settle(40)
-    first.engine.dispose()
+    first.engine.stop()
     await settle()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
@@ -1378,7 +1353,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
       baseRev: 0,
       text: 'never reached the server',
     })
-    second.engine.dispose()
+    second.engine.stop()
     await settle()
   })
 
@@ -1389,12 +1364,12 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
     first.hub.connected = false
-    const actions = first.engine.root.commands.sessions
+    const actions = first.engine.commands.sessions
     actions.setSessionDraft(SID, 'temporary')
     await settle(40)
     actions.setSessionDraft(SID, '')
     await settle(40)
-    first.engine.dispose()
+    first.engine.stop()
     await settle()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
@@ -1408,7 +1383,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     second.hub.emit('sessionDraft', SID, '', { rev: 8 })
     second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
     expect(second.engine.drafts.get(SID)).toBe('')
-    second.engine.dispose()
+    second.engine.stop()
     await settle()
   })
 
@@ -1417,15 +1392,15 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const first = makeEngine({ storage, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'temporary')
+    first.engine.commands.sessions.setSessionDraft(SID, 'temporary')
     await settle(30)
     first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
     await settle(30)
-    first.engine.root.commands.sessions.setSessionDraft(SID, '')
+    first.engine.commands.sessions.setSessionDraft(SID, '')
     await settle(30)
     first.hub.emit('sessionDraft', SID, '', { rev: 8 })
     await settle(30)
-    first.engine.dispose()
+    first.engine.stop()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
     expect(second.engine.drafts.get(SID)).toBe('')
@@ -1435,10 +1410,10 @@ describe('offline-first composer drafts (POD-2045)', () => {
     second.hub.emit('connectionHealth', second.hub.health)
     await settle()
     expect(second.hub.draftEdits).toEqual([])
-    second.engine.root.commands.sessions.setSessionDraft(SID, 'new draft')
-    second.engine.root.commands.sessions.setSessionDraft(SID, '')
+    second.engine.commands.sessions.setSessionDraft(SID, 'new draft')
+    second.engine.commands.sessions.setSessionDraft(SID, '')
     expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 8, text: '' })
-    second.engine.dispose()
+    second.engine.stop()
     await settle()
   })
 
@@ -1451,7 +1426,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const off = observe(engine.drafts.values, (change) => {
       if (change.name === SID) published.push(engine.drafts.get(SID))
     })
-    engine.root.commands.sessions.setSessionDraft(SID, '')
+    engine.commands.sessions.setSessionDraft(SID, '')
     expect(published).toEqual([''])
     expect(engine.drafts.get(SID)).toBe('')
     hub.emit('sessionDraft', SID, '', { rev: 6 })
@@ -1459,7 +1434,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     hub.emit('sessionDraft', SID, 'other old text', { rev: 4 })
     expect(published).toEqual([''])
     off()
-    engine.dispose()
+    engine.stop()
     await settle()
   })
 
@@ -1468,11 +1443,11 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
-    first.engine.root.commands.sessions.setSessionDraft(SID, 'previous message')
+    first.engine.commands.sessions.setSessionDraft(SID, 'previous message')
     await settle(30)
     first.hub.emit('sessionDraft', SID, 'previous message', { rev: 7 })
     await settle(30)
-    first.engine.dispose()
+    first.engine.stop()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
     expect(second.engine.drafts.get(SID)).toBe('previous message')
@@ -1486,7 +1461,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     expect(second.hub.draftEdits).toEqual([])
     second.hub.emit('sessionDraft', SID, '', { rev: 10 })
     expect(second.engine.drafts.get(SID)).toBe('')
-    second.engine.dispose()
+    second.engine.stop()
     await settle()
   })
 })
@@ -1506,7 +1481,7 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     expect(hub.connectNowCount).toBe(1)
 
     // The listener is released with the rest of the runtime's subscriptions.
-    engine.dispose()
+    engine.stop()
     window.dispatchEvent(new Event('online'))
     expect(hub.connectNowCount).toBe(1)
   })
@@ -1529,7 +1504,7 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     // instead of waiting out the backoff.
     expect(hub.connectNowCount).toBe(1)
 
-    engine.dispose()
+    engine.stop()
     document.dispatchEvent(new Event('visibilitychange'))
     expect(hub.connectNowCount).toBe(1)
   })
@@ -1544,7 +1519,7 @@ describe('principal-owned conversations', () => {
       create: () => ({ start, dispose }) as unknown as import('../conversation/model').Conversation,
     })
     const panel = cache.acquire(asSessionId('cached'))
-    engine.dispose()
+    engine.stop()
     expect(dispose).not.toHaveBeenCalled()
     expect(
       engine.ownConversations({
@@ -1553,7 +1528,7 @@ describe('principal-owned conversations', () => {
         },
       }),
     ).toBe(cache)
-    engine.destroy()
+    engine.dispose()
     expect(dispose).toHaveBeenCalledTimes(1)
     panel.release()
     expect(() => cache.acquire(asSessionId('cached'))).toThrow('disposed')
@@ -1638,14 +1613,14 @@ describe('notification sound phase-source lifecycle', () => {
       if (cleanup === 'source first') {
         detach()
       } else {
-        engine.dispose()
+        engine.stop()
       }
       runInAction(() => {
         phases.changes = edge(errored)
       })
       expect(read).toHaveBeenCalledTimes(2)
       expect(play).toHaveBeenCalledTimes(1)
-      if (cleanup === 'source first') engine.dispose()
+      if (cleanup === 'source first') engine.stop()
       else detach()
       detach()
       runInAction(() => {
@@ -1669,7 +1644,7 @@ describe('notification sound phase-source lifecycle', () => {
 
       // A source may outlive reversible runtime cleanup. It stays silent
       // while stopped and resumes only for new edges after the next start.
-      engine.dispose()
+      engine.stop()
       runInAction(() => {
         phases.changes = edge(done)
       })
@@ -1681,7 +1656,7 @@ describe('notification sound phase-source lifecycle', () => {
         phases.changes = edge(done)
       })
       expect(play).toHaveBeenNthCalledWith(3, 'success')
-      engine.destroy()
+      engine.dispose()
       engine.start()
       runInAction(() => {
         phases.changes = edge(errored)
@@ -1692,7 +1667,7 @@ describe('notification sound phase-source lifecycle', () => {
     } finally {
       detachReplacement?.()
       detach?.()
-      engine.destroy()
+      engine.dispose()
     }
   })
 })

@@ -329,7 +329,7 @@ export async function poolScreenCellsAt(
     try {
       return await measureScreenCells(ctx, scale, ledger, onCell, only, actions, scene)
     } finally {
-      ctx.engine.destroy()
+      ctx.engine.dispose()
     }
   } finally {
     ledger.dispose()
@@ -399,7 +399,7 @@ async function measureScreenCells(
       SUPERAGENT_ENTITIES,
       await createSuperagentSource(superagentSourcePorts(ctx.engine)),
     )
-    pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(ctx.engine.root.replica))
+    pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(ctx.engine.replica))
     pool.sources.register(
       MOBILE_INBOX_ENTITIES,
       new MobileInboxSource(replicaSourcePorts(ctx.engine), pool),

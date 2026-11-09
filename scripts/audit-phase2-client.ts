@@ -594,20 +594,9 @@ const CONSTRUCTION_RULES: readonly ConstructionRule[] = [
     definition: /\b(?:export\s+)?(?:function\s+createClientRuntime|class\s+ClientRuntime)\b/,
     homes: [
       'packages/client-core/src/react/provider.tsx',
-      'packages/client-core/src/engine/runtime.ts',
-    ],
-    what: 'constructs a client runtime outside the provider that owns the principal',
-  },
-  {
-    // The runtime root (POD-6681) holds the replica, socket and queue for one
-    // principal; until POD-5803 the old store's factory is its one caller.
-    call: /\b(?:createRuntimeRoot\s*\(|new\s+RuntimeRoot\s*\()/,
-    definition: /\b(?:export\s+)?(?:function\s+createRuntimeRoot|class\s+RuntimeRoot)\b/,
-    homes: [
-      'packages/client-core/src/engine/runtime.ts',
       'packages/client-core/src/runtime-root/root.ts',
     ],
-    what: 'constructs a runtime root outside the runtime that owns the principal',
+    what: 'constructs a client runtime outside the provider that owns the principal',
   },
   {
     call: /\bcreateEngineHub\s*\(/,

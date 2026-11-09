@@ -1,11 +1,11 @@
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { resetFakeStore, setFakeStore } from '../chat/test-support/fake-store-handle'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
 // ---------------------------------------------------------------------------
 // Regression cover for the chat→native draft flush re-arm (#17/#62 over Task 6).
@@ -128,11 +128,11 @@ vi.mock('@/app/store', () => {
     // `undefined` = no exit state. The draft flush is a property of a LIVE
     // session, and ChatView requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {

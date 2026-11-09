@@ -12,7 +12,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { preferenceSource } from '@podium/client-graph/preference-source'
@@ -306,8 +306,8 @@ describe('mobile pool ownership', () => {
     await waitFor(() =>
       expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
     )
-    await waitFor(() => expect(firstRuntime.root.live.outbox.pending).toBe(2))
-    await firstRuntime.root.replica.flush()
+    await waitFor(() => expect(firstRuntime.live.outbox.pending).toBe(2))
+    await firstRuntime.replica.flush()
     await first.quit()
     state.pools.length = 0
 

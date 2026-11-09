@@ -72,11 +72,11 @@ const handle = {
   },
 }
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
+  readFixture: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
   useSessionDraft: (id: string) => snapshot().drafts[id] ?? '',
   useSessionExitKind: (id: string) => {
     if (f.guard) throw new Error('Legacy session exit metadata read')
-    return f.fixture!.owner.root.replica.exitKind?.('session', id)
+    return f.fixture!.owner.replica.exitKind?.('session', id)
   },
 }))
 vi.mock('@podium/client-core/react', async () => {
@@ -172,7 +172,7 @@ beforeEach(async () => {
     openFileInWorktree: { configurable: true, writable: true, value: f.seams.openFileInWorktree },
   })
   bindStoreStatsOwner(handle, f.fixture.owner)
-  bindStoreStatsOwner(f.fixture.owner.root.replica, f.fixture.owner)
+  bindStoreStatsOwner(f.fixture.owner.replica, f.fixture.owner)
   storeStats.enable()
   storeStats.reset()
 })

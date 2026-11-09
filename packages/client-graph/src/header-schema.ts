@@ -1,7 +1,7 @@
-import type { Store } from '@podium/client-core/engine'
+import type { ScreenState } from '@podium/client-core/ui'
+import type { GitRepositoryWire } from '@podium/model/browser'
 import type { ShipOrderProjection } from '@podium/model/shipping-projection'
 import type { PoolRows } from './pool'
-import type { GitRepositoryWire } from '@podium/model/browser'
 
 /** Header source declarations. Machine storage is the shared schema table.
  * Live readings (host metrics, quota, the connection) are LiveStore
@@ -13,7 +13,7 @@ export interface HeaderRows {
   /** A registered repository and its worktrees, from the checkout records. */
   repository: GitRepositoryWire
   shipOrder: ShipOrderProjection
-  window: Pick<Store, 'view' | 'paneA' | 'fileTabs'>
+  window: Pick<ScreenState, 'view' | 'paneA' | 'fileTabs'>
 }
 export type HeaderEntity = keyof HeaderRows
 export interface ShippingCounts {
@@ -48,7 +48,7 @@ export const HEADER_SCHEMA = {
   },
   window: {
     key: 'window',
-    source: 'engine:locals',
+    source: 'ui:screen',
     fields: ['view', 'paneA', 'fileTabs'],
     cold: 'never',
   },

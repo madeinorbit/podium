@@ -73,7 +73,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       networkEnabled={false}
       onFatalError={(message) => failures.push(message)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+        fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >
@@ -112,5 +112,5 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       .flatMap((runtime) => Object.entries(runtime.slices))
       .filter(([key]) => key.startsWith('shell.')),
   ).toEqual([])
-  expect(owner?.root.replica.rowCount?.('sessions')).toBe(42)
+  expect(owner?.replica.rowCount?.('sessions')).toBe(42)
 })

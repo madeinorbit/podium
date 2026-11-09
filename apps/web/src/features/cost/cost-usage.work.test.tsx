@@ -7,6 +7,9 @@ import { StoreProvider } from '@podium/client-core/react'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { taskCostRows } from '@podium/client-core/values'
+import { type LiveFixture, liveFixture } from '@podium/client-graph/live-fixture'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   asIssueId,
   asSessionId,
@@ -18,9 +21,6 @@ import {
   type UsageBucketWire,
 } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
-import { type LiveFixture, liveFixture } from '@podium/client-graph/live-fixture'
-import { MobxPool } from '@podium/client-graph/pool'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MissionCostChip } from '@/app/MissionCostChip'
@@ -47,7 +47,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
     return useSyncExternalStore(view.subscribe, view.getSnapshot)
   },
 }))
-vi.mock('../../../../../packages/client-core/src/engine/runtime', () => ({
+vi.mock('../../../../../packages/client-core/src/runtime-root/root', () => ({
   createClientRuntime: () => fixture.handle,
 }))
 

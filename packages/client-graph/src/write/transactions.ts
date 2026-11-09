@@ -21,7 +21,7 @@ import type {
   PerUserRecordTarget,
 } from '@podium/client-core/command-reducers'
 import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
-import type { SpawnPlaceholderEvent } from '@podium/client-core/engine'
+import type { SpawnPlaceholderEvent } from '@podium/client-core/commands'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import type { EngineOutbox, OutboxKinds, OutboxOutcome } from '@podium/client-core/runtime-root'
@@ -40,7 +40,13 @@ type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
 /** A pool row a change lands on: a session or issue, or one of POD-6673's
  *  standalone per-user records, keyed by its feed id. */
-export type PoolRowKind = 'session' | 'issue' | 'effect' | 'subscription' | 'machine' | PerUserPoolKind
+export type PoolRowKind =
+  | 'session'
+  | 'issue'
+  | 'effect'
+  | 'subscription'
+  | 'machine'
+  | PerUserPoolKind
 type PoolRow = { readonly kind: PoolRowKind; readonly id: string }
 
 /** POD-6673: the overlay target of each standalone per-user record, and its
@@ -69,9 +75,9 @@ const poolRowKind = (entity: OverlayTarget): PoolRowKind =>
         ? 'effect'
         : entity === 'subscriptions'
           ? 'subscription'
-        : entity === 'machines'
-          ? 'machine'
-          : 'issue'
+          : entity === 'machines'
+            ? 'machine'
+            : 'issue'
 
 /** An applied change whose outbox entry still awaits confirmation. */
 interface Awaiting {

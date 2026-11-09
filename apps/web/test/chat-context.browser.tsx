@@ -1,11 +1,11 @@
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
-import type { ClientRuntime } from '@podium/client-core/engine'
-import { DRAFTS_UI_KEY } from '@podium/client-core/engine'
+
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
-import { openLegacyDeviceKeys } from '@podium/client-core/ui'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { DRAFTS_UI_KEY, openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
@@ -128,7 +128,7 @@ const Surface = observer(function Surface() {
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never })
-  const actions = runtime.access
+  const actions = runtime.ui
   const conversation = useConversation(id)
   const held = omitGone(pool?.row('chatHeld', id))
   const reader = omitGone(pool?.row('chatContextReader', 'reader'))
@@ -229,7 +229,7 @@ root.render(
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+        fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
         fixture.publishMachines()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
@@ -270,7 +270,7 @@ const driver = {
     return checkChatContext(
       graph,
       { ...referenceState(owner), drafts: Object.fromEntries(owner.drafts.values) },
-      allIssueViewModels(owner.root.replica),
+      allIssueViewModels(owner.replica),
       [id, asSessionId('synthetic-session-1')],
     )
   },

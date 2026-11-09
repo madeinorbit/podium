@@ -80,7 +80,7 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
+  readFixture: (selector: (store: unknown) => unknown) =>
     selector({
       ...fixture.store,
       sessions: fixture.sessions,

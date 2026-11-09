@@ -1,8 +1,8 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { HostMetricsWire } from '@podium/model'
@@ -198,9 +198,9 @@ async function mount(count = 8, scale?: number) {
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => errors.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+        data.bindHub(owner.services.connection.hub, undefined, owner.live)
         // This phone fixture starts offline with its saved records.
-        owner.root.live.setConnection({ state: 'offline', since: 0 })
+        owner.live.setConnection({ state: 'offline', since: 0 })
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
@@ -231,7 +231,7 @@ async function mount(count = 8, scale?: number) {
     }))
     await act(async () => {
       ;(
-        runtime.root.services.connection.hub as unknown as {
+        runtime.services.connection.hub as unknown as {
           emit(kind: string, value: unknown): void
         }
       ).emit('machines', machines)
@@ -291,7 +291,7 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
     await record('repository', () =>
       current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }),
     )
-    const cursor = vi.spyOn(current.runtime.root.replica, 'getCursor').mockReturnValue(42)
+    const cursor = vi.spyOn(current.runtime.replica, 'getCursor').mockReturnValue(42)
     await record('heartbeat', () =>
       current.data.replica.onKernelEvent({
         type: 'cursor',

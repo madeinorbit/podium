@@ -4,7 +4,7 @@ import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../../packages/client-core/src/api'
-import type { StoreNotices } from '../../../packages/client-core/src/engine/types'
+import type { NoticeSink } from '../../../packages/client-core/src/notices'
 import type { OutboxEntry, OutboxStorage } from '../../../packages/client-core/src/outbox'
 import type { Replica } from '../../../packages/client-core/src/replica/contract'
 import { openKernelEngineOutbox } from '../../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
@@ -78,7 +78,7 @@ async function engine(o: Oracle) {
     notices: {
       error: (message: string) => errors.push(message),
       info: () => {},
-    } as unknown as StoreNotices,
+    } as unknown as NoticeSink,
     isOnline: () => online,
   })
   return {

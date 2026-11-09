@@ -3,8 +3,8 @@ import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/mo
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useRuntimeSelector } from '@/app/store'
 import { makeIssue } from '@/lib/test-issue'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
@@ -146,11 +146,11 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {
@@ -504,7 +504,10 @@ describe('AgentPanel active wiring', () => {
 
     // The principal's warm cache outlives a pane; disposing that owner releases
     // the final transcript lease as well as the panel's terminal resources.
-    act(() => { root.unmount(); paneFixture.dispose() })
+    act(() => {
+      root.unmount()
+      paneFixture.dispose()
+    })
     expect(dispose).toHaveBeenCalledTimes(mountSessionMock.mock.calls.length)
     expect(unsubscribeTranscript).toHaveBeenCalledTimes(subscribeTranscript.mock.calls.length)
     // Keep the shared afterEach cleanup valid after the explicit lifecycle assertion.

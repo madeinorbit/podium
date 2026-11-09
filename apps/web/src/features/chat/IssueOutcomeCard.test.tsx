@@ -9,7 +9,7 @@ const store = vi.hoisted(() => ({
   updateIssue: vi.fn(async () => undefined),
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: typeof store) => unknown) => read(store),
+  readFixture: (read: (state: typeof store) => unknown) => read(store),
 }))
 
 afterEach(() => {

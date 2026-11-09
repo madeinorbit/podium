@@ -3,6 +3,6 @@
 const state = {
   configureSession: async () => 'eff_harness_asked',
 }
-export function useRuntimeSelector<T>(pick: (s: typeof state) => T): T {
+export function readFixture<T>(pick: (s: typeof state) => T): T {
   return pick(state)
 }

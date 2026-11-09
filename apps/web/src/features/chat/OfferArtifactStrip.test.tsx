@@ -72,7 +72,7 @@ function publishUnchangedSelection(): void {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: useTestStoreSelector,
+  readFixture: useTestStoreSelector,
 }))
 
 const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({

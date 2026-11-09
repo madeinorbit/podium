@@ -1,24 +1,24 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { fixtureCommands } from '../../test-support/commands'
-import { fixtureNavigation } from '../../test-support/navigation'
-import { fixtureUi } from '../../test-support/ui'
-import { FollowService } from '../runtime-root/services/follow-service'
-import { MarkReadService } from '../runtime-root/services/mark-read-service'
-import { TabPruningService } from '../runtime-root/services/tab-pruning-service'
-import type { SessionView } from '../session-values'
-import { planNavigation } from '../ui/navigation'
-import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
-import { routeDefaults } from '../ui-state'
-import { emptyWorkspace, openTab, splitPane } from '../values'
+import { fixtureCommands } from '../../../test-support/commands'
+import { fixtureNavigation } from '../../../test-support/navigation'
+import { fixtureUi } from '../../../test-support/ui'
+import type { SessionView } from '../../session-values'
+import { planNavigation } from '../../ui/navigation'
 import {
   loadingNavigationProvider,
   NAVIGATION_LOADING,
   type NavigationProvider,
-  type RuntimeState,
   resolvedWorkspaceKey,
+  type ScreenState,
   workspaceKeyForState,
-} from './state'
+} from '../../ui/state'
+import { AutoContinueDialogModel, PaletteViewModel } from '../../ui/view-models'
+import { routeDefaults } from '../../ui-state'
+import { emptyWorkspace, openTab, splitPane } from '../../values'
+import { FollowService } from './follow-service'
+import { MarkReadService } from './mark-read-service'
+import { TabPruningService } from './tab-pruning-service'
 
 const stamp = '2026-09-18T00:00:00.000Z'
 const context = { visible: true, now: stamp }
@@ -60,7 +60,7 @@ const state = (navigation?: NavigationProvider) => {
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  } as unknown as RuntimeState & {
+  } as unknown as ScreenState & {
     issueProjections: IssueProjection[]
     sessions: SessionView[]
     issueUserStates: object[]
@@ -78,7 +78,7 @@ describe('addressed workspace pruning', () => {
     path: 'notes.txt',
     worktreePath: '/repo',
   })
-  function reaction(st: RuntimeState) {
+  function reaction(st: ScreenState) {
     return new TabPruningService({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
@@ -234,7 +234,7 @@ describe('addressed worktree reactions', () => {
     view: 'workspace' as const,
     repos: [{ path: '/repo', kind: 'repository' as const, worktrees: [{ path: '/dest' }] }],
   })
-  const owner = (st: RuntimeState, info = vi.fn()) =>
+  const owner = (st: ScreenState, info = vi.fn()) =>
     new FollowService({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
@@ -244,7 +244,7 @@ describe('addressed worktree reactions', () => {
       notices: { info } as never,
       isVisible: () => true,
     })
-  const forbidSessions = (st: RuntimeState) =>
+  const forbidSessions = (st: ScreenState) =>
     Object.defineProperty(st, 'sessions', {
       get() {
         throw new Error('Legacy worktree list read')

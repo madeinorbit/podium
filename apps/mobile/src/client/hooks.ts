@@ -1,12 +1,11 @@
 /** Phone reads use the shared pool; actions and transport handles retain
  * their existing owner and API. Missing pool facts retain loading values. */
-import type { Store } from '@podium/client-core/engine'
 import type { LiveStore } from '@podium/client-core/live'
 import {
   useClientRuntime,
-  useDeviceState,
-  useReplica as useCoreReplica,
   useHttpOrigin as useCoreHttpOrigin,
+  useReplica as useCoreReplica,
+  useDeviceState,
   useRequestClient,
   useSocketHub,
 } from '@podium/client-core/react'
@@ -34,14 +33,12 @@ export {
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from './use-session-context'
 
-type MobileStore = Store<MobileTrpc>
-
 /** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): import('@podium/client-core/replica').Replica {
   return useCoreReplica()
 }
 
-/** The server this app is talking to, e.g. `http://ludovico:18787`. */
+/** The server this app is talking to, e.g. `https://podium.example.com`. */
 export function useHttpOrigin(): string {
   return useCoreHttpOrigin()
 }
@@ -93,7 +90,7 @@ const serverBuildOf = (live: LiveStore): string | undefined => live.connection.s
  * only when `read`'s answer changes. `read` must be a stable function.
  */
 function useLiveValue<T>(read: (live: LiveStore) => T): T {
-  const live = useClientRuntime<MobileTrpc>().root.live
+  const live = useClientRuntime<MobileTrpc>().live
   const [value, setValue] = useState(() => read(live))
   useEffect(() => reaction(() => read(live), setValue, { fireImmediately: true }), [live, read])
   return value

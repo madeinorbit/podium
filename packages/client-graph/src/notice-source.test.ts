@@ -1,17 +1,17 @@
-import { omitGone } from './lookup'
 import { LiveStore, type OutboxCondition } from '@podium/client-core/live'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { asSessionId } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { asSessionId } from '@podium/model'
 import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
 import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
-import { MobxPool } from './pool'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
+import { omitGone } from './lookup'
 import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from './notice-schema'
 import { NoticeSource } from './notice-source'
 import { noticeInteractions, noticeMessages, noticeRecovery } from './notice-views'
+import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 function fixture() {
@@ -48,8 +48,8 @@ function fixture() {
       },
     },
   } as unknown as {
-    readonly replica: ClientRuntime['root']['replica']
-    readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+    readonly replica: ClientRuntime['replica']
+    readonly outbox: ClientRuntime['services']['outbox']['queue']
   }
   const pool = new MobxPool(
     { coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null },

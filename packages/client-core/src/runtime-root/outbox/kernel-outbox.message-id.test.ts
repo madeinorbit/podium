@@ -12,7 +12,7 @@ import { asSessionId, MessageId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -53,7 +53,7 @@ async function open(api: PodiumClientApi): Promise<EngineOutbox> {
       outboxAwaitingStorage: memoryStorage,
       outboxDeadLetterStorage: memoryStorage,
     } as unknown as Replica,
-    notices: { error: () => {}, info: () => {}, warn: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {}, warn: () => {} } as unknown as NoticeSink,
     isOnline: () => online,
   })
 }

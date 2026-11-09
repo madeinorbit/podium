@@ -1,28 +1,44 @@
-import { machineFacts } from './machine-facts'
-import type { MachineModel } from './models'
-import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
-import { launchRecords, type LaunchRepository } from './launch-records'
-import type { RepositoryModel } from './requested-models'
-import { launchOptionViews } from './launch-option-views'
-import { here, omitGone } from './lookup'
 import type { SpawnTarget } from '@podium/client-core'
-import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { canonicalIssueRef, issueReferenceModel, resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
-import { lazy, keyedComputed } from '@podium/mobx-helpers'
-import { asIssueId, machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
+import type { ScreenState } from '@podium/client-core/ui'
 import {
-  action, observable, observableRef, when, runInAction,
+  canonicalIssueRef,
+  issueReferenceModel,
+  type RepoView,
+  resolveDefaultAgent,
+} from '@podium/client-core/values'
+import { keyedComputed, lazy } from '@podium/mobx-helpers'
+import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
+import {
+  asIssueId,
+  machinePathBasename,
+  machinePathKey,
+  machinePathsEqual,
+  normalizeOriginUrl,
+  repoNameFromOrigin,
+} from '@podium/model/browser'
+import {
+  action,
   compareShallow,
   compareStructural,
   computed,
+  observable,
+  observableRef,
+  runInAction,
   untracked,
+  when,
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
+import { launchOptionViews } from './launch-option-views'
+import { type LaunchRepository, launchRecords } from './launch-records'
+import { here, omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
+import type { MachineModel } from './models'
+import { IssueModel } from './models'
 import { pinnedIds } from './per-user-records'
 import type { MobxPool } from './pool'
-import { IssueModel } from './models'
+import type { RepositoryModel } from './requested-models'
 import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -65,36 +81,46 @@ function createCommandLaunchViews(pool: MobxPool) {
   }
   // Membership observes only the declared catalog. Each displayed row owns
   // its keyed value; metadata never needs a hand-maintained projection clock.
-  const sessionIds = computed((): Loaded<readonly string[]> => {
-    const catalog = read('commandCatalog', 'catalog')
-    return catalog && catalog !== LOADING ? catalog.sessions : catalog
-  }, { equals: compareStructural })
-  const session = keyedComputed('commands.session', (id: string): Loaded<SessionView> => {
-    counts.addressedSessionReads++
-    // untracked-read: launch-session-seed
-    if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
-    const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
-    // Return the pool identity; displayed fields subscribe at their readers.
-    return row && row !== LOADING ? pool.sessionObject(id) as unknown as SessionView : row
-  }, { equals: compareStructural })
+  const sessionIds = computed(
+    (): Loaded<readonly string[]> => {
+      const catalog = read('commandCatalog', 'catalog')
+      return catalog && catalog !== LOADING ? catalog.sessions : catalog
+    },
+    { equals: compareStructural },
+  )
+  const session = keyedComputed(
+    'commands.session',
+    (id: string): Loaded<SessionView> => {
+      counts.addressedSessionReads++
+      // untracked-read: launch-session-seed
+      if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
+      const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
+      // Return the pool identity; displayed fields subscribe at their readers.
+      return row && row !== LOADING ? (pool.sessionObject(id) as unknown as SessionView) : row
+    },
+    { equals: compareStructural },
+  )
   // Search and launch choices explicitly license browsing summaries while the
   // menu is open. The shared launch/window projection carries only their ids.
-  const sessions = computed(() => {
-    const ids = sessionIds.get()
-    if (!ids || ids === LOADING) return ids
-    const sessions: SessionView[] = []
-    for (const id of ids) {
-      const row = session(id)
-      if (row && row !== LOADING) sessions.push(row)
-    }
-    return sessions
-  }, { equals: compareStructural })
+  const sessions = computed(
+    () => {
+      const ids = sessionIds.get()
+      if (!ids || ids === LOADING) return ids
+      const sessions: SessionView[] = []
+      for (const id of ids) {
+        const row = session(id)
+        if (row && row !== LOADING) sessions.push(row)
+      }
+      return sessions
+    },
+    { equals: compareStructural },
+  )
   const machines = computed(() => {
     const catalog = read('commandCatalog', 'catalog')
     if (!catalog || catalog === LOADING) return []
     // Plain facts (POD-6644): the launch catalog reaches React, which needs a
     // new value when a machine's online or harnesses move.
-    return catalog.machines.flatMap(id => {
+    return catalog.machines.flatMap((id) => {
       const model = here(pool.model('machine', id))
       return model ? [machineFacts(model as MachineModel)] : []
     })
@@ -121,8 +147,8 @@ function createCommandLaunchViews(pool: MobxPool) {
           }
           return row ? [row] : []
         })
-      const repos = catalog.repositories.flatMap(id => here(pool.model('repository', id)) ?? []),
-        machines = catalog.machines.flatMap(id => here(pool.model('machine', id)) ?? [])
+      const repos = catalog.repositories.flatMap((id) => here(pool.model('repository', id)) ?? []),
+        machines = catalog.machines.flatMap((id) => here(pool.model('machine', id)) ?? [])
       const repoViews: RepoView[] = []
       for (const id of catalog.repos) {
         if (!read('commandRepo', id)) continue
@@ -132,10 +158,11 @@ function createCommandLaunchViews(pool: MobxPool) {
       const usage: Record<string, number> = {}
       for (const repo of repos) {
         counts.usageQueries++
-        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] = pool.queries.activity({
-          kind: 'commandRootActivity',
-          roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
-        })
+        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] =
+          pool.queries.activity({
+            kind: 'commandRootActivity',
+            roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
+          })
       }
       const repoTime = (repo: GitRepositoryWire) =>
         usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] ?? 0
@@ -165,10 +192,15 @@ function createCommandLaunchViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   // Presence is licensed by the command summary; facts stay on its model.
-  const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
-    const value = omitGone(pool.row('commandIssue', id))
-    return !value || value === LOADING ? value : pool.issueObject(id) as unknown as IssueViewModel
-  })
+  const issueSummary = keyedComputed(
+    () => undefined,
+    (id: string): Loaded<IssueViewModel> => {
+      const value = omitGone(pool.row('commandIssue', id))
+      return !value || value === LOADING
+        ? value
+        : (pool.issueObject(id) as unknown as IssueViewModel)
+    },
+  )
   const browsing = computed(
     (): Loaded<{ issues: IssueViewModel[]; pending: number }> => {
       const data = common.get()
@@ -197,25 +229,37 @@ function createCommandLaunchViews(pool: MobxPool) {
       if (!data) return undefined
       const { repoViews } = data
       const trees = repoViews.flatMap((repo) => repo.worktrees)
-      const current = selectedWorktree == null ? undefined : trees.find((tree) => machinePathsEqual(tree.path, selectedWorktree))
+      const current =
+        selectedWorktree == null
+          ? undefined
+          : trees.find((tree) => machinePathsEqual(tree.path, selectedWorktree))
       // My pins are synced records (POD-6673).
       const pinPaths = pinnedIds(pool, 'worktree'),
         pinnedRepos = pinnedIds(pool, 'repo')
       const navRepos = [
-        ...pinnedRepos.flatMap((path) => repoViews.filter((repo) => machinePathsEqual(repo.path, path))),
+        ...pinnedRepos.flatMap((path) =>
+          repoViews.filter((repo) => machinePathsEqual(repo.path, path)),
+        ),
         ...repoViews.filter(
           (repo) =>
-            !pinnedRepos.some(path => machinePathsEqual(path, repo.path)) &&
-            repo.worktrees.some((tree) => !pinPaths.some(path => machinePathsEqual(path, tree.path))),
+            !pinnedRepos.some((path) => machinePathsEqual(path, repo.path)) &&
+            repo.worktrees.some(
+              (tree) => !pinPaths.some((path) => machinePathsEqual(path, tree.path)),
+            ),
         ),
       ]
       const byRepo = new Map<string, number>()
-      const pathToRepo = new Map(trees.map((tree) => [machinePathKey(tree.path), machinePathKey(tree.repoPath)]))
+      const pathToRepo = new Map(
+        trees.map((tree) => [machinePathKey(tree.path), machinePathKey(tree.repoPath)]),
+      )
       for (const repo of repoViews)
         for (const tree of repo.worktrees)
-          if (!pinPaths.some(path => machinePathsEqual(path, tree.path))) pathToRepo.set(machinePathKey(tree.path), machinePathKey(repo.path))
+          if (!pinPaths.some((path) => machinePathsEqual(path, tree.path)))
+            pathToRepo.set(machinePathKey(tree.path), machinePathKey(repo.path))
       for (const repo of navRepos) {
-        const roots = [...pathToRepo].filter(([, path]) => path === machinePathKey(repo.path)).map(([path]) => path)
+        const roots = [...pathToRepo]
+          .filter(([, path]) => path === machinePathKey(repo.path))
+          .map(([path]) => path)
         if (!pathToRepo.has(machinePathKey(repo.path))) roots.push(repo.path)
         byRepo.set(
           machinePathKey(repo.path),
@@ -224,16 +268,24 @@ function createCommandLaunchViews(pool: MobxPool) {
       }
       const defaultRepo = navRepos.reduce<RepoView | undefined>(
         (best, repo) =>
-          !best || (byRepo.get(machinePathKey(repo.path)) ?? 0) > (byRepo.get(machinePathKey(best.path)) ?? 0) ? repo : best,
+          !best ||
+          (byRepo.get(machinePathKey(repo.path)) ?? 0) >
+            (byRepo.get(machinePathKey(best.path)) ?? 0)
+            ? repo
+            : best,
         undefined,
       )
       const primary = defaultRepo
         ? (defaultRepo.worktrees.find(
             (tree) =>
-              !pinPaths.some(path => machinePathsEqual(path, tree.path)) && tree.isMain && machinePathsEqual(tree.path, defaultRepo.path),
+              !pinPaths.some((path) => machinePathsEqual(path, tree.path)) &&
+              tree.isMain &&
+              machinePathsEqual(tree.path, defaultRepo.path),
           ) ??
           defaultRepo.worktrees.find(
-            (tree) => !pinPaths.some(path => machinePathsEqual(path, tree.path)) && machinePathsEqual(tree.path, defaultRepo.path),
+            (tree) =>
+              !pinPaths.some((path) => machinePathsEqual(path, tree.path)) &&
+              machinePathsEqual(tree.path, defaultRepo.path),
           ) ?? {
             path: defaultRepo.path,
             repoPath: defaultRepo.path,
@@ -243,54 +295,69 @@ function createCommandLaunchViews(pool: MobxPool) {
         : undefined
       return [
         ...(current ? [current] : []),
-        ...(primary && (!current || !machinePathsEqual(primary.path, current.path)) ? [primary] : []),
+        ...(primary && (!current || !machinePathsEqual(primary.path, current.path))
+          ? [primary]
+          : []),
       ]
     },
     { equals: compareStructural },
   )
   function memberSessionIds(id: string) {
     const membership = sessionMembership.get()
-    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
-      .filter(sid => {
-        if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
+    return pool.queries
+      .ids({ kind: 'commandIssueSessions', issueId: id })
+      .filter((sid) => {
+        if (
+          pool.queries.collapsed(sid) ||
+          !membership ||
+          membership === LOADING ||
+          !membership.has(sid)
+        )
+          return false
         // untracked-read: launch-session-presence
         if (untracked(() => !pool.tables.session.has(sid))) return true
-        return pool.queries.has({ kind: 'commandIssueSessions', issueId: id, includeShells: false }, sid)
+        return pool.queries.has(
+          { kind: 'commandIssueSessions', issueId: id, includeShells: false },
+          sid,
+        )
       })
       .sort((a, b) => {
-        const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+        const left = pool.queries.orderKey(a),
+          right = pool.queries.orderKey(b)
         return left < right ? -1 : left > right ? 1 : a < b ? -1 : a > b ? 1 : 0
       })
   }
-  function projection(snapshot?: CommandLaunchData, memberIds?: string[], opening = false): Loaded<CommandLaunchData> {
+  function projection(
+    snapshot?: CommandLaunchData,
+    memberIds?: string[],
+    opening = false,
+  ): Loaded<CommandLaunchData> {
     const data = snapshot ?? common.get(),
       ids = snapshot?.sessionIds ?? sessionIds.get(),
       window = read('commandWindow', 'window'),
       spawnTargets = snapshot?.spawnTargets ?? placement.get()
-    if (
-      data === LOADING ||
-      ids === LOADING ||
-      window === LOADING ||
-      spawnTargets === LOADING
-    )
+    if (data === LOADING || ids === LOADING || window === LOADING || spawnTargets === LOADING)
       return LOADING
     if (!data || !ids || !window || !spawnTargets) return undefined
     const { issueIds: _issueIds, ...values } = data as Common
     let pending = data.pending,
       issues: IssueViewModel[] = []
     {
-      const list = snapshot ? { issues: snapshot.issues, pending: 0 } : opening
-        ? (() => {
-          counts.issueBuilds++
-          const issues: IssueViewModel[] = []
-          let pending = 0
-          for (const id of (data as Common).issueIds) {
-            const row = read('commandIssue', id)
-            if (row === LOADING) pending++
-            else if (row) issues.push(pool.issueObject(id) as unknown as IssueViewModel)
-          }
-          return { issues, pending }
-        })() : browsing.get()
+      const list = snapshot
+        ? { issues: snapshot.issues, pending: 0 }
+        : opening
+          ? (() => {
+              counts.issueBuilds++
+              const issues: IssueViewModel[] = []
+              let pending = 0
+              for (const id of (data as Common).issueIds) {
+                const row = read('commandIssue', id)
+                if (row === LOADING) pending++
+                else if (row) issues.push(pool.issueObject(id) as unknown as IssueViewModel)
+              }
+              return { issues, pending }
+            })()
+          : browsing.get()
       if (list === LOADING || !list) return list
       issues = list.issues
       pending += list.pending
@@ -325,7 +392,10 @@ function createCommandLaunchViews(pool: MobxPool) {
     session,
     sessions: () => sessions.get(),
     counts,
-    dispose() { session.clear(); issueSummary.clear() },
+    dispose() {
+      session.clear()
+      issueSummary.clear()
+    },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {
@@ -338,19 +408,32 @@ export type CommandPaletteData = CommandLaunchData & { selectedIssue?: IssueView
 /** Match declared identity fields without the display getter's payload demand.
  * Rich labels and reference models are constructed only for returned rows. */
 export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displayRef'>): string {
-  const displayRef = issue instanceof IssueModel ? issue.storedField('displayRef') : issue.displayRef
-  return canonicalIssueRef({ seq: issue.seq,
+  const displayRef =
+    issue instanceof IssueModel ? issue.storedField('displayRef') : issue.displayRef
+  return canonicalIssueRef({
+    seq: issue.seq,
     displayRef: typeof displayRef === 'string' ? displayRef : undefined,
-    prefix: issue instanceof IssueModel ? issue.prefix ?? undefined : undefined })
+    prefix: issue instanceof IssueModel ? (issue.prefix ?? undefined) : undefined,
+  })
 }
 
-export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
-  Partial<Pick<IssueViewModel, 'closedReason' | 'archived' | 'deletedAt'>>)) {
-  return issueReferenceModel({ id: asIssueId(issue.id), seq: issue.seq, title: issue.title,
+export function commandIssueReference(
+  issue:
+    | IssueModel
+    | (Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
+        Partial<Pick<IssueViewModel, 'closedReason' | 'archived' | 'deletedAt'>>),
+) {
+  return issueReferenceModel({
+    id: asIssueId(issue.id),
+    seq: issue.seq,
+    title: issue.title,
     // The declared issue row carries the wire's recognized lifecycle stage.
     stage: issue.stage as IssueViewModel['stage'],
     closedReason: issue.closedReason,
-    displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt ?? undefined })
+    displayRef: commandIssueSearchRef(issue),
+    archived: issue.archived,
+    deletedAt: issue.deletedAt ?? undefined,
+  })
 }
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
@@ -363,7 +446,7 @@ export class CommandPaletteView {
   @observableRef accessor repoViewOrder: readonly string[] = []
   @observableRef accessor openingUsage: Readonly<Record<string, number>> = {}
   @observableRef accessor spawnOrder: readonly { path: string; machineId?: string }[] = []
-  @observable accessor initialRepoPath = '' 
+  @observable accessor initialRepoPath = ''
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
   @observableRef accessor issuePositions = new Map<string, number>()
@@ -379,41 +462,54 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const take = () => {
       const snapshot = views.opening()
-      this.openingIds = snapshot && snapshot !== LOADING ? snapshot.issues.map(issue => issue.id) : LOADING
-      this.issuePositions = new Map(snapshot && snapshot !== LOADING
-        ? snapshot.issues.map((issue, position) => [issue.id, position]) : [])
+      this.openingIds =
+        snapshot && snapshot !== LOADING ? snapshot.issues.map((issue) => issue.id) : LOADING
+      this.issuePositions = new Map(
+        snapshot && snapshot !== LOADING
+          ? snapshot.issues.map((issue, position) => [issue.id, position])
+          : [],
+      )
       if (snapshot && snapshot !== LOADING) {
-        this.repoOrder = snapshot.repos.map(repo => (repo as RepositoryModel).id)
-        this.repoChoiceOrder = snapshot.repoChoices.map(repo => (repo as RepositoryModel).id)
-        this.repoViewOrder = snapshot.repoViews.map(repo => (repo as LaunchRepository).repository.id)
-        this.spawnOrder = snapshot.spawnTargets.map(target => ({ path: target.path, ...(target.machineId ? { machineId: target.machineId } : {}) }))
+        this.repoOrder = snapshot.repos.map((repo) => (repo as RepositoryModel).id)
+        this.repoChoiceOrder = snapshot.repoChoices.map((repo) => (repo as RepositoryModel).id)
+        this.repoViewOrder = snapshot.repoViews.map(
+          (repo) => (repo as LaunchRepository).repository.id,
+        )
+        this.spawnOrder = snapshot.spawnTargets.map((target) => ({
+          path: target.path,
+          ...(target.machineId ? { machineId: target.machineId } : {}),
+        }))
         this.openingUsage = snapshot.usage
         this.initialRepoPath = snapshot.initialRepoPath
       }
       const ids = views.sessionIds()
       this.sessionOrder = ids && ids !== LOADING ? ids : []
       this.defaultAgent = resolveDefaultAgent(undefined, this.sessions)
-      this.memberOrder = this.sessions.flatMap(session =>
-        session.issueId && session.agentKind !== 'shell'
-          ? [{ issueId: session.issueId, sessionId: session.sessionId }] : [])
+      this.memberOrder = this.sessions
+        .flatMap((session) =>
+          session.issueId && session.agentKind !== 'shell'
+            ? [{ issueId: session.issueId, sessionId: session.sessionId }]
+            : [],
+        )
         // Stable grouping retains the catalog's order within each issue.
-        .sort((a, b) => a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0)
+        .sort((a, b) => (a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0))
       // Primitive offsets address the captured range; no ID-to-record map.
       const positions = new Map<string, number>()
       this.memberOrder.forEach((member, position) => {
         if (!positions.has(member.issueId)) positions.set(member.issueId, position)
       })
       this.memberPositions = positions
-      const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
+      const stamp = (iso: string | undefined) => (iso ? Date.parse(iso) || 0 : 0)
       const recent: { at: number; command: RecentCommand }[] = []
       for (const s of this.sessions)
-        if (!s.archived) recent.push({ at: stamp(s.lastActiveAt), command: { kind: 'session', id: s.sessionId } })
+        if (!s.archived)
+          recent.push({ at: stamp(s.lastActiveAt), command: { kind: 'session', id: s.sessionId } })
       if (snapshot && snapshot !== LOADING)
         for (const i of snapshot.issues)
           if (!i.archived && !i.deletedAt && !i.isDraftVessel)
             recent.push({ at: stamp(i.updatedAt), command: { kind: 'issue', id: i.id } })
       recent.sort((a, b) => b.at - a.at)
-      this.recent = recent.slice(0, 6).map(value => value.command)
+      this.recent = recent.slice(0, 6).map((value) => value.command)
     }
     take()
     if (this.openingIds === LOADING)
@@ -424,36 +520,38 @@ export class CommandPaletteView {
   }
 
   @lazy({ equals: compareShallow }) get sessions(): SessionView[] {
-    return this.sessionOrder.flatMap(id => {
+    return this.sessionOrder.flatMap((id) => {
       const row = commandLaunchViews(this.pool).session(id)
       return row && row !== LOADING ? [row] : []
     })
   }
   @lazy({ equals: compareShallow }) get spawnTargets(): SpawnTarget[] {
-    return this.spawnOrder.flatMap(target => {
+    return this.spawnOrder.flatMap((target) => {
       const tree = launchRecords(this.pool).treeAt(target.path, target.machineId)
       return tree ? [tree] : []
     })
   }
   @lazy({ equals: compareShallow }) get issues(): IssueViewModel[] {
     if (this.openingIds === LOADING) return []
-    return this.openingIds.flatMap(id => {
+    return this.openingIds.flatMap((id) => {
       const model = this.pool.issueObject(id)
       return model.summaryResidence === 'resident' ? [model as unknown as IssueViewModel] : []
     })
   }
   @lazy get pending() {
-    return this.openingIds === LOADING ? 0 : this.openingIds.filter(id =>
-      this.pool.issueObject(id).summaryResidence === 'loading').length
+    return this.openingIds === LOADING
+      ? 0
+      : this.openingIds.filter((id) => this.pool.issueObject(id).summaryResidence === 'loading')
+          .length
   }
   @lazy({ equals: compareShallow }) get repos() {
-    return this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? [])
+    return this.repoOrder.flatMap((id) => here(this.pool.model('repository', id)) ?? [])
   }
   @lazy({ equals: compareShallow }) get repoChoices() {
-    return this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? [])
+    return this.repoChoiceOrder.flatMap((id) => here(this.pool.model('repository', id)) ?? [])
   }
   @lazy({ equals: compareShallow }) get repoViews() {
-    return this.repoViewOrder.flatMap(id => launchRecords(this.pool).byId(id) ?? [])
+    return this.repoViewOrder.flatMap((id) => launchRecords(this.pool).byId(id) ?? [])
   }
   @lazy get snapshot(): Loaded<CommandLaunchData> {
     if (this.openingIds === LOADING) return LOADING
@@ -461,11 +559,18 @@ export class CommandPaletteView {
     if (!window || window === LOADING) return window
     // Each list has its own membership dependency. A window/selection change
     // reads stable model lists rather than replaying the opening catalogue.
-    return { ...window, issues: this.issues, pending: this.pending,
-      repos: this.repos, repoChoices: this.repoChoices, repoViews: this.repoViews,
+    return {
+      ...window,
+      issues: this.issues,
+      pending: this.pending,
+      repos: this.repos,
+      repoChoices: this.repoChoices,
+      repoViews: this.repoViews,
       machines: commandLaunchViews(this.pool).machines(),
-      sessionIds: this.sessionOrder, spawnTargets: this.spawnTargets,
-      usage: this.openingUsage, initialRepoPath: this.initialRepoPath,
+      sessionIds: this.sessionOrder,
+      spawnTargets: this.spawnTargets,
+      usage: this.openingUsage,
+      initialRepoPath: this.initialRepoPath,
     }
   }
   @lazy get contextIssueId() {
@@ -479,7 +584,10 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
     const position = id ? this.issuePositions.get(id) : undefined
-    const issue = position === undefined || !id ? undefined : this.pool.issueObject(id) as unknown as IssueViewModel
+    const issue =
+      position === undefined || !id
+        ? undefined
+        : (this.pool.issueObject(id) as unknown as IssueViewModel)
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy({ equals: compareShallow }) get memberIds(): string[] {
@@ -498,26 +606,33 @@ export class CommandPaletteView {
     if (!selected || selected === LOADING) return selected
     const snapshot = this.snapshot
     const issue = selected.issues[0]
-    return snapshot && snapshot !== LOADING ? {
-      ...selected, issues: snapshot.issues, selectedIssue: issue,
-      machines: commandLaunchViews(this.pool).machines(),
-    } : snapshot
+    return snapshot && snapshot !== LOADING
+      ? {
+          ...selected,
+          issues: snapshot.issues,
+          selectedIssue: issue,
+          machines: commandLaunchViews(this.pool).machines(),
+        }
+      : snapshot
   }
 
   @lazy get selectedRows() {
     const id = this.contextIssueId
     if (!id) return []
-    return this.memberIds
-      .map(id => new CommandSessionRow(this.pool, id))
+    return this.memberIds.map((id) => new CommandSessionRow(this.pool, id))
   }
   @lazy({ equals: compareShallow }) get selectedSessions(): SessionView[] {
-    return this.selectedRows.flatMap(row => {
+    return this.selectedRows.flatMap((row) => {
       const session = row.presentation
       return session && session !== LOADING ? [session] : []
     })
   }
-  palette(): Loaded<CommandPaletteData> { return this.data }
-  session(id: string) { return commandLaunchViews(this.pool).session(id) }
+  palette(): Loaded<CommandPaletteData> {
+    return this.data
+  }
+  session(id: string) {
+    return commandLaunchViews(this.pool).session(id)
+  }
   @action close() {
     this.stopLoading?.()
     this.stopLoading = undefined
@@ -539,7 +654,10 @@ export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(p
 
 /** The palette row's small live answer. Recency belongs to the open order. */
 export class CommandSessionRow {
-  constructor(private readonly pool: MobxPool, readonly id: string) {}
+  constructor(
+    private readonly pool: MobxPool,
+    readonly id: string,
+  ) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = commandLaunchViews(this.pool).session(this.id)
     if (!row || row === LOADING) return row

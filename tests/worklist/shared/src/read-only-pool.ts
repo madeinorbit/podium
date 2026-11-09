@@ -1,13 +1,14 @@
 /** Read-only fixture composition. Production always owns its transaction writer. */
-import { createWorklistPool } from './clock-fixture-pool'
-import { createEngineLocals } from '../../harness/src/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+
 import type { WorklistRuntime } from '@podium/client-graph/runtime-pool'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { PoolSummaryFields } from '@podium/client-graph/source-registry'
+import { createEngineLocals } from '../../harness/src/engine-locals'
+import { createWorklistPool } from './clock-fixture-pool'
 import { EMPTY_PENDING } from './row-source'
 
 export function createReadOnlyRuntimePool(runtime: WorklistRuntime, summaries: PoolSummaryFields) {
-  const rows = createRowSource(runtime, runtime.root.replica, { pending: EMPTY_PENDING })
+  const rows = createRowSource(runtime, runtime.replica, { pending: EMPTY_PENDING })
   const locals = createEngineLocals(runtime)
   try {
     const handle = createWorklistPool(

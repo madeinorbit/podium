@@ -1,27 +1,27 @@
 import './message-models'
-import { ingestMessageRecords } from './message-models'
-import { MobxPool } from './pool'
-import { omitGone } from './lookup'
-import type { RowRecord } from './shared/source'
-import { defineSource } from './source-registry'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import {
   isMessageRecordAttention,
-  parseMessageRecordRowId,
-  parseInteractionRowId,
   type MessageRecordWire,
+  parseInteractionRowId,
+  parseMessageRecordRowId,
 } from '@podium/model'
-import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
+import { omitGone } from './lookup'
+import { ingestMessageRecords } from './message-models'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
+import { MobxPool } from './pool'
 import { createKeyedAnswer } from './query-result'
+import type { RowRecord } from './shared/source'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export const NOTICE_SOURCE_KEY = 'notices'
 type NoticeRuntime = {
-  readonly replica: ClientRuntime['root']['replica']
-  readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+  readonly replica: ClientRuntime['replica']
+  readonly outbox: ClientRuntime['services']['outbox']['queue']
 }
 type RecordEntity = 'messageRecord' | 'pendingInteraction'
 type IdAnswer = ReturnType<typeof createKeyedAnswer<string>>

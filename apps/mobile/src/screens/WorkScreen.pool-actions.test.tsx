@@ -1,13 +1,17 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
-import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
+import {
+  type ClientRuntime,
+  createEngineOutbox,
+  type OutboxOutcome,
+} from '@podium/client-core/runtime-root'
 import { planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {

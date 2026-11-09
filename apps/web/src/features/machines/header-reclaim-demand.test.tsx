@@ -109,7 +109,7 @@ vi.mock('@podium/client-core/react', async (original) => {
 })
 vi.mock('@/app/store', () => ({
   useStore: () => store,
-  useRuntimeSelector: (read: (current: typeof store) => unknown) => read(store),
+  readFixture: (read: (current: typeof store) => unknown) => read(store),
 }))
 vi.mock('./ConnectionIndicator', () => ({
   useStableConnection: () => ({

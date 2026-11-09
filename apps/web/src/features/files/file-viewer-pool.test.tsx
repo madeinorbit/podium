@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import {
   createRoutedUiState,
   DIFF_SHEET_WRAP_KEY,

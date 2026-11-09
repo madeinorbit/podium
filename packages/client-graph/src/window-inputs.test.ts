@@ -1,4 +1,4 @@
-import type { Store } from '@podium/client-core/engine'
+import type { ScreenState } from '@podium/client-core/ui'
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
@@ -90,7 +90,7 @@ describe('declared window input readers', () => {
   ] as const)('invalidates only the written shell/header/command/mobile field (%sx)', async (scale) => {
     const fixture = inputFixture(scale)
     const { f } = fixture
-    const patches: Partial<Store> = {
+    const patches: Partial<ScreenState> = {
       view: 'settings',
       paneA: asSessionId('other-pane'),
       selectedIssueId: f.issues[0]!.id,
@@ -125,12 +125,12 @@ describe('declared window input readers', () => {
         try {
           for (const field of source.fields) {
             // Each source sees a fresh value, even if another source shares a key.
-            const old = fixture.state()[field as keyof Store]
-            const value = Object.is(old, patches[field as keyof Store])
+            const old = fixture.state()[field as keyof ScreenState]
+            const value = Object.is(old, patches[field as keyof ScreenState])
               ? `${String(old)}-next`
-              : patches[field as keyof Store]
+              : patches[field as keyof ScreenState]
             meter.reset()
-            source.write({ [field]: value } as Partial<Store>)
+            source.write({ [field]: value } as Partial<ScreenState>)
             await flush()
             expect(meter.runs, field).toEqual({ ...zero(source.fields), [field]: 1 })
           }

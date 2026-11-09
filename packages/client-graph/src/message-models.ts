@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { lazy } from '@podium/mobx-helpers'
 import type { MessageLedgerWire } from '@podium/model'
 import { type MessageRecordWire, messageRecordRowId, readDeliveryStatus } from '@podium/model'
@@ -302,7 +302,7 @@ export function ingestLedgerMessages(
  * use the message ID. Identity fields already in the table provide that join. */
 export function currentMessageRecord(
   pool: MobxPool,
-  replica: ClientRuntime['root']['replica'],
+  replica: ClientRuntime['replica'],
   id: string,
 ): MessageRecordWire | undefined {
   const row = pool.tables.messageRecord.get(id) as MessagePoolRow | undefined

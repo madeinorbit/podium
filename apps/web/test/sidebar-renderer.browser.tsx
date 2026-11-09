@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
@@ -87,13 +87,13 @@ const fixture = {
   ready: () => ready,
   failures: () => [...failures],
   show,
-  palette: (value: boolean) => runtime?.access.setPaletteOpen(value),
+  palette: (value: boolean) => runtime?.palette.setOpen(value),
   update: (patch: Record<string, unknown>) =>
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
-  select: (id: string) => runtime?.access.setSelectedIssueId(asIssueId(id)),
+  select: (id: string) => runtime?.ui.setSelectedIssueId(asIssueId(id)),
   state: () => ({
-    selected: runtime?.access.selectedIssueId,
-    pane: runtime?.access.paneA,
+    selected: runtime?.ui.selectedIssueId,
+    pane: runtime?.ui.paneA,
     coarseNow: deadlineClock.peekNow(),
   }),
   stats: (): {

@@ -1,8 +1,8 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
@@ -226,7 +226,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.root.services.connection.hub, owner.root.live)
+          data.bindHub(owner.services.connection.hub, owner.live)
           return state.host!.host.attach(owner, (error) => errors.push(error.message))
         }}
       >
@@ -501,7 +501,7 @@ it('shows the original outbox pending count and optimistically renamed card', as
   })
   await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
   expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.root.live.outbox.pending)
+  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.live.outbox.pending)
   await act(async () => {
     finish()
   })

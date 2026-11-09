@@ -58,7 +58,7 @@ function setup(delayed = false) {
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+          fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
           let detach: (() => void) | undefined
           start = () => {
             detach = attachWorklistPool(runtime, fatal)
@@ -325,6 +325,6 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
   expect(fixture.calls.skip).toBe(1)
   // A refusal is surfaced once; nothing is re-read (the records are the feed's).
   expect(fixture.calls.list).toBeUndefined()
-  expect(owner?.root.replica).toBe(fixture.replica)
+  expect(owner?.replica).toBe(fixture.replica)
   expect(fatal).not.toHaveBeenCalled()
 })

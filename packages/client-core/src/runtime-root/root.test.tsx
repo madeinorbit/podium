@@ -1,20 +1,19 @@
 // @vitest-environment happy-dom
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asUserId } from '@podium/model'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { StoreServerConfig } from '../engine/types'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { asClientPrincipal } from '../principal'
-import { StoreProvider } from '../react/provider'
+import { StoreProvider, useClientRuntime } from '../react/provider'
 import { useLive, useOutboxRecovery, useRuntime } from '../react/runtime-root'
 import { memoryStorage } from '../replica/contract'
 import type { SocketHub } from '../socket-transport'
 import type { VisibilitySource } from './connection/visibility'
 import type { EngineOutbox } from './outbox/wiring'
-import { createRuntimeRoot, type RuntimeRoot, type RuntimeRootInit } from './root'
+import { type ClientRuntime, type ClientRuntimeInit, createClientRuntime } from './root'
 import { DraftResendService } from './services/draft-resend-service'
 import { FollowService } from './services/follow-service'
 import { MarkReadService } from './services/mark-read-service'
@@ -22,6 +21,7 @@ import { NotificationService } from './services/notification-service'
 import { PaneLinkService } from './services/pane-link-service'
 import { TabPruningService } from './services/tab-pruning-service'
 import { ViewStateService } from './services/view-state-service'
+import type { ServerConfig } from './types'
 
 /**
  * THE RUNTIME ROOT (POD-6681): one per signed-in user, created at sign-in,
@@ -137,7 +137,7 @@ function fakeVisibility(): VisibilitySource & { set(v: boolean): void; subscribe
   }
 }
 
-const config: StoreServerConfig = { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }
+const config: ServerConfig = { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }
 const principal = asClientPrincipal(asUserId('operator'))
 
 function parts() {
@@ -145,7 +145,7 @@ function parts() {
   const queue = new FakeQueue()
   const visibility = fakeVisibility()
   const replicas: string[] = []
-  const init: RuntimeRootInit = {
+  const init: ClientRuntimeInit = {
     principal,
     config,
     api: {} as PodiumClientApi,
@@ -163,17 +163,17 @@ function parts() {
   return { hub, queue, visibility, replicas, init }
 }
 
-const roots: RuntimeRoot[] = []
+const roots: ClientRuntime[] = []
 afterEach(() => {
   cleanup()
-  for (const root of roots.splice(0)) root.disposeNow()
+  for (const root of roots.splice(0)) root.dispose()
   vi.useRealTimers()
 })
 
 describe('the runtime root', () => {
   it('opens one replica for its principal and holds the LiveStore and services', () => {
     const { init, replicas, hub, queue } = parts()
-    const root = createRuntimeRoot(init)
+    const root = createClientRuntime(init)
     roots.push(root)
     expect(replicas).toEqual(['operator'])
     expect(root.principal).toBe(principal)
@@ -185,7 +185,7 @@ describe('the runtime root', () => {
 
   it('refuses to build without a replica factory', () => {
     const { init } = parts()
-    expect(() => createRuntimeRoot({ ...init, createReplicaFn: undefined as never })).toThrow(
+    expect(() => createClientRuntime({ ...init, createReplicaFn: undefined as never })).toThrow(
       /requires createReplicaFn/,
     )
   })
@@ -193,35 +193,54 @@ describe('the runtime root', () => {
   it('starts nothing twice across start, stop, start', () => {
     vi.useFakeTimers()
     const { init, hub, queue, visibility } = parts()
-    const root = createRuntimeRoot(init)
+    const root = createClientRuntime(init)
     roots.push(root)
     root.start()
+    const holds = {
+      visibility: visibility.subscribers(),
+      health: hub.listeners('connectionHealth'),
+    }
     root.start()
     root.stop()
     root.start()
-    vi.runAllTimers()
+    vi.advanceTimersByTime(0)
     expect(hub.connects).toBe(1)
     expect(queue.attaches).toBe(2)
     expect(queue.subscribers()).toBe(1)
-    expect(visibility.subscribers()).toBe(1)
+    expect(visibility.subscribers()).toBe(holds.visibility)
     expect([...hub.topics]).toEqual(['account.quota:operator'])
-    expect(hub.listeners('connectionHealth')).toBe(2)
+    expect(hub.listeners('connectionHealth')).toBe(holds.health)
   })
 
   it('fires nothing after sign-out, and never starts again', async () => {
     vi.useFakeTimers()
     const { init, hub, queue, visibility } = parts()
-    const root = createRuntimeRoot(init)
+    const root = createClientRuntime(init)
     roots.push(root)
     root.start()
-    root.ownConversations({} as never)
+    const conversations = root.ownConversations({} as never)
+    const releaseConversation = vi.spyOn(conversations, 'dispose')
+    const releaseDrafts = vi.spyOn(root.drafts, 'dispose')
+    const releaseUi = vi.spyOn(root.ui, 'dispose')
+    const releases = Object.values(root.services).map((service) => vi.spyOn(service, 'dispose'))
+    const releasePool = vi.fn()
+    root.attachPool({}, releasePool)
+    root.palette.setOpen(true)
     await root.dispose()
+    expect(releaseConversation).toHaveBeenCalledOnce()
+    expect(releaseDrafts).toHaveBeenCalledOnce()
+    expect(releaseUi).toHaveBeenCalledOnce()
+    for (const release of releases) expect(release).toHaveBeenCalledOnce()
+    expect(releasePool).toHaveBeenCalledOnce()
+    expect(root.pool).toBeUndefined()
+    root.palette.setOpen(true)
+    expect(root.palette.open).toBe(false)
     expect(root.isDisposed).toBe(true)
     expect(root.live.isDisposed).toBe(true)
     expect(root.conversations).toBeUndefined()
     expect(() => root.ownConversations({} as never)).toThrow(/owner has changed/)
     root.start()
-    vi.runAllTimers()
+    vi.advanceTimersByTime(0)
     visibility.set(false)
     visibility.set(true)
     hub.emit('connectionHealth', { status: 'down', rttMs: null, since: 1 })
@@ -320,4 +339,36 @@ describe('the runtime root in React', () => {
     expect(queue.subscribers()).toBe(0)
     expect(visibility.subscribers()).toBe(0)
   })
+})
+
+// A real unmount must release the root, while StrictMode keeps its active one.
+it('disposes the signed-in root on provider unmount after a StrictMode restart', async () => {
+  const { init } = parts()
+  let owner: ClientRuntime | undefined
+  const releasePool = vi.fn()
+  function Reader() {
+    owner = useClientRuntime()
+    return null
+  }
+  const view = render(
+    <StrictMode>
+      <StoreProvider
+        {...init}
+        networkEnabled={false}
+        attachRuntime={(runtime) => runtime.attachPool({}, releasePool)}
+      >
+        <Reader />
+      </StoreProvider>
+    </StrictMode>,
+  )
+  expect(owner!.isDisposed).toBe(false)
+  expect(owner!.pool).toBeDefined()
+  const release = vi.spyOn(owner!, 'dispose')
+  await act(async () => {
+    view.unmount()
+  })
+  expect(owner!.isDisposed).toBe(true)
+  expect(owner!.pool).toBeUndefined()
+  expect(owner!.live.isDisposed).toBe(true)
+  expect(release).toHaveBeenCalledOnce()
 })

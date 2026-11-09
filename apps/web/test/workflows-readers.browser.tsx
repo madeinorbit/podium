@@ -50,7 +50,7 @@ root.render(
     onFatalError={() => failures.push('provider-failure')}
     attachRuntime={(runtime) => {
       runtimeOwners.add(runtime)
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, () => failures.push('pool-failure'))
     }}
   >
@@ -100,8 +100,8 @@ const driver = {
       runtimes: runtimeOwners.size,
       publishingRuntimes: runtimes.filter((row) => row.publishes > 0).length,
       droppedOwners: stats.dropped,
-      issues: owner?.root.replica.rowCount?.('issueProjections') ?? 0,
-      sessions: owner?.root.replica.rowCount?.('sessions') ?? 0,
+      issues: owner?.replica.rowCount?.('issueProjections') ?? 0,
+      sessions: owner?.replica.rowCount?.('sessions') ?? 0,
       profiles: fixture.profiles.length,
       runs: fixture.runs.length,
       pool: Boolean(pool),

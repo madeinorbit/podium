@@ -118,7 +118,7 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
-const { StoreProvider, useRuntimeSelector } = await import('./store')
+const { StoreProvider, useUi } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
 
 // A tiny consumer that publishes the store handlers onto a module-level ref so a
@@ -134,7 +134,7 @@ let api: {
 
 function Consumer(): null {
   attachedPool = useWorklistPool()
-  const s = useRuntimeSelector((s) => s)
+  const s = useUi()
   api = {
     setPane: s.setPane,
     setFocusedPane: s.setFocusedPane,

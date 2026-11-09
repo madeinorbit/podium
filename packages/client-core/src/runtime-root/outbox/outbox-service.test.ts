@@ -1,9 +1,9 @@
 import { asMutationId, type MutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
 import { LiveFrameQueue, type LiveFrameScheduler } from '../../live/frame-queue'
 import { LiveStore } from '../../live/live-store'
+import type { NoticeSink } from '../../notices'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '../../outbox'
 import type { Replica } from '../../replica/kernel/facade'
 import { type OutboxOutcome, OutboxService } from './outbox-service'
@@ -95,7 +95,7 @@ function setup(options: { parked?: OutboxDeadLetterEntry[]; networkEnabled?: boo
   const scheduler = new ManualFrames()
   const live = new LiveStore({ now: () => 1 })
   const reconnect = new Set<() => void>()
-  const notices: StoreNotices = { error: vi.fn(), info: vi.fn() }
+  const notices: NoticeSink = { error: vi.fn(), info: vi.fn() }
   const service = new OutboxService({
     api: {} as PodiumClientApi,
     replica: {} as Replica,

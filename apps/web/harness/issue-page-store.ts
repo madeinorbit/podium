@@ -108,7 +108,7 @@ const store = (): Record<string, unknown> => ({
   renameSession: noop,
 })
 
-export function useRuntimeSelector<T>(select: (s: Record<string, unknown>) => T): T {
+export function readFixture<T>(select: (s: Record<string, unknown>) => T): T {
   return select(store())
 }
 

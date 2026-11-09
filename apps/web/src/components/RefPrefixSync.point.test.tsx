@@ -25,7 +25,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@/app/store', () => {
   const store = { trpc: { repos: { listDetailed: { query: state.listDetailed } } } }
-  return { useRuntimeSelector: (select: (value: typeof store) => unknown) => select(store) }
+  return { readFixture: (select: (value: typeof store) => unknown) => select(store) }
 })
 vi.mock('@/features/chat/use-chat-context', () => ({
   useChatRepositoryKey: state.repositoryKey,

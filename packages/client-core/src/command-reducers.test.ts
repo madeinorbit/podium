@@ -25,9 +25,9 @@ import {
   type PendingOverlay,
   PRESENCE_CONTRACTS_AS_RECORD_EDITS,
   PRESENCE_REDUCER_KINDS,
-} from '../command-reducers'
-import type { OutboxEntry } from '../outbox'
-import { recordEditEntry, UNSET } from '../records'
+} from './command-reducers'
+import type { OutboxEntry } from './outbox'
+import { recordEditEntry, UNSET } from './records'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
   mutationId: asMutationId(`m-`),

@@ -24,7 +24,7 @@ import {
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../../api'
 import { assertSendAccepted } from '../../conversation/sends'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import {
   classifyRefusal,
   type OnlineEvents,
@@ -204,7 +204,7 @@ export interface EngineOutbox {
 export interface EngineOutboxCallbacks {
   readonly api: PodiumClientApi
   readonly replica: Replica
-  readonly notices: StoreNotices
+  readonly notices: NoticeSink
   readonly onApplied?: (entry: OutboxEntry) => void
   /** Every resolution of an entry, by id, with the Authority's answer — what a
    *  chat send waits on (POD-4762). Fires for entries `onApplied` never sees:

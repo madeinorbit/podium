@@ -42,7 +42,7 @@ import { asMutationId, asSessionId, UNADDRESSABLE_SEND_REASON } from '@podium/mo
 import { InMemoryOutboxStore, ManualClock } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -122,7 +122,7 @@ async function openEngine(
     notices: {
       error: (message: string) => errors.push(message),
       info: () => {},
-    } as unknown as StoreNotices,
+    } as unknown as NoticeSink,
     isOnline: online,
   })
 }

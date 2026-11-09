@@ -2,9 +2,9 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 import '@podium/client-graph/runtime-pool'
 import '@podium/client-graph/command-launch-source'
 import '@podium/client-graph/launch-option-views'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { LOADING } from '@podium/client-graph'
 import {
   CommandPaletteView,

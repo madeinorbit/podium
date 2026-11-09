@@ -30,7 +30,7 @@ vi.mock('@/app/store', async () => {
     return () => selection.listeners.delete(listener)
   }
   return {
-    useRuntimeSelector: (pick: (s: { selectedIssueId: string | null }) => unknown) =>
+    readFixture: (pick: (s: { selectedIssueId: string | null }) => unknown) =>
       useSyncExternalStore(subscribe, () => pick({ selectedIssueId: selection.id })),
   }
 })

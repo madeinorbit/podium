@@ -1,7 +1,7 @@
+import type { ScreenState } from '../src/ui/state'
+import type { UiStore } from '../src/ui/ui-store'
 import { fixtureRoot } from './command-hooks'
 import { createKeyedInputs, type KeyedInputs, type LocalKey } from './keyed-channel'
-import type { RuntimeState } from '../src/engine/state'
-import type { UiStore } from '../src/ui/ui-store'
 import { addFixtureUi } from './ui'
 
 /**
@@ -14,7 +14,7 @@ export function keyedInputsOverStore(store: {
   getSnapshot(): object
   subscribe(listener: () => void): () => void
 }): KeyedInputs & { dispose(): void } {
-  const state = () => (store.getSnapshot() ?? {}) as RuntimeState
+  const state = () => (store.getSnapshot() ?? {}) as ScreenState
   const channel = createKeyedInputs(state, true)
   // Only followed keys are compared (a fixture may forbid reading the rest),
   // and the store is followed only while someone follows a key, so an
@@ -79,7 +79,12 @@ export function withKeyedInputs<
   fake: T,
 ): Omit<T, 'ui'> &
   KeyedInputs & {
-    readonly root: import('../src/runtime-root/root').RuntimeRoot
+    readonly commands: import('../src/runtime-root/root').ClientRuntime['commands']
+    readonly api: import('../src/runtime-root/root').ClientRuntime['api']
+    readonly services: import('../src/runtime-root/root').ClientRuntime['services']
+    readonly replica: import('../src/runtime-root/root').ClientRuntime['replica']
+    readonly pool: object | undefined
+    readonly attachPool: import('../src/runtime-root/root').ClientRuntime['attachPool']
     batch(fn: () => void): void
     readonly ui: UiStore
     readonly deviceState: import('../src/ui-state').RoutedUiState
@@ -91,19 +96,6 @@ export function withKeyedInputs<
     services?: object
     replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] }
   }
-  if (!fixture.services) {
-    let services: object | undefined
-    Object.defineProperty(fixture, 'services', {
-      get: () => {
-        const snapshot = fake.getSnapshot()
-        return snapshot
-          ? (services ??= Object.fromEntries(
-              Object.entries(snapshot).filter(([, value]) => typeof value === 'function'),
-            ))
-          : {}
-      },
-    })
-  }
   if (fixture.replica && !fixture.replica.rowCount)
     fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
   return fixtureRoot(
@@ -112,7 +104,12 @@ export function withKeyedInputs<
     }),
   ) as unknown as Omit<T, 'ui'> &
     KeyedInputs & {
-      readonly root: import('../src/runtime-root/root').RuntimeRoot
+      readonly commands: import('../src/runtime-root/root').ClientRuntime['commands']
+      readonly api: import('../src/runtime-root/root').ClientRuntime['api']
+      readonly services: import('../src/runtime-root/root').ClientRuntime['services']
+      readonly replica: import('../src/runtime-root/root').ClientRuntime['replica']
+      readonly pool: object | undefined
+      readonly attachPool: import('../src/runtime-root/root').ClientRuntime['attachPool']
       batch(fn: () => void): void
       readonly ui: UiStore
       readonly deviceState: import('../src/ui-state').RoutedUiState

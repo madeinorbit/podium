@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
 
@@ -8,7 +8,7 @@ import type { Loaded } from './worklist/rollup'
 export interface MobileSettingsDiagnostics {
   issueCount: number
   conversationCount: number
-  cursor: ReturnType<ClientRuntime['root']['replica']['getCursor']>
+  cursor: ReturnType<ClientRuntime['replica']['getCursor']>
 }
 export interface MobileSettingsRows {
   mobileSettingsDiagnostics: MobileSettingsDiagnostics
@@ -19,7 +19,7 @@ declare module './source-registry' {
 export const MOBILE_SETTINGS_SOURCE_KEY = 'mobile-settings'
 export const MOBILE_SETTINGS_ENTITIES = ['mobileSettingsDiagnostics'] as const
 
-type DiagnosticsOwner = { readonly replica: ClientRuntime['root']['replica'] }
+type DiagnosticsOwner = { readonly replica: ClientRuntime['replica'] }
 
 /** Demand batches one O(1) summary from the existing runtime. Cardinality is
  * maintained by the replica's keyed map; no issue models or table walks

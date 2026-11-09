@@ -1,10 +1,9 @@
-import { worklistView } from '../worklist/view-model'
 // @vitest-environment happy-dom
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { getObserverTree } from 'mobx'
 import { act } from 'react'
@@ -12,6 +11,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
 import * as runtimePool from '../runtime-pool'
+import { worklistView } from '../worklist/view-model'
 import { createPoolHost } from './pool-host'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -26,16 +26,14 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   const original = runtimePool.createPoolProjection
   const create = vi.spyOn(runtimePool, 'createPoolProjection')
   const subscriptions: (() => number)[] = []
-  create.mockImplementation(<T,>(
-    pool: MobxPool,
-    read: (pool: MobxPool) => T,
-    options?: Parameters<typeof original>[2],
-  ) => {
-    const view = original(pool, read, { ...options, name: PROJECTION_NAME })
-    const subscribe = vi.spyOn(view, 'subscribe')
-    subscriptions.push(() => subscribe.mock.calls.length)
-    return view
-  })
+  create.mockImplementation(
+    <T,>(pool: MobxPool, read: (pool: MobxPool) => T, options?: Parameters<typeof original>[2]) => {
+      const view = original(pool, read, { ...options, name: PROJECTION_NAME })
+      const subscribe = vi.spyOn(view, 'subscribe')
+      subscriptions.push(() => subscribe.mock.calls.length)
+      return view
+    },
+  )
   cleanups.push(() => vi.restoreAllMocks())
   const host = createPoolHost({
     dev: false,
@@ -49,9 +47,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   const paints = { selected: { selected: true }, empty: { selected: false } }
   const read = (current: MobxPool) => {
     reads++
-    return worklistView(current).selectedId === ('projection-target')
-      ? paints.selected
-      : paints.empty
+    return worklistView(current).selectedId === 'projection-target' ? paints.selected : paints.empty
   }
   let reader = read
   let target = 'projection-target'
@@ -60,9 +56,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
     reads++
-    return worklistView(current).selectedId === (captured)
-      ? paints.selected
-      : paints.empty
+    return worklistView(current).selectedId === captured ? paints.selected : paints.empty
   }
   // This fixture counts ordinary hook-driven renders, including an unchanged
   // parent render. Keep it plain and give React its name without an observer
@@ -149,8 +143,9 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     // The host also owns a standing sidebar selection reaction. Count this
     // probe's projection separately; unmount still checks every observer.
     projectionObservers: () =>
-      getObserverTree(worklistView(pool!), 'selectedId').observers?.filter((observer) => observer.name === PROJECTION_NAME)
-        .length ?? 0,
+      getObserverTree(worklistView(pool!), 'selectedId').observers?.filter(
+        (observer) => observer.name === PROJECTION_NAME,
+      ).length ?? 0,
     unmount,
     render,
     focus: (value: boolean) => {
@@ -187,7 +182,8 @@ describe('real host projection read counts', () => {
     const fixture = await mount(false, true, true)
     fixture.focus(false)
     expect(fixture.projectionObservers()).toBe(1)
-    const reads = fixture.reads(), renders = fixture.renders()
+    const reads = fixture.reads(),
+      renders = fixture.renders()
     await fixture.select('another-target')
     await fixture.select('projection-target')
     expect(fixture.reads()).toBe(reads)

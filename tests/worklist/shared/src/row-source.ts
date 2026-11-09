@@ -1,4 +1,7 @@
 /** Standalone harness feeds attach the same transaction writer as the pool host. */
+
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import {
   createRowSource as createSource,
   type PooledPending,
@@ -7,9 +10,8 @@ import {
   type RowSourceReplica,
   type RowSourceRuntime,
 } from '@podium/client-graph/shared/row-source'
-import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { PoolTransactions } from '@podium/client-graph/write/transactions'
+
 export type { RowSourceHandle }
 export type RowSourceMode = 'truth' | 'pooled'
 export type RowSourceOptions = { readonly mode: RowSourceMode; readonly pending?: PooledPending }
@@ -98,7 +100,7 @@ export function createRowSource(
     const stop =
       options.mode === 'pooled'
         ? followPending(rows, log.pending, (changed) =>
-            owner.root.services.outbox.queue.subscribe(changed),
+            owner.services.outbox.queue.subscribe(changed),
           )
         : () => {}
     return {

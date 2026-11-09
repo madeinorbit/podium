@@ -63,8 +63,8 @@ export function useThreadConversation() {
             pool && readSid() ? here(pool.model('session', readSid()!)) : undefined,
           readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
           initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
-          hub: owner.root.services.connection.hub,
-          connection: hubConnection(owner.root.services.connection.hub),
+          hub: owner.services.connection.hub,
+          connection: hubConnection(owner.services.connection.hub),
           // The last failure is status on the thread's synced record (POD-6675).
           readTurnFailure: () =>
             pool && readSid() ? (superagentState(pool).active?.lastTurnFailure ?? null) : null,
@@ -100,7 +100,7 @@ export function useThreadConversation() {
                       first = false
                       return
                     }
-                    const transcript = owner.root.services.connection.hub.subscribeTranscript(
+                    const transcript = owner.services.connection.hub.subscribeTranscript(
                       sid,
                       first ? since : undefined,
                       listener,
@@ -124,8 +124,8 @@ export function useThreadConversation() {
                 }
               },
             },
-            ...(owner.root.replica.transcripts
-              ? { cache: transcriptCacheFor(owner.root.replica.transcripts, readSid) }
+            ...(owner.replica.transcripts
+              ? { cache: transcriptCacheFor(owner.replica.transcripts, readSid) }
               : {}),
           },
           sends: {
@@ -172,7 +172,7 @@ export function useThreadConversation() {
             if (thread) void commandModules.threads.setBackend(thread.id, choice).catch(() => {})
           })
         : undefined,
-    [conversation, owner, pool],
+    [conversation, commandModules, pool],
   )
   useEffect(() => view?.open(), [view])
   const podiumSid = readSid()

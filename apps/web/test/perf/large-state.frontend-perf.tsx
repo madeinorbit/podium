@@ -32,8 +32,7 @@ type Counter = { gets: number; ownKeys: number }
 const bench = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
-    selector(bench.store),
+  readFixture: (selector: (store: Record<string, unknown>) => unknown) => selector(bench.store),
 }))
 
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))

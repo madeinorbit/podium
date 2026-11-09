@@ -1,14 +1,27 @@
-import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { ScreenState } from '@podium/client-core/ui'
 import type { WorktreeView } from '@podium/client-core/values'
 import type { CheckoutRepository } from './shared/checkout-repositories'
 import type { SliceIssue } from './shared/slice-types'
 
 /** Read-side declarations; the existing runtime still owns every write. */
 export interface CommandLaunchRows {
-  commandWindow: Pick<Store, 'paletteOpen' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles'>
-  commandCatalog: { repositories: readonly string[]; repos: readonly string[]; worktrees: readonly string[]; machines: readonly string[]; issues: readonly string[]; sessions: readonly string[] }
-  commandRepository: Pick<CheckoutRepository, 'path' | 'machineId'> & { groupId: string; linked: boolean }
+  commandWindow: Pick<
+    ScreenState,
+    'paletteOpen' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles'
+  >
+  commandCatalog: {
+    repositories: readonly string[]
+    repos: readonly string[]
+    worktrees: readonly string[]
+    machines: readonly string[]
+    issues: readonly string[]
+    sessions: readonly string[]
+  }
+  commandRepository: Pick<CheckoutRepository, 'path' | 'machineId'> & {
+    groupId: string
+    linked: boolean
+  }
   commandRepo: { id: string }
   commandWorktree: Pick<WorktreeView, 'path'> & { repositoryId: string; groupId: string }
   commandMachine: { id: string }
@@ -21,10 +34,26 @@ declare module './source-registry' {
 }
 
 export const COMMAND_LAUNCH_SCHEMA = {
-  commandWindow: { key: 'window', source: 'engine:locals', cold: 'never', fields: ['paletteOpen', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles'] },
+  commandWindow: {
+    key: 'window',
+    source: 'ui:screen',
+    cold: 'never',
+    fields: [
+      'paletteOpen',
+      'selectedIssueId',
+      'openIssueId',
+      'selectedWorktree',
+      'paneA',
+      'recentFiles',
+    ],
+  },
   commandCatalog: { key: 'catalog', source: 'pool:keys', cold: 'never' },
   commandRepository: { key: 'machineId,path', source: 'replica:checkouts', cold: 'never' },
-  commandRepo: { key: 'repoId ?? origin ?? machineId,path', source: 'replica:checkouts', cold: 'never' },
+  commandRepo: {
+    key: 'repoId ?? origin ?? machineId,path',
+    source: 'replica:checkouts',
+    cold: 'never',
+  },
   commandWorktree: { key: 'repositoryId,path', source: 'replica:checkouts', cold: 'never' },
   commandMachine: { key: 'id', source: 'replica:machines', cold: 'never' },
   commandIssue: { key: 'id', source: 'pool:issue', cold: 'summary' },
@@ -41,7 +70,13 @@ export const COMMAND_RELATIONS = [
   { from: 'session', to: 'commandIssue', name: 'sessions', key: 'issueId', excludeShell: true },
   { from: 'session', to: 'commandMachine', name: 'sessions', key: 'machineId' },
   { from: 'session', to: 'commandWorktree', name: 'sessions', key: 'cwd', match: 'exact-worktree' },
-  { from: 'session', to: 'commandRepository', name: 'sessions', key: 'cwd', match: 'repository-containment' },
+  {
+    from: 'session',
+    to: 'commandRepository',
+    name: 'sessions',
+    key: 'cwd',
+    match: 'repository-containment',
+  },
   { from: 'commandWindow', to: 'issue', name: 'selectedIssue', key: 'selectedIssueId' },
   { from: 'commandWindow', to: 'issue', name: 'openIssue', key: 'openIssueId' },
   { from: 'commandWindow', to: 'session', name: 'focusedSession', key: 'paneA' },
@@ -50,7 +85,44 @@ export const COMMAND_RELATIONS = [
 /** Declared before pool construction. Small browsing/placement projections;
  * contextual commands request the full selected row through the batched loader. */
 export const COMMAND_SUMMARIES = {
-  issue: ['id', 'seq', 'title', 'stage', 'closedReason', 'displayRef', 'linearIdentifier', 'parentId', 'archived', 'deletedAt', 'isDraftVessel', 'updatedAt', 'worktreePath', 'repoId', 'repoPath', 'repoName'],
-  session: ['sessionId', 'cwd', 'machineId', 'issueId', 'agentKind', 'headless', 'lastActiveAt', 'archived', 'status', 'name', 'title', 'displayRef', 'createdAt', 'readAt', 'unread', 'snoozedUntil', 'resumable', 'harnessHandoff', 'resume'],
+  issue: [
+    'id',
+    'seq',
+    'title',
+    'stage',
+    'closedReason',
+    'displayRef',
+    'linearIdentifier',
+    'parentId',
+    'archived',
+    'deletedAt',
+    'isDraftVessel',
+    'updatedAt',
+    'worktreePath',
+    'repoId',
+    'repoPath',
+    'repoName',
+  ],
+  session: [
+    'sessionId',
+    'cwd',
+    'machineId',
+    'issueId',
+    'agentKind',
+    'headless',
+    'lastActiveAt',
+    'archived',
+    'status',
+    'name',
+    'title',
+    'displayRef',
+    'createdAt',
+    'readAt',
+    'unread',
+    'snoozedUntil',
+    'resumable',
+    'harnessHandoff',
+    'resume',
+  ],
 } as const
-export type CommandSessionSummary = Pick<SessionView, typeof COMMAND_SUMMARIES.session[number]>
+export type CommandSessionSummary = Pick<SessionView, (typeof COMMAND_SUMMARIES.session)[number]>

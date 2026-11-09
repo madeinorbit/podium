@@ -1,5 +1,5 @@
 import { outboxChatSends } from '@podium/client-core/chat-values'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asSessionId } from '@podium/model'
 import {
   compareStructural,
@@ -50,8 +50,8 @@ export class ChatContextSource {
     private readonly owner: {
       readonly ui: ClientRuntime['ui']
       readonly drafts: ClientRuntime['drafts']
-      readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
-      readonly replica: ClientRuntime['root']['replica']
+      readonly outbox: ClientRuntime['services']['outbox']['queue']
+      readonly replica: ClientRuntime['replica']
     },
     pool: MobxPool,
   ) {
@@ -183,7 +183,7 @@ export class ChatContextSource {
               {
                 pending: () => pending,
                 deadLetters: () => parked,
-              } as ClientRuntime['root']['services']['outbox']['queue'],
+              } as ClientRuntime['services']['outbox']['queue'],
               asSessionId(key.slice(9)),
             ),
           })

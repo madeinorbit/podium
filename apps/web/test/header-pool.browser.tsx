@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -91,7 +91,7 @@ root.render(
     attachRuntime={(owner) => {
       // StoreProvider starts the runtime before attachment: the hub listeners now
       // exist in both arms, even when no asynchronous pool import is requested.
-      fixture.bindHub(owner.root.services.connection.hub, owner.root.live)
+      fixture.bindHub(owner.services.connection.hub, owner.live)
       fixture.publishMachines()
       fixture.publishMetrics(0)
       return attachWorklistPool(owner, (error) => failures.push(error.message))

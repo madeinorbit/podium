@@ -34,7 +34,7 @@ vi.mock('@podium/client-core/react', async () => {
   }
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     mock.selectors()
     throw new Error('Legacy notice selector executed')
   },

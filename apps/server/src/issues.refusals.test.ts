@@ -6,7 +6,7 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import ts from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../../packages/client-core/src/api'
-import type { StoreNotices } from '../../../packages/client-core/src/engine/types'
+import type { NoticeSink } from '../../../packages/client-core/src/notices'
 import { classifyRefusal } from '../../../packages/client-core/src/outbox'
 import type { Replica } from '../../../packages/client-core/src/replica/contract'
 import { openKernelEngineOutbox } from '../../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
@@ -403,7 +403,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     const outbox = create({
       api,
       replica: {} as Replica,
-      notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+      notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
       isOnline: () => true,
     })
     return {

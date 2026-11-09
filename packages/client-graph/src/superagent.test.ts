@@ -1,5 +1,5 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import { noticeSourcePorts, superagentSourcePorts } from '@podium/client-graph/source-ports'
@@ -317,7 +317,7 @@ it('keeps unrelated publications out of thread derivation and honors active-thre
 })
 it('keeps booting tied to server session presence while optimistic store sessions exist', async () => {
   const f = await fixture()
-  vi.spyOn(f.owner.root.replica, 'getCursor').mockReturnValue(null)
+  vi.spyOn(f.owner.replica, 'getCursor').mockReturnValue(null)
   await settle(f)
   expect(f.state.sessions.length).toBeGreaterThan(0)
   expect(superagentState(f.pool).booting).toBe(true)
@@ -364,7 +364,7 @@ it('keeps the legacy 40-event tail through addressed changes, reading only the w
     f.publish({
       issueEvents: shuffle(Array.from({ length: size }, (_, index) => event(index + 1))),
     })
-    const row = vi.spyOn(f.owner.root.replica, 'row'),
+    const row = vi.spyOn(f.owner.replica, 'row'),
       events = () => row.mock.calls.filter(([kind]) => kind === 'issueEvents').length
     f.replace()
     await settle(f)

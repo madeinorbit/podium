@@ -5,16 +5,16 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { withKeyedInputs } from '../../test-support/keyed-inputs'
 import { createSubscriptionStore } from '../../test-support/local-store'
 import type { PodiumClientApi } from '../api'
-import type { Store } from '../engine/types'
 import { storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
+import type { ScreenState } from '../ui/state'
 import { StoreProvider } from './provider'
 import { useHarnessDescriptors } from './use-harness-descriptors'
 import { useModelCatalogState } from './use-model-catalog'
 import { usePresenceRoom } from './use-presence-room'
 
 const fixture = vi.hoisted(() => ({ handle: null as unknown }))
-vi.mock('../engine/runtime', () => ({ createClientRuntime: () => fixture.handle }))
+vi.mock('../runtime-root/root', () => ({ createClientRuntime: () => fixture.handle }))
 afterEach(() => {
   cleanup()
   storeStats.enable(false)
@@ -23,8 +23,8 @@ afterEach(() => {
 
 it('acquires every shared transport without legacy subscriptions or derivations', async () => {
   const api = {} as PodiumClientApi
-  const owner = { start() {}, dispose() {}, destroy() {} }
-  const snapshot = { trpc: api, hub: undefined, reposLoading: false } as unknown as Store
+  const owner = { start() {}, stop() {}, dispose() {} }
+  const snapshot = { trpc: api, hub: undefined, reposLoading: false } as unknown as ScreenState
   const store = createSubscriptionStore(snapshot, undefined, owner)
   const subscribe = vi.fn(store.subscribe)
   fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))

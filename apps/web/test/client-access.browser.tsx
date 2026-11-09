@@ -1,4 +1,3 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
@@ -8,6 +7,7 @@ import {
   useModelCatalogState,
   usePresenceRoom,
 } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
@@ -101,7 +101,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >

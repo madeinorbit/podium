@@ -1,5 +1,5 @@
+import { loadingNavigationProvider } from '@podium/client-core/ui'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
-import { loadingNavigationProvider } from '@podium/client-core/engine'
 /**
  * The feeds a pool under test consumes from a scenario engine: the row source
  * and the engine-backed locals channel, drained together after each write,
@@ -144,11 +144,14 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     locals,
     ...(transactions === null ? {} : { transactions }),
     attachPool(pool: MobxPool): void {
-      const clock = (ctx.engine as unknown as { fixtureClock?: { subscribe(tick: (now: number) => void): () => void } }).fixtureClock
-      if (clock) clockStops.push(clock.subscribe(value => pool.clock.advance(value)))
+      const clock = (
+        ctx.engine as unknown as {
+          fixtureClock?: { subscribe(tick: (now: number) => void): () => void }
+        }
+      ).fixtureClock
+      if (clock) clockStops.push(clock.subscribe((value) => pool.clock.advance(value)))
       ctx.engine.setNavigationProvider(createPoolNavigationProvider(pool))
-      if (transactions !== null)
-        pool.attachTransactions(transactions, true)
+      if (transactions !== null) pool.attachTransactions(transactions, true)
     },
     flush(): void {
       rows.flush()

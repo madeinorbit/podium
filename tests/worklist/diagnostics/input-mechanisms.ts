@@ -1,6 +1,5 @@
-import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import {
   disposeFixtureUi,
@@ -18,6 +17,7 @@ import { createMobileSessionSource } from '@podium/client-graph/mobile-session-c
 import { pinnedIds } from '@podium/client-graph/per-user-records'
 import { PreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { autorun } from 'mobx'

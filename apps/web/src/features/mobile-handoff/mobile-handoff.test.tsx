@@ -54,7 +54,7 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
+  readFixture: (selector: (store: unknown) => unknown) =>
     selector(
       poolFixtureStore({
         uiState: fixture.uiState,

@@ -36,8 +36,9 @@
 
 import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
 import { insertOverlay } from '@podium/client-core/command-reducers'
-import type { SpawnPlaceholderEvent, StoreNotices } from '@podium/client-core/engine'
+import type { SpawnPlaceholderEvent } from '@podium/client-core/commands'
 import { randomUUID } from '@podium/client-core/id'
+import type { NoticeSink } from '@podium/client-core/notices'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
@@ -79,7 +80,7 @@ import { draftIssueRow, startedIssueRow, starterUserState, startingSessionRow } 
 
 export interface PoolLaunchPorts {
   readonly userId: UserId
-  readonly notices: StoreNotices
+  readonly notices: NoticeSink
   truth(entity: OverlayTarget, id: string): object | undefined
   sortKey(target: SpawnTarget): string
   paint(event: SpawnPlaceholderEvent): void

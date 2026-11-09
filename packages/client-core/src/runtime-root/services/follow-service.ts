@@ -5,8 +5,8 @@ import {
   type SessionId,
 } from '@podium/model'
 import { actionBound, observable, reaction } from 'mobx'
-import type { StoreNotices } from '../../engine/types'
 import type { NavigationProvider, NavigationTopologySession } from '../../navigation-provider'
+import type { NoticeSink } from '../../notices'
 import {
   focusedPaneSession,
   NAVIGATION_LOADING,
@@ -23,7 +23,7 @@ import { ServiceLifetime } from './lifetime'
 export interface FollowPorts {
   state(): ScreenState
   publish(patch: Partial<ScreenState>): void
-  notices: StoreNotices
+  notices: NoticeSink
   isVisible(): boolean
   repositories?(): readonly CheckoutRepository[]
   checkoutsKnown?(): boolean

@@ -17,7 +17,7 @@ import { SyncSubmitRefusedError } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -105,7 +105,7 @@ async function open(
       error: (message: string) => errors.push(message),
       info: () => {},
       warn: () => {},
-    } as unknown as StoreNotices,
+    } as unknown as NoticeSink,
     isOnline: () => online,
   })
   return { outbox, errors }

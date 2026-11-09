@@ -1,15 +1,14 @@
-import { machineFacts } from '@podium/client-graph/machine-facts'
-import type { MachineModel } from '@podium/client-graph'
 import { useRequestClient, useUi } from '@podium/client-core/react'
-import type { MobxPool } from '@podium/client-graph'
+import type { ScreenState } from '@podium/client-core/ui'
+import type { MachineModel, MobxPool } from '@podium/client-graph'
 import { headerModel } from '@podium/client-graph/header-companion'
 import { headerRequests } from '@podium/client-graph/header-requests'
 import { headerView } from '@podium/client-graph/header-views'
 import { here } from '@podium/client-graph/lookup'
+import { machineFacts } from '@podium/client-graph/machine-facts'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { CheckoutRepository, MachineId, MachineFacts } from '@podium/model/browser'
+import type { CheckoutRepository, MachineFacts, MachineId } from '@podium/model/browser'
 import { useEffect, useMemo } from 'react'
-import type { Store } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 /** Stable actions and transport handles stay on the existing mutation owner.
@@ -66,7 +65,7 @@ export function usePoolHeaderSession(id: string) {
 
 const readView = (pool: MobxPool) => headerView(pool).row('window', 'window')?.view ?? 'workspace'
 export function useHeaderView() {
-  return useWorklistPoolProjection(readView, 'workspace' as Store['view'])
+  return useWorklistPoolProjection(readView, 'workspace' as ScreenState['view'])
 }
 
 const readMetrics = (pool: MobxPool) => headerView(pool).metrics()

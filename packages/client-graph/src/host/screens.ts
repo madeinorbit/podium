@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '../pool'
 import type { createRuntimeWorklistPool } from '../runtime-pool'
 

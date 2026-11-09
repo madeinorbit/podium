@@ -41,7 +41,7 @@ const mockState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+  readFixture: (sel: (s: unknown) => unknown) => sel(mockState),
 }))
 
 vi.mock('@podium/terminal-client-react', () => ({
@@ -63,7 +63,9 @@ vi.mock('./use-terminal-appearance', () => ({
 const { DockShellPanel } = await import('./DockShellPanel')
 const lifecycle = await import('./dock-shell-lifecycle')
 
-function shellMeta(over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string }): SessionMeta {
+function shellMeta(
+  over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string },
+): SessionMeta {
   const { sessionId, ...rest } = over
   return {
     sessionId: asSessionId(sessionId),
@@ -105,10 +107,10 @@ async function flush(): Promise<void> {
 }
 
 describe('POD-4429 parked dock shell', () => {
-  it("a hibernated shell is parked, not dead", () => {
-    expect(
-      lifecycle.dockShellIsDead(shellMeta({ sessionId: 'h', status: 'hibernated' })),
-    ).toBe(false)
+  it('a hibernated shell is parked, not dead', () => {
+    expect(lifecycle.dockShellIsDead(shellMeta({ sessionId: 'h', status: 'hibernated' }))).toBe(
+      false,
+    )
     expect(lifecycle.dockShellIsParked(shellMeta({ sessionId: 'h', status: 'hibernated' }))).toBe(
       true,
     )
@@ -119,10 +121,9 @@ describe('POD-4429 parked dock shell', () => {
   })
 
   it('excludes a parked shell from the stale set the lifecycle would archive', () => {
-    const ids = lifecycle.staleDockShellIds(
-      { '/repo/a': asSessionId('parked') },
-      [shellMeta({ sessionId: 'parked', status: 'hibernated' })],
-    )
+    const ids = lifecycle.staleDockShellIds({ '/repo/a': asSessionId('parked') }, [
+      shellMeta({ sessionId: 'parked', status: 'hibernated' }),
+    ])
     expect(ids).toEqual([])
   })
 

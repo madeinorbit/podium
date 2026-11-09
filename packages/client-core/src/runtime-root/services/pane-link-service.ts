@@ -1,6 +1,6 @@
 import type { CheckoutRepository } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { NavigationIntent } from '../../ui/navigation'
 import { sessionLinkProblem, sessionLinkSelection } from '../../ui/session-link'
 import {
@@ -24,7 +24,7 @@ export interface PaneLinkPorts {
   state(): ScreenState
   publish(patch: Partial<ScreenState>): void
   router: Router
-  notices: StoreNotices
+  notices: NoticeSink
   resolve(identifier: string): Promise<SessionIdentifierResolution>
   repositories(): readonly CheckoutRepository[]
   navigate(intent: NavigationIntent): boolean

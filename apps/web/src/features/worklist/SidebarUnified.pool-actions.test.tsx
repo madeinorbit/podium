@@ -1,9 +1,12 @@
-import { type ClientRuntime } from '@podium/client-core/engine'
-import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
-import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import {
+  type ClientRuntime,
+  createEngineOutbox,
+  type OutboxOutcome,
+} from '@podium/client-core/runtime-root'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import {
@@ -457,7 +460,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
     const work = createPoolWorkActions(
       pool!,
-      fixtureRoot({ outbox: runtime.root.services.outbox.queue, ui, access: store }),
+      fixtureRoot({ outbox: runtime.services.outbox.queue, ui, access: store }),
       focus,
     )
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
@@ -570,7 +573,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     })
     const store = referenceState(runtime)
     const models = allIssueViewModels(
-      runtime.root.replica,
+      runtime.replica,
       store.issueProjections,
       store.issueUserStates,
     )
@@ -670,7 +673,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
     const work = createPoolWorkActions(
       pool!,
-      fixtureRoot({ outbox: runtime.root.services.outbox.queue, ui, access: store }),
+      fixtureRoot({ outbox: runtime.services.outbox.queue, ui, access: store }),
       focus,
     )
     work.selectIssue('synthetic-3')
@@ -704,7 +707,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
           })
         })
       })
-      const fetch = vi.spyOn(runtime.root.replica, 'row')
+      const fetch = vi.spyOn(runtime.replica, 'row')
       act(() => {
         for (const id of [...ids, ...ids]) actions.selectIssue(id)
         expect(ids.map((id) => sidebarView(owner).row(id))).toEqual([LOADING, LOADING])
@@ -789,7 +792,7 @@ describe('real pool row mutations and receipts', () => {
       })
     })
     expect(
-      runtime.root.services.outbox.queue.pending().map((entry) => {
+      runtime.services.outbox.queue.pending().map((entry) => {
         const input = entry.input as { id: string; patch: object }
         return { id: input.id, ...input.patch }
       }),
@@ -826,8 +829,8 @@ describe('real pool row mutations and receipts', () => {
     const sort = await request('issues.update', movedId)
     // The compatibility outbox sends one promise at a time. Both optimistic
     // records are present before either deferred transport is answered.
-    expect(runtime.root.services.outbox.queue.pending()).toHaveLength(2)
-    expect(runtime.root.services.outbox.queue.pending()).toContainEqual(
+    expect(runtime.services.outbox.queue.pending()).toHaveLength(2)
+    expect(runtime.services.outbox.queue.pending()).toContainEqual(
       expect.objectContaining({
         kind: pinned ? 'recordCreate' : 'recordRemove',
         input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),
@@ -872,7 +875,7 @@ describe('real pool row mutations and receipts', () => {
     expect(value().title).toBe('Only responsive target')
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     // Parked writes are a LiveStore condition (POD-5798), applied with the frame.
-    await waitFor(() => expect(runtime.root.live.outbox.deadLetters).toHaveLength(1))
+    await waitFor(() => expect(runtime.live.outbox.deadLetters).toHaveLength(1))
   })
 
   // How long an applied write paints is the outbox entry's (POD-6279), and this
@@ -979,7 +982,7 @@ describe('real pool row mutations and receipts', () => {
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
     // A mark-read is a record edit of my own issue row (POD-6404); this server has
     // no sync.submit, so it reaches `issues.markRead`.
-    for (const queued of runtime.root.services.outbox.queue
+    for (const queued of runtime.services.outbox.queue
       .pending()
       .filter((entry): entry is typeof entry & { input: { id: string } } => isMarkRead(entry)))
       await accept(
@@ -1044,7 +1047,7 @@ describe('real pool row mutations and receipts', () => {
     expect(
       projectBand().closedIds,
       JSON.stringify({
-        pending: runtime.root.services.outbox.queue.pending(),
+        pending: runtime.services.outbox.queue.pending(),
         row: sidebarView(pool!).row('synthetic-5'),
         requests,
       }),
@@ -1290,7 +1293,7 @@ describe('real pool row mutations and receipts', () => {
     expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
     await settle()
     expect(
-      runtime.root.services.outbox.queue
+      runtime.services.outbox.queue
         .pending()
         .filter(isArchive)
         .map((entry) => (entry.input as { id: string }).id)
@@ -1298,7 +1301,7 @@ describe('real pool row mutations and receipts', () => {
     ).toEqual(['synthetic-5', TARGET].sort())
     expect(projectBand().closedIds).toHaveLength(0)
     await settle()
-    for (const entry of runtime.root.services.outbox.queue.pending().filter(isArchive))
+    for (const entry of runtime.services.outbox.queue.pending().filter(isArchive))
       await refuse(await request('issues.update', (entry.input as { id: string }).id))
     expect(projectBand().closedIds).toHaveLength(2)
     await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
@@ -1315,7 +1318,7 @@ describe('real pool row mutations and receipts', () => {
     )
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-    for (const entry of runtime.root.services.outbox.queue.pending().filter(isArchive)) {
+    for (const entry of runtime.services.outbox.queue.pending().filter(isArchive)) {
       expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(
         true,
       )
@@ -1342,7 +1345,7 @@ describe('real pool row mutations and receipts', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     // The restores are plain-field edits too (POD-6405).
-    const restores = runtime.root.services.outbox.queue
+    const restores = runtime.services.outbox.queue
       .pending()
       .filter(
         (entry) =>
@@ -1418,7 +1421,7 @@ describe('real pool row mutations and receipts', () => {
     expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     const archive = await request('issues.update', 'synthetic-5')
-    expect(runtime.root.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
     // Model the server's whole cascade before accepting the parent command.
     await act(async () => {
       for (const id of ids) patchIssue(fixture, id, { archived: true })
@@ -1429,7 +1432,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     // No receipt waiter or microtask may stand between the gesture and any restore.
     expect(
-      runtime.root.services.outbox.queue
+      runtime.services.outbox.queue
         .pending()
         .filter(isRestore)
         .map((entry) => entry.input),
@@ -1464,7 +1467,7 @@ describe('real pool row mutations and receipts', () => {
     })
     await accept(parentArchive)
     await accept(await request('issues.update', 'synthetic-6'))
-    expect(runtime.root.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
     expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
   })
 
@@ -1474,7 +1477,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await refuse(await request('issues.update', 'synthetic-5'))
-    expect(runtime.root.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
     expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
   })
 
@@ -1491,7 +1494,7 @@ describe('real pool row mutations and receipts', () => {
       )
     try {
       fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-      expect(runtime.root.services.outbox.queue.pending()).toHaveLength(0)
+      expect(runtime.services.outbox.queue.pending()).toHaveLength(0)
       expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
     } finally {
       lookup.mockRestore()

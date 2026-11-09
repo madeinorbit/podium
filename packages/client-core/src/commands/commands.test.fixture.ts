@@ -14,14 +14,14 @@ import { fixtureCommands } from '../../test-support/commands'
 import { layoutFixture } from '../../test-support/layout'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
-import type { RuntimeState } from '../engine/state'
-import type { StoreNotices } from '../engine/types'
+import type { NoticeSink } from '../notices'
 import type { OutboxEntry } from '../outbox'
 import { loadRecordDeclarations } from '../records'
 import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
+import type { ScreenState } from '../ui/state'
 import { UiStore } from '../ui/ui-store'
 import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
@@ -132,7 +132,7 @@ export function harness(
       awaiting: () => awaiting,
     } as unknown as EngineOutbox,
     router,
-    notices: { error: (message: string) => errors.push(message), info: vi.fn() } as StoreNotices,
+    notices: { error: (message: string) => errors.push(message), info: vi.fn() } as NoticeSink,
     state: () => readState(),
     navigate: (intent: NavigationIntent) => {
       const plan = planNavigation(readState(), router.current(), intent, {
@@ -237,7 +237,7 @@ export function harness(
           Object.entries(patch).filter(([key]) => !Object.hasOwn(ui.screen, key)),
         ),
       } as typeof state
-      ui.patch(patch as Partial<RuntimeState>)
+      ui.patch(patch as Partial<ScreenState>)
       publish()
     },
   }

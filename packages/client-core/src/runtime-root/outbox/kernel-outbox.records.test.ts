@@ -11,7 +11,7 @@ import type { Cursor } from '@podium/sync/replica'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../api'
 import { overlaysForOutboxEntry } from '../../command-reducers'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -80,7 +80,7 @@ async function openOn(
       outboxAwaitingStorage: memoryStorage,
       outboxDeadLetterStorage: memoryStorage,
     } as unknown as Replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     isOnline: () => online,
     onDropped,
   }

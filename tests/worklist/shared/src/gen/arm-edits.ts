@@ -132,7 +132,7 @@ export class ArmEditAdapter {
           const armTx =
             (adapter.kernelToArm.get(entry.mutationId as string) as TxId | undefined) ??
             (entry.mutationId as TxId)
-          const base = baseOf(ctx.engine.root.services.outbox.queue, entry)
+          const base = baseOf(ctx.engine.services.outbox.queue, entry)
           out.push({
             txId: armTx,
             kind: entry.kind,
@@ -142,8 +142,8 @@ export class ArmEditAdapter {
             ...(base === undefined ? {} : { base }),
           })
         }
-        for (const entry of ctx.engine.root.services.outbox.queue.pending()) push(entry, false)
-        for (const entry of ctx.engine.root.services.outbox.queue.awaiting()) push(entry, true)
+        for (const entry of ctx.engine.services.outbox.queue.pending()) push(entry, false)
+        for (const entry of ctx.engine.services.outbox.queue.awaiting()) push(entry, true)
         return out
       },
     }

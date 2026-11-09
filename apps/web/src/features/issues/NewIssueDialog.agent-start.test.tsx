@@ -73,7 +73,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -117,7 +117,9 @@ describe('NewIssueDialog start-work band', () => {
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
     await waitFor(() =>
-      expect(spawnIssueAgent).toHaveBeenCalledWith(expect.objectContaining({ title: 'First task' })),
+      expect(spawnIssueAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'First task' }),
+      ),
     )
     await waitFor(() => {
       expect(title.value).toBe('')
@@ -127,9 +129,15 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.change(title, { target: { value: 'Second task' } })
     fireEvent.change(description, { target: { value: 'Second description' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(spawnIssueAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      title: 'Second task', description: 'Second description',
-    })))
+    await waitFor(() =>
+      expect(spawnIssueAgent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          title: 'Second task',
+          description: 'Second description',
+        }),
+      ),
+    )
     expect(create).not.toHaveBeenCalled()
   })
 
@@ -386,10 +394,11 @@ it('offers the online name instead of stale offline rows in the new-task picker'
   )
 })
 
-
 it('offers no Use option in the new-issue launch menu', async () => {
   render(<NewIssueDialog onClose={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
+    target: { value: 'my-custom-model' },
+  })
   expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
 })

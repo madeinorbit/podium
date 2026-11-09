@@ -1,6 +1,5 @@
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
@@ -9,7 +8,7 @@ import {
   createSideCache,
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
-import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'

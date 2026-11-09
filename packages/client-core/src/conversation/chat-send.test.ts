@@ -19,7 +19,7 @@ import { asMutationId, asSessionId, type MutationId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { StoreNotices } from '../engine/types'
+import type { NoticeSink } from '../notices'
 import type { Replica } from '../replica/contract'
 import { openKernelEngineOutbox } from '../runtime-root/outbox/kernel-outbox'
 import { CHAT_SEND_MAX_AGE_MS, type EngineOutbox } from '../runtime-root/outbox/wiring'
@@ -94,7 +94,7 @@ async function openQueue(api: PodiumClientApi): Promise<{
   const outbox = create({
     api,
     replica: {} as Replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     onSettled: (mutationId, settlement) => settlements.settle(mutationId, settlement),
     isOnline: () => online,
     onlineEvents: {

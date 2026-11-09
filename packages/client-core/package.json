@@ -120,11 +120,6 @@
       "types": "./src/conversation/index.ts",
       "import": "./src/conversation/index.ts"
     },
-    "./engine": {
-      "@podium/source": "./src/engine/index.ts",
-      "types": "./src/engine/index.ts",
-      "import": "./src/engine/index.ts"
-    },
     "./runtime-root": {
       "@podium/source": "./src/runtime-root/index.ts",
       "types": "./src/runtime-root/index.ts",

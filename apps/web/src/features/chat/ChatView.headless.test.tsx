@@ -41,9 +41,19 @@ const fakeHub = {
   },
   on(event: string, cb: PreviewCb): () => void {
     if (event === 'headlessActivity') {
-      const sub = { sessionId: asSessionId('h1'), cb: (frame: HeadlessActivityEvent) => (cb as unknown as (id: SessionId, event: HeadlessActivityEvent) => void)(asSessionId('h1'), frame) }
+      const sub = {
+        sessionId: asSessionId('h1'),
+        cb: (frame: HeadlessActivityEvent) =>
+          (cb as unknown as (id: SessionId, event: HeadlessActivityEvent) => void)(
+            asSessionId('h1'),
+            frame,
+          ),
+      }
       this.headlessSubs.push(sub)
-      return () => { const index = this.headlessSubs.indexOf(sub); if (index >= 0) this.headlessSubs.splice(index, 1) }
+      return () => {
+        const index = this.headlessSubs.indexOf(sub)
+        if (index >= 0) this.headlessSubs.splice(index, 1)
+      }
     }
     if (event !== 'turnPreview') return () => {}
     this.previewSubs.push(cb)
@@ -150,7 +160,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (drafts[id] ?? '')),
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 vi.mock('@/lib/voice', () => ({
@@ -209,14 +219,14 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
 async function push(event: HeadlessActivityEvent): Promise<void> {
   await act(async () => {
     for (const s of fakeHub.headlessSubs) s.cb(event)
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -231,7 +241,7 @@ async function pushPreview(text: string): Promise<void> {
         items: [{ kind: 'text', itemId: 'grok-assistant-1', text }],
       })
     }
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -380,7 +390,10 @@ describe('ChatView headless mode', () => {
       mediaType: 'application/zip',
       kind: 'file' as const,
     }
-    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({ path: ref.path, attachment: ref } as never)
+    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({
+      path: ref.path,
+      attachment: ref,
+    } as never)
     drafts = { h1: 'what is in this?' }
     mount()
     await flush()
@@ -388,7 +401,9 @@ describe('ChatView headless mode', () => {
     const drop = new Event('drop', { bubbles: true, cancelable: true })
     Object.defineProperty(drop, 'dataTransfer', {
       value: {
-        items: Object.assign([{ kind: 'file', type: file.type, getAsFile: () => file }], { length: 1 }),
+        items: Object.assign([{ kind: 'file', type: file.type, getAsFile: () => file }], {
+          length: 1,
+        }),
         files: [file],
         types: ['Files'],
       },
@@ -710,7 +725,7 @@ describe('ChatView headless mode', () => {
   it.each([
     'send',
     'remote turn',
-  ])('hides the record\'s failure at once on %s activity, before the server clears it', async (activity) => {
+  ])("hides the record's failure at once on %s activity, before the server clears it", async (activity) => {
     setFailure(offlineFailure)
     drafts = { h1: 'A new turn' }
     mount()

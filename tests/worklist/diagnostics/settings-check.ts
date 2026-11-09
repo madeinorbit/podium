@@ -9,7 +9,7 @@ import { referenceState } from './reference-state'
 import { type CheckRow, type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 export interface SettingsCheckOwner {
-  readonly access: import('@podium/client-core/engine').Store
+  readonly access: import('./reference-state').ReferenceState
   readonly replica?: import('@podium/client-core/replica').Replica
   readonly deviceState: RoutedUiState
 }

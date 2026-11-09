@@ -27,7 +27,7 @@ const fixture = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   sessions: [] as SessionView[],
 }))
-vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
+vi.mock('../../../../packages/client-core/src/runtime-root/root', () => ({
   createClientRuntime: () => fixtureRoot(fixture.handle as object),
 }))
 vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))

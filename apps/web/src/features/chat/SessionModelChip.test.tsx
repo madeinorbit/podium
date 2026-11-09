@@ -26,7 +26,7 @@ const { record, held } = vi.hoisted(() => {
   }
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (pick: (s: { configureSession: typeof configure }) => unknown) =>
+  readFixture: (pick: (s: { configureSession: typeof configure }) => unknown) =>
     pick({ configureSession: configure }),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({

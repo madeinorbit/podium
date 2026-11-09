@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { StoreNotices } from '@podium/client-core/engine'
+import type { NoticeSink } from '@podium/client-core/notices'
 import {
   principalKeyPrefix,
   REPLICA_KEY_PREFIX,
@@ -207,7 +207,7 @@ function engineOutbox(opened: {
   return opened.createOutboxFn({
     api: STUB_API,
     replica: opened.replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     isOnline: () => false,
   })
 }

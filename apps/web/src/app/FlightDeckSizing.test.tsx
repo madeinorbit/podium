@@ -7,7 +7,7 @@ import { FLIGHT_DECK_SIZING } from './flight-deck-display'
 
 const values = vi.hoisted(() => new Map<string, string>())
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (store: unknown) => unknown) =>
+  readFixture: (select: (store: unknown) => unknown) =>
     select({
       uiState: {
         get: (key: string) => values.get(key) ?? null,

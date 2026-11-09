@@ -47,7 +47,7 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { usePendingSpawnPrompt } from '@/app/keyed-runtime'
+import { usePendingSpawnPrompt } from '@/app/model-inputs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {

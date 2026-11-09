@@ -4,13 +4,13 @@
 // file asks the question the rest of the lane cannot: does shared client code
 // run on a device whose `window` is React Native's `global`?
 
-import { asUserId } from '@podium/model'
-import { createClientRuntime } from '@podium/client-core/engine'
 import { platformIsOnline, platformOnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { memoryStorage } from '@podium/client-core/replica'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import { createClientRuntime } from '@podium/client-core/runtime-root'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { asUserId } from '@podium/model'
 import { afterEach, describe, expect, test } from 'vitest'
 import { installNativeGlobals, type NativeGlobals } from '../../test/native-globals'
 import { createNativeConnectivity, nativeClientSeams } from './native-connectivity'
@@ -68,7 +68,8 @@ describe('readServerConfig without a browser location', () => {
 
   test('takes the injected server, which is the only config path on device', () => {
     natives = installNativeGlobals()
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'https://podium.example:8443'
+    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ =
+      'https://podium.example:8443'
     const config = readServerConfig()
     expect(config).toEqual({
       wsClientUrl: expect.stringContaining('wss://podium.example:8443/client?v='),
@@ -114,7 +115,7 @@ describe('the client boots on native globals', () => {
       ...nativeClientSeams(connectivity),
     })
     expect(() => engine.start()).not.toThrow()
-    engine.destroy()
+    engine.dispose()
     connectivity.dispose()
   })
 

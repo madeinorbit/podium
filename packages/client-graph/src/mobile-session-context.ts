@@ -1,27 +1,27 @@
-import { machineFacts } from './machine-facts'
-import type { MachineModel } from './models'
-import { here, omitGone } from './lookup'
-import { replicaSourcePorts } from '@podium/client-graph/source-ports'
-import { mobileSessionChromeIssue } from './mobile-session-chrome'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { dedupeSessionsByResume } from '@podium/model'
-import { type MachineFacts } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import { chatInteractions, chatMentionIssues, chatRecords } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
 import { readPageIssue } from './issue-page'
+import { here, omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
+import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
   type MobileSessionRows,
 } from './mobile-session-schema'
+import type { MachineModel } from './models'
 import type { MobxPool } from './pool'
 import { SESSION_EXIT_ENTITIES } from './session-exit-schema'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
-import { paneHasSessions, paneSession, paneMachines, paneSpawnConfirmed } from './session-pane'
+import { paneHasSessions, paneMachines, paneSession, paneSpawnConfirmed } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { createFieldInputs } from './shared/field-inputs'
@@ -200,7 +200,7 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       pending.clear()
       runInAction(() => {
         for (const key of keys) {
-          if (key === cursorKey) inputs.set(key, owner.root.replica.getCursor())
+          if (key === cursorKey) inputs.set(key, owner.replica.getCursor())
         }
         if (window.get() === undefined) window.set(inputs.row)
       })
@@ -212,9 +212,9 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
     },
   })
   // The cursor keeps its addressed field; spawn prompts belong to the pool log.
-  if (!owner.root.replica.subscribeCursor)
+  if (!owner.replica.subscribeCursor)
     throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.root.replica.subscribeCursor(() => schedule(cursorKey))]
+  const stops = [owner.replica.subscribeCursor(() => schedule(cursorKey))]
   return source
 }
 
@@ -235,8 +235,8 @@ export async function attachMobileSessionContext(owner: ClientRuntime, pool: Mob
         {
           ui: owner.ui,
           drafts: owner.drafts,
-          replica: owner.root.replica,
-          outbox: owner.root.services.outbox.queue,
+          replica: owner.replica,
+          outbox: owner.services.outbox.queue,
         },
         pool,
       ),

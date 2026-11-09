@@ -1,17 +1,21 @@
-import { useCommands } from '@podium/client-core/react'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useClientRuntime, useRuntimeSelector } from '@podium/client-core/react'
+import {
+  StoreProvider,
+  useClientRuntime,
+  useCommands,
+  useUi,
+  useUiValue,
+} from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   createKernelReplica,
   createSideCache,
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
-import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { asIssueId, asUserId } from '@podium/model/browser'
@@ -177,7 +181,7 @@ function MeasurementBinding() {
 function Fixture() {
   const runtime = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
-  const selected = useRuntimeSelector((s) => s.selectedIssueId)
+  const selected = useUiValue('selectedIssueId')
   const [pageTargets, setPageTargets] = useState<string[]>([])
   configurePageTargets = setPageTargets
   owner = runtime
@@ -270,10 +274,8 @@ function Fixture() {
  * page and write through the existing synthetic runtime/outbox. */
 function IssuePageProbe({ ids }: { ids: string[] }) {
   const { markRead: markIssueRead } = useCommands().issues
-  const { openIssueId, setOpenIssueId } = useRuntimeSelector((s) => ({
-    openIssueId: s.openIssueId,
-    setOpenIssueId: s.setOpenIssueId,
-  }))
+  const openIssueId = useUiValue('openIssueId')
+  const { setOpenIssueId } = useUi()
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex gap-2">
@@ -394,10 +396,10 @@ const fixture = {
   perf: () => undefined,
   state: () => ({
     switches: startupSwitches,
-    selected: owner?.access.selectedIssueId,
-    pane: owner?.access.paneA,
-    issues: owner?.root.replica.rowCount?.('issueProjections'),
-    sessions: owner?.root.replica.rowCount?.('sessions'),
+    selected: owner?.ui.selectedIssueId,
+    pane: owner?.ui.paneA,
+    issues: owner?.replica.rowCount?.('issueProjections'),
+    sessions: owner?.replica.rowCount?.('sessions'),
     pool: graph !== null,
     runtimeDestroyed: (owner as unknown as { destroyed?: boolean })?.destroyed,
   }),

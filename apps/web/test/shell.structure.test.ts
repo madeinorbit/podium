@@ -17,7 +17,7 @@ const readClientCore = (rel: string) =>
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
   [
-    'engine/runtime.ts',
+    'runtime-root/root.ts',
     'runtime-root/outbox/wiring.ts',
     'runtime-root/connection/hub.ts',
     'react/provider.tsx',

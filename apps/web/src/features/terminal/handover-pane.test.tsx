@@ -1,11 +1,11 @@
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
 // The move parks the session server-side, so the panel under test would fall
 // through to the parked-transcript view — the flicker POD-337 removes. This
@@ -94,11 +94,11 @@ vi.mock('@/app/store', () => {
     // `undefined` = no exit state. These cases are about the takeover cover, and
     // ChatView's parked-transcript case requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {

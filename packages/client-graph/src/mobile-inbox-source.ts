@@ -1,8 +1,8 @@
-import { defineSource } from './source-registry'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { observable, runInAction } from 'mobx'
 import type { MobileInboxRows } from './mobile-inbox-schema'
 import type { MobxPool } from './pool'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Lazily attached by PoolSources.ensure under the fixed mobile-inbox key.
@@ -25,7 +25,7 @@ export class MobileInboxSource {
   readonly counts = { batches: 0 }
 
   constructor(
-    private readonly runtime: { readonly replica: ClientRuntime['root']['replica'] },
+    private readonly runtime: { readonly replica: ClientRuntime['replica'] },
     _pool: MobxPool,
   ) {
     // Keyed (POD-5433): only a cursor move can change `hasCursor`.

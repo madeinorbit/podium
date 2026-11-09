@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { RelationBuckets } from './relations'
@@ -60,21 +60,24 @@ export class ShellSource implements PoolSource<ShellEntity> {
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
 
   constructor(
-    private readonly runtime: Pick<ClientRuntime, 'ui' | 'palette' | 'autoContinueDialog' | 'root'>,
+    private readonly runtime: Pick<
+      ClientRuntime,
+      'ui' | 'palette' | 'autoContinueDialog' | 'replica'
+    >,
   ) {
     const lanes = () => {
       this.counts.laneCollections++
       this.replace(
         'shellShipLane',
-        runtime.root.replica.rows('shipLanes').map((row) => [row.id, row]),
+        runtime.replica.rows('shipLanes').map((row) => [row.id, row]),
       )
       this.catalog()
     }
     runInAction(lanes)
-    if (!runtime.root.replica.row || !runtime.root.replica.subscribeAddressedBatch)
+    if (!runtime.replica.row || !runtime.replica.subscribeAddressedBatch)
       throw new Error('Shell controls require the existing addressed replica')
     this.stops = [
-      runtime.root.replica.subscribeAddressedBatch((batch) => {
+      runtime.replica.subscribeAddressedBatch((batch) => {
         if (this.disposed) return
         runInAction(() => {
           if (batch.type === 'replace') {
@@ -86,7 +89,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
               this.change(
                 'shellShipLane',
                 address.id,
-                runtime.root.replica.row!('shipLanes', address.id),
+                runtime.replica.row!('shipLanes', address.id),
               )
               this.counts.laneRows++
             }

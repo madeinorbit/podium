@@ -28,7 +28,7 @@ const store = vi.hoisted(() => {
 vi.mock('@podium/client-core/react', async () => {
   const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
   return {
-    useRuntimeSelector: (select: (s: unknown) => unknown) => {
+    readFixture: (select: (s: unknown) => unknown) => {
       store.legacyReads()
       return select({ uiState: store.available.value ? store.uiState : undefined })
     },

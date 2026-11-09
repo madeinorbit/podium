@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionPaneRows } from './session-pane-schema'
 import { defineSource } from './source-registry'
 export const SESSION_PANE_SOURCE_KEY = 'session-pane'

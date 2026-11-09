@@ -1,12 +1,12 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { RuntimeState } from '../../client-core/src/engine/state'
 import { MarkReadService } from '../../client-core/src/runtime-root/services/mark-read-service'
 import {
   READ_CHECKPOINT_MS,
   READ_SETTLE_MS,
 } from '../../client-core/src/runtime-root/services/read-acknowledgements'
+import type { ScreenState } from '../../client-core/src/ui/state'
 import { createPoolNavigationProvider } from './navigation-provider'
 import { MobxPool } from './pool'
 import { worklistView } from './worklist/view-model'
@@ -78,7 +78,7 @@ function fixture() {
     fileTabs: [],
     panelMode: {},
     issueVisitBaseline: null,
-  } as unknown as RuntimeState
+  } as unknown as ScreenState
   let visible = true
   const markIssueRead = vi.fn((_id: string, at: string) => {
     issueReadAt = at

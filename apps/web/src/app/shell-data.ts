@@ -8,6 +8,7 @@ import {
   useUi,
 } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ScreenState } from '@podium/client-core/ui'
 import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import type { EffectModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -16,7 +17,6 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import type { MachineFacts } from '@podium/model/browser'
 import { useMemo } from 'react'
-import type { Store } from './store'
 import { useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
@@ -171,14 +171,14 @@ export function useShellMachines() {
 }
 
 const EMPTY_CHROME = {
-  view: 'workspace' as Store['view'],
+  view: 'workspace' as ScreenState['view'],
   reposLoaded: false,
   superOpen: false,
   paletteOpen: false,
   repoCount: 0,
   worktreeCount: 0,
   sessionCount: 0,
-  selectedIssueId: null as Store['selectedIssueId'],
+  selectedIssueId: null as ScreenState['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
   /** False while the snapshot loads: every field above is then a placeholder,
    *  not an answer (a cold selection reads as "no mission"). */

@@ -18,7 +18,7 @@ import type { SyncSubmitInput } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { RecordEditEntry } from '../../records'
 import type { Replica } from '../../replica/contract'
@@ -271,7 +271,7 @@ async function openOn(store: InMemoryOutboxStore, api: PodiumClientApi, online: 
       outboxAwaitingStorage: memoryStorage,
       outboxDeadLetterStorage: memoryStorage,
     } as unknown as Replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     isOnline: () => online,
   })
 }

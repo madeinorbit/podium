@@ -1,20 +1,20 @@
-import { headerView } from '@podium/client-graph/header-views'
 import { headerRequests } from '@podium/client-graph/header-requests'
+import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from '../../diagnostics/reference-state'
+
 // @vitest-environment happy-dom
 
-import { headerStats } from './perf/header'
+import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { asIssueId, type HostMetricsWire, type MachineId } from '@podium/model/browser'
+import { autorun, runInAction } from 'mobx'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   checkHeader,
   legacyHeaderSnapshot,
   poolHeaderSnapshot,
 } from '../../diagnostics/header-check'
 import { startHeaderCheck } from '../../diagnostics/header-runtime-check'
-import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { asIssueId, type HostMetricsWire, type MachineId } from '@podium/model/browser'
-import { autorun, runInAction } from 'mobx'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   evict,
   startScenarioEngine,
@@ -33,6 +33,7 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../shared/src/scenarios'
+import { headerStats } from './perf/header'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -47,10 +48,10 @@ async function fixture(scale: 1 | 4 = 1) {
   const inputs = () => ({
     metrics: headerView(handle.pool).metrics(),
     quotas: [],
-    connection: ctx.engine.root.live.connection,
+    connection: ctx.engine.live.connection,
     lifecycle: headerView(handle.pool).lifecycle() ?? undefined,
     history: headerRequests(handle.pool)?.history ?? undefined,
-    outboxSize: ctx.engine.root.live.outbox.pending,
+    outboxSize: ctx.engine.live.outbox.pending,
   })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {

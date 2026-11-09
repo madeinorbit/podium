@@ -5,29 +5,29 @@ import { useClientRuntime } from './provider'
 
 /** Commands are acquired as families; the Store façade has no commands. */
 export function useCommands<TApi extends PodiumClientApi = PodiumClientApi>(): Commands<TApi> {
-  return useClientRuntime<TApi>().root.commands
+  return useClientRuntime<TApi>().commands
 }
 
 /** A conversation's unchanged durable send path. */
 export function useChatSends(): ChatCommands {
-  return useClientRuntime().root.chatSends
+  return useClientRuntime().chatSends
 }
 
 export function useRequestClient<TApi extends PodiumClientApi = PodiumClientApi>(): TApi {
-  return useClientRuntime<TApi>().root.api
+  return useClientRuntime<TApi>().api
 }
 
 export function useHttpOrigin(): string {
-  return useClientRuntime().root.httpOrigin
+  return useClientRuntime().httpOrigin
 }
 
 /** Transport boundary for terminal and stream hooks. */
 export function useSocketHub(): import('../socket-transport').SocketHub {
-  return useClientRuntime().root.services.connection.hub
+  return useClientRuntime().services.connection.hub
 }
 
 export function useReplica(): import('../replica').Replica {
-  return useClientRuntime().root.replica
+  return useClientRuntime().replica
 }
 
 export function useDrafts(): import('../conversation/draft-store').DraftStore {

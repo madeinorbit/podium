@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueDetailHeader } from './IssueDetailHeader'
 
-vi.mock('@/app/store', () => ({ useRuntimeSelector: <T,>(read: (state: object) => T) => read({}) }))
+vi.mock('@/app/store', () => ({ readFixture: <T,>(read: (state: object) => T) => read({}) }))
 
 const working = (id: string): SessionView =>
   ({

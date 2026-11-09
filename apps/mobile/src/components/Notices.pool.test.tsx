@@ -1,9 +1,9 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
@@ -165,18 +165,18 @@ async function mount() {
   function Surface() {
     runtime = useClientRuntime() as ClientRuntime
     if (!configured.has(runtime)) {
-      const subscribeHealth = runtime.root.services.connection.hub.onConnectionHealth.bind(
-        runtime.root.services.connection.hub,
+      const subscribeHealth = runtime.services.connection.hub.onConnectionHealth.bind(
+        runtime.services.connection.hub,
       )
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
-      runtime.root.services.connection.hub.onConnectionHealth = subscribeHealth
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
+      runtime.services.connection.hub.onConnectionHealth = subscribeHealth
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.
-      Object.defineProperty(runtime.root.services.connection.hub, 'connected', {
+      Object.defineProperty(runtime.services.connection.hub, 'connected', {
         configurable: true,
         get: () => connected,
       })
-      runtime.root.live.setConnection({
+      runtime.live.setConnection({
         state: connected ? 'online' : 'offline',
         since: Date.now(),
       })
@@ -264,11 +264,11 @@ async function mount() {
       connected = next
       // This fixture disables the network feed, so publish its condition at
       // the same LiveStore boundary the feed owns in the running client.
-      runtime.root.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
-      const hub = runtime.root.services.connection.hub as unknown as {
+      runtime.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
+      const hub = runtime.services.connection.hub as unknown as {
         emit(kind: string, value: unknown): void
       }
-      hub.emit('connectionHealth', runtime.root.services.connection.hub.connectionHealth())
+      hub.emit('connectionHealth', runtime.services.connection.hub.connectionHealth())
     },
   }
 }
@@ -403,8 +403,8 @@ it('updates recovery and continuity through the original outbox retry, edit and 
   )
   expect(discard).toHaveBeenCalledWith(asMutationId('notice-mutation-1'))
   expect(cards()).toHaveLength(2)
-  expect(enabled.runtime.root.services.outbox.queue.deadLetters()).toHaveLength(2)
-  expect(enabled.runtime.root.services.outbox.queue.pending()).toHaveLength(2)
+  expect(enabled.runtime.services.outbox.queue.deadLetters()).toHaveLength(2)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(2)
   expectPoolReadersOnly(enabled.runtime)
 })
 

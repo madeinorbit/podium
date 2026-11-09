@@ -12,6 +12,7 @@ import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
+import { runInAction } from 'mobx'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
@@ -162,13 +163,13 @@ function poolArchiveBatch(
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useClientRuntime>, 'root' | 'batch' | 'ui'>,
+  runtime: Pick<ReturnType<typeof useClientRuntime>, 'commands' | 'services' | 'ui'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null
-  const batch = (fn: () => void) => runtime.batch(fn)
-  const commands = runtime.root.commands
-  const outbox = runtime.root.services.outbox.queue
+  const batch = (fn: () => void) => runInAction(fn)
+  const commands = runtime.commands
+  const outbox = runtime.services.outbox.queue
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== runtime.ui.paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })

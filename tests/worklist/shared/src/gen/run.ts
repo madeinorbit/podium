@@ -5,6 +5,7 @@ import {
   SYNTHETIC_CODEX_TITLE,
 } from '../../../harness/src/fixture/fixture-kinds.fixtures'
 import { upsertIssue } from '../scenarios'
+
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
  *
@@ -41,10 +42,10 @@ import { upsertIssue } from '../scenarios'
  * a wall-clock wait. No step reads `Date.now()` or `Math.random()`.
  */
 
-import { FIXTURE_MACHINE_ID } from '@podium/client-core/test-support/machine-records'
-import { asMachineId, checkoutRowId } from '@podium/model'
 import type { OnlineEvents } from '@podium/client-core/outbox'
+import { FIXTURE_MACHINE_ID } from '@podium/client-core/test-support/machine-records'
 import type { RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import { asMachineId, checkoutRowId } from '@podium/model'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import { createRowSource } from '../row-source'
 import { evict, remove, type ScenarioEngine, startEngineOnCorpus, upsert } from '../scenarios'
@@ -244,12 +245,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   let index = 0
 
   const outboxIds = (): string[] => [
-    ...ctx.engine.root.services.outbox.queue.pending().map((e) => e.mutationId as string),
-    ...ctx.engine.root.services.outbox.queue.awaiting().map((e) => e.mutationId as string),
+    ...ctx.engine.services.outbox.queue.pending().map((e) => e.mutationId as string),
+    ...ctx.engine.services.outbox.queue.awaiting().map((e) => e.mutationId as string),
     ...server.arrivals.map((a) => a.mutationId),
   ]
   const activity = (): string =>
-    `${publications}:${server.activity}:${ctx.engine.root.services.outbox.queue.size()}:${ctx.engine.root.services.outbox.queue.awaiting().length}`
+    `${publications}:${server.activity}:${ctx.engine.services.outbox.queue.size()}:${ctx.engine.services.outbox.queue.awaiting().length}`
 
   const quiesce = async (): Promise<void> => {
     let quiet = 0
@@ -746,7 +747,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         detail['mutationIds'] = ids
         if (armTxIds.length > 0) detail['armTxIds'] = armTxIds
         const queued = new Set(
-          ctx.engine.root.services.outbox.queue.pending().map((e) => e.mutationId as string),
+          ctx.engine.services.outbox.queue.pending().map((e) => e.mutationId as string),
         )
         detail['collapsed'] =
           ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
@@ -875,7 +876,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     },
     dispose() {
       unbind()
-      ctx.engine.destroy()
+      ctx.engine.dispose()
     },
   }
   return run

@@ -1,5 +1,5 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { act, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
@@ -45,7 +45,7 @@ async function mount(element: import('react').ReactNode) {
     attachRuntime(owner) {
       runtime = owner
 
-      fixture.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+      fixture.bindHub(owner.services.connection.hub, undefined, owner.live)
       return state.host!.host.attach(owner, (error) => {
         throw error
       })

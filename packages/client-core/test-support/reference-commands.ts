@@ -1,7 +1,7 @@
 import type { PodiumClientApi } from '../src/api'
 import type { Commands } from '../src/commands'
 import type { ChatCommands } from '../src/conversation/sends'
-import type { RuntimeRoot } from '../src/runtime-root/root'
+import type { ClientRuntime } from '../src/runtime-root/root'
 
 /** Test oracle names only. Production callers use command families. */
 export interface ReferenceCommandAccess<TApi extends PodiumClientApi = PodiumClientApi> {
@@ -65,15 +65,15 @@ export interface ReferenceCommandAccess<TApi extends PodiumClientApi = PodiumCli
   chatSendsFor: ChatCommands['chatSendsFor']
   discardChat: ChatCommands['discardChat']
   trpc: TApi
-  replica: RuntimeRoot['replica']
-  hub: RuntimeRoot['services']['connection']['hub']
+  replica: ClientRuntime['replica']
+  hub: ClientRuntime['services']['connection']['hub']
   httpOrigin: string
-  recoverOutbox: RuntimeRoot['services']['outbox']['recovery']
+  recoverOutbox: ClientRuntime['services']['outbox']['recovery']
   records: Commands<TApi>['records']
 }
 
 export function referenceCommandAccess<TApi extends PodiumClientApi>(
-  root: RuntimeRoot<TApi>,
+  root: ClientRuntime<TApi>,
 ): ReferenceCommandAccess<TApi> {
   const commands = root.commands
   return {
@@ -130,7 +130,7 @@ export function referenceCommandAccess<TApi extends PodiumClientApi>(
     setSubscriptionEnabled: commands.automations.setSubscriptionEnabled,
     removeSubscription: commands.automations.removeSubscription,
     setSuperagentBackend: commands.threads.setBackend,
-    ...root.chatSends,
+    ...chatSends,
     records: commands.records,
     trpc: root.api,
     replica: root.replica,

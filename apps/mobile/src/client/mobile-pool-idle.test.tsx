@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model'
@@ -48,7 +48,7 @@ it.each([
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+        data.bindHub(owner.services.connection.hub, undefined, owner.live)
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >
@@ -65,7 +65,7 @@ it.each([
     expect(view.getByTestId('phone').textContent).toBe(`Synthetic agent 0||${12 * scale + 2}`),
   )
 
-  const wholeRows = vi.spyOn(runtime!.root.replica, 'rows')
+  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
@@ -91,9 +91,7 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () =>
-    runtime!.root.commands.sessions.setSessionDraft(sid, 'Phone draft'),
-  )
+  await check('draft write', () => runtime!.commands.sessions.setSessionDraft(sid, 'Phone draft'))
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(
       `Phone pool name|Phone draft|${12 * scale + 2}`,
@@ -101,12 +99,12 @@ it.each([
   )
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('worktree selection', () =>
-    runtime!.access.setSelectedWorktree('/synthetic/project/guests'),
+    runtime!.ui.setSelectedWorktree('/synthetic/project/guests'),
   )
   expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
+  await check('worktree fallback', () => runtime!.ui.setSelectedWorktree('/synthetic/missing'))
   expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project')
-  await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
+  await check('session switch', () => runtime!.ui.navigateToSession('synthetic-session-2'))
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
   )

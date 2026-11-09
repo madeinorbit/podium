@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { installMobxWarnTrap } from '../../../tests/worklist/harness/src/mobx-trap'

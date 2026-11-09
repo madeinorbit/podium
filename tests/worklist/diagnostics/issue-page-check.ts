@@ -1,8 +1,8 @@
 /** Explicit diagnostic job only. Private values are compared in memory; the
  * report contains counts, opaque row IDs, positions and fixed field names. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations } from '@podium/client-core/values'
 import { knownIds } from '@podium/client-graph/enumerate'

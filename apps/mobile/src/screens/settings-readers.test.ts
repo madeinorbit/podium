@@ -1,11 +1,11 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileSettingsSource } from '@podium/client-graph/mobile-settings'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 
 const stops: (() => void)[] = []
 afterEach(() => {
@@ -28,7 +28,7 @@ async function fixture() {
       },
     )
   let state = { issueProjections: inventory(100_000), conversations: inventory(5) }
-  let cursor: ReturnType<ClientRuntime['root']['replica']['getCursor']> = null
+  let cursor: ReturnType<ClientRuntime['replica']['getCursor']> = null
   const read = vi.fn(
     (key: 'issueProjections' | 'conversations') =>
       (state as unknown as Pick<Store, 'issueProjections' | 'conversations'>)[key],
@@ -45,7 +45,7 @@ async function fixture() {
       subscribeRows: (_kind: string, wake: () => void) => listen(runtimeListeners)(wake),
       getCursor: () => cursor,
       subscribeCursor: listen(cursorListeners),
-    } as unknown as ClientRuntime['root']['replica'],
+    } as unknown as ClientRuntime['replica'],
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.sources.register(['mobileSettingsDiagnostics'], source)

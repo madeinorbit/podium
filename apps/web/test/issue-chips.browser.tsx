@@ -1,9 +1,10 @@
 /** The full ChatView and chip components over a private runtime.
  * Operator-sized synthetic data, no network or operator cache. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -63,7 +64,7 @@ let pool: ReturnType<typeof useWorklistPool> = null
 let open: ((value: boolean) => void) | undefined
 const failures: string[] = []
 const transcriptListeners = new Set<
-  Parameters<ClientRuntime['root']['services']['connection']['hub']['subscribeTranscript']>[2]
+  Parameters<ClientRuntime['services']['connection']['hub']['subscribeTranscript']>[2]
 >()
 
 function Fixture() {
@@ -115,7 +116,7 @@ root.render(
     attachRuntime={(owner) => {
       // Feed synthetic deltas through the real transcript controller and
       // compute worker without connecting this fixture to a server.
-      owner.root.services.connection.hub.subscribeTranscript = (id, _since, listener) => {
+      owner.services.connection.hub.subscribeTranscript = (id, _since, listener) => {
         if (id !== sessionId) throw new Error('Unexpected fixture transcript')
         transcriptListeners.add(listener)
         return () => {
@@ -136,7 +137,7 @@ const proof = {
     pool: !!pool,
     repos: runtime ? referenceState(runtime).repos.length : undefined,
     issues: count,
-    sessions: runtime?.root.replica.rows('sessions').length,
+    sessions: runtime?.replica.rows('sessions').length,
   }),
   failures: () => failures,
   open(value = true) {

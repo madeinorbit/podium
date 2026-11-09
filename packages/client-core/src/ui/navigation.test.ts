@@ -2,14 +2,14 @@ import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import { MarkReadService } from '../runtime-root/services/mark-read-service'
-import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
-import { type RuntimeState, workspaceMirrorPatch } from './state'
+import { planNavigation } from './navigation'
+import { type ScreenState, workspaceMirrorPatch } from './state'
 
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
 const issue = { id: asIssueId('issue'), archived: false } as IssueProjection
-function state(): RuntimeState {
+function state(): ScreenState {
   return {
     navigation: fixtureNavigation({ issues: () => [issue], sessions: () => [] }),
     issueProjections: [issue],
@@ -29,7 +29,7 @@ function state(): RuntimeState {
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  } as unknown as RuntimeState
+  } as unknown as ScreenState
 }
 
 describe('pure navigation plan', () => {
@@ -96,7 +96,7 @@ describe('pure navigation plan', () => {
     )
     expect(
       Object.entries(repeat.patch).every(([key, value]) =>
-        Object.is(final[key as keyof RuntimeState], value),
+        Object.is(final[key as keyof ScreenState], value),
       ),
     ).toBe(true)
   })

@@ -20,7 +20,7 @@ import { ToolBatchView } from './ToolBatchView'
 // from the transcript, so any row on screen proves git was not the source.
 const git = vi.hoisted(() => ({ calls: [] as string[] }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+  readFixture: (sel: (s: unknown) => unknown) =>
     sel({
       gitDiffFile: async ({ path }: { path: string }) => {
         git.calls.push(path)

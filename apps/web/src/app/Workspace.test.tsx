@@ -158,7 +158,7 @@ function fixtureOwner() {
 let replicaIssues: IssueViewModel[] = [task]
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (s: Record<string, unknown>) => unknown) =>
+  readFixture: (selector: (s: Record<string, unknown>) => unknown) =>
     selector(
       new Proxy(state, {
         get(target, key) {

@@ -7,7 +7,6 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
  * production hooks and projections run unchanged beneath the counters. */
 
 import { createHash } from 'node:crypto'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import {
   createKernelReplica,
   createSideCache,
@@ -17,6 +16,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { missionLegacyStats } from '@podium/client-core/values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'

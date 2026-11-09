@@ -1,8 +1,9 @@
 /** Real production consumers and one offline runtime. Every row is synthetic. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -159,7 +160,7 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 const emit = (kind: string, value: unknown) =>
   (
-    runtime!.root.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
+    runtime!.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
   ).emit(kind, value)
 const apply = (value: object) => (runtime as unknown as { apply(value: object): void }).apply(value)
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -283,9 +284,9 @@ root.render(
     onFatalError={(message) => failures.push(message)}
     attachRuntime={(owner) => {
       runtime = owner
-      fixture.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+      fixture.bindHub(owner.services.connection.hub, undefined, owner.live)
       fixture.publishMachines()
-      Object.assign(owner.root.services.connection.hub, {
+      Object.assign(owner.services.connection.hub, {
         dismissOpenUrl: () => {
           effects.dismisses++
         },

@@ -1,5 +1,5 @@
-import { asAccountId, asMachineId } from '@podium/model'
 import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
+import { asAccountId, asMachineId } from '@podium/model'
 import { nativeAccountId, normalizeSettings } from '@podium/runtime'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,7 +11,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({ trpc: {} })
   return {
     useStore,
-    useRuntimeSelector: (selector: (store: unknown) => unknown) => selector(useStore()),
+    readFixture: (selector: (store: unknown) => unknown) => selector(useStore()),
   }
 })
 
@@ -65,7 +65,9 @@ describe('WorkLlmSection', () => {
     render(
       <WorkLlmSection
         settings={backgroundSettings()}
-        accounts={[{ ...CODEX_ACCOUNT, serverAi: { machineId: asMachineId('desk'), machineName: 'Desk' } }]}
+        accounts={[
+          { ...CODEX_ACCOUNT, serverAi: { machineId: asMachineId('desk'), machineName: 'Desk' } },
+        ]}
         patch={() => {}}
       />,
     )

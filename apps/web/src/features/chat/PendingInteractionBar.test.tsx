@@ -17,8 +17,7 @@ const answer = vi.fn(async (_sessionId: string, _answer: unknown) => ({ ok: true
 const rows: PendingInteractionWire[] = []
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) =>
-    select({ pendingInteractions: rows }),
+  readFixture: (select: (state: unknown) => unknown) => select({ pendingInteractions: rows }),
 }))
 // The answer and its wait on the record (`answer-session.ts`) are the hook's;
 // this file pins what the bar hands it.

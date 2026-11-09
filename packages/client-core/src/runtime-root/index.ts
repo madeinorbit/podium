@@ -7,3 +7,5 @@ export * from './outbox/outbox-service'
 export * from './outbox/storage'
 export * from './outbox/wiring'
 export * from './root'
+
+export * from './types'

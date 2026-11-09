@@ -1,5 +1,6 @@
 import { Conversation, ConversationCache, DraftStore } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
+import type { UiStore } from '@podium/client-core/ui'
 import type { ChatBlock, ComposerState, SuperThreadRef } from '@podium/client-core/values'
 import { OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import { asMutationId, type SessionId, type SessionOffer } from '@podium/model'
@@ -7,7 +8,6 @@ import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { compareStructural, computed, observable, reaction, runInAction } from 'mobx'
 import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
-import type { Store } from '@/app/store'
 import type { PendingItem } from '../chat'
 import { useChatConversationPorts } from './conversation-ports'
 
@@ -21,14 +21,14 @@ export interface ModelSendOptions {
   chatSendsFor?: import('@podium/client-core/conversation').ChatCommands['chatSendsFor']
   discardChat: import('@podium/client-core/conversation').ChatCommands['discardChat']
   dismissOffer: import('@podium/client-core/commands').Commands['issues']['dismissOffer']
-  setPanelMode: Store['setPanelMode']
+  setPanelMode: UiStore['setPanelMode']
   setSessionDraft: import('@podium/client-core/commands').Commands['sessions']['setSessionDraft']
   initialDraft?: string
   /** The chat shell reads drafts in its composer leaf instead of this subscription. */
   observeDraft?: boolean
-  getUserFocus: Store['getUserFocus']
-  attachedSessionId: Store['attachedSessionId']
-  clearAttachedSession: Store['clearAttachedSession']
+  getUserFocus: UiStore['getUserFocus']
+  attachedSessionId: UiStore['attachedSessionId']
+  clearAttachedSession: UiStore['clearAttachedSession']
   getIssueSeq: (issueId: string) => number | null
   headless: boolean
   superThread: SuperThreadRef | undefined

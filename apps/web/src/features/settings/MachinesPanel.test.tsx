@@ -26,7 +26,7 @@ const storeState: {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+  readFixture: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 
 // The update-status reader (POD-6683) builds its own plain-HTTP client; here it

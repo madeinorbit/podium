@@ -1,11 +1,11 @@
-import { noticeSourcePorts } from '@podium/client-graph/source-ports'
 import { omitGone } from '@podium/client-graph/lookup'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 /** Focused recovery proof over the production kernel queue and pool writer. */
 import { NoticeSource } from '@podium/client-graph/notice-source'
-import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { noticeSourcePorts } from '@podium/client-graph/source-ports'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 
@@ -53,7 +53,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
     id,
     original,
     get outbox() {
-      return ctx.engine.root.services.outbox.queue
+      return ctx.engine.services.outbox.queue
     },
     setOnline(next: boolean) {
       online = next
@@ -64,7 +64,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
     },
     dispose() {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.engine.dispose()
     },
   }
 }

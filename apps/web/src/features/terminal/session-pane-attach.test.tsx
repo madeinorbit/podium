@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { knownReading } from '@podium/client-core/live'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
@@ -122,7 +122,7 @@ function binding(next: ClientRuntime): () => void {
   next.access.setDockShell(shell.cwd, shell.sessionId)
   runInAction(() => {
     for (const row of machines)
-      next.root.live.applyTopic(
+      next.live.applyTopic(
         'machine.condition',
         row.id,
         knownReading({ online: row.online, since: null }, Date.now()),

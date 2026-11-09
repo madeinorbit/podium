@@ -1,8 +1,8 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -141,7 +141,7 @@ root.render(
       }) as never
     }
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >
@@ -189,13 +189,13 @@ const driver = {
       commitMs,
       failures: failures.length,
       actions,
-      parked: owner.root.services.outbox.queue.deadLetters().length,
+      parked: owner.services.outbox.queue.deadLetters().length,
       opened: referenceState(owner).paneA,
     }
   },
   check() {
     return pool
-      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.root.live.outbox }, [
+      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.live.outbox }, [
           'synthetic-session-0',
         ])
       : null

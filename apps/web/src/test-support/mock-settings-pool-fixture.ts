@@ -2,7 +2,7 @@ import '@podium/client-graph/synced-models'
 import type { MobxPool } from '@podium/client-graph'
 import { act, render as renderReact } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
-import { useRuntimeSelector as readFixtureSnapshot } from '@/app/store'
+import { fixtureSnapshot as readFixtureSnapshot } from '@/test-support/fixture-snapshot'
 import { syncPoolFixture } from './pool-fixture'
 
 /** Settings fixtures use the real model pool and retain their existing inputs.
@@ -26,17 +26,22 @@ vi.mock('@/app/store-worklist-pool', async () => {
   }
 })
 
-afterEach(() => { published.pool = null })
+afterEach(() => {
+  published.pool = null
+})
 
 function publish() {
-  const pool = syncPoolFixture(readFixtureSnapshot(state => state))
+  const pool = syncPoolFixture(readFixtureSnapshot((state) => state))
   pool.sources.view('settings.fixtureCatalog', () => {
     // The settings catalog over the pool's own rows: my machines (records) and
     // the registered repositories (POD-6644: derived from checkout records).
     pool.sources.register(['settingsCatalog', 'settingsRepository'], {
       read: (entity: string, id: string) =>
         entity === 'settingsCatalog'
-          ? { machines: [...pool.tables.machine.keys()], repositories: [...pool.tables.repository.keys()] }
+          ? {
+              machines: [...pool.tables.machine.keys()],
+              repositories: [...pool.tables.repository.keys()],
+            }
           : pool.tables.repository.get(id),
       dispose() {},
     } as never)
@@ -52,7 +57,9 @@ export function renderSettingsPool(...args: Parameters<typeof renderReact>) {
   return {
     ...view,
     rerender(...next: Parameters<typeof view.rerender>) {
-      act(() => { publish() })
+      act(() => {
+        publish()
+      })
       view.rerender(...next)
     },
   }

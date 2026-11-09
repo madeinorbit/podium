@@ -1,7 +1,7 @@
-import { superagentSourcePorts, replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import { replicaSourcePorts, superagentSourcePorts } from '@podium/client-graph/source-ports'
 import { SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
 
 export const chatContextPoolScreen: PoolScreen = {
@@ -40,8 +40,8 @@ export const chatContextPoolScreen: PoolScreen = {
       NOTICE_ENTITIES,
       () =>
         new NoticeSource({
-          replica: runtime.root.replica,
-          outbox: runtime.root.services.outbox.queue,
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
         }),
     )
     await pool.sources.ensure(
@@ -58,8 +58,8 @@ export const chatContextPoolScreen: PoolScreen = {
         {
           ui: runtime.ui,
           drafts: runtime.drafts,
-          replica: runtime.root.replica,
-          outbox: runtime.root.services.outbox.queue,
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
         },
         pool,
       ),

@@ -48,7 +48,7 @@ vi.mock('@podium/client-core/react', async () => {
   }
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Menu subscribed to the old store')
   },
 }))

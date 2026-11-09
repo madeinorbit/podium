@@ -15,7 +15,7 @@ vi.mock('@/app/header-data', () => ({
   usePoolHeaderMetrics: () => [],
   usePoolPanelMetric: () => undefined,
 }))
-vi.mock('@/app/store', () => ({ useRuntimeSelector: () => ({}) }))
+vi.mock('@/app/store', () => ({ readFixture: () => ({}) }))
 vi.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ render }: { render: ReactNode }) => <>{render}</>,
@@ -127,7 +127,9 @@ it('shares one second clock across screens and drops it while their panel is hid
 it('does not tick for healthy connection labels', () => {
   vi.useFakeTimers()
   vi.setSystemTime(100_000)
-  const view = render(<ConnectionIndicator health={{ state: 'online', pingMs: 20, since: 90_000 }} />)
+  const view = render(
+    <ConnectionIndicator health={{ state: 'online', pingMs: 20, since: 90_000 }} />,
+  )
   expect(vi.getTimerCount()).toBe(0)
   view.unmount()
 })

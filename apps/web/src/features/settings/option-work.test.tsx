@@ -1,15 +1,15 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { asUserId, resolveUserPreferences } from '@podium/model'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { asUserId, resolveUserPreferences } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
-import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 
 const seam = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ vi.mock('./stable-access', () => ({
   useSettingsTrpc: () => seam.owner.trpc,
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: any) => unknown) => read(seam.owner),
+  readFixture: (read: (state: any) => unknown) => read(seam.owner),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/lib/use-model-catalog', () => ({
@@ -116,7 +116,13 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     // My settings record, as the row source publishes it (POD-6673).
     pool.apply({
       type: 'update',
-      rows: [{ kind: 'userPreferences', id: 'me', value: { ...resolveUserPreferences(undefined, asUserId('me')), id: 'me' } as never }],
+      rows: [
+        {
+          kind: 'userPreferences',
+          id: 'me',
+          value: { ...resolveUserPreferences(undefined, asUserId('me')), id: 'me' } as never,
+        },
+      ],
     })
     // The instance settings record, as the feed delivers it (POD-6677).
     seedInstancePreferences(pool)

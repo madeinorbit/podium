@@ -1,4 +1,4 @@
-import type { OverlayTarget, PendingOverlay } from '@podium/client-core/engine'
+import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'

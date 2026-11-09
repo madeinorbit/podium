@@ -22,7 +22,7 @@ const f = vi.hoisted(() => ({
   confirm: vi.fn(async () => true),
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) => {
+  readFixture: (select: (state: unknown) => unknown) => {
     f.selectors++
     return select({ sessions: f.sessions, ...f.actions })
   },

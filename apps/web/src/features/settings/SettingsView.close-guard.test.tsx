@@ -34,7 +34,7 @@ let notificationsEnabled = false
 
 vi.mock('@/app/store', () => ({
   useHostMetrics: demand.metrics,
-  useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+  readFixture: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 vi.mock('@/app/header-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/app/header-data')>()),

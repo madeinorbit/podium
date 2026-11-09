@@ -1,12 +1,18 @@
-import { useSocketHub, useReplica } from '@podium/client-core/react'
 // @vitest-environment happy-dom
 // (the ROOT vitest run executes web tests under node; client-core/react pulls
 // terminal-client → xterm addons that need a browser-ish global at import time)
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useLive, useRuntimeSelector } from '@podium/client-core/react'
+import {
+  StoreProvider,
+  useLive,
+  useReplica,
+  useSocketHub,
+  useUi,
+  useUiValue,
+} from '@podium/client-core/react'
 import { memoryStorage } from '@podium/client-core/replica'
+import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asUserId } from '@podium/model'
 import { act } from 'react'
@@ -166,7 +172,7 @@ describe('provider runtime identity (#262 review)', () => {
 //   a QUEUED WRITE   principal A's layout edit, persisted in A's namespace
 //   a LIVE CURSOR    A's feed cursor, advanced past zero
 //   a LIVE SOCKET    A's WebSocket, open
-//   a WARM CACHE     a mounted useRuntimeSelector holding A's selected value
+//   a WARM CACHE     a mounted useUiValue holding A's selected value
 //
 // — and each is asserted separately afterwards. The counterfactuals are
 // recorded in `docs/architecture/pod-404-provider-principal-binding.md`: which
@@ -182,7 +188,7 @@ const BOB = asClientPrincipal(asUserId('bob'))
 interface Seen {
   hub: unknown
   replica: { getFeedCursor(): unknown } | null
-  /** Read through useRuntimeSelector — this is the CACHE under test. */
+  /** Read through useUiValue — this is the CACHE under test. */
   dockTab: string
   /** The LiveStore's unsent-write count (POD-5798). */
   outboxSize: number
@@ -192,11 +198,11 @@ interface Seen {
 let seen: Seen
 
 function PrincipalProbe(): null {
-  const store = useRuntimeSelector((s) => s)
+  const store = useUi()
   // A SELECTOR with a stable identity across renders, so its per-component
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
-  const dockTab = useRuntimeSelector(selectDockTab)
+  const dockTab = useUiValue('dockTab')
   const live = useLive()
   seen = {
     hub: useSocketHub(),
@@ -210,8 +216,6 @@ function PrincipalProbe(): null {
   }
   return null
 }
-
-const selectDockTab = (s: { dockTab: string }): string => s.dockTab
 
 describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   const config: Config = { httpOrigin: 'http://p', wsClientUrl: 'ws://p' }
@@ -280,8 +284,8 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // Capture the instances that get torn down, so the guard itself — not just
     // the fact that teardown was CALLED — can be measured.
     const torn: ClientRuntime[] = []
-    const realDestroy = ClientRuntime.prototype.destroy
-    const destroySpy = vi.spyOn(ClientRuntime.prototype, 'destroy').mockImplementation(function (
+    const realDestroy = ClientRuntime.prototype.dispose
+    const destroySpy = vi.spyOn(ClientRuntime.prototype, 'dispose').mockImplementation(function (
       this: ClientRuntime,
     ) {
       torn.push(this)
@@ -324,7 +328,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   it('destroys the previous principal’s runtime rather than re-rendering it', async () => {
     const { destroySpy, torn } = await switchAliceToBob()
     expect(destroySpy, 'the previous principal’s runtime must be destroyed').toHaveBeenCalled()
-    expect(torn[0]?.isDestroyed, 'it must be inert, not merely stopped').toBe(true)
+    expect(torn[0]?.isDisposed, 'it must be inert, not merely stopped').toBe(true)
   })
 
   it('reconstructs the transport, and alice’s socket is already down when bob’s store opens', async () => {
@@ -385,13 +389,13 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const { torn } = await switchAliceToBob()
     const stale = torn[0]
     expect(stale, 'the switch must have torn down alice’s runtime').toBeDefined()
-    const staleSnapshot = stale?.access
+    const previousView = stale!.ui.view
     act(() => {
-      ;(staleSnapshot as unknown as { setPaletteOpen(v: boolean): void }).setPaletteOpen(true)
+      stale!.ui.setView('settings')
     })
-    expect(stale?.access, 'a previous principal’s late callback must publish nothing').toBe(
-      staleSnapshot,
-    )
+    expect(stale!.isDisposed).toBe(true)
+    expect(stale!.ui.view).toBe(previousView)
+    expect(seen.dockTab).toBe('shell')
   })
 
   it('a re-render with an equal-valued principal object keeps the same runtime', async () => {

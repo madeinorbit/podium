@@ -1,77 +1,8 @@
 import { allowImperativeRead } from '@podium/mobx-helpers'
-import { compareShallow, reaction } from 'mobx'
-/**
- * THE REACT BINDING — and the client's ONE principal-scoped composition root
- * (#262 [spec:SP-3fe2], POD-404).
- *
- * Two jobs, and deliberately no third:
- *
- *  1. BIND. A thin `useSyncExternalStore` binding over the runtime's
- *     keyed local channels. No transport wiring, no replica hydration, no
- *     outbox drain, no effects beyond one start/dispose pair — all of that is
- *     the non-React modules (`engine/runtime.ts` and the four it coordinates).
- *
- *  2. OWN THE PRINCIPAL LIFECYCLE. This is the only place in the client where a
- *     runtime — and therefore a transport, a replica and an outbox — is
- *     constructed, and it constructs one per principal.
- *
- * ---------------------------------------------------------------------------
- * REBIND ON PRINCIPAL CHANGE. A RE-RENDER IS NOT SUFFICIENT.
- * ---------------------------------------------------------------------------
- *
- * Sign-in, sign-out and user switch TEAR DOWN and RECONSTRUCT. The reason is
- * that each of the three carriers is principal-bound in a way no state reset
- * reaches (docs/multi-user-readiness.md §3.1/§3.2):
- *
- *   - the SOCKET carries a principal (its session cookie), so a frame already in
- *     flight belongs to the previous person;
- *   - the REPLICA carries a per-principal cursor and slice, and a cursor left
- *     behind by someone else makes a cold, empty slice look permanently caught
- *     up — the exact failure `replica/principal-storage.ts` exists to prevent;
- *   - the OUTBOX carries queued writes that belong to one person and that must
- *     be re-authorized at drain time under that person's rights (ADR 3 D8).
- *
- * So the old runtime is `destroy()`ed — irreversibly, poisoning its state choke
- * point — and a new one is built over `createReplicaFn(nextPrincipal)`. Nothing
- * is "cleared": there is no reset path to forget to extend when a module gains
- * a new principal-derived field.
- *
- * ---------------------------------------------------------------------------
- * FAIL CLOSED BEFORE A PRINCIPAL EXISTS
- * ---------------------------------------------------------------------------
- *
- * `principal === null` means authentication has not yet produced one. Then NO
- * runtime is constructed at all, which is what makes "no hydration, no feed
- * subscription, no room subscription, no outbox drain before a principal" a
- * structural property rather than a set of guards someone must remember. The
- * subtree does not render (`unauthenticated`, default nothing) — cold start
- * paints the principal's scoped slice or nothing, never a previously cached
- * world and never another user's namespace.
- *
- * ---------------------------------------------------------------------------
- * IDENTITY IS SUPPLIED, NEVER DERIVED (ADR 3 D7 — the client half)
- * ---------------------------------------------------------------------------
- *
- * `principal` must come from an AUTHENTICATED TRANSPORT ANSWER. This module
- * exposes it to slices and components for DISPLAY (`useCurrentPrincipal`) and
- * nothing may reach around it: not the URL, not storage, not a wire payload, not
- * a name the user typed. `scripts/audit-phase2-client.ts` item 6 enforces that
- * for the whole client tree.
- *
- * ---------------------------------------------------------------------------
- * THE ONE PRE-AUTH STORAGE READ
- * ---------------------------------------------------------------------------
- *
- * The THEME, and only the theme. `ThemeProvider` wraps `StoreProvider` because
- * the first paint must not flash the wrong colours while `/auth/status` is in
- * flight, so its key is read before a principal exists. That is safe precisely
- * because it is cosmetic: it carries no identity, no cursor, no entity and no
- * authored work, so reading it cannot leak one person's data to another. It is
- * routed as `pre-auth-theme` in `ui-state.ts` (POD-403's total routing table)
- * and is the ONLY member of that home — `ui-state.audit.test.ts` fails if a
- * second key joins it. Everything else a client persists lives below the
- * principal namespace and is therefore unreadable until this provider has one.
- */
+import { reaction } from 'mobx'
+/** The authenticated React boundary. It creates one ClientRuntime per
+ * principal, passes that root through context, and retires it on sign-out.
+ * StrictMode stops and restarts its services without replacing its stores. */
 
 import type { JSX } from 'react'
 import {
@@ -81,45 +12,32 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useSyncExternalStore,
 } from 'react'
 import type { PodiumClientApi } from '../api'
-import { type ClientRuntime, createClientRuntime } from '../engine/runtime'
-import {
-  defaultFormatError,
-  NOOP_NOTICES,
-  type Store,
-  type StoreNotices,
-  type StoreServerConfig,
-} from '../engine/types'
+import { NOOP_NOTICES, type NoticeSink } from '../notices'
 import type { OnlineEvents } from '../outbox'
 import type { ClientPrincipal } from '../principal'
 import { principalKey, samePrincipal } from '../principal'
 import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { CreateEngineOutbox } from '../runtime-root/outbox/wiring'
-import type { CreateReplicaForPrincipal, RuntimeRoot } from '../runtime-root/root'
+import type { CreateReplicaForPrincipal } from '../runtime-root/root'
+import { type ClientRuntime, createClientRuntime } from '../runtime-root/root'
+import { defaultFormatError, type ServerConfig } from '../runtime-root/types'
 import type { FeedSinkPort } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
-import { RuntimeProvider } from './runtime-root'
+import { RuntimeProvider, useClientRuntime } from './runtime-root'
 
-// Shared runtime seams (#262): types live with the runtime; re-exported here so
-// the react entrypoint's public surface is unchanged.
-export type { Store, StoreNotices, StoreServerConfig, UserFocus } from '../engine/types'
+export type { NoticeSink } from '../notices'
 export type { ClientPrincipal } from '../principal'
+export type { ServerConfig } from '../runtime-root/types'
+export type { UserFocus } from '../ui/types'
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
 export type { FileTab } from '../values'
+export { useClientRuntime } from './runtime-root'
 
-type StoreHandle<TApi extends PodiumClientApi> = ClientRuntime<TApi>
-
-// The context carries the runtime HANDLE (stable identity for as long as the
-// principal is unchanged), not the value object — so a provider re-render never
-// re-renders consumers by itself. Consumers subscribe via useSyncExternalStore
-// (useStore / useRuntimeSelector below) and only re-render when the slice they
-// read actually changed.
-const Ctx = createContext<StoreHandle<PodiumClientApi> | null>(null)
 /** The current principal, for DISPLAY only. Never an input to a command. */
 const PrincipalCtx = createContext<ClientPrincipal | null>(null)
 
@@ -132,14 +50,14 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    * NOTHING and renders {@link StoreProviderProps.unauthenticated}.
    */
   principal: ClientPrincipal | null
-  config: StoreServerConfig
+  config: ServerConfig
   /** The app's typed tRPC client (web: AppRouter-typed; mobile: MobileTrpc). */
   api: TApi
   onFatalError: (message: string) => void
   /** App-flavored error formatting (web: formatAppError). */
   formatError?: (error: unknown, fallback: string) => string
   /** UI notices (web: sonner toasts). Default: silent. */
-  notices?: StoreNotices
+  notices?: NoticeSink
   /**
    * Replica factory, TAKING THE PRINCIPAL. Mobile injects the AsyncStorage
    * one, web the IndexedDB kernel assembly. Called once per principal.
@@ -174,7 +92,7 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Optional app data layer over THIS runtime. Attached after start; released
-   * before dispose/destroy, including a principal/config rebuild. StrictMode
+   * before disposal, including a principal/config rebuild. StrictMode
    * re-attaches it when the same runtime starts again. */
   attachRuntime?: (runtime: ClientRuntime<TApi>) => () => void
   /** What to paint while there is no principal. Default: nothing. NEVER a
@@ -211,7 +129,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   latest.current = { onFatalError, formatError, notices, attachRuntime }
   // ONE RUNTIME PER (principal, config, api) IDENTITY. The principal is the
   // load-bearing key: a change to it is a different person, so the previous
-  // runtime is DESTROYED (irreversible — see ClientRuntime.destroy) before the
+  // runtime is disposed before the
   // successor exists, and nothing it still holds can publish afterwards.
   //
   // config/api keep their #262 behaviour: the pre-split provider rebuilt
@@ -222,11 +140,12 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // props stay ref-routed above; their identity churn must NOT rebuild anything.
   const runtimeRef = useRef<{
     principal: ClientPrincipal
-    config: StoreServerConfig
+    config: ServerConfig
     api: TApi
     networkEnabled: boolean
     runtime: ClientRuntime<TApi>
     detach?: () => void
+    generation: number
   } | null>(null)
   const held = runtimeRef.current
   if (
@@ -246,7 +165,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     try {
       detach?.()
     } finally {
-      held.runtime.destroy({
+      held.runtime.dispose({
         eraseUi: principal === null || !samePrincipal(held.principal, principal),
       })
       runtimeRef.current = null
@@ -254,6 +173,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   }
   if (principal !== null && runtimeRef.current === null) {
     runtimeRef.current = {
+      generation: 0,
       principal,
       config,
       api,
@@ -283,13 +203,11 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   }
   const owner = runtimeRef.current
   const runtime = owner?.runtime ?? null
-  // start/dispose pair, keyed on the runtime: StrictMode's dev double-mount
-  // disposes and re-arms the SAME runtime (both are idempotent). dispose() is
-  // deliberately the REVERSIBLE half — the irreversible destroy() above is the
-  // principal boundary and must not be driven by React's effect scheduling.
+  // React stops and restarts services; principal changes dispose the root.
   // biome-ignore lint/correctness/useExhaustiveDependencies: The owner changes only with its runtime; detach is its mutable cleanup handle.
   useEffect(() => {
     if (runtime === null || owner === null) return
+    owner.generation++
     runtime.start()
     owner.detach = latest.current.attachRuntime?.(runtime)
     return () => {
@@ -298,7 +216,13 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       try {
         detach?.()
       } finally {
-        runtime.dispose()
+        runtime.stop()
+        const generation = ++owner.generation
+        // StrictMode re-arms this owner synchronously. A real unmount leaves
+        // its generation unchanged and releases the whole root.
+        queueMicrotask(() => {
+          if (owner.generation === generation && !runtime.isDisposed) runtime.dispose()
+        })
       }
     }
   }, [runtime])
@@ -314,16 +238,9 @@ export function StoreProvider<TApi extends PodiumClientApi>({
           context value leaves mount-stable callbacks, refs and memoized readers
           holding the previous account's render scope. Ordinary rerenders keep
           this key, including reconnects and same-principal runtime rebuilds. */}
-      <Ctx.Provider
-        key={principalKey(principal)}
-        value={runtime as unknown as StoreHandle<PodiumClientApi>}
-      >
-        {/* The runtime root (POD-6681): components reach it only through
-            useRuntime/useLive/useOutboxRecovery, never its services. */}
-        <RuntimeProvider runtime={runtime.root as unknown as RuntimeRoot}>
-          <AccountLifetime>{children}</AccountLifetime>
-        </RuntimeProvider>
-      </Ctx.Provider>
+      <RuntimeProvider key={principalKey(principal)} runtime={runtime}>
+        <AccountLifetime>{children}</AccountLifetime>
+      </RuntimeProvider>
     </PrincipalCtx.Provider>
   )
 }
@@ -357,98 +274,6 @@ function AccountLifetime({ children }: { children: ReactNode }): JSX.Element {
  */
 export function useCurrentPrincipal(): ClientPrincipal | null {
   return useContext(PrincipalCtx)
-}
-
-/** The read seam itself. Exported for `useSlice` (POD-330), which needs the
- *  HANDLE rather than a snapshot: the slice publisher is keyed on handle
- *  identity so the whole tree shares one, and a new principal — a new handle —
- *  gets a new publisher holding nothing. */
-export function useClientRuntime<
-  TApi extends PodiumClientApi = PodiumClientApi,
->(): StoreHandle<TApi> {
-  const s = useContext(Ctx)
-  if (!s) throw new Error('useStore outside StoreProvider')
-  return s as unknown as StoreHandle<TApi>
-}
-
-/** Select actions from their runtime owner and subscribe only to local keys
- * the selector reads. Replica records never enter this binding. */
-export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClientApi>(
-  selector: (access: Store<TApi>) => T,
-  isEqual: (a: T, b: T) => boolean = Object.is,
-): T {
-  const owner = useClientRuntime<TApi>()
-  const current = useRef({ selector, isEqual })
-  current.current = { selector, isEqual }
-  const view = useMemo(() => {
-    let keys: string[] = []
-    let selected: { value: T } | undefined
-    let readSelector: ((access: Store<TApi>) => T) | undefined
-    const localValues = new Map<string, unknown>()
-    let stop: (() => void) | undefined
-    let listener: (() => void) | undefined
-    const arm = () => {
-      stop?.()
-      if (!listener) {
-        stop = undefined
-        return
-      }
-      const stopUi = reaction(() => keys.map((key) => Reflect.get(owner.access, key)), listener, {
-        equals: compareShallow,
-      })
-      stop = stopUi
-    }
-    const access = new Proxy(owner.access, {
-      get(target, key, receiver) {
-        const value = Reflect.get(target, key, receiver)
-        if (typeof key === 'string' && !Object.hasOwn(owner.services, key)) {
-          nextKeys.add(key)
-          localValues.set(key, value)
-        }
-        return value
-      },
-    })
-    let nextKeys = new Set<string>()
-    return {
-      read() {
-        // useSyncExternalStore may read repeatedly between publications. Keep
-        // structured selections stable while their addressed locals agree,
-        // including the render-to-subscribe gap.
-        if (
-          selected &&
-          readSelector === current.current.selector &&
-          keys.every((key) =>
-            Object.is(
-              localValues.get(key),
-              allowImperativeRead(() => Reflect.get(owner.access, key)),
-            ),
-          )
-        )
-          return selected.value
-        nextKeys = new Set()
-        localValues.clear()
-        const value = current.current.selector(access)
-        readSelector = current.current.selector
-        const next = [...nextKeys].sort()
-        if (next.join('|') !== keys.join('|')) {
-          keys = next
-          arm()
-        }
-        if (!selected || !current.current.isEqual(selected.value, value)) selected = { value }
-        return selected.value
-      },
-      subscribe(notify: () => void) {
-        listener = notify
-        arm()
-        return () => {
-          listener = undefined
-          stop?.()
-          stop = undefined
-        }
-      },
-    }
-  }, [owner])
-  return useSyncExternalStore(view.subscribe, view.read)
 }
 
 /** Screen state belongs to this device's MobX UiStore. Read fields in observers. */

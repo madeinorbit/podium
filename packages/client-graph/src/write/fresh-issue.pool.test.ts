@@ -35,7 +35,7 @@ it('a new issue paints under its repo with a pending ref, before the server answ
     const rejected: unknown[] = []
     handle.transactions.onRejected((r) => rejected.push(r))
     // The store's one generic write API, as the apps call it.
-    const records = (ctx.engine.access as unknown as { records: RecordsApi }).records
+    const records = ctx.engine.commands.records
     const id = records.newId('issueProjection')
     await records.create('issueProjection', id, { title: 'Fresh', repoPath })
     // The pool's publication runs on a microtask; let it.

@@ -46,7 +46,7 @@ vi.mock('@podium/client-core/react', async (original) => {
   }
 })
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
+  readFixture: (read: (access: typeof owner.access) => unknown) => {
     const selector = useRef(read)
     selector.current = read
     return useSyncExternalStore(

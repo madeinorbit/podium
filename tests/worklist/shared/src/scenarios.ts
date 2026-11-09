@@ -86,8 +86,6 @@ import {
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { createClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
-import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
@@ -97,12 +95,14 @@ import {
   type KernelEntity,
   memoryStorage,
 } from '@podium/client-core/replica'
+import { createClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import {
   machineRecords,
   repositoriesAsCheckouts,
 } from '@podium/client-core/test-support/machine-records'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { loadingNavigationProvider } from '@podium/client-core/ui'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import {
   asIssueId,
@@ -938,7 +938,7 @@ export async function startEngineOnCorpus(
       })
     },
     reload: async () => {
-      ctx.engine.destroy()
+      ctx.engine.dispose()
       const fresh = newReplica()
       const next = await boot(fresh)
       ctx.engine = next.engine
@@ -948,7 +948,7 @@ export async function startEngineOnCorpus(
     },
     dispose: () => {
       try {
-        ctx.engine.destroy()
+        ctx.engine.dispose()
       } finally {
         side.dispose()
       }
@@ -992,17 +992,15 @@ export interface ScenarioSnapshot {
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = referenceState(engine)
   return {
-    issues: allIssueViewModels(
-      engine.root.replica,
-      snap.issueProjections,
-      snap.issueUserStates,
-    ).map((i) => ({
-      id: i.id,
-      title: (i as { title?: unknown }).title as string,
-      stage: (i as { stage?: unknown }).stage as string,
-      archived: Boolean((i as { archived?: unknown }).archived),
-      readAt: (i as { readAt?: unknown }).readAt ?? null,
-    })),
+    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
+      (i) => ({
+        id: i.id,
+        title: (i as { title?: unknown }).title as string,
+        stage: (i as { stage?: unknown }).stage as string,
+        archived: Boolean((i as { archived?: unknown }).archived),
+        readAt: (i as { readAt?: unknown }).readAt ?? null,
+      }),
+    ),
     sessions: snap.sessions.map((s) => ({
       sessionId: s.sessionId,
       lastActiveAt: s.lastActiveAt,

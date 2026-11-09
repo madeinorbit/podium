@@ -17,7 +17,7 @@ import type { SyncSubmitInput } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../api'
-import type { StoreNotices } from '../../engine/types'
+import type { NoticeSink } from '../../notices'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -72,7 +72,7 @@ async function sent(): Promise<{
       outboxAwaitingStorage: memoryStorage,
       outboxDeadLetterStorage: memoryStorage,
     } as unknown as Replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     isOnline: () => true,
   }
   return { outbox: create(callbacks), submits }

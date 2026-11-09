@@ -12,9 +12,20 @@ const desktop = vi.hoisted(() => ({ launchMode: undefined as string | undefined 
 
 const fleet = vi.hoisted(() => ({ ready: true }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) => select({
-    repos: [], machines: fleet.ready ? [{ id: 'setup-host', online: true, serviceAssignment: { agentExecution: true }, availability: { daemon: true, server: false } }] : [],
-  }),
+  readFixture: (select: (state: unknown) => unknown) =>
+    select({
+      repos: [],
+      machines: fleet.ready
+        ? [
+            {
+              id: 'setup-host',
+              online: true,
+              serviceAssignment: { agentExecution: true },
+              availability: { daemon: true, server: false },
+            },
+          ]
+        : [],
+    }),
 }))
 
 vi.mock('@/lib/nativeDesktop', () => ({
@@ -38,7 +49,7 @@ vi.mock('./RepoScanFlow', () => ({
 }))
 
 afterEach(() => {
-  fleet.ready = true;
+  fleet.ready = true
   cleanup()
   scan.props = null
   desktop.launchMode = undefined
@@ -69,8 +80,17 @@ function trpc(): Trpc {
 describe('OnboardingWizard setup routes', () => {
   it('holds project intake until enrollment and daemon readiness are available', () => {
     fleet.ready = false
-    render(<OnboardingWizard route="local-project" onRouteChange={vi.fn()} onComplete={vi.fn()}
-      onConnectionConfigured={vi.fn()} onEnterVps={vi.fn()} trpc={trpc()} vps={vpsController()} />)
+    render(
+      <OnboardingWizard
+        route="local-project"
+        onRouteChange={vi.fn()}
+        onComplete={vi.fn()}
+        onConnectionConfigured={vi.fn()}
+        onEnterVps={vi.fn()}
+        trpc={trpc()}
+        vps={vpsController()}
+      />,
+    )
     expect(screen.getByRole('heading', { name: 'Waiting for your machine' })).toBeTruthy()
     expect(screen.queryByTestId('repo-scan-flow')).toBeNull()
   })

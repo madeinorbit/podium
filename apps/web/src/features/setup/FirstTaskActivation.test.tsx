@@ -79,7 +79,7 @@ function store() {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+  readFixture: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
 }))
 
 // The detected-accounts card reads `accounts.list` into the shared record pool,

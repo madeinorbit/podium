@@ -8,9 +8,9 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { cleanup, fireEvent, render as renderComponent, screen } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useRuntimeSelector as selectFixtureSnapshot } from '@/app/store'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
+import { fixtureSnapshot as selectFixtureSnapshot } from '@/test-support/fixture-snapshot'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import {
   IssueCompactControls,
@@ -114,8 +114,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore: () => state(),
-    useRuntimeSelector: (selector: (value: ReturnType<typeof state>) => unknown) =>
-      selector(state()),
+    readFixture: (selector: (value: ReturnType<typeof state>) => unknown) => selector(state()),
   }
 })
 

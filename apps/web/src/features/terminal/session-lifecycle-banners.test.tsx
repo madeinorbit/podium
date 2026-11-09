@@ -20,7 +20,7 @@ const actions = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+  readFixture: (sel: (s: unknown) => unknown) =>
     sel({
       resurrectSession: vi.fn(),
       killSession: vi.fn(),
@@ -100,7 +100,9 @@ describe('the lifecycle transition bar (POD-6399)', () => {
   it('says the session is on its way while the server has not acted', () => {
     act(() => {
       root.render(
-        <LifecycleTransitionBar session={{ sessionId: id, desired: 'stopped', revision: 3, observedRevision: 2 }} />,
+        <LifecycleTransitionBar
+          session={{ sessionId: id, desired: 'stopped', revision: 3, observedRevision: 2 }}
+        />,
       )
     })
     expect(container.querySelector('[data-testid="lifecycle-transition"]')?.textContent).toContain(

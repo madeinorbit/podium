@@ -30,7 +30,7 @@ vi.mock('@podium/client-core/react', async () => {
         return { uiState: ports.ui }
       },
     })),
-    useRuntimeSelector: () => {
+    readFixture: () => {
       throw new Error('Preference consumers must use the pool')
     },
   }

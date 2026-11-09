@@ -8,12 +8,7 @@
 
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import { type ClientPrincipal, principalKey } from '@podium/client-core/principal'
-import {
-  type Store as CoreStore,
-  StoreProvider as CoreStoreProvider,
-  type StoreNotices,
-  useRuntimeSelector as useCoreStoreSelector,
-} from '@podium/client-core/react'
+import { StoreProvider as CoreStoreProvider, type NoticeSink } from '@podium/client-core/react'
 import type {
   CreateEngineOutbox,
   CreateReplicaForPrincipal,
@@ -29,15 +24,12 @@ import { formatAppError } from './AppErrorPage'
 import { attachWorklistPool } from './store-worklist-pool'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
-/** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
-export type Store = CoreStore<Trpc>
-
 export type { UserFocus } from '@podium/client-core/react'
 export type { IssueViewModel } from '@podium/client-core/replica'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/values'
 
-const NOTICES: StoreNotices = {
+const NOTICES: NoticeSink = {
   error: (message) => toast.error(message),
   info: (message, description) =>
     toast(message, description ? { description: describeNotice(description) } : undefined),
@@ -138,11 +130,4 @@ export function StoreProvider({
   )
 }
 
-/** Runtime actions and keyed local controls; records are read through the pool. */
-export function useRuntimeSelector<T>(
-  selector: (s: Store) => T,
-  isEqual?: (a: T, b: T) => boolean,
-): T {
-  return useCoreStoreSelector<T, Trpc>(selector, isEqual)
-}
 export { useDeviceState, useLive, useUi, useUiValue } from '@podium/client-core/react'

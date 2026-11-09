@@ -1,5 +1,5 @@
 import { DraftStore } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { ingestMessageRecords } from '@podium/client-graph/message-models'

@@ -18,7 +18,7 @@ import { useConversation } from '../../../../../../packages/client-core/src/reac
  *     (await import('./test-support/presence-mock')).presenceSeamStub())
  */
 
-import { useRuntimeSelector as readFixture } from '@/app/store'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 
 // The action owner and keyed locals are the same fixture the suite paints.

@@ -136,7 +136,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -229,7 +229,9 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     render(<SidebarUnified />)
     type('lander')
     await expectTitles(['Alpha lander'])
-    await act(async () => { fireEvent.click(screen.getByTestId('work-search-clear')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-search-clear'))
+    })
     expect(document.activeElement).toBe(field())
     expect(field().value).toBe('')
     await waitFor(() => expect(titles()).toHaveLength(3))
@@ -272,14 +274,23 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     // the visible ones are invisible to the plan, and the backfill path would
     // renumber the sample and scatter everything it could not see.
     type('rocket')
-    await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(0))
-    await act(async () => { fireEvent.click(screen.getByTestId('work-search-clear')) })
-    await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3))
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(0),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-search-clear'))
+    })
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3),
+    )
   })
 
   it('parts folders with a hairline rather than a gap (POD-2074)', async () => {
     render(<SidebarUnified />)
-    for (const section of [screen.getByTestId('pinned-section'), screen.getByTestId('project-group')]) {
+    for (const section of [
+      screen.getByTestId('pinned-section'),
+      screen.getByTestId('project-group'),
+    ]) {
       expect(section.className).toContain('border-b')
       expect(section.className).not.toContain('mt-[14px]')
     }

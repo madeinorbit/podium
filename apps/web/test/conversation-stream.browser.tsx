@@ -1,7 +1,8 @@
 /** Identical fixture copied into the untouched legacy revision by the runner. */
-import { asUserId } from '@podium/model/browser'
+
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
+import { asUserId } from '@podium/model/browser'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool } from '../src/app/store-worklist-pool'
 import { ChatView } from '../src/features/chat/ChatView'
@@ -23,9 +24,9 @@ root.render(
     createReplicaFn={() => source.replica()}
     onFatalError={(error) => errors.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       fixture.publishMachines()
-      runtime.root.services.connection.hub.subscribeTranscript = (_id, _since, listener) => {
+      runtime.services.connection.hub.subscribeTranscript = (_id, _since, listener) => {
         listeners.add(listener)
         return () => {
           listeners.delete(listener)

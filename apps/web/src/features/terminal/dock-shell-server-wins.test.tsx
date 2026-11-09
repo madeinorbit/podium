@@ -58,7 +58,7 @@ const mockState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+  readFixture: (sel: (s: unknown) => unknown) => sel(mockState),
 }))
 
 vi.mock('@podium/terminal-client-react', () => ({
@@ -79,7 +79,9 @@ vi.mock('./use-terminal-appearance', () => ({
 
 const { DockShellPanel } = await import('./DockShellPanel')
 
-function shellMeta(over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string }): SessionMeta {
+function shellMeta(
+  over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string },
+): SessionMeta {
   const { sessionId, ...rest } = over
   return {
     sessionId: asSessionId(sessionId),

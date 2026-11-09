@@ -1,5 +1,6 @@
 import type { ReadPositionValue } from '@podium/client-core'
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import type { ScreenState } from '@podium/client-core/ui'
 import type { SuperagentSliceValue, SuperThreadView } from '@podium/client-core/values'
 import type { GitRepositoryWire, IssueEventWire, SessionId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -16,7 +17,7 @@ import type { Loaded } from './worklist/rollup'
  * not here: they are synced `superagentThread` records in the pool (POD-6675),
  * read by {@link superagentThread} and {@link superagentState}. */
 export interface SuperagentRows {
-  superagentLocal: Pick<Store, 'superThreadId' | 'paneA' | 'selectedWorktree'> & {
+  superagentLocal: Pick<ScreenState, 'superThreadId' | 'paneA' | 'selectedWorktree'> & {
     booting: boolean
   }
   superagentEvent: IssueEventWire
@@ -37,7 +38,7 @@ export const SUPERAGENT_EVENT_TAIL = 40
 export const SUPERAGENT_SCHEMA = {
   superagentLocal: {
     key: 'local',
-    source: 'engine:locals',
+    source: 'ui:screen',
     fields: ['superThreadId', 'paneA', 'selectedWorktree', 'booting'],
   },
   superagentEvent: { key: 'id', source: 'replica:issueEvents', residency: 'tail members only' },
@@ -64,7 +65,7 @@ export const SUPERAGENT_SUMMARIES = { session: SUPERAGENT_SCHEMA.session.summary
 
 type SuperagentOwner = {
   readonly ui: ClientRuntime['ui']
-  readonly replica: ClientRuntime['root']['replica']
+  readonly replica: ClientRuntime['replica']
   readonly readPosition: ClientRuntime['readPosition']
 }
 

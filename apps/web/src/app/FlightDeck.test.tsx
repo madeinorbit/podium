@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
+import { fixtureSnapshot as selectFixtureSnapshot } from '@/test-support/fixture-snapshot'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
@@ -37,7 +38,6 @@ import { MovedConversationPane } from './MovedConversationPane'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
-import { useRuntimeSelector as selectFixtureSnapshot } from './store'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -188,7 +188,7 @@ vi.mock('@podium/client-core/react', async (original) => {
 })
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
+  readFixture: (select: (store: Record<string, unknown>) => unknown) =>
     select({
       issues: harness.issues,
       userPreferences: [

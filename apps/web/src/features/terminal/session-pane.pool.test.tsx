@@ -79,7 +79,7 @@ const paneStoreHandle = withKeyedInputs({
   subscribe: (_listener: () => void) => () => {},
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (s: Store) => unknown) => {
+  readFixture: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
     return select(
       new Proxy(f.state, {

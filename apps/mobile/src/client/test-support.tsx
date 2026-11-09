@@ -1,4 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
+
 /**
  * A REAL STORE FOR MOBILE COMPONENT TESTS (POD-332).
  *
@@ -16,12 +17,12 @@ import { omitGone } from '@podium/client-graph/lookup'
  *               moves them after mount).
  */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import { type NoticeSink, StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
@@ -200,7 +201,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     // the hub under test must be the one the provider built.
     const store = useClientRuntime<MobileTrpc>()
     runtimeHandle = store
-    hub = store.root.services.connection.hub as unknown as {
+    hub = store.services.connection.hub as unknown as {
       emit(event: string, ...payload: unknown[]): void
     }
     return (
@@ -219,7 +220,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   const principal = asClientPrincipal(asUserId(fixture.principal ?? 'user:test'))
   const createReplicaFn = () => replica
 
-  function Store({ notices, children: inner }: { notices?: StoreNotices; children: ReactNode }) {
+  function Store({ notices, children: inner }: { notices?: NoticeSink; children: ReactNode }) {
     return (
       <StoreProvider
         config={CONFIG}
@@ -313,7 +314,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     /** Machine samples arrive as per-machine LiveStore readings. */
     setHostMetrics(samples: readonly HostMetricsWire[]) {
       runInAction(() => {
-        const live = runtimeHandle!.root.live
+        const live = runtimeHandle!.live
         const incoming = new Set(
           samples.map((sample) => String(sample.machineId ?? sample.hostname)),
         )
@@ -382,7 +383,7 @@ function applyMachineConditions(
     for (const machine of machines) {
       const { online, lastSeenAt, availability, presenceSource, daemonReadiness } =
         machine as MachineWire & Record<string, unknown>
-      runtime.root.live.applyTopic(
+      runtime.live.applyTopic(
         'machine.condition',
         String(machine.id),
         knownReading(

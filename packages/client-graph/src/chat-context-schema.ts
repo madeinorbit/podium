@@ -1,12 +1,12 @@
-import type { Store } from '@podium/client-core/engine'
 import type { OutboxChatSend } from '@podium/client-core/conversation'
+import type { ScreenState } from '@podium/client-core/ui'
 
 /** Conversation payloads use NoticeSource. These rows borrow the existing
  * draft/window/outbox owners; they own neither mutations nor a transcript. */
 export interface ChatContextRows {
   chatContextReader: ReturnType<typeof import('./chat-context').createChatContextReader>
   chatDraft: { text: string }
-  chatWindow: Pick<Store, 'attachedSessionId'>
+  chatWindow: Pick<ScreenState, 'attachedSessionId'>
   chatHeld: { sends: readonly OutboxChatSend[] }
   chatRecordOrder: { ids: readonly string[] }
   chatIssueOrder: { ids: readonly string[] }
@@ -34,7 +34,7 @@ const CHAT_CONTEXT_SCHEMA = {
   },
   chatWindow: {
     key: 'window',
-    source: 'engine:locals',
+    source: 'ui:screen',
     fields: ['attachedSessionId'],
   },
   chatHeld: {

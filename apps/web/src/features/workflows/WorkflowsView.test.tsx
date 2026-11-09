@@ -110,7 +110,7 @@ vi.mock('@/app/store', () => {
   testHandle.getSnapshot = fixtureState
   return {
     useStore: fixtureState,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(fixtureState() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(fixtureState() as never),
     useSession: (id: string | undefined) =>
       id === undefined
         ? undefined

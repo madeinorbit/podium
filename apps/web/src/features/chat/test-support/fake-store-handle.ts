@@ -6,7 +6,7 @@ import {
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MessageRecordWire, SessionId } from '@podium/model'
 import { afterEach } from 'vitest'
-import { useRuntimeSelector as selectStore } from '@/app/store'
+import { fixtureSnapshot as selectStore } from '@/test-support/fixture-snapshot'
 
 const selectMockSnapshot = selectStore as unknown as <T>(
   read: (

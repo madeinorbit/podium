@@ -30,12 +30,12 @@ vi.mock('@/app/store', () => {
     setup: { info: { query: trpcMock.setupInfo }, provenance: { query: trpcMock.provenance } },
   }
   return {
-    useRuntimeSelector: (fn: (s: unknown) => unknown) => fn({ trpc }),
+    readFixture: (fn: (s: unknown) => unknown) => fn({ trpc }),
   }
 })
 
-import { PrivacySection } from './privacy'
 import { resetForcedSettingCache } from '../use-forced-setting'
+import { PrivacySection } from './privacy'
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()

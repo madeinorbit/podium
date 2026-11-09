@@ -1,15 +1,14 @@
+import { observable, runInAction } from 'mobx'
 import type { Commands } from '../src/commands'
 import type { ChatCommands } from '../src/conversation/sends'
-import type { RuntimeRoot } from '../src/runtime-root/root'
+import type { ClientRuntime } from '../src/runtime-root/root'
 
 const read = (object: object | undefined, key: string): any =>
   object ? Reflect.get(object, key) : undefined
 
 /** Test-only root for historical snapshot fixtures; no product adapter exists. */
-export function fixtureRoot<T extends object>(
-  owner: T,
-): T & { readonly root: RuntimeRoot; batch(fn: () => void): void } {
-  if (read(owner, 'root')) return owner as T & { root: RuntimeRoot; batch(fn: () => void): void }
+export function fixtureRoot<T extends object>(owner: T): T & ClientRuntime {
+  if (read(owner, 'commands')) return owner as T & ClientRuntime
   const access = () => read(owner, 'access') ?? read(owner, 'getSnapshot')?.() ?? owner
   const stop = (id: string, opts?: { force?: boolean }) =>
     opts?.force === undefined
@@ -210,6 +209,10 @@ export function fixtureRoot<T extends object>(
       return read(access(), 'discardChat')
     },
   } as ChatCommands
+  const originalReplica = read(owner, 'replica')
+  const originalOutbox = read(owner, 'outbox')
+  const originalHub = read(owner, 'hub')
+  const originalLive = read(owner, 'live')
   const root = {
     commands,
     chatSends,
@@ -217,23 +220,23 @@ export function fixtureRoot<T extends object>(
       return read(access(), 'trpc')
     },
     get replica() {
-      return read(owner, 'replica') ?? read(access(), 'replica')
+      return originalReplica ?? read(access(), 'replica')
     },
     get httpOrigin() {
       return read(access(), 'httpOrigin')
     },
     get live() {
-      return read(owner, 'live')
+      return originalLive
     },
     services: {
       connection: {
         get hub() {
-          return read(owner, 'hub') ?? read(access(), 'hub')
+          return originalHub ?? read(access(), 'hub')
         },
       },
       outbox: {
         get queue() {
-          return read(owner, 'outbox')
+          return originalOutbox
         },
         get recovery() {
           return read(access(), 'recoverOutbox')
@@ -241,13 +244,27 @@ export function fixtureRoot<T extends object>(
       },
     },
   }
-  Object.defineProperty(owner, 'root', { configurable: true, value: root })
+  const pool = observable.box<object | undefined>(undefined, { deep: false })
+  Object.defineProperties(owner, Object.getOwnPropertyDescriptors(root))
+  Object.defineProperty(owner, 'pool', { configurable: true, get: () => pool.get() })
+  Object.assign(owner, {
+    attachPool(value: object, dispose: () => void) {
+      runInAction(() => pool.set(value))
+      return () => {
+        if (pool.get() === value) {
+          runInAction(() => pool.set(undefined))
+          dispose()
+        }
+      }
+    },
+    stop: read(owner, 'stop') ?? (() => {}),
+  })
   if (!read(owner, 'batch'))
     Object.defineProperty(owner, 'batch', {
       configurable: true,
       value: (fn: () => void) => (read(access(), 'batchGesture') ?? ((fn: () => void) => fn()))(fn),
     })
-  return owner as T & { root: RuntimeRoot; batch(fn: () => void): void }
+  return owner as T & ClientRuntime
 }
 
 /** Provider-free suites retain their original command spies and data. */
@@ -257,7 +274,7 @@ export function fixtureRuntimeHooks(readOwner: () => unknown) {
     if (!value || typeof value !== 'object') throw new Error('Fixture owner is not ready')
     return fixtureRoot(value)
   }
-  const root = () => owner().root
+  const root = () => owner()
   const access = () => read(owner(), 'access') ?? owner()
   return {
     useClientRuntime: owner,

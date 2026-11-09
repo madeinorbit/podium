@@ -12,7 +12,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (store: unknown) => unknown) => read({ renameSession: vi.fn() }),
+  readFixture: (read: (store: unknown) => unknown) => read({ renameSession: vi.fn() }),
 }))
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),

@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
@@ -10,7 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { AgentPanel } from '../features/terminal/AgentPanel'
 import { DockShellLifecycle } from '../features/terminal/dock-shell-lifecycle'
-import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
+import { useDraftValue, usePendingSpawnPrompt } from './model-inputs'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { Workspace } from './Workspace'
 
@@ -84,8 +85,8 @@ it.each([
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
-        owner.access.setPanelMode(sid, 'chat')
+        data.bindHub(owner.services.connection.hub, undefined, owner.live)
+        owner.ui.setPanelMode(sid, 'chat')
         return attachWorklistPool(owner, (error) => failures.push(error))
       }}
     >
@@ -99,7 +100,7 @@ it.each([
     timeout: 10000,
   })
   await act(async () => {
-    runtime!.access.navigateToSession(sid)
+    runtime!.ui.navigateToSession(sid)
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -113,7 +114,7 @@ it.each([
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  const wholeRows = vi.spyOn(runtime!.root.replica, 'rows')
+  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
@@ -141,21 +142,19 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () =>
-    runtime!.root.commands.sessions.setSessionDraft(sid, 'Pool draft'),
-  )
+  await check('draft write', () => runtime!.commands.sessions.setSessionDraft(sid, 'Pool draft'))
   expect(view.getByTestId('locals').textContent).toBe('Pool draft|')
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('mapped dock change', () =>
-    runtime!.access.setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
+    runtime!.ui.setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
   )
-  await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
+  await check('session switch', () => runtime!.ui.navigateToSession('synthetic-session-2'))
   await check('worktree selection', () => {
-    runtime!.access.setSelectedIssueId(null)
-    runtime!.access.setSelectedWorktree('/synthetic/project/guests')
+    runtime!.ui.setSelectedIssueId(null)
+    runtime!.ui.setSelectedWorktree('/synthetic/project/guests')
   })
   expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
+  await check('worktree fallback', () => runtime!.ui.setSelectedWorktree('/synthetic/missing'))
   expect(runtime!.ui.selectedWorktree).toBe('/synthetic/project')
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),

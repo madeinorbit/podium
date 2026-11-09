@@ -1,19 +1,18 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-import type { ClientRuntime } from '@podium/client-core/engine'
-
-import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
+import type { BoardOptions, BoardSnapshotData } from '@podium/client-graph/issue-board-schema'
 import {
   boardSnapshot,
   compareBoardValues,
   readBoardSnapshot,
 } from '../../../tests/worklist/diagnostics/issue-board-check'
-import type { BoardOptions, BoardSnapshotData } from '@podium/client-graph/issue-board-schema'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
 import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 
 export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: BoardOptions) {
-  const issues = allIssueViewModels(runtime.root.replica),
+  const issues = allIssueViewModels(runtime.replica),
     sessions = referenceState(runtime).sessions
   const expected = deriveIssuesViewModel({
     ...options,

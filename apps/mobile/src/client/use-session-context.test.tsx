@@ -1,8 +1,8 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionCardModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
@@ -384,7 +384,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
+          data.bindHub(owner.services.connection.hub, undefined, owner.live)
           data.publishMachines()
           referenceState(owner).setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))
@@ -509,11 +509,11 @@ it('renders the same six phone readers through real late attachment with no Reac
 
 it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
   const enabled = await mount()
-  const wholeRows = vi.spyOn(enabled.runtime.root.replica, 'rows')
+  const wholeRows = vi.spyOn(enabled.runtime.replica, 'rows')
   expect(enabled.runtime).not.toHaveProperty('getSnapshot')
   await act(async () => {
     enabled.data.activity(1)
-    enabled.runtime.root.commands.sessions.setSessionDraft(SID, 'Changed draft')
+    enabled.runtime.commands.sessions.setSessionDraft(SID, 'Changed draft')
   })
   await waitFor(() =>
     expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'),
@@ -612,7 +612,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
   await act(async () => {
     enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })
     enabled.data.patch('pendingInteraction', 'notice-ask-2', { status: 'answered' })
-    await enabled.runtime.root.services.outbox.queue.enqueue('sendText', {
+    await enabled.runtime.services.outbox.queue.enqueue('sendText', {
       sessionId: SID,
       text: 'Held owner send',
     })
@@ -637,7 +637,7 @@ it('keeps the original mutation owner when the pool conversation edits its draft
   await waitFor(() => expect(enabled.runtime.drafts.get(SID)).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
   await waitFor(() =>
-    expect(enabled.runtime.root.services.outbox.queue.pending()).toContainEqual(
+    expect(enabled.runtime.services.outbox.queue.pending()).toContainEqual(
       expect.objectContaining({
         kind: 'sendText',
         input: expect.objectContaining({ sessionId: SID, text: 'New synthetic prompt' }),

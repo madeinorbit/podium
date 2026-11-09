@@ -221,8 +221,8 @@ export function SessionConversation(
             set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
           readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-          hub: owner.root.services.connection.hub,
-          connection: hubConnection(owner.root.services.connection.hub),
+          hub: owner.services.connection.hub,
+          connection: hubConnection(owner.services.connection.hub),
           scheduler: {
             visible: () =>
               AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
@@ -246,7 +246,7 @@ export function SessionConversation(
                   (ready) => {
                     off()
                     off = ready
-                      ? owner.root.services.connection.hub.subscribeTranscript(id, since, listener)
+                      ? owner.services.connection.hub.subscribeTranscript(id, since, listener)
                       : () => {}
                   },
                   { fireImmediately: true },
@@ -257,7 +257,7 @@ export function SessionConversation(
                 }
               },
             },
-            ...(owner.root.replica.transcripts ? { cache: owner.root.replica.transcripts } : {}),
+            ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
           },
           sends: {
             records: ports.records,
@@ -266,7 +266,7 @@ export function SessionConversation(
               ingest: (records) => {
                 if (pool)
                   ingestMessageRecords(pool, records, (id) =>
-                    currentMessageRecord(pool, owner.root.replica, id),
+                    currentMessageRecord(pool, owner.replica, id),
                   )
               },
             },
@@ -410,7 +410,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
 }) {
-  const storeHandle = useClientRuntime<MobileTrpc>()
   const requestClient = useRequestClient<MobileTrpc>()
   const replica = useReplica()
   const conversationSends = useChatSends()
@@ -418,7 +417,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const serverOrigin = useHttpOrigin()
 
   const store = useMemo(() => {
-    const s = storeHandle.access
     return {
       trpc: requestClient,
       replica: replica,
@@ -432,7 +430,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       dismissEffect: commandModules.sessions.dismissEffect,
       httpOrigin: serverOrigin,
     }
-  }, [storeHandle])
+  }, [requestClient, replica, conversationSends, commandModules, serverOrigin])
   const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   const [requestedRef, setRequestedRef] = useState<string | undefined>(undefined)
   // Catalogs belong to the open inspector, not conversation startup.

@@ -28,3 +28,5 @@ export function createNotices(ui: () => UiStore, consumer?: NoticeSink): NoticeS
     info: (message, description) => add('info', message, description),
   }
 }
+
+export const NOOP_NOTICES: NoticeSink = { error: () => {}, info: () => {} }

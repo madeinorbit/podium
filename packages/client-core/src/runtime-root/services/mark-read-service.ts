@@ -1,6 +1,5 @@
 import type { IssueId, SessionId } from '@podium/model'
 import { actionBound } from 'mobx'
-import type { IssueVisitBaseline } from '../../engine/types'
 import type { NavigationProvider } from '../../navigation-provider'
 import {
   focusedPaneSession,
@@ -10,6 +9,7 @@ import {
   navigationSession,
   type ScreenState,
 } from '../../ui/state'
+import type { IssueVisitBaseline } from '../../ui/types'
 import type { ConnectionService } from '../connection/connection-service'
 import { ServiceLifetime } from './lifetime'
 import { observeNavigation } from './observe-navigation'

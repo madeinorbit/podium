@@ -11,7 +11,7 @@ import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
-import { useRuntimeSelector } from './deck-store-stub'
+import { readFixture } from './deck-store-stub'
 
 export * from '../../../packages/client-core/src/react/provider'
 
@@ -24,7 +24,7 @@ const drafts = new DraftStore({
   } as never,
 })
 
-const snapshot = () => useRuntimeSelector((state) => state) as never
+const snapshot = () => readFixture((state) => state) as never
 
 const owner = withKeyedInputs({
   drafts,

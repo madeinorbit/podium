@@ -14,7 +14,7 @@ export const superagentPoolScreen: PoolScreen = {
       createSuperagentSource({
         ui: runtime.ui,
         readPosition: runtime.readPosition,
-        replica: runtime.root.replica,
+        replica: runtime.replica,
       }),
     )
     const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
@@ -26,8 +26,8 @@ export const superagentPoolScreen: PoolScreen = {
       NOTICE_ENTITIES,
       () =>
         new NoticeSource({
-          replica: runtime.root.replica,
-          outbox: runtime.root.services.outbox.queue,
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
         }),
     )
   },

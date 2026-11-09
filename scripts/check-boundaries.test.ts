@@ -80,7 +80,7 @@ describe('pool runtime boundaries', () => {
     "const read = <T>(value: T) => value; const engine = await import('@podium/client-core/engine')",
     "const engine = require('@podium/client-core/engine')",
     "import engine = require('@podium/client-core/engine')",
-    "import { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import { ClientRuntime } from '../../client-core/src/runtime-root/root.js'",
     "import { ClientRuntime } from '@podium/client-core'",
     "import { type Store, ClientRuntime } from '@podium/client-core'",
     "export * from '@podium/client-core'",
@@ -100,7 +100,7 @@ describe('pool runtime boundaries', () => {
     "export type * from '@podium/client-core/engine'",
     "export { type Store } from '@podium/client-core/engine'",
     "type Runtime = import('@podium/client-core/engine').ClientRuntime",
-    "import type { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import type { ClientRuntime } from '../../client-core/src/runtime-root/root.js'",
     "import type { ClientRuntime } from '@podium/client-core'",
     "type Runtime = import('@podium/client-core').ClientRuntime",
     "import type { ClientRuntime } from '../../client-core/src/index.js'",
@@ -155,7 +155,9 @@ describe('pool runtime boundaries', () => {
   })
 
   it('keeps the retired diagnostics allowance empty and rejects a new app leak', () => {
-    const allowed = BOUNDARY_ALLOWLIST.filter(entry => entry.rule === 'apps-client-graph-diagnostics')
+    const allowed = BOUNDARY_ALLOWLIST.filter(
+      (entry) => entry.rule === 'apps-client-graph-diagnostics',
+    )
     expect(allowed).toEqual([])
     const planted = rules(app, "import { probe } from '@podium/client-graph/diagnostics/probe'")
     expect(applyAllowlist(planted, allowed)).toEqual({ warnings: [], errors: planted, stale: [] })
@@ -1975,7 +1977,10 @@ describe('harness-vendor-boundary (POD-4467)', () => {
         `export const h = '${kind}'\n`,
         LITERALS,
       )
-      expect(vs.map((v) => v.rule), kind).toEqual([HARNESS_VENDOR_RULE])
+      expect(
+        vs.map((v) => v.rule),
+        kind,
+      ).toEqual([HARNESS_VENDOR_RULE])
       expect(vs[0]?.specifier, kind).toBe(kind)
     }
   })
@@ -1987,7 +1992,10 @@ describe('harness-vendor-boundary (POD-4467)', () => {
         `export const label = '${label}'\n`,
         LITERALS,
       )
-      expect(vs.map((v) => v.rule), label).toEqual([HARNESS_VENDOR_RULE])
+      expect(
+        vs.map((v) => v.rule),
+        label,
+      ).toEqual([HARNESS_VENDOR_RULE])
     }
   })
 
@@ -2029,11 +2037,7 @@ describe('harness-vendor-boundary (POD-4467)', () => {
   it('stays quiet on the authoritative definition, comments, tests, fixtures, e2e and migrations', () => {
     const literal = `export const h = 'codex'\n`
     expect(
-      checkHarnessVendorLiterals(
-        'packages/model/src/entities/agent.ts',
-        literal,
-        LITERALS,
-      ),
+      checkHarnessVendorLiterals('packages/model/src/entities/agent.ts', literal, LITERALS),
     ).toEqual([])
     // Comments are blanked first, so documenting the prohibition cannot trip it.
     expect(
@@ -2106,9 +2110,18 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     expect(applyHarnessBoundaryAllowlist(vs, []).errors).toHaveLength(1)
     // Listed but holding 0 → stale (must remove the entry).
     expect(
-      applyHarnessBoundaryAllowlist([], [
-        { file: 'apps/server/src/x.ts', count: 1, category: 'leak', reason: 'r', issue: 'POD-4414' },
-      ]).stale,
+      applyHarnessBoundaryAllowlist(
+        [],
+        [
+          {
+            file: 'apps/server/src/x.ts',
+            count: 1,
+            category: 'leak',
+            reason: 'r',
+            issue: 'POD-4414',
+          },
+        ],
+      ).stale,
     ).toHaveLength(1)
     // Listed for 3 but holding 1 → stale (must lower the count).
     const held = checkHarnessVendorLiterals(
@@ -2118,7 +2131,13 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     )
     expect(
       applyHarnessBoundaryAllowlist(held, [
-        { file: 'apps/server/src/x.ts', count: 3, category: 'leak', reason: 'r', issue: 'POD-4414' },
+        {
+          file: 'apps/server/src/x.ts',
+          count: 3,
+          category: 'leak',
+          reason: 'r',
+          issue: 'POD-4414',
+        },
       ]).stale,
     ).toHaveLength(1)
   })
@@ -2129,8 +2148,20 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     // occurrences, not categories, so the entries' counts sum to the file's
     // allowance — while the leak/policy/total ratchet still sums by category.
     const split = [
-      { file: 'apps/server/src/x.ts', count: 5, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
-      { file: 'apps/server/src/x.ts', count: 1, category: 'policy' as const, reason: 'r', policy: 'apps/server/src/x.ts' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 5,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 1,
+        category: 'policy' as const,
+        reason: 'r',
+        policy: 'apps/server/src/x.ts',
+      },
     ]
     const six = checkHarnessVendorLiterals(
       'apps/server/src/x.ts',
@@ -2169,19 +2200,38 @@ describe('harness-vendor-boundary (POD-4467)', () => {
   })
 
   it('a grown leak total fails — bumping the allow-list cannot admit new behaviour', () => {
-    const base: { file: string; count: number; category: 'leak' | 'policy'; reason: string; issue?: string; policy?: string }[] = [
+    const base: {
+      file: string
+      count: number
+      category: 'leak' | 'policy'
+      reason: string
+      issue?: string
+      policy?: string
+    }[] = [
       { file: 'apps/server/src/x.ts', count: 2, category: 'leak', reason: 'r', issue: 'POD-4414' },
     ]
     expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
     const grown = [
-      { file: 'apps/server/src/x.ts', count: 3, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 3,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
     ]
     expect(checkHarnessAllowlistTotals(grown, 2, 0, 2).length).toBeGreaterThan(0)
   })
 
   it('a stale baseline fails — constants above the seeded totals cannot hide slack (POD-4493)', () => {
     const base = [
-      { file: 'apps/server/src/x.ts', count: 2, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 2,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
     ]
     // Equality is quiet.
     expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
@@ -2355,10 +2405,7 @@ describe('harness-own-adapter (POD-4530)', () => {
       `export { cursorCreateChatInvocation, parseCursorChatId } from '../adapters/cursor/chat.js'`,
     ].join('\n')
     const vs = checkHarnessOwnAdapter('packages/harness/src/driver/host.ts', source, CTX)
-    expect(vs.map((v) => v.rule)).toEqual([
-      HARNESS_OWN_ADAPTER_RULE,
-      HARNESS_OWN_ADAPTER_RULE,
-    ])
+    expect(vs.map((v) => v.rule)).toEqual([HARNESS_OWN_ADAPTER_RULE, HARNESS_OWN_ADAPTER_RULE])
     expect(vs.map((v) => v.specifier)).toEqual([
       '../adapters/pi/stream.js',
       '../adapters/cursor/chat.js',
@@ -2433,9 +2480,10 @@ describe('harness-own-adapter (POD-4530)', () => {
       ],
     ]
     for (const [file, source] of cases) {
-      expect(checkHarnessOwnAdapter(file, source, CTX).map((v) => v.rule), file).toEqual([
-        HARNESS_OWN_ADAPTER_RULE,
-      ])
+      expect(
+        checkHarnessOwnAdapter(file, source, CTX).map((v) => v.rule),
+        file,
+      ).toEqual([HARNESS_OWN_ADAPTER_RULE])
     }
   })
 

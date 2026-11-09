@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => ({
   issues: [] as unknown[],
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (s: Record<string, unknown>) => unknown) => select(fixture.store),
+  readFixture: (select: (s: Record<string, unknown>) => unknown) => select(fixture.store),
 }))
 const root = {
   id: asIssueId('root'),

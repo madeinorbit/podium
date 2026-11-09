@@ -1,4 +1,4 @@
-import type { StoreNotices } from '@podium/client-core/react'
+import type { NoticeSink } from '@podium/client-core/react'
 import { type ReactNode, useCallback, useMemo, useState } from 'react'
 import { ShellErrorBanner } from '../components/ShellErrorBanner'
 import { type MobileShell, MobileShellProvider } from './shell'
@@ -6,7 +6,7 @@ import { type MobileShell, MobileShellProvider } from './shell'
 /**
  * THE PHONE'S ERROR CHANNEL (POD-4662).
  *
- * One piece of state, two doors in: the `StoreNotices` the engine is handed
+ * One piece of state, two doors in: the `NoticeSink` the engine is handed
  * (its `error` — a message not sent to a deleted session, a refused change),
  * and `report` for the composition root's own failures (a fatal store error, a
  * credential check). Out: the shell's `error`, with its dismissal.
@@ -18,11 +18,11 @@ import { type MobileShell, MobileShellProvider } from './shell'
 export function useShellErrorChannel(): {
   readonly error: MobileShell['error']
   report(message: string): void
-  readonly notices: StoreNotices
+  readonly notices: NoticeSink
 } {
   const [message, setMessage] = useState<string | null>(null)
   const report = useCallback((next: string) => setMessage(next), [])
-  const notices = useMemo<StoreNotices>(() => ({ error: report, info: () => {} }), [report])
+  const notices = useMemo<NoticeSink>(() => ({ error: report, info: () => {} }), [report])
   const error = useMemo(
     () => (message === null ? null : { message, dismiss: () => setMessage(null) }),
     [message],

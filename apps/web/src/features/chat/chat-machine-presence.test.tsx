@@ -1,9 +1,9 @@
 import '@podium/client-graph/synced-models'
-import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
-import { headerView } from '@podium/client-graph/header-views'
-import { headerEntities } from '@podium/client-graph/header-entities'
 // @vitest-environment happy-dom
 import type { SessionView } from '@podium/client-core/session-values'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -21,7 +21,7 @@ const f = vi.hoisted(() => ({
 }))
 const transports = vi.hoisted(() => ({ trpc: {}, hub: {}, httpOrigin: 'http://offline.invalid' }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: typeof transports) => unknown) => read(transports),
+  readFixture: (read: (state: typeof transports) => unknown) => read(transports),
 }))
 vi.mock('@podium/client-core/react', async () => {
   const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')

@@ -1,11 +1,11 @@
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { headerRequests } from '@podium/client-graph/header-requests'
 import { headerView } from '@podium/client-graph/header-views'
-import { referenceState } from './reference-state'
-import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import { runInAction } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { runInAction } from 'mobx'
 import { checkHeader } from './header-check'
+import { referenceState } from './reference-state'
 
 /** Both flags are frozen by the app. Comparison is an explicit timer job and
  * shares the existing runtime, pool, and teardown. Diagnostics never hydrate. */
@@ -38,9 +38,9 @@ export function startHeaderCheck(
           quotas: headerView(pool).quotas(),
           history: requests?.history ?? undefined,
           lifecycle: headerView(pool).lifecycle() ?? undefined,
-          connection: runtime.root.live.connection,
-          outboxSize: runtime.root.live.outbox.pending,
-          liveOnline: [...runtime.root.live.machineConditions].flatMap(([id, reading]) =>
+          connection: runtime.live.connection,
+          outboxSize: runtime.live.outbox.pending,
+          liveOnline: [...runtime.live.machineConditions].flatMap(([id, reading]) =>
             reading.known && reading.value.online ? [id] : [],
           ),
         }),

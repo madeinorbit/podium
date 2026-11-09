@@ -20,7 +20,7 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) =>
+  readFixture: (select: (state: unknown) => unknown) =>
     select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
 }))
 

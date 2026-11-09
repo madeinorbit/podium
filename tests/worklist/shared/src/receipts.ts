@@ -30,9 +30,9 @@
  * OWNERSHIP. Additive, round three (POD-4545).
  */
 
-import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/runtime-root'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { Replica } from '@podium/client-core/replica'
+import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/runtime-root'
 import { parseIssueUserStateRowId } from '@podium/model'
 import type {
   FieldValues,
@@ -232,8 +232,8 @@ function pendingWrite(outbox: object, entry: OutboxEntry, acked: boolean): Outbo
 function sendBaseline(runtime: ReceiptsRuntime, command: KernelCommand): string | undefined {
   const row =
     command.kind === 'recordEdit'
-      ? runtime.root.replica.row?.('issueUserStates', command.input.id)
-      : runtime.root.replica.row?.('issueProjections', command.input.id)
+      ? runtime.replica.row?.('issueUserStates', command.input.id)
+      : runtime.replica.row?.('issueProjections', command.input.id)
   return row === undefined ? undefined : fingerprint(row)
 }
 
@@ -257,23 +257,22 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
     return () => failures.delete(listener)
   }
   const inQueue = (txId: TxId): boolean =>
-    runtime.root.services.outbox.queue.pending().some((e) => e.mutationId === txId) ||
-    runtime.root.services.outbox.queue.awaiting().some((e) => e.mutationId === txId)
+    runtime.services.outbox.queue.pending().some((e) => e.mutationId === txId) ||
+    runtime.services.outbox.queue.awaiting().some((e) => e.mutationId === txId)
 
   return {
     send(txId, command: KernelCommand) {
       const baseline = sendBaseline(runtime, command)
       if (baseline !== undefined) {
-        let filed = baselines.get(runtime.root.services.outbox.queue)
-        if (filed === undefined)
-          baselines.set(runtime.root.services.outbox.queue, (filed = new Map()))
+        let filed = baselines.get(runtime.services.outbox.queue)
+        if (filed === undefined) baselines.set(runtime.services.outbox.queue, (filed = new Map()))
         filed.set(txId, baseline)
       }
       const opts = { mutationId: txId }
       const enqueued =
         command.kind === 'issueUpdate'
-          ? runtime.root.services.outbox.queue.enqueue('issueUpdate', command.input, opts)
-          : runtime.root.services.outbox.queue.enqueue('recordEdit', command.input, opts)
+          ? runtime.services.outbox.queue.enqueue('issueUpdate', command.input, opts)
+          : runtime.services.outbox.queue.enqueue('recordEdit', command.input, opts)
       Promise.resolve(enqueued).catch((error: unknown) => {
         // The throw came after the entry reached the queue: the kernel still
         // owes it an outcome, and will report it.
@@ -293,12 +292,12 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
     },
     pending() {
       return [
-        ...runtime.root.services.outbox.queue
+        ...runtime.services.outbox.queue
           .pending()
-          .map((e) => pendingWrite(runtime.root.services.outbox.queue, e, false)),
-        ...runtime.root.services.outbox.queue
+          .map((e) => pendingWrite(runtime.services.outbox.queue, e, false)),
+        ...runtime.services.outbox.queue
           .awaiting()
-          .map((e) => pendingWrite(runtime.root.services.outbox.queue, e, true)),
+          .map((e) => pendingWrite(runtime.services.outbox.queue, e, true)),
       ]
     },
   }

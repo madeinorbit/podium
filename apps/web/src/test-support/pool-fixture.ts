@@ -24,7 +24,7 @@ import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
-import { useRuntimeSelector as readFixtureSnapshot } from '@/app/store'
+import { fixtureSnapshot as readFixtureSnapshot } from '@/test-support/fixture-snapshot'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { fixtureStoreSnapshot } from './fixture-store'
@@ -79,7 +79,7 @@ export function publishPoolFixture() {
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
 export function syncPoolFixture(
-  input: import('@podium/client-core/engine').Store,
+  input: import('@podium/client-core/ui').ScreenState,
   sidebarGesture = false,
 ) {
   const state = input as unknown as Store & {

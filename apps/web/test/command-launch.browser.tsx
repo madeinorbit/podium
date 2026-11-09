@@ -1,8 +1,9 @@
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
@@ -142,7 +143,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >

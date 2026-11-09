@@ -31,7 +31,7 @@ const ISSUE = makeIssue({ id: 'i-open', seq: 3, title: 'Open issue' })
 let rows: IssueViewModel[] = []
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: <T,>(read: (state: { issues: IssueViewModel[] }) => T) => read({ issues: rows }),
+  readFixture: <T,>(read: (state: { issues: IssueViewModel[] }) => T) => read({ issues: rows }),
 }))
 
 function Guarded({ onLeave }: { onLeave: () => void }) {

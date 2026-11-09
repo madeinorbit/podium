@@ -1,10 +1,14 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { commandLaunchViews } from '@podium/client-graph/command-launch-views'
-import type { MobxPool } from '@podium/client-graph/pool'
-import type { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { RepoView } from '@podium/client-core/values'
-import { agentCapabilityRejectionForSelection, onlineMachinesForRepoOrClone, type MachineFacts } from '@podium/model/browser'
+import type { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import type { launchOptionViews } from '@podium/client-graph/launch-option-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import {
+  agentCapabilityRejectionForSelection,
+  type MachineFacts,
+  onlineMachinesForRepoOrClone,
+} from '@podium/model/browser'
 
 // Shared with the structural work harness: measure the app's actual consumers.
 function launchOptions(pool: MobxPool) {
@@ -15,16 +19,30 @@ function launchOptions(pool: MobxPool) {
   return view
 }
 export const readLaunchOptions = launchOptions
-export const readLaunchOrigin = (pool: MobxPool, path: string, machineId?: string) => launchOptions(pool)?.origin(path, machineId) ?? LOADING
-export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineFacts[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {
-  return Object.fromEntries(kinds.map(kind => {
-    if (!repo) return [kind, undefined]
-    const eligible = onlineMachinesForRepoOrClone(repo, machines)
-      .filter(machine => agentCapabilityRejectionForSelection(machine, kind) === undefined)
-    return [kind, preferred === undefined
-      ? pool.queries.latestMachineSession(eligible.map(machine => machine.id))?.machineId ?? eligible[0]?.id
-      : eligible.find(machine => machine.id === preferred[kind])?.id ?? eligible[0]?.id]
-  }))
+export const readLaunchOrigin = (pool: MobxPool, path: string, machineId?: string) =>
+  launchOptions(pool)?.origin(path, machineId) ?? LOADING
+export function readTargetMachines(
+  pool: MobxPool,
+  repo: RepoView | undefined,
+  machines: MachineFacts[],
+  kinds: readonly string[],
+  preferred?: Record<string, string | undefined>,
+) {
+  return Object.fromEntries(
+    kinds.map((kind) => {
+      if (!repo) return [kind, undefined]
+      const eligible = onlineMachinesForRepoOrClone(repo, machines).filter(
+        (machine) => agentCapabilityRejectionForSelection(machine, kind) === undefined,
+      )
+      return [
+        kind,
+        preferred === undefined
+          ? (pool.queries.latestMachineSession(eligible.map((machine) => machine.id))?.machineId ??
+            eligible[0]?.id)
+          : (eligible.find((machine) => machine.id === preferred[kind])?.id ?? eligible[0]?.id),
+      ]
+    }),
+  )
 }
 function commandViews(pool: MobxPool) {
   const view = pool.sources.peekView<ReturnType<typeof commandLaunchViews>>('commands')
@@ -48,7 +66,7 @@ export const readOpen = (pool: MobxPool) => {
   const window = omitGone(pool.row('commandWindow', 'window'))
   return window && window !== LOADING ? window.paletteOpen : false
 }
-export const EMPTY_FILES: import('@podium/client-core/engine').Store['recentFiles'] = []
+export const EMPTY_FILES: import('@podium/client-core/ui').ScreenState['recentFiles'] = []
 export const readFiles = (pool: MobxPool) => {
   const window = omitGone(pool.row('commandWindow', 'window'))
   return window && window !== LOADING ? window.recentFiles : EMPTY_FILES

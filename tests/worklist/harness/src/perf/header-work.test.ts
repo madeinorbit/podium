@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+
 import { headerView } from '@podium/client-graph/header-views'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import {
@@ -20,7 +21,7 @@ const calls = () =>
 it.each([1, 4] as const)('records actual header derivation work at %ix', async (scale) => {
   const ctx = await startScenarioEngine(scale)
   const health = { status: 'ok', rttMs: 12, since: 0 }
-  Object.assign(ctx.engine.root.services.connection.hub, {
+  Object.assign(ctx.engine.services.connection.hub, {
     connectionHealth: () => health,
     onConnectionHealth: () => () => {},
   })

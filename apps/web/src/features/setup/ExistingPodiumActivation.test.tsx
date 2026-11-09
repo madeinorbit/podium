@@ -38,8 +38,7 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: { uiState: typeof uiState }) => unknown) =>
-    selector({ uiState }),
+  readFixture: (selector: (store: { uiState: typeof uiState }) => unknown) => selector({ uiState }),
 }))
 
 afterEach(() => {

@@ -52,7 +52,7 @@ function setup(subs: ReturnType<typeof subscription>[]) {
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.root.services.connection.hub)
+          fixture.bindHub(runtime.services.connection.hub)
           return attachWorklistPool(runtime, fatal)
         }}
       >

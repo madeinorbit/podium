@@ -32,7 +32,7 @@ vi.mock('./use-chat-context', () => ({ useChatMentions: () => [] }))
 const draftFixture = vi.hoisted(() => ({ drafts: undefined as DraftStore | undefined }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => undefined,
+  readFixture: () => undefined,
 }))
 
 let container: HTMLDivElement

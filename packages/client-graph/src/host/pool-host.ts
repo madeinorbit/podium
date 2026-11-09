@@ -1,6 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
@@ -137,9 +137,11 @@ export function createPoolHost({
         notify(slot)
       })
       .catch(fail)
-    return () => {
+    const stopRuntime = runtime.onDispose?.(() => dispose()) ?? (() => {})
+    function dispose() {
       if (disposed) return
       disposed = true
+      stopRuntime()
       stopStart()
       stopScreens?.()
       stopPrepared()
@@ -154,6 +156,7 @@ export function createPoolHost({
       }
       queueMicrotask(() => notify(slot))
     }
+    return dispose
   }
 
   function usePool(): MobxPool | null {

@@ -13063,7 +13063,7 @@
       "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/navigate/plan",
       "rule": "reader-summary",
       "tokens": "c3bda18bdcb4bd0df5a9219d5359e2973deab09b875b6c1a3eb041a7e1d67ffe",
@@ -13169,7 +13169,7 @@
       "guard": "packages/client-core/src/runtime-root/services/services.test.ts"
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/openWorkspaceTab",
       "rule": "helper-consumer",
       "tokens": "90c4f1553f7ea03ea4d6f270960dd595fd338527f4467bace02d7f380bff8c8c",
@@ -13191,7 +13191,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/openWorkspaceTab",
       "rule": "reader-summary",
       "tokens": "64b3ccec8f56b590d4ccbc3937feb8150e699f0b57cc0a6ca05ba535474e00ec",
@@ -13213,7 +13213,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/openWorkspaceTab/next",
       "rule": "reader-summary",
       "tokens": "0566ee4579019da3b5638a0ffc803b90d151e45f8a5cfc7ba9783041ce6a91c4",
@@ -33715,7 +33715,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/onRouteChanged",
       "rule": "consume:some",
       "tokens": "12c0f0d979cf218a15124111b9d440af07553ccc74a14709030e8d348e9a3700",
@@ -39871,7 +39871,7 @@
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
-      "file": "packages/client-core/src/engine/runtime.ts",
+      "file": "packages/client-core/src/runtime-root/root.ts",
       "holder": "ClientRuntime/createCommands",
       "rule": "reader-summary",
       "tokens": "3e986e5045450e8829d71ba4b9693c1f9684427f5245c39a1d2203bc823a0d84",

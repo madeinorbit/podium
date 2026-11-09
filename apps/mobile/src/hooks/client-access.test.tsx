@@ -10,7 +10,7 @@ vi.mock('@podium/client-core/react', async () => {
   const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
   return {
     ...fixtureRuntimeHooks(() => current.owner),
-    useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => {
+    readFixture: (select: (state: Record<string, unknown>) => unknown) => {
       current.legacy()
       return select(current.owner.access)
     },

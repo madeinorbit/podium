@@ -1,6 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { refreshClocks } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, asUserId, issueUserStateRowId } from '@podium/model/browser'

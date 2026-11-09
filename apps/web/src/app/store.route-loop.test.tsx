@@ -102,7 +102,7 @@ vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m
 const { StoreProvider } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
 const { useUiValue } = await import('@podium/client-core/react')
-const { loadingNavigationProvider } = await import('@podium/client-core/engine')
+const { loadingNavigationProvider } = await import('@podium/client-core/ui')
 
 let renderCount = 0
 let poolReady = false

@@ -1,11 +1,13 @@
-import type { ClientRuntime, OverlayTarget, Store } from '@podium/client-core/engine'
-import { foldRowOverlays } from '@podium/client-core/engine'
+import type { OverlayTarget } from '@podium/client-core/command-reducers'
+import { foldRowOverlays } from '@podium/client-core/command-reducers'
 import type { ReplicaRows } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import {
   type ReferenceCommandAccess,
   referenceCommandAccess,
 } from '@podium/client-core/test-support/reference-commands'
+import type { ScreenState, UiStore } from '@podium/client-core/ui'
 import type { PendingRows } from '@podium/client-graph/shared/row-source'
 import type { IssueProjection } from '@podium/model'
 import {
@@ -19,8 +21,14 @@ import { compareShallow, reaction, runInAction } from 'mobx'
 export type ReferenceState<
   T extends
     import('@podium/client-core/api').PodiumClientApi = import('@podium/client-core/api').PodiumClientApi,
-> = Store<T> &
-  ReferenceCommandAccess<T> &
+> = ScreenState & {
+  [K in keyof UiStore as UiStore[K] extends (...args: any[]) => any ? K : never]: UiStore[K]
+} & {
+  setPaletteOpen(open: boolean): void
+  closeAutoContinuePrompt(): void
+  uiState: import('@podium/client-core/ui-state').RoutedUiState
+  readPosition: ClientRuntime['readPosition']
+} & ReferenceCommandAccess<T> &
   Omit<{ [K in keyof ReplicaRows]: ReplicaRows[K][] }, 'sessions' | 'repos' | 'machines'> & {
     coarseNow: number
     sessions: SessionView[]
@@ -38,18 +46,19 @@ export function setReferenceClock(runtime: object, read: () => number): void {
 
 /** Test oracle only. Production has no full record state or publication. */
 export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(
-  runtime: {
-    readonly access: Store<T>
-    readonly root?: import('@podium/client-core/runtime-root').RuntimeRoot<T>
-    readonly replica?: ClientRuntime['root']['replica']
-    readonly principal?: { userId: string }
-  },
+  runtime:
+    | ClientRuntime<T>
+    | {
+        readonly access: ScreenState
+        readonly replica?: ClientRuntime['replica']
+        readonly principal?: { userId: string }
+      },
   options: { screen?: boolean } = {},
 ): ReferenceState<T> {
   return runInAction(() => {
-    const access = runtime.access
-    const replica: ClientRuntime['root']['replica'] | undefined =
-      runtime.root?.replica ?? runtime.replica ?? Reflect.get(access, 'replica')
+    const access = 'ui' in runtime ? runtime.ui.screen : runtime.access
+    const replica: ClientRuntime['replica'] | undefined =
+      runtime.replica ?? Reflect.get(access, 'replica')
     // Plain component fixtures already supply their reference records.
     if (!replica?.rows) return access as unknown as ReferenceState<T>
     const userId = runtime.principal?.userId ?? 'operator'
@@ -125,7 +134,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
     // Machines and repositories are records (POD-6644): my machines joined with
     // my access rows, and the repositories derived from the checkouts.
     const live =
-      runtime.root?.live ??
+      ('live' in runtime ? runtime.live : undefined) ??
       (
         runtime as {
           live?: {
@@ -164,7 +173,22 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
     return {
       ...(options.screen === false ? {} : access),
-      ...(runtime.root ? referenceCommandAccess(runtime.root) : {}),
+      ...('commands' in runtime ? referenceCommandAccess(runtime) : {}),
+      ...('ui' in runtime
+        ? {
+            uiState: runtime.deviceState,
+            readPosition: runtime.readPosition,
+            setPaletteOpen: runtime.palette.setOpen,
+            closeAutoContinuePrompt: runtime.autoContinueDialog.close,
+          }
+        : {}),
+      ...('ui' in runtime
+        ? Object.fromEntries(
+            Object.getOwnPropertyNames(Object.getPrototypeOf(runtime.ui))
+              .filter((key) => typeof Reflect.get(runtime.ui, key) === 'function')
+              .map((key) => [key, Reflect.get(runtime.ui, key)]),
+          )
+        : {}),
       coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(),
       ...records,
       repos,
@@ -183,7 +207,7 @@ export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {
 export function watchReference(owner: ClientRuntime, changed: () => void): () => void {
   const stops = [
     reaction(() => Object.values(owner.ui.screen), changed, { equals: compareShallow }),
-    owner.root.replica.subscribeRowBatch!(changed),
+    owner.replica.subscribeRowBatch!(changed),
   ]
   return () =>
     stops.forEach((stop) => {

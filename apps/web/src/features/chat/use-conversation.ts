@@ -5,12 +5,12 @@ import {
   hubConnection,
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import {
   useClientRuntime,
   useConversation as useOwnedConversation,
 } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import {
   chatSendRoute,
   composerState,
@@ -144,7 +144,7 @@ export function createWebConversation(
 ): WebConversation {
   pool.bindSessionDrafts(runtime.drafts)
   const { api: trpc, replica, commands, chatSends } = runtime.root
-  const hub = runtime.root.services.connection.hub
+  const hub = runtime.services.connection.hub
   const readSession = () => here(pool.model('session', sessionId))
   const readRecords = () =>
     loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []

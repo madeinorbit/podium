@@ -1,6 +1,5 @@
-import { omitGone } from './lookup'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asSessionId, type MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { autorun } from 'mobx'
@@ -12,14 +11,15 @@ import {
   type WorkCounts,
 } from '../../../tests/worklist/harness/src/settled-work-meter'
 import { chatInteractions, chatRecords } from './chat-context'
+import { omitGone } from './lookup'
 import { NOTICE_ENTITIES } from './notice-schema'
 import { NoticeSource } from './notice-source'
 import {
+  NOTICE_MESSAGE_WINDOW,
   noticeInteractions,
   noticeMessages,
   noticeNewestMessage,
   noticeRecovery,
-  NOTICE_MESSAGE_WINDOW,
 } from './notice-views'
 import { MobxPool } from './pool'
 import { superagentQuestion } from './superagent'
@@ -110,8 +110,8 @@ function fixture(scale: 1 | 4, attention = false) {
       },
     },
   } as unknown as {
-    readonly replica: ClientRuntime['root']['replica']
-    readonly outbox: ClientRuntime['root']['services']['outbox']['queue']
+    readonly replica: ClientRuntime['replica']
+    readonly outbox: ClientRuntime['services']['outbox']['queue']
   }
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.apply({

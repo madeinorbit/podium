@@ -21,7 +21,7 @@ const controls = [
     'zero legacy selectors',
     hooks,
     'export function useInboxData(): InboxData {',
-    "import { useRuntimeSelector } from '@podium/client-core/react'; export function useInboxData(): InboxData { useRuntimeSelector(s => s.sessions)",
+    "import { readFixture } from '@podium/client-core/react'; export function useInboxData(): InboxData { readFixture(s => s.sessions)",
   ],
   [
     'compares every card',

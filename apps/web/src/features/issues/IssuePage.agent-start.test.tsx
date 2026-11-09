@@ -20,9 +20,7 @@ vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() }),
 }))
 const liveCatalog = {
-  'claude-code': [
-    { value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] },
-  ],
+  'claude-code': [{ value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] }],
 }
 
 const start = vi.fn(async () => ({}))
@@ -80,8 +78,8 @@ vi.mock('@/app/store', () => {
   const state = () => (snapshot ??= makeSnapshot()) as never
   return {
     useStore: () => state(),
-    // Selector hooks (useRuntimeSelector) reach the same mocked state.
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    // Selector hooks (readFixture) reach the same mocked state.
+    readFixture: (sel: (s: unknown) => unknown) => sel(state()),
   }
 })
 

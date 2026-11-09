@@ -1,6 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { vi } from 'vitest'
-import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
+import { fixtureSnapshot as selectMockSnapshot } from '@/test-support/fixture-snapshot'
 import { fixtureStoreSnapshot } from './fixture-store'
 
 // Borrow the suite's existing action owner; leave its pool hooks to the suite.

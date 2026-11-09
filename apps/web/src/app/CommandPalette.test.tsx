@@ -70,7 +70,7 @@ vi.mock('./store', async () => {
   const actual = await vi.importActual<typeof import('./store')>('./store')
   return {
     ...actual,
-    useRuntimeSelector: (selector: (store: unknown) => unknown) =>
+    readFixture: (selector: (store: unknown) => unknown) =>
       selector({
         ...fixture.store,
         issues: fixture.issues,
