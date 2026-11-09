@@ -15,7 +15,7 @@ import {
   useState,
 } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
 

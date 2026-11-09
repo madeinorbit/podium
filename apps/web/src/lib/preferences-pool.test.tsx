@@ -10,6 +10,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model'
 import { act, cleanup, render } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { StrictMode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
@@ -29,7 +30,7 @@ function poolFor(ui: RoutedUiState) {
   return pool
 }
 function port() {
-  const values = new Map<string, string>()
+  const values = observable.map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const emit = (keys: ReadonlySet<string> = new Set()) => {
     for (const wake of [...listeners]) wake(keys)
@@ -41,11 +42,11 @@ function port() {
     hydrate: async () => {},
     get: vi.fn((key: string) => values.get(key) ?? null),
     set: (key: string, value: string | null) => {
-      value === null ? values.delete(key) : values.set(key, value)
+      runInAction(() => (value === null ? values.delete(key) : values.set(key, value)))
       emit(new Set([key]))
     },
     clear: (key: string) => {
-      values.delete(key)
+      runInAction(() => values.delete(key))
       emit(new Set([key]))
     },
     subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
@@ -68,19 +69,21 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     replicated = port()
   const ui = createRoutedUiState({ local, replicated })
   const pool = poolFor(ui)
-  const projection = createPoolProjection(pool, (p) => [
-    omitGone(p.row('preference', FOLD)),
-    omitGone(p.row('preference', STICKY)),
-  ])
+  const projection = createPoolProjection(pool, (p) =>
+    [FOLD, STICKY].map((key) => {
+      const row = omitGone(p.row('preference', key))
+      return row && row !== LOADING ? row.value : null
+    }),
+  )
   const wake = vi.fn(),
     stop = projection.subscribe(wake)
   try {
-    expect(projection.getSnapshot()).toEqual([LOADING, LOADING])
+    expect(projection.getSnapshot()).toEqual([null, null])
     expect(local.get).not.toHaveBeenCalled()
     expect(replicated.get).not.toHaveBeenCalled()
     expect(() => omitGone(pool.row('preference', 'unclassified.key'))).toThrow('Unclassified')
     await Promise.resolve()
-    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
+    expect(preferenceSource(pool)?.counts.batches).toBe(0)
     expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
     // Each step exercises the same declared per-user key through the existing
     // optimistic writer or a later authoritative replacement/eviction.
@@ -95,9 +98,7 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
       change()
       await Promise.resolve()
       expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
-      expect(
-        projection.getSnapshot().map((row) => (typeof row === 'object' ? row?.value : row)),
-      ).toEqual([ui.get(FOLD), ui.get(STICKY)])
+      expect(projection.getSnapshot()).toEqual([ui.get(FOLD), ui.get(STICKY)])
     }
     expect(wake).toHaveBeenCalled()
     const original = pool.row.bind(pool)
@@ -120,8 +121,9 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
 it('releases the source and cancels queued reads on disposal', async () => {
   const ui = port(),
     pool = poolFor(ui)
-  expect(omitGone(pool.row('preference', STICKY))).toBe(LOADING)
-  expect(ui.listeners.size).toBe(1)
+  expect(omitGone(pool.row('preference', STICKY))).toMatchObject({ value: null })
+  expect(ui.listeners.size).toBe(0)
+  ui.get.mockClear()
   pool.dispose()
   ui.emit()
   await Promise.resolve()

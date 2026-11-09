@@ -1,7 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { pendingApprovals } from '@podium/client-graph/approval-effects'
-import { here } from '@podium/client-graph/lookup'
 import type { EffectModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'

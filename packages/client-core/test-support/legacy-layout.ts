@@ -1,3 +1,4 @@
+/** Historical test reference. Product layout reads the pool userLayout model. */
 /**
  * Replicated layout command port owned by Actions.
  *
@@ -23,10 +24,10 @@ import {
   parseLayoutRowId,
   type UserId,
 } from '@podium/model'
-import type { OutboxEntry } from '../outbox'
-import type { RecordEditEntry, RecordRemoveEntry } from '../records'
-import type { StoreNotices } from './types'
-import type { EngineOutbox } from './wiring'
+import type { StoreNotices } from '../src/engine/types'
+import type { EngineOutbox } from '../src/engine/wiring'
+import type { OutboxEntry } from '../src/outbox'
+import type { RecordEditEntry, RecordRemoveEntry } from '../src/records'
 
 type LayoutOperation =
   | { readonly kind: 'set'; readonly values: Readonly<Record<string, unknown>> }

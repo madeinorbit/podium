@@ -3,7 +3,6 @@ import { type RoutedUiState, UI_STATE_KEYS } from '@podium/client-core/ui-state'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useContext, useEffect } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import {
   type TipCard,
   useTipAnchorElement,

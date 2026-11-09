@@ -1,9 +1,5 @@
 import { useUi } from '@podium/client-core/react'
-import {
-  type FileScrollPosition,
-  readFileScrollPosition,
-  writeFileScrollPosition,
-} from '@podium/client-core/ui-state'
+import { type FileScrollPosition } from '@podium/client-core/ui-state'
 import { useLayoutEffect, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
 

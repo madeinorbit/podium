@@ -4,7 +4,7 @@ import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/clien
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId } from '@podium/model'
-import type { AgentMemoryWire, IssueId, MachineId, ProjectMemoryWire } from '@podium/model/browser'
+import type { IssueId, MachineId } from '@podium/model/browser'
 import { machinePathBasename } from '@podium/model/browser'
 import type { HostMemoryBreakdown as Breakdown } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'

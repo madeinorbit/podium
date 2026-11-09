@@ -2,7 +2,6 @@ import { DEVICE_LOCAL_UI_KEYS, LAYOUT_KEY_FROM_LEGACY, THEME_UI_KEYS } from '@po
 import { describe, expect, it, vi } from 'vitest'
 import type { UiState } from './replica/contract'
 import {
-  createMemoryRouterWindow,
   createRoutedUiState,
   FILE_SCROLL_MAP_CAP,
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
@@ -229,35 +228,25 @@ describe('workspace ui-state routing', () => {
     }
   })
 
-  it('moves legacy replicated values once, then removes the principal-local copy', () => {
+  it('never imports a saved device value into synced layout', () => {
     const local = memoryUi({ [UI_STATE_KEYS.superOpen]: '0' })
-    const replicated = replicatedUi()
+    const replicated = replicatedUi({ superOpen: '1' })
     const ui = createRoutedUiState({ local, replicated })
-
-    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')
-    expect(replicated.set).toHaveBeenCalledOnce()
-    expect(replicated.get('superOpen')).toBe('0')
-    expect(local.get(UI_STATE_KEYS.superOpen)).toBeNull()
-
-    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')
-    expect(replicated.set).toHaveBeenCalledOnce()
+    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('1')
+    expect(replicated.set).not.toHaveBeenCalled()
+    expect(local.get(UI_STATE_KEYS.superOpen)).toBe('0')
   })
-
-  it('cannot let a second principal re-consume the first principal migration', () => {
-    const actingPrincipalLocal = memoryUi({ [UI_STATE_KEYS.panelMode]: '{"s1":"chat"}' })
-    const alice = replicatedUi()
-    const bob = replicatedUi()
-
+  it('reads only the acting user’s synced record, never another device’s old key', () => {
+    const old = memoryUi({ [UI_STATE_KEYS.panelMode]: '{"s1":"chat"}' })
+    const alice = replicatedUi({ panelMode: '{"s2":"native"}' }),
+      bob = replicatedUi()
     expect(
-      createRoutedUiState({ local: actingPrincipalLocal, replicated: alice }).get(
-        UI_STATE_KEYS.panelMode,
-      ),
-    ).toBe('{"s1":"chat"}')
-    expect(actingPrincipalLocal.get(UI_STATE_KEYS.panelMode)).toBeNull()
+      createRoutedUiState({ local: old, replicated: alice }).get(UI_STATE_KEYS.panelMode),
+    ).toBe('{"s2":"native"}')
     expect(
-      createRoutedUiState({ local: actingPrincipalLocal, replicated: bob }).get(
-        UI_STATE_KEYS.panelMode,
-      ),
+      createRoutedUiState({ local: old, replicated: bob }).get(UI_STATE_KEYS.panelMode),
     ).toBeNull()
+    expect(alice.set).not.toHaveBeenCalled()
+    expect(bob.set).not.toHaveBeenCalled()
   })
 })

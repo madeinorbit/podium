@@ -1,5 +1,4 @@
 import { useUiValue } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { SessionModel } from '@podium/client-graph/models'

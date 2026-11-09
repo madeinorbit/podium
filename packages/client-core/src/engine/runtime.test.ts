@@ -1,7 +1,6 @@
 import { observable, observe, runInAction } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
-import type { SessionView, SessionViewInput } from '../session-values'
-import type { IssueViewModel } from '../values/issue-type'
+import type { SessionView } from '../session-values'
 
 // @vitest-environment happy-dom
 // (terminal-client's index pulls xterm addons that need a browser-ish global
@@ -15,59 +14,27 @@ import type { IssueViewModel } from '../values/issue-type'
  */
 
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
-import type {
-  GitRepositoryWire,
-  IssueProjection,
-  IssueUserStateWire,
-  SessionId,
-  ShipLaneProjection,
-  ShipOrderProjection,
-} from '@podium/model'
-import {
-  asArtifactId,
-  asIssueId,
-  asMachineId,
-  asMutationId,
-  asRepoId,
-  asSessionId,
-  asUserId,
-  issueUserStateRowId,
-  sessionUserStateRowId,
-  shipLaneId,
-  UNADDRESSABLE_SEND_REASON,
-} from '@podium/model'
-import type { EntityRecord } from '@podium/sync/replica'
-import { render, act as testingAct } from '@testing-library/react'
-import { act, createElement, Profiler, useSyncExternalStore } from 'react'
+import type { GitRepositoryWire } from '@podium/model'
+import { asArtifactId, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { render } from '@testing-library/react'
+import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
 import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import type { PodiumClientApi } from '../api'
-import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'
-import { createKernelReplica, createSideCache } from '../replica/kernel'
-import { sessionById } from '../session-index'
 import type { SocketHub } from '../socket-transport'
 import * as notificationAudio from '../sound/cuelume'
 import type { NotificationSession, SessionPhaseChange } from '../sound/notification-sounds'
-import { type Router, type RouterWindow, routeDefaults, SUPERAGENT_MODE_KEY } from '../ui-state'
-import {
-  allTabIds,
-  emptyWorkspace,
-  leafPaneIds,
-  openTab,
-  shippingPanelModel,
-  splitPane,
-} from '../values'
+import { type RouterWindow } from '../ui-state'
+import { allTabIds, emptyWorkspace, openTab, splitPane } from '../values'
 import {
   NAVIGATION_LOADING,
   type NavigationProvider,
   type NavigationTopologyDelta,
 } from './navigation-provider'
-import { Reactions } from './reactions'
 import { createClientRuntime } from './runtime'
-import type { RuntimeState } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

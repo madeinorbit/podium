@@ -29,15 +29,7 @@
 
 import { createLogger } from '@podium/logger'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
-import {
-  LEGACY_UI_KEYS,
-  LEGACY_UI_MAP_PREFIXES,
-  LEGACY_UI_PREFIXES,
-  MIRRORED_UI_KEYS,
-  type StorageApi,
-  type StorageEventApi,
-  type UiState,
-} from '../contract'
+import { type StorageApi, type StorageEventApi } from '../contract'
 
 const log = createLogger('client-core:side-cache')
 

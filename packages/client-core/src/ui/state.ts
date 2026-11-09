@@ -1,6 +1,5 @@
 import { isMachinePathWithinRoot } from '@podium/model'
 import {
-  loadingNavigationProvider,
   NAVIGATION_LOADING,
   type NavigationIssue,
   type NavigationProvider,
@@ -35,9 +34,8 @@ import type {
   SessionId,
   ThreadId,
 } from '@podium/model'
-import { asIssueId, asThreadId } from '@podium/model'
-import type { PodiumClientApi } from '../api'
-import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from '../engine/types'
+import { asIssueId } from '@podium/model'
+import type { IssueVisitBaseline, UserFocus } from '../engine/types'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
   allTabIds,

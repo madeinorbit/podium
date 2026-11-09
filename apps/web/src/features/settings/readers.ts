@@ -1,15 +1,14 @@
-import { useOpeningView } from '@podium/client-graph/react'
-import { useSettingsOpening } from './opening-context'
-import { omitGone } from '@podium/client-graph/lookup'
-import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { MachineModel, MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { useOpeningView } from '@podium/client-graph/react'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { preferenceSource } from '@podium/client-graph/preference-source'
+import { useSettingsOpening } from './opening-context'
 import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
@@ -128,7 +127,6 @@ function usePoolPreference<T>(
   serialize: (value: T) => string | null,
 ): [T, Dispatch<SetStateAction<T>>] {
   const { uiState } = useSettingsClient()
-  const pool = useWorklistPool()
   const read = useCallback(
     (pool: MobxPool) => {
       const row = omitGone(pool.row('preference', key))
@@ -146,9 +144,8 @@ function usePoolPreference<T>(
         typeof next === 'function' ? (next as (previous: T) => T)(current.current) : next
       current.current = resolved
       uiState.set(key, serialize(resolved))
-      if (pool) preferenceSource(pool)?.refreshKey(key)
     },
-    [uiState, pool, key, serialize],
+    [uiState, key, serialize],
   )
   return [value, set]
 }

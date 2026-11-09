@@ -2,9 +2,7 @@ import { lazy } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, asThreadId } from '@podium/model'
 import { action, reaction } from 'mobx'
 import type { VisibilitySource } from '../engine/visibility'
-import type { UiState } from '../replica/contract'
 import {
-  type FileScrollPosition,
   readStoredDockShells,
   readStoredFileTabs,
   readStoredRecentFiles,
@@ -13,7 +11,6 @@ import {
   uiStateRoute,
 } from '../ui-state'
 import {
-  allTabIds,
   closeTab,
   deserializeWorkspaces,
   emptyWorkspace,

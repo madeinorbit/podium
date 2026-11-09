@@ -1,5 +1,4 @@
 import { useUiValue } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { type IssuePanelArtifact, resolveMachinePath } from '@podium/model/browser'
 import {

@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { action, actionBound, observable, observableRef } from 'mobx'
+import { actionBound, observable } from 'mobx'
 import type { TranscriptRevealRequest } from '../engine/types'
 
 /** Always-on palette view model; opening a palette is never saved navigation. */

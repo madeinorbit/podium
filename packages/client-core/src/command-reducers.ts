@@ -31,7 +31,6 @@ import type {
   SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
-  WorkState,
 } from '@podium/model'
 import { IssueProjection, type IssueUserStateWire } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'

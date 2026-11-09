@@ -1,4 +1,5 @@
 /** Existing device draft storage, retained for D27. No screen fields are written here. */
+import { action, observable } from 'mobx'
 import type { UiState } from '../replica/contract'
 import type { DeviceStorage } from './device-storage'
 
@@ -32,24 +33,25 @@ export function openLegacyDeviceKeys(device: DeviceStorage): LegacyDeviceKeys {
         ),
       )
   } catch {}
+  const entries = observable.map(Object.entries(values))
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
-    keys: () => Object.keys(values),
-    get: (key) => values[key] ?? null,
-    set(key, value) {
-      if (value === null) delete values[key]
-      else values[key] = value
+    keys: () => [...entries.keys()],
+    get: (key) => entries.get(key) ?? null,
+    set: action((key: string, value: string | null) => {
+      if (value === null) entries.delete(key)
+      else entries.set(key, value)
       try {
-        device.storage.setItem(storageKey, JSON.stringify(values))
+        device.storage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries)))
       } catch {}
       for (const notify of listeners) notify(new Set([key]))
-    },
+    }),
     subscribe(notify) {
       listeners.add(notify)
       return () => listeners.delete(notify)
     },
     flush: async () => {
-      device.storage.setItem(storageKey, JSON.stringify(values))
+      device.storage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries)))
       await device.flush?.()
     },
   }

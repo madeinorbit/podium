@@ -94,7 +94,7 @@ import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT, isFinished } from '@podium/model/browser'
 import type { WorkflowRunWire } from '@podium/protocol'
-import { autorun, compareStructural, observable, runInAction } from 'mobx'
+import { autorun, compareStructural, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import {
   MobileSearchSections,
@@ -104,7 +104,6 @@ import {
   readFiles,
   readLaunchOrigin,
   readOpen,
-  readPalette,
   readTargetMachines,
 } from '../../../../apps/web/src/app/command-launch-readers'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
@@ -578,7 +577,10 @@ async function measureScreenCells(
     stops.push(() => missionPane.dispose())
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
       missionPane.read({
-        ...window.get(),
+        selectedIssueId: window.get().selectedIssueId,
+        paneA: window.get().paneA,
+        paneB: window.get().paneB,
+        split: window.get().split,
         mode: 'full',
       }),
     )

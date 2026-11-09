@@ -6,7 +6,7 @@ import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createReplicatedLayoutController } from '../../../../../packages/client-core/src/engine/replicated-layout'
+import { createReplicatedLayoutController } from '../../../../../packages/client-core/test-support/legacy-layout'
 import { ACCOUNT_TIP_IDS, AccountTipLog } from './account-tip-log'
 
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => null }))

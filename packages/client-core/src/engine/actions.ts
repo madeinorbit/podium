@@ -1,5 +1,3 @@
-import { isMachinePathWithinRoot } from '@podium/model'
-import type { SessionView } from '../session-values'
 /**
  * Store actions: the command/UI-state ownership boundary.
  *
@@ -18,13 +16,11 @@ import type {
   MutationId,
   PersonalPreferences,
   SessionId,
-  ThreadId,
   UserId,
   WorkState,
 } from '@podium/model'
 import {
   asIssueId,
-  asThreadId,
   INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   pinRowId,
@@ -35,12 +31,7 @@ import {
   UNSNOOZE_BACKDATE_MS,
   userPreferencesRowId,
 } from '@podium/model'
-import {
-  isSessionIdPrefix,
-  resolveSessionIdentifier,
-  type SessionIdentifierResolution,
-  submitNow,
-} from '@podium/protocol'
+import { submitNow } from '@podium/protocol'
 import { type PodiumSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
@@ -64,35 +55,9 @@ import {
   sessionHandoffEffect,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
-import type { NavigationIntent } from '../ui/navigation'
-import { sessionLinkProblem, sessionLinkSelection } from '../ui/session-link'
 import type { Router } from '../ui-state'
-import type {
-  DockTab,
-  FileScope,
-  FileTab,
-  PaneId,
-  PinKind,
-  RecentFileEntry,
-  TabId,
-  WorkspaceLayout,
-  WorkspaceMap,
-} from '../values'
-import {
-  activateTab,
-  closePane,
-  closeTab,
-  focusPane,
-  leafPaneIds,
-  moveTab,
-  openTab,
-  promoteTab,
-  reposToViews,
-  resizeSplit,
-  splitPane,
-  tabIdFor,
-  workspaceKeyFor,
-} from '../values'
+import type { FileScope, PinKind } from '../values'
+import { workspaceKeyFor } from '../values'
 import {
   discardChatThroughOutbox,
   newChatMessageId,
@@ -100,23 +65,7 @@ import {
   outboxChatSends,
   sendChatThroughOutbox,
 } from './chat-send'
-import {
-  createReplicatedLayoutController,
-  type ReplicatedLayoutController,
-} from './replicated-layout'
-import {
-  currentWorkspace,
-  NAVIGATION_LOADING,
-  type NavigationProvider,
-  overlayState,
-  resolvedWorkspaceKey,
-  type WorkspacePatch,
-  type WorkspaceSelection,
-  workspaceFor,
-  workspaceKeyForState,
-  workspacesPatch,
-  workspaceWritePatch,
-} from './state'
+import { NAVIGATION_LOADING, resolvedWorkspaceKey } from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 

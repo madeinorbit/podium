@@ -1,5 +1,4 @@
 import { useUiValue } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename, operationalState } from '@podium/client-core/values'
 import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/worklist/rollup'

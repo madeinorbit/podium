@@ -1,31 +1,5 @@
 import { useDeviceState, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-/**
- * THE ARBITRATION HOOK (POD-408) — the store/effect half of `panel-surface.ts`.
- *
- * `panelSurface` names the STATES. This hook owns the TRANSITIONS: what fetches
- * the configurable default, what materializes the derived mode back into the
- * store (which is what the engine's `reportViewState` reads to tell the server
- * which sessions are rendering native), what a mode pick persists, and — the one
- * transition that carries product behaviour rather than bookkeeping — chat →
- * native, which re-arms the chat draft flush.
- *
- * TRANSITIONS, NAMED:
- *   mount            → the surface is arbitrated for the first time; the mode is
- *                      written back to the store so viewState reports it.
- *   pick(chat|native)→ persists per-session (#35) AND as the per-device default.
- *   chat → native    → `onEnterNative` fires. The terminal stays MOUNTED across
- *                      the toggle (the warm toggle), so the mount effect's
- *                      one-shot draft flush does not re-fire on its own; this is
- *                      the edge that re-arms it. Mount-in-native is deliberately
- *                      NOT this edge (the mount effect already armed it).
- *   native → chat    → nothing here: the terminal simply stops being `active`.
- *   pane shown/hidden→ nothing here either; `paneActive` flows into the gates.
- *
- * The startScreen read and the panelMode write both live here rather than in
- * `AgentPanel` so that the component holds no arbitration state at all.
- */
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   effectivePanelMode,
   PANEL_MODE_DEFAULT_KEY,
@@ -39,7 +13,6 @@ import {
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model/browser'
 import { useEffect, useRef } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { useMyStartScreen } from '@/lib/my-preferences'
 import {
   type PanelGates,

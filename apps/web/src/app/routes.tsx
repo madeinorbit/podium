@@ -4,7 +4,7 @@ import { lazy, Suspense } from 'react'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useFeature } from '@/lib/use-feature'
-import { type MainView, useRuntimeSelector } from './store'
+import { type MainView } from './store'
 
 const AutomationsView = lazy(() =>
   throughRestarts(() => import('@/features/automations/AutomationsView')).then((module) => ({

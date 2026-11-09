@@ -6,7 +6,7 @@ import {
   type ReplicatedUiStatePort,
 } from '@podium/client-core/ui-state'
 import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
-import { autorun } from 'mobx'
+import { action, autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
 import { omitGone } from './lookup'
@@ -19,18 +19,18 @@ const flush = async () => {
 
 function fixture() {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-  const data = new Map<string, unknown>(),
+  const data = observable.map<string, unknown>(),
     listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const replicated: ReplicatedUiStatePort = {
     get: (key) => data.get(key),
-    set: (key, value) => {
+    set: action((key: string, value: unknown) => {
       data.set(key, value)
       for (const wake of listeners) wake(new Set([key]))
-    },
-    clear: (key) => {
+    }),
+    clear: action((key: string) => {
       data.delete(key)
       for (const wake of listeners) wake(new Set([key]))
-    },
+    }),
     hydrate: async () => {},
     subscribe: (wake) => {
       listeners.add(wake)
@@ -84,8 +84,10 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     // A burst reads the final owner value once, after the existing batch ends.
     f.get.mockClear()
-    f.ui.set(keys[0]!, 'first')
-    f.ui.set(keys[0]!, 'final')
+    runInAction(() => {
+      f.ui.set(keys[0]!, 'first')
+      f.ui.set(keys[0]!, 'final')
+    })
     await flush()
     expect(seen[keys[0]!]).toBe('final')
     expect(f.get.mock.calls).toEqual([[keys[0]]])
@@ -110,7 +112,13 @@ it('preserves exact preference values and rejects a planted stale value in the p
     f.ui.set(key, '1')
     await flush()
     expect(checkPreferences(f.pool, f.ui, [key])).toMatchObject({ differences: 0, pending: 0 })
-    const get = f.get.mockImplementation(() => 'planted-stale-value')
+    const read = f.pool.row.bind(f.pool)
+    const get = vi.spyOn(f.pool, 'row').mockImplementation(((entity: never, id: string) => {
+      const row = read(entity, id)
+      return entity === 'preference' && row && typeof row === 'object'
+        ? { ...row, value: 'planted-stale-value' }
+        : row
+    }) as typeof f.pool.row)
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(1)
     get.mockRestore()
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(0)
@@ -134,31 +142,29 @@ it('publishes an addressed local draft before input-end while keeping other pref
     other = row && row !== LOADING ? row.value : row
   })
   try {
-    expect(draft).toBe(LOADING)
-    expect(other).toBe(LOADING)
+    expect(draft).toBeNull()
+    expect(other).toBeNull()
     await flush()
     f.get.mockClear()
-    f.ui.set(otherKey, 'first')
-    f.ui.set(otherKey, 'final')
+    runInAction(() => {
+      f.ui.set(otherKey, 'first')
+      f.ui.set(otherKey, 'final')
+    })
     f.ui.set(draftKey, 'abcdeZfghijklmnopqrst')
-    preferenceSource(f.pool)!.refreshKey(draftKey)
     // Deliberately before any await: this is the controlled-input boundary.
     expect(draft).toBe('abcdeZfghijklmnopqrst')
-    expect(other).toBeNull()
-    expect(f.get.mock.calls).toEqual([[draftKey]])
+    expect(other).toBe('final')
+    expect(f.get.mock.calls).toEqual([[otherKey], [draftKey]])
     await flush()
     expect(other).toBe('final')
-    expect(f.get.mock.calls).toEqual([[draftKey], [otherKey]])
+    expect(f.get.mock.calls).toEqual([[otherKey], [draftKey]])
     f.get.mockClear()
     f.ui.set(draftKey, null)
-    preferenceSource(f.pool)!.refreshKey(draftKey)
     expect(draft).toBeNull()
     await flush()
     expect(f.get.mock.calls).toEqual([[draftKey]])
     stopDraft()
     f.get.mockClear()
-    preferenceSource(f.pool)!.refreshKey(draftKey)
-    preferenceSource(f.pool)!.refreshKey('unobserved-key')
     expect(f.get).not.toHaveBeenCalled()
   } finally {
     stopDraft()

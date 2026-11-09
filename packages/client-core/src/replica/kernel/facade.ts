@@ -9,7 +9,6 @@ import type {
   ReplicaHydrateResult,
   ReplicaKind,
   ReplicaRows,
-  UiState,
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
 import { IssueRefIndex } from './issue-ref-index'

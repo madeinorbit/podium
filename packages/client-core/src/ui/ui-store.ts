@@ -1,7 +1,6 @@
 /** This signed-in user's screen state on this device. Only UiPersistence saves it. */
 import { lazy } from '@podium/mobx-helpers'
 import {
-  asIssueId,
   asThreadId,
   type IssueId,
   isMachinePathWithinRoot,
@@ -9,7 +8,7 @@ import {
   type ThreadId,
 } from '@podium/model'
 import { isSessionIdPrefix } from '@podium/protocol'
-import { action, actionBound, observable, observableRef } from 'mobx'
+import { actionBound, observable, observableRef } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { loadingNavigationProvider, type NavigationProvider } from '../engine/navigation-provider'
 import type { Store, StoreNotices, UserFocus } from '../engine/types'
@@ -46,16 +45,13 @@ import {
   currentWorkspace,
   focusedPaneSession,
   NAVIGATION_LOADING,
-  overlayState,
   resolvedWorkspaceKey,
   type ScreenState,
   userFocus,
-  type WorkspacePatch,
   type WorkspaceSelection,
   workspaceFor,
   workspaceKeyForState,
   workspaceMirrorPatch,
-  workspaceWritePatch,
 } from './state'
 import {
   forgetTab,

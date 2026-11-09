@@ -1,5 +1,5 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView } from '../session-values'
 import { planNavigation } from '../ui/navigation'

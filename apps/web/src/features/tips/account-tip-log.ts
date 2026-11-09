@@ -8,7 +8,6 @@ import type { MobxPool } from '@podium/client-graph'
 import { headerView } from '@podium/client-graph/header-views'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { lazy } from '@podium/mobx-helpers'
 import { action, observable, runInAction } from 'mobx'
 import { useEffect } from 'react'
@@ -66,7 +65,6 @@ export class AccountTipLog implements AccountTipLogContract {
         runInAction(() => {
           for (const key of keys) {
             this.pool.row('preference', key)
-            preferenceSource(this.pool)?.refreshKey(key)
           }
           this.hydrated = true
         })
@@ -83,7 +81,6 @@ export class AccountTipLog implements AccountTipLogContract {
 
   private write(key: string, value: string): void {
     this.ui.set(key, value)
-    preferenceSource(this.pool)?.refreshKey(key)
   }
 
   @action record(id: TipId, outcome: TipOutcome): void {

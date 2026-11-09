@@ -1,6 +1,5 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'

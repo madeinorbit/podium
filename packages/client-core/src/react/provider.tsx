@@ -249,7 +249,9 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     try {
       detach?.()
     } finally {
-      held.runtime.destroy({ eraseUi: principal === null })
+      held.runtime.destroy({
+        eraseUi: principal === null || !samePrincipal(held.principal, principal),
+      })
       runtimeRef.current = null
     }
   }

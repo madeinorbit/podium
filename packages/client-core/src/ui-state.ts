@@ -27,7 +27,6 @@ import type {
   RecentFileEntry,
   WorkspaceMap,
 } from './values'
-import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './values'
 
 export type { UiState }
 

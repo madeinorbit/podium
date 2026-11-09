@@ -4,15 +4,9 @@ import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
 import { headerEntities } from './header-entities'
 import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
-import {
-  HEADER_SCHEMA,
-  type HeaderEntity,
-  type HeaderRecord,
-  type HeaderRows,
-} from './header-schema'
+import { type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import { createFieldInputs } from './shared/field-inputs'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. Live
  * readings (metrics, quota, connection) are not copied here: they are

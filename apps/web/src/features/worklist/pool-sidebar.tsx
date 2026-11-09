@@ -34,7 +34,6 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'

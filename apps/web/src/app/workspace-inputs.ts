@@ -4,7 +4,7 @@ import { allTabIds, orphanSessionFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback } from 'react'
-import { useRuntimeActions, useRuntimeList, useRuntimeLocal } from './keyed-runtime'
+import { useRuntimeActions, useRuntimeList } from './keyed-runtime'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 const ACTIONS = [

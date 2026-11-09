@@ -1,10 +1,7 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { MobxPool } from '@podium/client-graph'
-import { omitGone } from '@podium/client-graph/lookup'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useUiState } from '../client/hooks'
-import { useMobilePoolProjection } from '../client/mobile-pool'
 
 export function usePoolPreference(key: string): string | null {
   const ui = useUiState()

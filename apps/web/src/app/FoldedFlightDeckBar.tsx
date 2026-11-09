@@ -14,7 +14,6 @@ import {
   useMemo,
 } from 'react'
 import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
-import { useRuntimeSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 /**

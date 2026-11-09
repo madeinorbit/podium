@@ -1,6 +1,5 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { observer } from '@podium/client-graph/react'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'

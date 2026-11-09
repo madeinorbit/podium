@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useShellActions, useShellWindow } from './shell-data'
+import { useShellActions } from './shell-data'
 
 /**
  * One-time opt-in shown the first time the user clicks Continue on an errored

@@ -13,6 +13,7 @@ import {
   userPreferencesRowId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { createReplicatedLayoutController } from '../../test-support/legacy-layout'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
@@ -30,7 +31,6 @@ import {
   type EngineActionRuntime,
   UI_LOCAL_ACTIONS,
 } from './actions'
-import { createReplicatedLayoutController } from './replicated-layout'
 import type { RuntimeState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -103,7 +103,7 @@ function harness(
     paneA: null,
     paneB: null,
     split: false,
-    focusedPane: 'A' as const,
+    focusedPane: 'p1',
     panelMode: {},
     dockShells: {},
     dockVisibleSession: null,
@@ -172,6 +172,7 @@ function harness(
         visible: true,
         now: '2026-09-18T00:00:00.000Z',
       })
+      ui.patch(plan.patch)
       state = { ...state, ...plan.patch } as typeof state
       router.navigate(plan.route)
       publish()
@@ -242,7 +243,8 @@ function harness(
     watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
     navigate: (runtime as unknown as { navigate: (intent: NavigationIntent) => boolean }).navigate,
   })
-  ui.patch({ ...state, navigation } as unknown as Partial<RuntimeState>)
+  const { panelMode: _panel, superOpen: _super, dockTab: _dock, ...deviceState } = state
+  ui.patch({ ...deviceState, navigation } as unknown as Partial<RuntimeState>)
   Object.assign(runtime, { ui, layout: controller })
   const actions = { ...createEngineActions(runtime), replicatedLayout: controller }
   const without = (list: OutboxEntry[], entry: OutboxEntry): void => {
@@ -291,6 +293,7 @@ function harness(
     /** Seed action state directly — the runtime's `apply`, in miniature. */
     seed: (patch: Record<string, unknown>) => {
       state = { ...state, ...patch } as typeof state
+      ui.patch(patch as Partial<RuntimeState>)
       publish()
     },
   }
@@ -719,7 +722,7 @@ describe('pane scalars follow the layout', () => {
       paneA: asSessionId('s-a'),
       paneB: sessionId,
       split: true,
-      focusedPane: 'B',
+      focusedPane: 'p2',
     })
 
     await h.actions.killSession(sessionId)
@@ -731,7 +734,7 @@ describe('pane scalars follow the layout', () => {
     const st = h.state()
     expect(st.split).toBe(false)
     expect(st.paneB).toBeNull()
-    expect(st.focusedPane).toBe('A')
+    expect(st.focusedPane).toBe('p1')
     expect(st.paneA).toBe('s-a')
   })
 
@@ -744,7 +747,7 @@ describe('pane scalars follow the layout', () => {
       paneA: asSessionId('s-a'),
       paneB: fileId,
       split: true,
-      focusedPane: 'B',
+      focusedPane: 'p2',
     })
 
     h.actions.closeFileTab(fileId)

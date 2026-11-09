@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asThreadId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -12,7 +12,6 @@ import type { DeviceStorage } from './device-storage'
 import { openLegacyDeviceKeys } from './draft-storage'
 import { UiPersistence } from './persistence'
 import { UiStore } from './ui-store'
-import { UrlMirror } from './url-mirror'
 
 const s1 = asSessionId('session-1'),
   s2 = asSessionId('session-2')
@@ -269,7 +268,7 @@ describe('device UiStore', () => {
     expect(lookups).not.toHaveBeenCalled()
     expect(release).toHaveBeenCalledWith(s1)
   })
-  it('restores the same phone state from the preloaded AsyncStorage bridge after process death', async () => {
+  it('restores non-route state from the preloaded phone AsyncStorage bridge after process death', async () => {
     const backing = new Map<string, string>([[`${prefix}.ui.v1`, JSON.stringify(savedScreen())]])
     const native = {
       getAllKeys: async () => [...backing.keys()],

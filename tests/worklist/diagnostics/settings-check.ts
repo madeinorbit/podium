@@ -6,9 +6,6 @@ import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { checkPreferences } from './preference-check'
-/** Fixture and private-replay comparison using the sidebar contract. Expected
- * values exist only in this process; reports retain counts and positions. */
-import type { ReferenceState as Store } from './reference-state'
 import { referenceState } from './reference-state'
 import { type CheckRow, type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 

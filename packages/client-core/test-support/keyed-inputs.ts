@@ -1,9 +1,4 @@
-import {
-  createKeyedInputs,
-  type KeyedInputs,
-  type LocalKey,
-  type LocalsListener,
-} from '../src/engine/keyed-inputs'
+import { createKeyedInputs, type KeyedInputs, type LocalKey } from '../src/engine/keyed-inputs'
 import type { RuntimeState } from '../src/engine/state'
 import type { UiStore } from '../src/ui/ui-store'
 import { addFixtureUi } from './ui'

@@ -28,7 +28,6 @@ import {
   SettlingDeck,
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
-import { useRuntimeSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 

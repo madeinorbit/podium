@@ -1,4 +1,5 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { keyedComputed } from '@podium/mobx-helpers'
 import type { MobxPool } from './pool'
 import { declarePreference, type PreferenceRow } from './preference-schema'
 import { defineSource } from './source-registry'
@@ -17,7 +18,17 @@ export class PreferenceSource {
     readById: (key) => this.readById(String(key)),
     release: () => {},
   })
-  private readonly requested = new Set<string>()
+  private readonly rows = keyedComputed('PreferenceReadPort', (key: string) => {
+    const home = declarePreference(key),
+      ui = this.ui
+    return {
+      key,
+      home,
+      get value() {
+        return ui.get(key)
+      },
+    }
+  })
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
   constructor(private readonly ui: RoutedUiState) {}
   read(key: string): Loaded<PreferenceRow>
@@ -26,24 +37,14 @@ export class PreferenceSource {
     return this.source.read(key ?? keyOrEntity) as Loaded<PreferenceRow>
   }
   private readById(key: string): PreferenceRow {
-    const home = declarePreference(key),
-      ui = this.ui
-    this.requested.add(key)
-    return {
-      key,
-      home,
-      get value() {
-        return ui.get(key)
-      },
-    }
+    return this.rows(key)
   }
   keys(): readonly string[] {
-    return [...this.requested]
+    return [...this.rows.keys()]
   }
-  refreshKey(_key: string): void {} // Values are live at their owner, including controlled inputs.
   dispose(): void {
     this.source.dispose()
-    this.requested.clear()
+    this.rows.clear()
   }
 }
 export function attachPreferenceSource(pool: MobxPool, ui: RoutedUiState): void {

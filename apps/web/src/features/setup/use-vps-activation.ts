@@ -1,5 +1,5 @@
 import { ONBOARDING_VPS_KEY, requireReplicatedLayoutKey } from '@podium/client-core/ui-state'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'

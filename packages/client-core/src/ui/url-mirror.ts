@@ -1,4 +1,4 @@
-import { reaction } from 'mobx'
+import { action, actionBound, reaction } from 'mobx'
 import type { Router, RouteState } from '../ui-state'
 import type { UiStore } from './ui-store'
 
@@ -34,7 +34,7 @@ export class UrlMirror {
   adoptCurrent(): void {
     this.receive(this.router.current())
   }
-  private receive(route: RouteState): void {
+  @action private receive(route: RouteState): void {
     if (this.applying) return
     this.applying = true
     try {
@@ -43,7 +43,7 @@ export class UrlMirror {
       this.applying = false
     }
   }
-  mirror(): void {
+  @actionBound mirror(): void {
     if (this.applying || this.ui.workspaceLoading) return
     const ui = this.ui,
       current = this.router.current()

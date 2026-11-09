@@ -18,7 +18,6 @@ import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
 import { shellViews } from './shell-views'
 import type { PoolSummaryFields } from './source-registry'
-import { worklistView } from './worklist/view-model'
 import { draftSortKey } from './write/launch-rows'
 import { startEffects } from './write/start-effects'
 import {

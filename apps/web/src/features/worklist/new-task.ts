@@ -25,11 +25,9 @@ import { useDeviceState, useUiValue } from '@podium/client-core/react'
  * which project the composer opens on.
  */
 
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { machinePathsEqual } from '@podium/model/browser'
 import { useEffect, useRef } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import {
   EMPTY_FIRST_TASK_DRAFT,
   persistFirstTaskDraft,

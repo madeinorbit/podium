@@ -41,7 +41,6 @@ import { issueObserver as observer } from './issue-observer'
  * owner or origin anywhere, and `payload-identity.test.ts` keeps it that way.
  */
 
-import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'

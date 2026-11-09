@@ -1,7 +1,7 @@
 import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
-import { createReplicatedLayoutController } from './engine/replicated-layout'
+import { createReplicatedLayoutController } from '../test-support/legacy-layout'
 import type { StoreNotices } from './engine/types'
 import type { EngineOutbox } from './engine/wiring'
 import type { OutboxEntry } from './outbox'

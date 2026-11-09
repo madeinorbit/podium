@@ -1,5 +1,5 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
-import { action, actionBound, observableRef } from 'mobx'
+import { actionBound, observableRef } from 'mobx'
 import { ReadAcknowledgements } from './read-acknowledgements'
 import type { IssueVisitBaseline } from './types'
 /**

@@ -1,7 +1,6 @@
-import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { boardCards } from './issue-board-cards'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
@@ -28,7 +27,8 @@ const row = (id: string, overrides: object = {}) => ({
 /** What a mounted desktop card reads (POD-5828): the shared issue and session
  * fields, and the board's own child stage counts. */
 function cardOf(pool: MobxPool, id: string) {
-  const cards = boardCards(pool), issue = cards.issue(id)
+  const cards = boardCards(pool),
+    issue = cards.issue(id)
   return {
     issue: { id: issue.id, childCount: issue.childCount },
     fleet: issue.presentMembers.map((seat) => seat.id),
@@ -113,15 +113,27 @@ it('releases board query demand without a resident reverse index', () => {
 it('retains catalogue metadata across stage, heartbeat and title changes without a resident index', () => {
   const f = setup([row('one', { assignee: 'owner', labels: ['bug'] })])
   let value: ReturnType<typeof f.source.catalog>
-  const stop = autorun(() => { value = f.source.catalog(false) })
+  const stop = autorun(() => {
+    value = f.source.catalog(false)
+  })
   try {
     const before = value!
-    expect(before).toEqual({ scope: ['one'], projectPaths: ['/fixture'], assignees: ['owner'], labels: ['bug'] })
+    expect(before).toEqual({
+      scope: ['one'],
+      projectPaths: ['/fixture'],
+      assignees: ['owner'],
+      labels: ['bug'],
+    })
     f.paint('one', { stage: 'planning', updatedAt: new Date(now).toISOString(), title: 'Renamed' })
     expect(value!).toBe(before)
     expect(f.source.stats().residentRows).toBe(0)
     f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
-    expect(value!).toEqual({ scope: ['one'], projectPaths: ['/fixture'], assignees: ['reviewer'], labels: ['feature'] })
+    expect(value!).toEqual({
+      scope: ['one'],
+      projectPaths: ['/fixture'],
+      assignees: ['reviewer'],
+      labels: ['feature'],
+    })
     stop()
     expect(f.source.stats().cached).toBe(0)
   } finally {
@@ -129,7 +141,6 @@ it('retains catalogue metadata across stage, heartbeat and title changes without
     f.stop()
   }
 })
-
 
 it('releases demanded ID results on filter change and unmount', () => {
   const { source, stop } = setup()
@@ -186,10 +197,7 @@ it('keeps rich card derivations inside the virtual window and addresses selectio
   issueBoardStats.reset()
   try {
     const board = source.board(options)
-    expect(board && board !== LOADING && board.rootIds).toEqual([
-      'cold',
-      'hot',
-    ])
+    expect(board && board !== LOADING && board.rootIds).toEqual(['cold', 'hot'])
     expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
     expect(cardOf(pool, 'cold')).toMatchObject({
       issue: { id: 'cold', childCount: 0 },
@@ -282,7 +290,9 @@ it('stage changes examine the matching resident bucket, independent of hidden re
     expect(source.queryIds({ kind: 'board', filter: { stage: 'planning' } })).toEqual({
       ids: ['visible'],
     })
-    expect(questions).toHaveBeenCalledWith(expect.objectContaining({ kind: 'boardIssues', stage: 'planning' }))
+    expect(questions).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'boardIssues', stage: 'planning' }),
+    )
     const issueReads = reads.mock.calls.filter(([entity]) => entity === 'issue').map(([, id]) => id)
     expect(new Set(issueReads)).toEqual(new Set(['visible']))
     expect(issueReads.length).toBeLessThanOrEqual(4)
@@ -343,42 +353,30 @@ it('updates painted changes, parent scope, archive and replacement without a col
   }
 })
 
-it('follows the open issue through the keyed locals (POD-5433)', () => {
+it('reads the open issue directly from UiStore', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
-  let openIssueId: string | null = null
-  const listeners = new Set<() => void>()
-  const source = createIssueBoardSource(pool, {
-    readLocal: () => openIssueId,
-    onLocals: (keys, listener) => {
-      expect(keys).toEqual(['openIssueId'])
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-  })
+  const ui = { openIssueId: null as import('@podium/model').IssueId | null }
+  const source = createIssueBoardSource(pool, { ui })
   try {
     expect(source.read('issueBoardWindow', 'window')).toEqual({ openIssueId: null })
-    openIssueId = 'hot'
-    for (const listener of listeners) listener()
+    ui.openIssueId = 'hot' as import('@podium/model').IssueId
     expect(source.read('issueBoardWindow', 'window')).toEqual({ openIssueId: 'hot' })
   } finally {
     source.dispose()
     pool.dispose()
   }
 })
-
-it('releases the board owner once and refuses reads after disposal', () => {
+it('releases the board owner and refuses reads after disposal', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
-  const stop = vi.fn()
-  const source = createIssueBoardSource(pool, {
-    readLocal: () => null,
-    onLocals: () => stop,
-  })
+  const source = createIssueBoardSource(pool, { ui: { openIssueId: null } })
   try {
     expect(source.read('issueBoardWindow', 'current')).toEqual({ openIssueId: null })
     source.dispose()
     source.dispose()
-    expect(stop).toHaveBeenCalledTimes(1)
     expect(source.disposed).toBe(true)
     expect(source.read('issueBoardWindow', 'current')).toBe(LOADING)
-  } finally { source.dispose(); pool.dispose() }
+  } finally {
+    source.dispose()
+    pool.dispose()
+  }
 })

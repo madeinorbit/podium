@@ -1,5 +1,4 @@
 import { useUiValue } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { issueWrites } from '@podium/commands/issues-synced'

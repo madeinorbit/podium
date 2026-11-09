@@ -1,6 +1,5 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   type DeckIssueState,
   type FlightDeckMode,
@@ -16,7 +15,6 @@ import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from '@podium/client-graph/react'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -47,7 +45,6 @@ import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
 import {

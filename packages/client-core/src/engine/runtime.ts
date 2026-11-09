@@ -59,8 +59,6 @@ import {
 import { createLogger } from '@podium/logger'
 import type {
   IssueId,
-  LayoutSnapshot,
-  LayoutWire,
   MutationId,
   ReadPositionSnapshot,
   ReadPositionWire,
@@ -69,7 +67,7 @@ import type {
 import { readPositionRowId, resolveUserPreferences, userPreferencesRowId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
-import { reaction, runInAction } from 'mobx'
+import { action, actionBound, reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
@@ -93,7 +91,6 @@ import type { ScreenState } from '../ui/state'
 import { UiStore } from '../ui/ui-store'
 import { UrlMirror } from '../ui/url-mirror'
 import {
-  createRoutedUiState,
   createRouter,
   type RoutedUiState,
   type Router,
@@ -101,7 +98,7 @@ import {
   type RouteState,
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
-import { createEngineActions, type EngineActionRuntime, type EngineActions } from './actions'
+import { createEngineActions, type EngineActions } from './actions'
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
 import {
@@ -116,7 +113,6 @@ import {
 } from './keyed-inputs'
 import { machinesMaterialSignature } from './machines-material'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
-import type { ReplicatedLayoutController } from './replicated-layout'
 import {
   asIssueIdOrNull,
   type EngineState,
@@ -130,13 +126,11 @@ import {
   navigationSession,
   overlayState,
   resolvedWorkspaceKey,
-  userFocus,
   type WorkspacePatch,
   workspaceFor,
   workspaceKeyForState,
   workspaceMirrorPatch,
   workspacesPatch,
-  workspaceUiSnapshot,
   workspaceWritePatch,
 } from './state'
 import {
@@ -145,7 +139,6 @@ import {
   type Store,
   type StoreNotices,
   type StoreServerConfig,
-  type UserFocus,
 } from './types'
 import { domVisibility, type VisibilitySource } from './visibility'
 import {
@@ -353,7 +346,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly services: EngineStatics<TApi>
   readonly access: Store<TApi>
   private stopTopologyWatch: (() => void) | undefined
-  private prevRoute: RouteState
+  private prevRoute: RouteState | undefined = undefined
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
   private workspaceKey: WorkspaceKey
@@ -687,7 +680,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Arm all subscriptions/listeners, hydrate, connect, and (once per runtime)
    *  run the boot fetches. Idempotent while started; re-arms after dispose().
    *  A DESTROYED runtime never re-arms — its principal is gone. */
-  start(): void {
+  @actionBound start(): void {
     if (this.started || this.destroyed) return
     this.started = true
     this.drafts.start()
@@ -863,7 +856,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
-  dispose(): void {
+  @actionBound dispose(): void {
     this.liveFeed.stop()
     this.lastMachinesMaterial = undefined
     this.started = false
@@ -901,7 +894,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * is deliberately no "reset" path, because a reset is exactly the shape that
    * leaves one cached principal-derived value behind.
    */
-  destroy(options: { eraseUi?: boolean } = {}): void {
+  @actionBound destroy(options: { eraseUi?: boolean } = {}): void {
     if (this.destroyed) {
       this.dispose()
       return
@@ -938,7 +931,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Each client's startup attachment supplies this read port. No fallback is
    * installed during loading or teardown. */
-  setNavigationProvider(provider: NavigationProvider): void {
+  @actionBound setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     // Release observations against their owning pool before replacing it.
     if (provider !== this.state.navigation) this.reactions.leaveReadVisits()
@@ -1190,7 +1183,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Explicit batches defer reactions until all writes land, then publish the
    * changed local keys once. Finally restores the boundary if a reaction throws. */
-  private batch(fn: () => void): void {
+  @action private batch(fn: () => void): void {
     if (this.destroyed) return
     this.batchDepth++
     try {
@@ -1719,10 +1712,6 @@ function readPositionSnapshotFromRows(
   return out as ReadPositionSnapshot
 }
 
-function layoutSnapshotFromRows(rows: readonly LayoutWire[]): LayoutSnapshot {
-  return Object.fromEntries(rows.map((row) => [row.key, row.value]))
-}
-
 /**
  * Construct the client runtime for ONE principal.
  *
@@ -1735,5 +1724,5 @@ function layoutSnapshotFromRows(rows: readonly LayoutWire[]): LayoutSnapshot {
 export function createClientRuntime<TApi extends PodiumClientApi = PodiumClientApi>(
   init: ClientRuntimeInit<TApi>,
 ): ClientRuntime<TApi> {
-  return new ClientRuntime(init)
+  return runInAction(() => new ClientRuntime(init))
 }

@@ -5,7 +5,6 @@ import { issueRepoName } from '@podium/client-core/values'
  * observer sections; the activity section owns its shared request history.
  */
 
-import { shallowEqual } from '@podium/client-core'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useState } from 'react'

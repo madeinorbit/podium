@@ -4,7 +4,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
+import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 type DockShellLifecycleSession = Pick<

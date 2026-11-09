@@ -126,7 +126,6 @@ import {
 } from './models'
 import type { NoticeRows } from './notice-schema'
 import type { PreferenceRow } from './preference-schema'
-import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
