@@ -359,6 +359,14 @@ export function writePreAuthTheme(key: PreAuthThemeKey, value: string): void {
   }
 }
 
+export function clearPreAuthTheme(key: PreAuthThemeKey): void {
+  try {
+    globalThis.localStorage?.removeItem(key)
+  } catch {
+    // Best effort: private browsing may reject storage.
+  }
+}
+
 /** Default-closed classifier shared by all component and engine reads/writes. */
 export function uiStateRoute(key: string): UiStateRoute {
   if (THEME_SET.has(key)) {
