@@ -4,7 +4,6 @@ import {
   LEGACY_UI_KEYS,
   LEGACY_UI_MAP_PREFIXES,
   LEGACY_UI_PREFIXES,
-  MIRRORED_UI_KEYS,
   type UiState,
 } from '../replica/contract'
 import type { DeviceStorage } from './device-storage'
@@ -45,14 +44,13 @@ export function openLegacyDeviceKeys(device: DeviceStorage): LegacyDeviceKeys {
   try {
     if (device.storage.getItem(`${storageKey}.migrated`) === null) {
       const retired = new Set<string>()
-      const mirrored = new Set<string>(MIRRORED_UI_KEYS)
       const take = (key: string) => {
         const value = device.storage.getItem(key)
         if (value === null) return
         values[key] = value
-        if (!mirrored.has(key)) retired.add(key)
+        retired.add(key)
       }
-      for (const key of [...LEGACY_UI_KEYS, ...MIRRORED_UI_KEYS]) take(key)
+      for (const key of LEGACY_UI_KEYS) take(key)
       let enumerated: readonly string[] = []
       try {
         enumerated = device.enumerateKeys?.() ?? Object.keys(device.storage)

@@ -84,7 +84,6 @@ import { describeWireSkew, reportSkew } from './skew-notice'
 import { type MainView, StoreProvider, useLive, useRuntimeSelector } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
-import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
 import { UpdateEffectsObserver } from './UpdateEffectsObserver'
 import { useResponsiveSidebars } from './use-responsive-sidebars'
@@ -407,7 +406,6 @@ export function AppShell({
                 />
                 <RoutedDensityProvider>
                   <SetupRecoveryReporter />
-                  <ThemeUiStateMirror />
                   <BrowserOpenOverlay />
                   <ConfirmProvider>
                     {/* Above both TopBar and the view outlet: the command bar's centre

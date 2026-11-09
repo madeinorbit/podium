@@ -3,7 +3,6 @@ import { THEME_UI_KEYS } from '@podium/model/browser'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { nativeDesktopBridge } from '../lib/nativeDesktop'
-import { useStoreHandle } from '@podium/client-core/react'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface ThemeState {
@@ -16,11 +15,10 @@ export function resolveDark(mode: ThemeMode, prefersDark: boolean): boolean {
   return mode === 'system' ? prefersDark : mode === 'dark'
 }
 
-// The theme mode lives in RAW localStorage on purpose (not only ui-state): it is
+// The theme mode's one home is RAW localStorage (route 'pre-auth-theme'): it is
 // read BEFORE the store exists — by index.html's anti-flash script (pre-React)
-// and by ThemeProvider (which wraps StoreProvider) — so the fast path must not
-// depend on the replica. ThemeUiStateMirror below write-throughs every change
-// into the ui-state collection so the one UI persistence layer stays complete.
+// and by ThemeProvider (which wraps StoreProvider). No copy goes into ui-state
+// or UiStore.
 // The spelling comes from the model vocabulary — no local restatement.
 export const THEME_MODE_KEY = THEME_UI_KEYS[0]
 
@@ -92,18 +90,4 @@ export function useTheme(): ThemeContextValue {
   const v = useContext(Ctx)
   if (!v) throw new Error('useTheme outside ThemeProvider')
   return v
-}
-
-/**
- * Mirrors the (localStorage-authoritative) theme into the replica's ui-state
- * collection. Mounted INSIDE StoreProvider (theme itself initializes before the
- * store exists — see the key comment above). Render-less.
- */
-export function ThemeUiStateMirror(): null {
-  const { mode } = useTheme()
-  const ui = useStoreHandle().access.uiState
-  useEffect(() => {
-    ui.set(THEME_MODE_KEY, mode)
-  }, [ui, mode])
-  return null
 }
