@@ -266,6 +266,8 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly layout: ReplicatedLayoutController | import('../ui/layout-access').LayoutAccess
   readonly ui: import('../ui/ui-store').UiStore
+  readonly palette: import('../ui/view-models').PaletteViewModel
+  readonly autoContinueDialog: import('../ui/view-models').AutoContinueDialogModel
   readonly api: TApi
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
@@ -298,10 +300,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    *  (POD-571). The runtime reads it out of the replica; absent means cold. */
   readonly layoutSeed?: LayoutSnapshot
   state(): Readonly<ActionState>
-  apply(patch: Partial<ActionState>): void
-  navigate(intent: NavigationIntent): boolean
-  /** A pool row loading for a session jump resumes through the same action. */
-  waitForSessionNavigation?(identifier: string): void
   /**
    * S5: the runtime's snapshot batch, exposed so one gesture's synchronous
    * paints (navigation + optimistic overlays + their outbox-size handoff when
@@ -324,16 +322,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * a couple of frames before the row moved.
    */
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
-  revealFileTab(args: {
-    tabId: string
-    worktreePath?: string
-    issueId?: IssueId
-    /** Default true. False opens the file as the workspace's ONE preview tab —
-     *  the file tree's single click (POD-788). */
-    permanent?: boolean
-    fileTab?: FileTab
-    recentFile?: Omit<RecentFileEntry, 'openedAt'>
-  }): void
   spawnDraftAgent(args: SpawnDraftAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
@@ -358,105 +346,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   setSessionDraft(sessionId: SessionId, text: string): void
 }
 
-/** The slice of action state a workspace write reads. */
-type WorkspaceStateSlice = Pick<
-  ActionState,
-  'selectedIssueId' | 'selectedWorktree' | 'workspaces' | 'navigation'
->
-
-/** Reduce the current workspace and re-derive the pane mirrors — the pure core
- *  of every workspace action. */
-function workspaceEdit(
-  st: WorkspaceStateSlice,
-  reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
-  selection?: Partial<WorkspaceSelection>,
-): WorkspacePatch {
-  const key = resolvedWorkspaceKey(selection ? overlayState(st, selection) : st)
-  if (key === NAVIGATION_LOADING) return {}
-  return workspaceWritePatch(st, key, reduce(workspaceFor(st, key)))
-}
-
-/**
- * Drop a tab from EVERY workspace, not just the one on screen.
- *
- * Used where the thing behind the tab is gone (a killed session, a closed file),
- * which is the only reason a tab may disappear from a workspace the operator is
- * not looking at. Closing a tab by hand goes through `closeWorkspaceTab` and
- * touches the current workspace alone.
- */
-function forgetTab(st: WorkspaceStateSlice, tabId: TabId): WorkspacePatch {
-  return workspacesPatch(st, (ws) => closeTab(ws, tabId))
-}
-
-/**
- * The pane scalars after a tab is forgotten.
- *
- * `patch` carries the mirror whenever the layout moved, and the mirror is the
- * ONLY thing allowed to write these — spread it whole. The fallbacks cover the
- * case where no layout held the tab (nothing to mirror) but a pane scalar still
- * names it, which is the pre-POD-710 restore path. `=== undefined` rather than
- * `??`, because `null` is a value the mirror legitimately computes: a `??` here
- * discarded "this pane is now empty" and kept the dead id.
- */
-function forgottenPanes(
-  patch: WorkspacePatch,
-  st: Pick<ActionState, 'paneA' | 'paneB'>,
-  tabId: TabId,
-): WorkspacePatch {
-  return {
-    ...patch,
-    ...(patch.paneA === undefined && st.paneA === tabId ? { paneA: null } : {}),
-    ...(patch.paneB === undefined && st.paneB === tabId ? { paneB: null } : {}),
-  }
-}
-
-/**
- * How long {@link Store.focusIssueSession} waits for a started issue's session
- * to reach this client before giving up.
- *
- * The server has already spawned the session by the time `issues.start`
- * resolves, so what is being waited on is the replica delta — milliseconds on a
- * live socket. The window is long enough to cover a reconnect and short enough
- * that a launch which genuinely produced nothing stops holding a navigation
- * that would land on a session the operator never asked for.
- */
-export const ISSUE_SESSION_WAIT_MS = 15_000
-
-/**
- * Read state until it answers, or give up.
- *
- * `read` returns `undefined` for "not yet"; anything else resolves the wait.
- * The re-read after subscribing closes the gap between the first read and the
- * subscription — a delta landing in that window would otherwise be missed and
- * the wait would sit out its whole timeout with the answer already in state.
- */
-function waitForState<T>(
-  subscribe: (listener: () => void) => () => void,
-  read: () => T | undefined,
-  timeoutMs: number,
-): Promise<T | undefined> {
-  const first = read()
-  if (first !== undefined) return Promise.resolve(first)
-  return new Promise<T | undefined>((resolve) => {
-    let settled = false
-    let off: () => void = () => {}
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const finish = (value: T | undefined): void => {
-      if (settled) return
-      settled = true
-      if (timer !== undefined) clearTimeout(timer)
-      off()
-      resolve(value)
-    }
-    const attempt = (): void => {
-      const value = read()
-      if (value !== undefined) finish(value)
-    }
-    timer = setTimeout(() => finish(undefined), timeoutMs)
-    off = subscribe(attempt)
-    attempt()
-  })
-}
+export { ISSUE_SESSION_WAIT_MS } from '../ui/workspace-actions'
 
 /**
  * The revision an edit of this session is made against NOW (POD-6399): the
@@ -664,7 +554,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     startBtw: rt.ui.startBtw,
 
     clearAttachedSession: rt.ui.clearAttachedSession,
-    setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
+    setPaletteOpen: rt.palette.setOpen,
     setSelectedWorktree: rt.ui.setSelectedWorktree,
     setSelectedIssueId: rt.ui.setSelectedIssueId,
     /**
@@ -829,18 +719,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         await records
           .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
           .catch(() => {})
-      const state = rt.state()
-      // A killed session's tabs are views onto something that no longer exists —
-      // the one case where a tab goes away without the operator closing it. The
-      // whole mirror is applied, `split` and `focusedPane` included: killing the
-      // session in the second pane collapses it, and a patch that computed that
-      // but did not write it left a phantom pane nothing could clear.
-      rt.apply({
-        ...forgottenPanes(forgetTab(state, sessionId), state, sessionId),
-        fileTabs: state.fileTabs.filter(
-          (tab) => !(tab.scope.kind === 'session' && tab.scope.sessionId === sessionId),
-        ),
-      })
+      rt.ui.forgetSession(sessionId)
     },
     continueSession: async (sessionId) => {
       // On the sync write entry point (POD-6416). LEGACY(remove-after: 2027-03):
@@ -859,10 +738,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         preferences !== undefined &&
         shouldPromptAutoContinue(preferences as unknown as PodiumSettings)
       ) {
-        rt.apply({ autoContinuePromptSessionId: sessionId })
+        rt.autoContinueDialog.open(sessionId)
       }
     },
-    closeAutoContinuePrompt: () => rt.apply({ autoContinuePromptSessionId: null }),
+    closeAutoContinuePrompt: rt.autoContinueDialog.close,
     hibernateSession: async (sessionId) => {
       await editSessionLifecycle(sessionId, 'hibernated')
     },
@@ -1068,7 +947,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         shown === workspaceKeyFor({ issueId: asIssueId(id) })
       // The tuck is the newest gesture, so like any click it replaces one still
       // on its way (a pending navigation, session jump or pane link).
-      if (own) rt.navigate({ view: rt.router.current().view, selectedIssueId: null })
+      if (own) rt.ui.navigate({ view: rt.router.current().view, selectedIssueId: null })
       return written
     },
     // The curation writes (POD-781). Nothing here but the enqueue: the queued

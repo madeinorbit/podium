@@ -15,7 +15,7 @@ const store = vi.hoisted(() => {
     set: (k: string, v: string | null): void => {
       if (v === null) data.delete(k)
       else data.set(k, v)
-      for (const cb of [...listeners]) cb()
+      for (const cb of [...listeners]) (cb as (keys: Set<string>) => void)(new Set([k]))
     },
     subscribe: (cb: () => void): (() => void) => {
       listeners.add(cb)
@@ -30,9 +30,7 @@ vi.mock('@podium/client-core/react', () => ({
     store.legacyReads()
     return select({ uiState: store.available.value ? store.uiState : undefined })
   },
-  useStoreHandle: () => ({
-    getSnapshot: () => ({ uiState: store.available.value ? store.uiState : undefined }),
-  }),
+  useStoreHandle: () => ({ deviceState: store.uiState }),
 }))
 
 vi.mock('@/app/store-worklist-pool', async () => {

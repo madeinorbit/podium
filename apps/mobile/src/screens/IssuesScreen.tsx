@@ -93,7 +93,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
     reason: IssueCloseReason
   } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [display, setDisplay] = usePersistedUiState(
+  const [display] = usePersistedUiState(
     ISSUES_DISPLAY_KEY,
     readMobileTaskDisplay,
     writeMobileTaskDisplay,
@@ -231,14 +231,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
         roster={roster}
         count={filterCount}
         onFilter={(filter) => board?.setFilter(filter)}
-        onOrdering={(ordering) => {
-          pool?.setLayoutValue('phone.tasks.options', {
-            filter: board?.filter ?? {},
-            showDone: board?.showDone ?? false,
-            ordering,
-          })
-          setDisplay({ ...display, ordering })
-        }}
+        onOrdering={(ordering) => board?.setOrdering(ordering)}
         onShowAgentTasks={(show) =>
           setSavedFilters({ assignedTo: savedFilters.assignedTo, showAgentTasks: show })
         }

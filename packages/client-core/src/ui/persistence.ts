@@ -12,7 +12,15 @@ import {
   UI_STATE_KEYS,
   uiStateRoute,
 } from '../ui-state'
-import { allTabIds, deserializeWorkspaces, emptyWorkspace, openTab, splitPane } from '../values'
+import {
+  allTabIds,
+  closeTab,
+  deserializeWorkspaces,
+  emptyWorkspace,
+  normalizeWorkspace,
+  openTab,
+  splitPane,
+} from '../values'
 import type { DeviceStorage } from './device-storage'
 import { DEVICE_DRAFT_KEYS, type LegacyDeviceKeys } from './draft-storage'
 import type { UiStore } from './ui-store'
@@ -171,8 +179,13 @@ export class UiPersistence {
         ? asSessionId(saved.attachedSessionId as string)
         : null,
       dockVisibleSession: nullableString(saved.dockVisibleSession),
-      focusedPane: nullableString(saved.focusedPane) ?? 'p0',
-      workspaces: deserializeWorkspaces(stringify(saved.workspaces)),
+      focusedPane: nullableString(saved.focusedPane) ?? 'p1',
+      workspaces: Object.fromEntries(
+        Object.entries(record(saved.workspaces)).flatMap(([key, value]) => {
+          const ws = normalizeWorkspace(value, key)
+          return ws ? [[key, ws.previewTabId ? closeTab(ws, ws.previewTabId) : ws]] : []
+        }),
+      ),
       dockShells: readStoredDockShells(get),
       fileTabs: readStoredFileTabs(get),
       recentFiles: readStoredRecentFiles(get),
@@ -184,18 +197,16 @@ export class UiPersistence {
       } catch {}
     }
     for (const [id, value] of Object.entries(record(saved.fileScroll))) {
-      const position = typeof value === 'number' ? { top: value, left: 0 } : record(value)
-      if (
-        typeof position.top === 'number' &&
-        Number.isFinite(position.top) &&
-        position.top >= 0 &&
-        typeof position.left === 'number' &&
-        Number.isFinite(position.left) &&
-        position.left >= 0
-      )
-        ui.setFileScroll(id, position as unknown as FileScrollPosition)
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0)
+        ui.fileScroll.set(id, value)
+      else {
+        const position = record(value)
+        if (typeof position.top === 'number' && typeof position.left === 'number')
+          ui.setFileScroll(id, { top: position.top, left: position.left })
+      }
     }
   }
+
   start(): void {
     if (this.stop || this.erased) return
     this.dirty = true
@@ -209,6 +220,7 @@ export class UiPersistence {
           void this.flush().catch(() => {})
         }, 300)
       },
+      { fireImmediately: true },
     )
     this.offVisibility = this.visibility.subscribe(() => {
       if (!this.visibility.isVisible()) void this.flush().catch(() => {})

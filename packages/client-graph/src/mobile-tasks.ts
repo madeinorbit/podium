@@ -1,6 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
-import { clearChip, filterChips, orderIssues } from '@podium/client-core/values'
+import {
+  clearChip,
+  filterChips,
+  orderIssues,
+  readSharedIssuesDisplay,
+  writeSharedIssuesDisplay,
+} from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
@@ -264,7 +270,7 @@ export class MobileTasksBoard {
     MobileTasksOptions,
     'filter' | 'showDone' | 'ordering'
   > = { filter: {}, showDone: false, ordering: 'priority' }
-  @lazy private get options(): Pick<MobileTasksOptions, 'filter' | 'showDone' | 'ordering'> {
+  @lazy private get options(): Pick<MobileTasksOptions, 'filter' | 'showDone'> {
     if (!this.pool.hasLayout) return this.fixtureOptions
     const value = this.pool.layoutValue('phone.tasks.options') as
       | Partial<MobileTasksOptions>
@@ -272,18 +278,15 @@ export class MobileTasksBoard {
     return {
       filter: value?.filter && typeof value.filter === 'object' ? value.filter : {},
       showDone: value?.showDone === true,
-      ordering: value?.ordering ?? 'priority',
     }
   }
   @lazy get showDone(): boolean {
     return this.options.showDone
   }
-  private saveOptions(
-    patch: Partial<Pick<MobileTasksOptions, 'filter' | 'showDone' | 'ordering'>>,
-  ): void {
+  private saveOptions(patch: Partial<Pick<MobileTasksOptions, 'filter' | 'showDone'>>): void {
     const next = { ...this.options, ...patch }
     if (this.pool.hasLayout) this.pool.setLayoutValue('phone.tasks.options', next)
-    else this.fixtureOptions = next
+    else this.fixtureOptions = { ...this.fixtureOptions, ...next }
   }
   /** Parents showing their children. Local to this view, as the desktop board
    * holds it, not replicated ui-state: expanding an epic is a look, not a
@@ -298,7 +301,10 @@ export class MobileTasksBoard {
   // The shared display preference. It stays saved where it is until the
   // UiStore (POD-5797) holds it; the screen passes it in with showDisplay().
   @lazy get ordering(): IssuesOrdering {
-    return this.options.ordering
+    if (!this.pool.hasLayout) return this.fixtureOptions.ordering
+    const raw = this.pool.layoutValue('issues.display')
+    return readSharedIssuesDisplay(typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null)
+      .ordering
   }
   @observable accessor showAgentTasks: boolean
   /** The resolved Assigned to filter (POD-6297): a member id, or undefined
@@ -332,6 +338,17 @@ export class MobileTasksBoard {
     this.showAgentTasks = options.showAgentTasks
   }
 
+  @action setOrdering(ordering: IssuesOrdering): void {
+    if (!this.pool.hasLayout) {
+      this.fixtureOptions = { ...this.fixtureOptions, ordering }
+      return
+    }
+    const raw = this.pool.layoutValue('issues.display')
+    const current = readSharedIssuesDisplay(
+      typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null,
+    )
+    this.pool.setLayoutValue('issues.display', writeSharedIssuesDisplay({ ...current, ordering }))
+  }
   @action toggleShowDone() {
     this.saveOptions({ showDone: !this.showDone })
   }
@@ -359,7 +376,8 @@ export class MobileTasksBoard {
     showAgentTasks: boolean
     assignee?: string | undefined
   }) {
-    if (!this.pool.hasLayout) this.saveOptions({ ordering: display.ordering })
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = { ...this.fixtureOptions, ordering: display.ordering }
     this.showAgentTasks = display.showAgentTasks
     this.assignee = display.assignee
   }

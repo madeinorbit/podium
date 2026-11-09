@@ -604,7 +604,6 @@ export function createRoutedUiState(init: {
     const layoutKey = requireReplicatedLayoutKey(key)
     const current = replicatedString(replicated, layoutKey)
     if (current !== null) {
-      if (local.get(key) !== null) local.set(key, null)
       return current
     }
     return null
@@ -619,7 +618,6 @@ export function createRoutedUiState(init: {
         const layoutKey = requireReplicatedLayoutKey(key)
         if (value === null) replicated.clear(layoutKey)
         else replicated.set(layoutKey, value)
-        if (local.get(key) !== null) local.set(key, null)
       }
     },
     subscribe: (cb) => {

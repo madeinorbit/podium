@@ -409,7 +409,13 @@ export function createRuntimeWorklistPool(
         return model && typeof model !== 'symbol' && !('reason' in model) ? model.value : undefined
       }
       stopLayout = layout.attach(readLayout)
-      pool.bindLayout({ read: readLayout, write: (key, value) => layout.set(key, value) })
+      pool.bindLayout({
+        read: readLayout,
+        ready: (key) =>
+          typeof pool.model('userLayout', layoutRowId(asUserId(principal.userId), key)) !==
+          'symbol',
+        write: (key, value) => layout.set(key, value),
+      })
     }
     const disposePool = handle.dispose.bind(handle)
     handle.dispose = () => {

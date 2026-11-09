@@ -328,10 +328,15 @@ export interface LazyMembers {
 
 export class MobxPool {
   @observableRef private accessor layoutPort:
-    | { read: (key: string) => unknown; write: (key: string, value: unknown) => void }
+    | {
+        read: (key: string) => unknown
+        ready?: (key: string) => boolean
+        write: (key: string, value: unknown) => void
+      }
     | undefined = undefined
   @action bindLayout(port: {
     read: (key: string) => unknown
+    ready?: (key: string) => boolean
     write: (key: string, value: unknown) => void
   }): void {
     this.layoutPort = port
@@ -341,6 +346,9 @@ export class MobxPool {
   }
   @action setLayoutValue(key: string, value: unknown): void {
     this.layoutPort?.write(key, value)
+  }
+  layoutReady(key: string): boolean {
+    return this.layoutPort?.ready?.(key) ?? this.hasLayout
   }
   get hasLayout(): boolean {
     return this.layoutPort !== undefined

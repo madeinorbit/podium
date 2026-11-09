@@ -20,8 +20,8 @@ import type { MobxPool } from '@podium/client-graph'
 import { chatItemMessage } from '@podium/client-graph/chat-context'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
-import { superagentThread } from '@podium/client-graph/superagent'
 import type { SessionModel } from '@podium/client-graph/models'
+import { superagentThread } from '@podium/client-graph/superagent'
 import { lazy } from '@podium/mobx-helpers'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { actionBound, compareShallow, observable, reaction } from 'mobx'
@@ -287,7 +287,9 @@ export function createWebConversation(
         dismissOffer: (at) => store.dismissOffer(sessionId, at),
         interrupt: async (messageId) => {
           if (headless && mount.superThread) {
-            await superagentWrites(trpc).interruptTurn.mutate({ threadId: mount.superThread.threadId })
+            await superagentWrites(trpc).interruptTurn.mutate({
+              threadId: mount.superThread.threadId,
+            })
             return
           }
           // A `session.interrupt` record naming the turn on screen (POD-6397):
@@ -323,7 +325,7 @@ export function createWebConversation(
               asMutationId(turn.deliveryId),
             )
           if (route.kind === 'session' || route.kind === 'resume') {
-            store.setPanelMode(sessionId, 'chat')
+            runtime.ui.setPanelMode(sessionId, 'chat')
             return store.sendChat(
               {
                 sessionId,
@@ -346,7 +348,7 @@ export function createWebConversation(
                 .filter(Boolean)
                 .join('\n')
             : turn.wire
-          const focus = store.getUserFocus()
+          const focus = runtime.ui.getUserFocus()
           const backend = turn.backend ?? {
             model: conversation.thread?.model ?? 'auto',
             effort: conversation.thread?.effort ?? 'auto',
@@ -368,7 +370,7 @@ export function createWebConversation(
               })
               return { state: 'sent' }
             }
-            const attached = store.attachedSessionId
+            const attached = runtime.ui.attachedSessionId
             const answer = await superagentWrites(trpc).sendTurn.mutate({
               threadId: route.threadId,
               text: wire,
@@ -376,7 +378,7 @@ export function createWebConversation(
               ...(attached ? { attachSessionId: attached } : {}),
               ...choice,
             })
-            if (attached) store.clearAttachedSession()
+            if (attached) runtime.ui.clearAttachedSession()
             return { state: answer?.queued ? 'queued' : 'sent' }
           } catch (error) {
             conversation.setTurnError(error instanceof Error ? error.message : String(error))

@@ -19,7 +19,7 @@ export function useFileScrollPosition(
 
   useLayoutEffect(() => {
     if (!node || !ready || !visible) return
-    const saved = ui.fileScroll.get(`${view}:${tabId}`)
+    const saved = ui.getFileScroll(`${view}:${tabId}`)
     let pending: FileScrollPosition | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let restoring = saved !== undefined

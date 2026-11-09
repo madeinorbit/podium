@@ -161,14 +161,14 @@ function poolArchiveBatch(
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox'>,
+  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox' | 'ui'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null
   const batch = (fn: () => void) =>
     (runtime.access as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(fn)
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
-    if (target && target !== runtime.access.paneA && !target.startsWith('file:'))
+    if (target && target !== runtime.ui.paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
   }
   const selectIssue = (id: string, paneSession?: SessionId): void => {
@@ -200,7 +200,7 @@ export function createPoolWorkActions(
           members.set(session.sessionId, session)
       }
     }
-    const layout = store.workspaces?.[workspaceKeyFor({ missionRootId: rootId })]
+    const layout = runtime.ui.workspaces?.[workspaceKeyFor({ missionRootId: rootId })]
     const restoreLayout = layout !== undefined && allTabIds(layout).length > 0
     // POD-2034: with no remembered pane, the clicked task's coordinator wins,
     // then the mission root's, before falling back to the most recent agent.
@@ -223,7 +223,7 @@ export function createPoolWorkActions(
     const remembered = layout?.panes[layout.focusedPaneId]?.activeTabId
     trace(target ?? (remembered ? asSessionId(remembered) : null), asIssueId(id))
     batch(() => {
-      const changed = store.navigateWorkspace({
+      const changed = runtime.ui.navigateWorkspace({
         selectedIssueId: asIssueId(rootId),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
         tabId: target,
@@ -245,8 +245,8 @@ export function createPoolWorkActions(
       allowImperativeRead(() => selectIssue(id, sessionId)),
     openIssuePage: (id: IssueId) => {
       const store = runtime.access
-      store.setOpenIssueId(id)
-      store.setView('issues')
+      runtime.ui.setOpenIssueId(id)
+      runtime.ui.setView('issues')
     },
     renameIssue: (id: string, title: string) => {
       void runtime.access.updateIssue(id, { title })

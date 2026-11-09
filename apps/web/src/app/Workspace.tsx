@@ -1,4 +1,5 @@
 import { beginSwitch } from '@podium/client-core/perf'
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
@@ -854,10 +855,7 @@ export function Workspace({
   // pane's strip rather than per tab.
   const coordinatorIds = new Set(
     deckTabs
-      .filter(
-        (t) =>
-          t.kind === 'session' && missionCoordinatorIds.has(t.session.sessionId),
-      )
+      .filter((t) => t.kind === 'session' && missionCoordinatorIds.has(t.session.sessionId))
       .map((t) => t.id),
   )
 
@@ -923,10 +921,12 @@ export function Workspace({
    * anyway — the spawn inserts its session optimistically, so the draft
    * resolves as a mission from the click rather than from the broadcast.
    */
+  const workspaceLoading = useUiValue('workspaceLoading')
   const partialLaunchNeedsRecovery =
     activationDraft.pendingIssueId !== '' &&
     activationDraft.pendingIssueId === selectedIssueId &&
     !pendingIssueHasSession
+  if (workspaceLoading) return <section className="native-agents-pane relative" aria-busy="true" />
   if (partialLaunchNeedsRecovery) {
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
@@ -1295,11 +1295,7 @@ function PaneChrome({
         onKeyDownCapture={onColdKeyDown}
         className={cn(
           'native-tab-strip pointer-events-auto relative flex flex-none items-center gap-[4px] border-b border-hairline-soft surface-base-tabstrip px-[8px]',
-          isOver
-            ? 'surface-mix-18'
-            : focused
-              ? 'surface-mix-2'
-              : 'surface-mix-0',
+          isOver ? 'surface-mix-18' : focused ? 'surface-mix-2' : 'surface-mix-0',
         )}
       >
         {drag ? (

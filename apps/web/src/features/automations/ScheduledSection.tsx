@@ -344,7 +344,7 @@ const RunHistory = observer(function RunHistory({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 const RunRow = observer(function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const navigateToSession = useStoreHandle<Trpc>().access.navigateToSession
+  const navigateToSession = useStoreHandle<Trpc>().ui.navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
   const session = useAutomationRunSession(run.sessionId ?? undefined)

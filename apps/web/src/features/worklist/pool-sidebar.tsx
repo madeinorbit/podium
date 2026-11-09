@@ -891,9 +891,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const draftOnly = fresh && fresh !== LOADING ? fresh.sessionOnlyDraft : snapshot?.draftAgentOnly
   const firstSessionId =
     fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId
-  const draftPane = useRuntimeSelector(
-    (s) => visible && draftOnly === true && s.paneA === firstSessionId,
-  )
+  const activePane = useUiValue('paneA')
+  const draftPane = visible && draftOnly === true && activePane === firstSessionId
+
   const active = visible && companion?.selected === true
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'

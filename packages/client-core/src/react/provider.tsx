@@ -1,3 +1,4 @@
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import { reaction } from 'mobx'
 import { useCallback } from 'react'
 /**
@@ -462,7 +463,7 @@ export function useUiValue<K extends keyof import('../ui/ui-store').UiStore>(
   key: K,
 ): import('../ui/ui-store').UiStore[K] {
   const ui = useUi()
-  const read = useCallback(() => ui[key], [ui, key])
+  const read = useCallback(() => allowImperativeRead(() => ui[key]), [ui, key])
   const subscribe = useCallback((notify: () => void) => reaction(read, notify), [read])
   return useSyncExternalStore(subscribe, read)
 }

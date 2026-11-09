@@ -231,7 +231,7 @@ describe('visibility comes from the injected source', () => {
     const visibility = fakeVisibility(true)
     const { engine } = makeEngine({ visibility })
     engine.start()
-    expect(visibility.subscribers()).toBe(1)
+    expect(visibility.subscribers()).toBe(2)
     engine.dispose()
     expect(visibility.subscribers()).toBe(0)
   })

@@ -67,7 +67,7 @@ export class ChatViewModel {
     )
   }
 
-  open(): void {
+  @actionBound open(): void {
     this.release = this.conversation.addView(this.presentation)
     const sessionId = this.conversation.sessionId
     if (sessionId)
@@ -76,7 +76,7 @@ export class ChatViewModel {
         this.revealTranscript,
       )
   }
-  close(): void {
+  @actionBound close(): void {
     this.reply.cancel()
     this.releaseReveal?.()
     this.releaseReveal = undefined
@@ -318,7 +318,7 @@ export class ChatViewModel {
   }
   @actionBound captureContext(): void {
     if (!this.compact) return
-    const id = this.conversation.runtime.access.getUserFocus().issueId
+    const id = this.conversation.runtime.ui.getUserFocus().issueId
     this.ctxSeq = id ? (here(this.conversation.pool.model('issue', id))?.seq ?? null) : null
   }
   isOperatorPromptRow = (row: ChatRow): boolean =>

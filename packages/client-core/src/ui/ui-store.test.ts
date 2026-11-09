@@ -91,7 +91,7 @@ function savedScreen() {
     superThreadId: 'thread-2',
     attachedSessionId: s1,
     dockVisibleSession: s2,
-    focusedPane: 'p1',
+    focusedPane: focused,
     workspaces: { 'wt:/repo': workspace },
     dockShells: { '/repo': s2 },
     recentFiles: [{ worktreePath: '/repo', path: 'README.md', openedAt: 1 }],
@@ -127,7 +127,7 @@ describe('device UiStore', () => {
         paneB: ui.paneB,
         split: ui.split,
         files: [...ui.fileTabs.keys()],
-        scroll: ui.fileScroll.get('source:file-1'),
+        scroll: ui.getFileScroll('source:file-1'),
       }),
     )
     expect(frames).toEqual([
@@ -139,7 +139,7 @@ describe('device UiStore', () => {
         thread: 'thread-2',
         attached: s1,
         dock: s2,
-        focus: 'p1',
+        focus: 'p2',
         paneA: s1,
         paneB: s2,
         split: true,
@@ -268,7 +268,7 @@ describe('device UiStore', () => {
     expect(second.ui.attachedSessionId).toBeNull()
     expect(second.ui.paneA).toBe(s1)
     expect(second.ui.paneB).toBe(s2)
-    expect(second.ui.focusedPane).toBe('p1')
+    expect(second.ui.focusedPane).toBe('p2')
     expect(second.ui.fileTabs.size).toBe(1)
     expect(second.ui.dockVisibleSession).toBe(s2)
   })

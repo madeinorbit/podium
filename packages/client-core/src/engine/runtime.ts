@@ -536,6 +536,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       },
       navigate: (intent) => this.navigate(intent),
       waitForSessionNavigation: (identifier) => {
+        this.dropPaneLink()
+        this.pendingNavigation = undefined
         this.pendingSessionNavigation = identifier
         this.watchNavigation()
       },
@@ -546,19 +548,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     Object.defineProperties(
       this.state,
       Object.fromEntries(
-        Object.entries(Object.getOwnPropertyDescriptors(this.ui.screen)).filter(
-          ([key]) => !Object.hasOwn(this.state, key),
-        ),
+        Object.entries(Object.getOwnPropertyDescriptors(this.ui.screen))
+          .filter(([key]) => !Object.hasOwn(this.state, key))
+          .map(([key, descriptor]) => [key, { ...descriptor, enumerable: false }]),
       ),
     )
     Object.defineProperties(this.state, {
-      paletteOpen: { enumerable: true, get: () => this.palette.open },
+      paletteOpen: { enumerable: false, get: () => this.palette.open },
       autoContinuePromptSessionId: {
-        enumerable: true,
+        enumerable: false,
         get: () => this.autoContinueDialog.sessionId,
       },
       issueVisitBaseline: {
-        enumerable: true,
+        enumerable: false,
         get: () => this.reactions?.issueVisitBaseline ?? null,
       },
     })
@@ -624,12 +626,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
       { ...this.services },
-      Object.fromEntries(
-        Object.keys(this.state).map((key) => [
-          key,
-          { enumerable: true, get: () => this.readLocal(key as LocalKey) },
-        ]),
-      ),
+      {
+        ...Object.fromEntries(
+          Object.keys(this.state).map((key) => [
+            key,
+            { enumerable: true, get: () => this.readLocal(key as LocalKey) },
+          ]),
+        ),
+        ...Object.getOwnPropertyDescriptors(this.ui.screen),
+        paletteOpen: { enumerable: true, get: () => this.palette.open },
+        autoContinuePromptSessionId: {
+          enumerable: true,
+          get: () => this.autoContinueDialog.sessionId,
+        },
+        issueVisitBaseline: { enumerable: true, get: () => this.reactions.issueVisitBaseline },
+      },
     ) as Store<TApi>
   }
 
@@ -1595,20 +1606,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // the dock's task panel) must switch to the workspace through the router.
   // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
   // the tab and bouncing the pane.
-  private revealFileTab(args: Parameters<EngineActionRuntime<TApi>['revealFileTab']>[0]): void {
-    this.navigate({
-      view: 'workspace',
-      ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
-      ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
-      tabId: args.tabId,
-      permanent: args.permanent !== false,
-      ...(args.fileTab ? { fileTab: args.fileTab } : {}),
-      ...(args.recentFile ? { recentFile: args.recentFile } : {}),
-      retireOrphanFiles: true,
-      history: 'push',
-    })
-  }
-
   private requirePoolWriter(): PoolWriter {
     if (!this.poolWriter || this.destroyed) throw new Error('Pool transactions are not attached')
     return this.poolWriter
@@ -1616,6 +1613,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private createActions(): EngineActions<TApi> {
     return createEngineActions({
+      palette: this.palette,
+      autoContinueDialog: this.autoContinueDialog,
       api: this.api,
       hub: this.hub,
       outbox: this.outbox,
@@ -1626,14 +1625,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       layout: this.replicatedLayout,
       state: () => this.state,
       ui: this.ui,
-      apply: (patch) => this.apply(patch),
-      navigate: (intent) => this.navigate(intent),
-      waitForSessionNavigation: (identifier) => {
-        this.dropPaneLink()
-        this.pendingNavigation = undefined
-        this.pendingSessionNavigation = identifier
-        this.watchNavigation()
-      },
       // S5: one publication per click. The gesture's synchronous paints share
       // this batch; the async outbox drain echo and background broadcasts stay
       // separate by construction (they fire after the batch closed).
@@ -1644,7 +1635,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)
           : Promise.reject(new Error('Pool transactions are not attached')),
-      revealFileTab: (args) => this.revealFileTab(args),
       spawnDraftAgent: (args: Parameters<Store<TApi>['spawnDraftAgent']>[0]) =>
         this.requirePoolWriter().spawnDraftAgent!(args),
       launchSession: (args: Parameters<Store<TApi>['launchSession']>[0]) =>

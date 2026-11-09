@@ -310,16 +310,17 @@ export class FullDeck {
     filter: 'all',
     showDone: true,
   }
-  @lazy private get options(): { filter: FullDeckFilter; showDone: boolean } {
+  @lazy({ equals: compareShallow }) private get options(): {
+    filter: FullDeckFilter
+    showDone: boolean
+  } {
     if (!this.screen.pool.hasLayout) return this.fixtureOptions
     const value = this.screen.pool.layoutValue('mission.options') as
       | { filter?: FullDeckFilter; showDone?: boolean }
       | undefined
+    const filter = value?.filter
     return {
-      filter:
-        value && ['all', 'active', 'needs-you', 'up-next'].includes(value.filter ?? '')
-          ? value.filter!
-          : 'all',
+      filter: filter && FULL_DECK_FILTERS.includes(filter) ? filter : 'all',
       showDone: value?.showDone !== false,
     }
   }

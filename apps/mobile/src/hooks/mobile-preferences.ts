@@ -1,27 +1,38 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useUiState } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 
-function preferenceValue(pool: MobxPool, key: string): string | null {
-  const row = omitGone(pool.row('preference', key))
-  // A cold row or an attaching pool paints the default, never a legacy read.
-  return typeof row === 'object' && row !== null ? row.value : null
-}
-
 export function usePoolPreference(key: string): string | null {
-  const read = useCallback((pool: MobxPool) => preferenceValue(pool, key), [key])
-  return useMobilePoolProjection(read, null)
-}
-
-export function usePoolPreferences(keys: readonly string[]): readonly (string | null)[] {
-  const empty = useMemo(() => keys.map(() => null), [keys])
-  const read = useCallback(
-    (pool: MobxPool) => keys.map((key) => preferenceValue(pool, key)),
-    [keys],
+  const ui = useUiState()
+  const read = useCallback(() => allowImperativeRead(() => ui.get(key)), [ui, key])
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      ui.subscribe((keys) => {
+        if (keys.has(key)) notify()
+      }),
+    [ui, key],
   )
-  return useMobilePoolProjection(read, empty)
+  return useSyncExternalStore(subscribe, read, read)
+}
+export function usePoolPreferences(keys: readonly string[]): readonly (string | null)[] {
+  const ui = useUiState()
+  const read = useCallback(
+    () => allowImperativeRead(() => JSON.stringify(keys.map((key) => ui.get(key)))),
+    [ui, keys],
+  )
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      ui.subscribe((changed) => {
+        if (keys.some((key) => changed.has(key))) notify()
+      }),
+    [ui, keys],
+  )
+  const raw = useSyncExternalStore(subscribe, read, read)
+  return useMemo(() => JSON.parse(raw) as (string | null)[], [raw])
 }
 
 /** Local fold intentions bridge the owner's optimistic write and the pool's

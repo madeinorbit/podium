@@ -208,7 +208,8 @@ export type WorkspaceSelection = Pick<
  * defined on the result; never spread or enumerate it.
  */
 export function overlayState<T extends object, P extends object>(st: T, patch: P): T & P {
-  return Object.assign(Object.create(st) as T, patch) as T & P
+  return Object.defineProperties(Object.create(st), Object.getOwnPropertyDescriptors(patch)) as T &
+    P
 }
 
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {

@@ -20,6 +20,7 @@ import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
 import { UiStore } from '../ui/ui-store'
+import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
 import { createRoutedUiState } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
@@ -144,6 +145,8 @@ function harness(
     navigate: (route: unknown) => navigated.push(route),
   } as unknown as Router
   const runtime = {
+    palette: new PaletteViewModel(),
+    autoContinueDialog: new AutoContinueDialogModel(),
     userId: ME,
     api: {
       layout: { get: { query: layoutGet } },
@@ -235,7 +238,7 @@ function harness(
       publish()
     },
     watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
-    navigate: runtime.navigate,
+    navigate: (runtime as unknown as { navigate: (intent: NavigationIntent) => boolean }).navigate,
   })
   ui.patch({ ...state, navigation } as unknown as Partial<RuntimeState>)
   Object.assign(runtime, { ui, layout: controller })

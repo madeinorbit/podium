@@ -1,80 +1,56 @@
 // @vitest-environment happy-dom
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { serializeVpsActivation, vpsIntroState } from './vps-activation'
 
-vi.mock('@/lib/use-persisted-ui-state', () => ({
-  usePersistedUiValue: () => null,
-}))
+const data = vi.hoisted(() => ({ ready: false, raw: null as string | null }))
+vi.mock('@/lib/use-persisted-ui-state', () => ({ usePersistedUiValue: () => data.raw }))
+vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPoolProjection: () => data.ready }))
 
 import { useConfirmedVpsActivation } from './use-vps-activation'
 
-function deferred<T>(): {
-  promise: Promise<T>
-  resolve: (value: T) => void
-} {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => {
-    resolve = done
-  })
-  return { promise, resolve }
-}
-
-function trpcWithLayoutGet(query: () => Promise<Record<string, unknown>>): Trpc {
-  // createTRPCClient returns a callable proxy in production. Keep this double callable so
-  // React state setters cannot accidentally treat the transport itself as an updater.
-  return Object.assign(() => undefined, {
+const transport = () =>
+  ({
     layout: {
-      get: { query },
+      get: {
+        query: vi.fn(() => {
+          throw new Error('layout.get is forbidden')
+        }),
+      },
       set: { mutate: vi.fn() },
       clear: { mutate: vi.fn() },
     },
   }) as unknown as Trpc
-}
-
-describe('confirmed VPS activation hydration', () => {
-  it('gates stale source state while a replacement transport restores its checkpoint', async () => {
-    const source = vpsIntroState('welcome')
-    const destination = vpsIntroState('local-project')
-    const pendingDestination = deferred<Record<string, unknown>>()
-    const sourceTrpc = trpcWithLayoutGet(async () => ({
-      'onboarding.vps': serializeVpsActivation(source),
-    }))
-    const destinationTrpc = trpcWithLayoutGet(() => pendingDestination.promise)
-    const view = renderHook(({ trpc }: { trpc: Trpc }) => useConfirmedVpsActivation(trpc), {
-      initialProps: { trpc: sourceTrpc },
-    })
-
-    await waitFor(() => expect(view.result.current.state).toEqual(source))
-
-    view.rerender({ trpc: destinationTrpc })
-    await waitFor(() => expect(view.result.current.ready).toBe(false))
-    expect(view.result.current.state).toBeNull()
-
-    await act(async () => {
-      pendingDestination.resolve({
-        'onboarding.vps': serializeVpsActivation(destination),
-      })
-      await pendingDestination.promise
-    })
-    await waitFor(() => expect(view.result.current.state).toEqual(destination))
-  })
-
-  it('does not synthesize a checkpoint while authoritative absence is pending', async () => {
-    const pending = deferred<Record<string, unknown>>()
-    const trpc = trpcWithLayoutGet(() => pending.promise)
-    const view = renderHook(() => useConfirmedVpsActivation(trpc))
-
+describe('pool-backed VPS activation', () => {
+  it('gates absence until the pool has resolved the signed-in user layout row', () => {
+    data.ready = false
+    data.raw = null
+    const trpc = transport(),
+      view = renderHook(() => useConfirmedVpsActivation(trpc))
     expect(view.result.current).toMatchObject({ ready: false, state: null })
+    data.ready = true
+    view.rerender()
+    expect(view.result.current).toMatchObject({ ready: true, state: null })
+    expect(trpc.layout.get.query).not.toHaveBeenCalled()
     expect(trpc.layout.set.mutate).not.toHaveBeenCalled()
-
-    await act(async () => {
-      pending.resolve({})
-      await pending.promise
-    })
-    await waitFor(() => expect(view.result.current.ready).toBe(true))
+  })
+  it('reads checkpoint changes straight from the pool without keeping an override', () => {
+    const source = vpsIntroState('welcome'),
+      destination = vpsIntroState('local-project')
+    data.ready = true
+    data.raw = serializeVpsActivation(source)
+    const trpc = transport(),
+      view = renderHook(() => useConfirmedVpsActivation(trpc))
+    expect(view.result.current.state).toEqual(source)
+    data.ready = false
+    data.raw = null
+    view.rerender()
     expect(view.result.current.state).toBeNull()
-    expect(trpc.layout.set.mutate).not.toHaveBeenCalled()
+    data.ready = true
+    data.raw = serializeVpsActivation(destination)
+    view.rerender()
+    expect(view.result.current.state).toEqual(destination)
+    expect(trpc.layout.get.query).not.toHaveBeenCalled()
   })
 })

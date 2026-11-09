@@ -65,6 +65,14 @@ import {
   workspaceEdit,
 } from './workspace-actions'
 
+export interface FileTabOpen {
+  tabId: string
+  worktreePath?: string
+  issueId?: IssueId
+  permanent?: boolean
+  fileTab?: FileTab
+  recentFile?: Omit<RecentFileEntry, 'openedAt'>
+}
 export interface Notice {
   readonly id: string
   readonly message: string
@@ -95,22 +103,42 @@ export class UiStore {
   @observable accessor superThreadId: ThreadId | null = asThreadId('global')
   @observable accessor attachedSessionId: SessionId | null = null
   @observable accessor dockVisibleSession: SessionId | null = null
-  @observable accessor focusedPane: PaneId = 'p0'
+  @observable accessor focusedPane: PaneId = 'p1'
   @observableRef accessor workspaces: WorkspaceMap = {}
   @observableRef accessor dockShells: Record<string, SessionId> = {}
   @observableRef accessor recentFiles: RecentFileEntry[] = []
   readonly devicePrefs = observable.map<string, string>()
   getDevicePref(key: string): string | null {
+    this.assertDevicePreference(key)
     return this.devicePrefs.get(key) ?? null
   }
+  private assertDevicePreference(key: string): void {
+    if (
+      [
+        'view',
+        'selectedWorktree',
+        'selectedIssueId',
+        'paneA',
+        'paneB',
+        'split',
+        'workspaces',
+        'fileTabs',
+        'fileScroll',
+        'dockShells',
+        'recentFiles',
+      ].some((field) => Reflect.get(UI_STATE_KEYS, field) === key)
+    )
+      throw new Error(`${key} is a typed UiStore field`)
+  }
   @actionBound setDevicePref(key: string, value: string | null): void {
+    this.assertDevicePreference(key)
     if (uiStateRoute(key).home !== 'device-local')
       throw new Error(`Not a device preference: ${key}`)
     if (value === null) this.devicePrefs.delete(key)
     else this.devicePrefs.set(key, value)
   }
   readonly fileTabs = observable.map<string, FileTab>(undefined, { deep: false })
-  readonly fileScroll = observable.map<string, FileScrollPosition>(undefined, { deep: false })
+  readonly fileScroll = observable.map<string, number>()
   readonly notices = observable.array<Notice>([], { deep: false })
   /** The pool's addressed navigation handle, never rows or a collection copy. */
   @observableRef accessor navigation: NavigationProvider = loadingNavigationProvider
@@ -228,8 +256,31 @@ export class UiStore {
     this.ports.changed?.(changed)
   }
 
+  getFileScroll(id: string): FileScrollPosition | undefined {
+    const top = this.fileScroll.get(JSON.stringify([id, 'top']))
+    return top === undefined
+      ? undefined
+      : { top, left: this.fileScroll.get(JSON.stringify([id, 'left'])) ?? 0 }
+  }
   @actionBound setFileScroll(id: string, value: FileScrollPosition): void {
-    this.fileScroll.set(id, Object.freeze({ ...value }))
+    if (
+      !Number.isFinite(value.top) ||
+      value.top < 0 ||
+      !Number.isFinite(value.left) ||
+      value.left < 0
+    )
+      return
+    const top = JSON.stringify([id, 'top']),
+      left = JSON.stringify([id, 'left'])
+    this.fileScroll.delete(top)
+    this.fileScroll.delete(left)
+    this.fileScroll.set(top, value.top)
+    this.fileScroll.set(left, value.left)
+    while (this.fileScroll.size > 400) {
+      const first = this.fileScroll.keys().next().value
+      if (first === undefined) break
+      this.fileScroll.delete(first)
+    }
   }
   @actionBound addNotice(notice: Notice): void {
     this.notices.push(notice)
@@ -311,11 +362,7 @@ export class UiStore {
       history: 'push',
     })
   }
-  private revealFileTab(
-    args: Parameters<
-      import('../engine/actions').EngineActionRuntime<PodiumClientApi>['revealFileTab']
-    >[0],
-  ): void {
+  private revealFileTab(args: FileTabOpen): void {
     this.navigate({
       view: 'workspace',
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
@@ -573,7 +620,7 @@ export class UiStore {
       },
       opts?.timeoutMs ?? ISSUE_SESSION_WAIT_MS,
     )
-    if (!session || this.selectedIssueId !== issueId) return null
+    if (!this.alive || !session || this.selectedIssueId !== issueId) return null
     this.navigateToSession(session.sessionId)
     return session.sessionId
   }
@@ -729,6 +776,14 @@ export class UiStore {
     })
   }
 
+  @actionBound forgetSession(sessionId: SessionId): void {
+    this.patch({
+      ...forgetTab(this.screen, sessionId),
+      fileTabs: this.fileTabList.filter(
+        (tab) => tab.scope.kind !== 'session' || tab.scope.sessionId !== sessionId,
+      ),
+    })
+  }
   @actionBound
   closeFileTab(
     ...parameters: Parameters<Store['closeFileTab']>
