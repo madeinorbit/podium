@@ -11,9 +11,11 @@ import {
   useUi,
   useUiValue,
 } from '@podium/client-core/react'
+import { loadRecordDeclarations } from '@podium/client-core/records'
 import { memoryStorage } from '@podium/client-core/replica'
 import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -243,6 +245,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   })
 
   const renderAs = async (principal: ClientPrincipal, api: PodiumClientApi): Promise<void> => {
+    await loadRecordDeclarations()
     act(() => {
       root.render(
         <StoreProvider
@@ -254,6 +257,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
             closedWhenOpened.set(p.userId, FakeWS.closed)
             return createReplicaFixture({ storage: storageFor(p.userId) })
           }}
+          attachRuntime={(runtime) => createRuntimeWorklistPool(runtime).dispose}
         >
           <PrincipalProbe />
         </StoreProvider>,
@@ -300,7 +304,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     ;(replicaAlice as unknown as { setFeedCursor(c: number): void }).setFeedCursor(42)
     // (2) a QUEUED WRITE: a layout command with no server to answer it.
     act(() => seen.setDockTab('git'))
-    await settle()
+    await vi.waitFor(() => expect(seen.outboxSize).toBeGreaterThan(0))
     // (3) a WARM CACHE: the selector held a value across at least one render.
     const dockTabAlice = seen.dockTab
 

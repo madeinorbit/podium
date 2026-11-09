@@ -23,6 +23,7 @@ import type {
   FileTab,
   PaneId,
   RecentFileEntry,
+  SplitAxis,
   TabId,
   WorkspaceLayout,
   WorkspaceMap,

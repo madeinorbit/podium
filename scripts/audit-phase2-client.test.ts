@@ -100,7 +100,7 @@ describe('phase-2 client audit — every detector can say NO', () => {
     // Both platforms, because the brief names both homes and a detector that only
     // knew the web one would certify mobile by never looking.
     const found = perUserStateLocalHome(
-      lines('apps/mobile/src/x.ts', "void AsyncStorage.setItem('pinnedAt:' + id, stamp)"),
+      lines('apps/mobile/src/x.ts', "void AsyncStorage.setItem('readAt:' + id, stamp)"),
     )
     expect(found).toHaveLength(1)
   })

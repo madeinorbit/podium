@@ -34,7 +34,7 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       fileTabs: [
         { id: 'file', worktreePath: '/shared/sub', scope: { kind: 'worktree', machineId: 'm0' } },
       ],
-    } as HeaderRows['window']
+    } as unknown as HeaderRows['window']
     headerEntities(pool).apply([
       { kind: 'window', id: 'window', value: window },
       { kind: 'repository', id: 'target', value: target },

@@ -145,7 +145,7 @@ function fakeOnlineEvents(): OnlineEvents & { fire(): void; subscribers(): numbe
   }
 }
 
-const runtimes: Array<{ dispose(): void; destroy(): void }> = []
+const runtimes: Array<{ stop(): void; dispose(): void }> = []
 
 function makeEngine(
   init: {

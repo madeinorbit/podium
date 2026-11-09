@@ -1,8 +1,4 @@
-/** Endpoints and error policy supplied by the authenticated platform. */
-export interface ServerConfig {
-  httpOrigin: string
-  wsClientUrl: string
-}
+export type { ServerOrigin } from '../transport'
 
 export function defaultFormatError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message

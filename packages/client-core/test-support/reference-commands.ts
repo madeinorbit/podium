@@ -130,7 +130,7 @@ export function referenceCommandAccess<TApi extends PodiumClientApi>(
     setSubscriptionEnabled: commands.automations.setSubscriptionEnabled,
     removeSubscription: commands.automations.removeSubscription,
     setSuperagentBackend: commands.threads.setBackend,
-    ...chatSends,
+    ...root.chatSends,
     records: commands.records,
     trpc: root.api,
     replica: root.replica,

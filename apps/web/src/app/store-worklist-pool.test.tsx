@@ -143,7 +143,7 @@ describe('StoreProvider owns the sidebar pool', () => {
     render()
     const old = await ready()
     const dispose = vi.spyOn(old, 'dispose')
-    const destroy = vi.spyOn(runtime!, 'destroy').mockImplementation(function (
+    const destroy = vi.spyOn(runtime!, 'dispose').mockImplementation(function (
       this: ClientRuntime,
     ) {
       expect(dispose).toHaveBeenCalledTimes(1)

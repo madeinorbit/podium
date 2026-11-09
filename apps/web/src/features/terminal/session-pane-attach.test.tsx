@@ -119,7 +119,7 @@ function replicaFactory() {
 
 function binding(next: ClientRuntime): () => void {
   runtime = next
-  next.access.setDockShell(shell.cwd, shell.sessionId)
+  next.ui.setDockShell(shell.cwd, shell.sessionId)
   runInAction(() => {
     for (const row of machines)
       next.live.applyTopic(

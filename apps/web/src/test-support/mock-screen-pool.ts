@@ -95,7 +95,7 @@ let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
   read: () => ({}),
   subscribe: none,
 }
-const selectFixture = storeInputs.readFixture as unknown as <T>(
+const selectFixture = Reflect.get(storeInputs, 'readFixture') as unknown as <T>(
   select: (state: Store) => T,
   equals?: (a: T, b: T) => boolean,
 ) => T

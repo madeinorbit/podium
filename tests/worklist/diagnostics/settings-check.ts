@@ -8,11 +8,13 @@ import { checkPreferences } from './preference-check'
 import { referenceState } from './reference-state'
 import { type CheckRow, type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
-export interface SettingsCheckOwner {
-  readonly access: import('./reference-state').ReferenceState
-  readonly replica?: import('@podium/client-core/replica').Replica
-  readonly deviceState: RoutedUiState
-}
+export type SettingsCheckOwner =
+  | import('@podium/client-core/runtime-root').ClientRuntime
+  | {
+      readonly access: import('./reference-state').ReferenceState
+      readonly replica?: import('@podium/client-core/replica').Replica
+      readonly deviceState: RoutedUiState
+    }
 
 export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   const state = referenceState(owner)

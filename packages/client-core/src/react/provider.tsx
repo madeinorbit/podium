@@ -24,14 +24,14 @@ import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { CreateEngineOutbox } from '../runtime-root/outbox/wiring'
 import type { CreateReplicaForPrincipal } from '../runtime-root/root'
 import { type ClientRuntime, createClientRuntime } from '../runtime-root/root'
-import { defaultFormatError, type ServerConfig } from '../runtime-root/types'
+import { defaultFormatError, type ServerOrigin } from '../runtime-root/types'
 import type { FeedSinkPort } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
 import { RuntimeProvider, useClientRuntime } from './runtime-root'
 
 export type { NoticeSink } from '../notices'
 export type { ClientPrincipal } from '../principal'
-export type { ServerConfig } from '../runtime-root/types'
+export type { ServerOrigin } from '../runtime-root/types'
 export type { UserFocus } from '../ui/types'
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
@@ -50,7 +50,7 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    * NOTHING and renders {@link StoreProviderProps.unauthenticated}.
    */
   principal: ClientPrincipal | null
-  config: ServerConfig
+  config: ServerOrigin
   /** The app's typed tRPC client (web: AppRouter-typed; mobile: MobileTrpc). */
   api: TApi
   onFatalError: (message: string) => void
@@ -140,7 +140,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // props stay ref-routed above; their identity churn must NOT rebuild anything.
   const runtimeRef = useRef<{
     principal: ClientPrincipal
-    config: ServerConfig
+    config: ServerOrigin
     api: TApi
     networkEnabled: boolean
     runtime: ClientRuntime<TApi>

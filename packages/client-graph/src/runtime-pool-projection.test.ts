@@ -1,8 +1,10 @@
-import { referenceView } from './issue-reference'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
+import { asIssueId } from '@podium/model'
 import { compareStructural, computed, getObserverTree, observable, runInAction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { projectionComparisonMechanism } from '../../../tests/worklist/diagnostics/projection-comparison-mechanism'
+import { referenceView } from './issue-reference'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 import { worklistView } from './worklist/view-model'
@@ -15,15 +17,19 @@ afterEach(() => {
 
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  cleanups.push(() => pool.dispose())
-  const observerCount = () => getObserverTree(worklistView(pool), 'selectedId').observers?.length ?? 0
-  // Selection history has its own pool-lifetime reaction (12dc075da6, POD-5547).
-  // Measure observers added by projections, independently of that UI state owner.
+  const ui = fixtureUi()
+  pool.bindUi(ui)
+  cleanups.push(() => {
+    pool.dispose()
+    ui.dispose()
+  })
+  const observerCount = () => getObserverTree(ui, 'selectedIssueId').observers?.length ?? 0
+  // Projections track the actual UiStore field, not a former worklist copy.
   const selectionObservers = observerCount()
   // Track size as well as membership so another key can change an observed
   // input while preserving the projected result.
   const read = vi.fn((current: MobxPool) => ({
-    selected: worklistView(current).selectedId === ('target'),
+    selected: current.ui!.selectedIssueId === 'target',
   }))
   const view = createPoolProjection(pool, read, { equals: compareStructural })
   const subscribe = (wake = vi.fn()) => {
@@ -37,16 +43,20 @@ function fixture() {
     view,
     subscribe,
     change: (id: string | null) =>
-      pool.applyLocals({ selectedIssueId: id, coarseNow: 0 }, new Set(['selectedIssueId'])),
+      runInAction(() => ui.setSelectedIssueId(id === null ? null : asIssueId(id))),
     observers: () => observerCount() - selectionObservers,
   }
 }
 
 it('derives selection exit lazily without a selection-history reaction', () => {
-  const f = fixture(), view = worklistView(f.pool)
+  const f = fixture(),
+    view = worklistView(f.pool)
   const exits = observable.map<string, 'evicted' | 'removed'>()
-  f.pool.sources.register(['issueExit'], { read: (_kind, id) => ({ kind: exits.get(id) }), dispose() {} })
-  expect(getObserverTree(view, 'selectedId').observers ?? []).toHaveLength(0)
+  f.pool.sources.register(['issueExit'], {
+    read: (_kind, id) => ({ kind: exits.get(id) }),
+    dispose() {},
+  })
+  expect(getObserverTree(f.pool.ui!, 'selectedIssueId').observers ?? []).toHaveLength(0)
   f.change('target')
   expect(view.selectionGone).toBe(false)
   runInAction(() => exits.set('target', 'evicted'))
@@ -69,7 +79,10 @@ it('uses reference equality without reading collection fields at either scale', 
 
 it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
   const f = fixture()
-  const read = vi.fn((pool: MobxPool) => { const selected = worklistView(pool).selectedId; return selected === null ? [] : [selected] })
+  const read = vi.fn((pool: MobxPool) => {
+    const selected = pool.ui!.selectedIssueId
+    return selected === null ? [] : [selected]
+  })
   const equals = vi.fn((before: string[], next: string[]) => before.join() === next.join())
   const view = createPoolProjection(f.pool, read, { equals })
   const first = view.getSnapshot()
@@ -93,7 +106,7 @@ it('does no reads or equality work for a hidden projection, then pulls the lates
 
 it('retains a visited fold lazily, refreshes hidden changes once, and releases its graph on disposal', () => {
   const f = fixture()
-  const derive = vi.fn(() => worklistView(f.pool).selectedId === 'target')
+  const derive = vi.fn(() => f.pool.ui!.selectedIssueId === 'target')
   const row = computed(derive)
   const read = vi.fn(() => row.get())
   const view = createPoolProjection(f.pool, read, { retainWhileInactive: true })
@@ -214,10 +227,23 @@ it('reads a lazy addressed reference once when subscribing before the first snap
     repoId: 'r',
     deps: [],
   }
-  f.pool.apply({ type: 'replace', rows: [
-    { kind: 'worktree', id: '/r', value: { path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture' } as never },
-    { kind: 'issue', id: 'one', value: issue as never },
-  ] })
+  f.pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'worktree',
+        id: '/r',
+        value: {
+          path: '/r',
+          repoId: 'r',
+          prefix: 'POD',
+          repoPath: '/r',
+          repoName: 'Fixture',
+        } as never,
+      },
+      { kind: 'issue', id: 'one', value: issue as never },
+    ],
+  })
   const read = vi.fn((current: MobxPool) => referenceView(current).read('POD-1'))
   const view = createPoolProjection(f.pool, read)
   const wake = vi.fn()
@@ -265,7 +291,7 @@ it('rethrows reader errors through getSnapshot and recovers on a real input chan
   const view = createPoolProjection(
     f.pool,
     (current) => {
-      if (worklistView(current).selectedId === 'target') throw failure
+      if (current.ui!.selectedIssueId === 'target') throw failure
       return { selected: false }
     },
     { equals: compareStructural },

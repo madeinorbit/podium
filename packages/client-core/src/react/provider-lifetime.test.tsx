@@ -7,7 +7,7 @@ import { withKeyedInputs } from '../../test-support/keyed-inputs'
 import { createSubscriptionStore } from '../../test-support/local-store'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
-import type { ServerConfig } from '../runtime-root/types'
+import type { ServerOrigin } from '../runtime-root/types'
 import type { ScreenState } from '../ui/state'
 import { StoreProvider, useClientRuntime, useCurrentPrincipal, useUi } from './provider'
 
@@ -17,7 +17,10 @@ afterEach(cleanup)
 
 function runtime() {
   const action = vi.fn()
-  const owner = { start: vi.fn(), stop: vi.fn(), dispose: vi.fn() }
+  const owner = { start: vi.fn(), stop: vi.fn(), dispose: vi.fn(), isDisposed: false }
+  owner.dispose.mockImplementation(() => {
+    owner.isDisposed = true
+  })
   return withKeyedInputs(
     Object.assign(
       owner,
@@ -29,7 +32,7 @@ function runtime() {
 
 it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', async () => {
   const api = {} as PodiumClientApi
-  const config: ServerConfig = {
+  const config: ServerOrigin = {
     httpOrigin: 'http://offline.invalid',
     wsClientUrl: 'ws://offline.invalid',
   }

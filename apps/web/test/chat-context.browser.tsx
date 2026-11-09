@@ -1,11 +1,12 @@
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
 
+import { DRAFTS_UI_KEY } from '@podium/client-core/conversation'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
-import { DRAFTS_UI_KEY, openLegacyDeviceKeys } from '@podium/client-core/ui'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'

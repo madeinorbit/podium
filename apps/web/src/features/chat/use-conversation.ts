@@ -143,7 +143,7 @@ export function createWebConversation(
   mount: ConversationMountOptions,
 ): WebConversation {
   pool.bindSessionDrafts(runtime.drafts)
-  const { api: trpc, replica, commands, chatSends } = runtime.root
+  const { api: trpc, replica, commands, chatSends } = runtime
   const hub = runtime.services.connection.hub
   const readSession = () => here(pool.model('session', sessionId))
   const readRecords = () =>

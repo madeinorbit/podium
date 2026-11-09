@@ -78,7 +78,7 @@ import { ConnectionService } from './connection/connection-service'
 import type { CreateHub } from './connection/hub'
 import { OutboxService } from './outbox/outbox-service'
 import type { CreateEngineOutbox } from './outbox/wiring'
-import { defaultFormatError, type ServerConfig } from './types'
+import { defaultFormatError, type ServerOrigin } from './types'
 
 export interface PoolWriter {
   spawnDraftAgent?: Commands['sessions']['spawnDraftAgent']
@@ -107,7 +107,7 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi = PodiumClientAp
   draftSendDebounceMs?: number
   draftPersistDebounceMs?: number
   principal: ClientPrincipal
-  config: ServerConfig
+  config: ServerOrigin
   /** The app's typed tRPC client (web: AppRouter-typed; mobile: MobileTrpc). */
   api: TApi
   onFatalError: (message: string) => void

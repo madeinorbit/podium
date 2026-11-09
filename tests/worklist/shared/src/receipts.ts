@@ -48,12 +48,10 @@ import type {
  *  enqueue-time baseline `send` files on each entry. */
 export interface ReceiptsRuntime {
   subscribeOutboxOutcomes(listener: (outcome: OutboxOutcome) => void): () => void
-  readonly root: {
-    readonly services: {
-      readonly outbox: { readonly queue: Pick<EngineOutbox, 'enqueue' | 'pending' | 'awaiting'> }
-    }
-    readonly replica: Pick<Replica, 'row'>
+  readonly services: {
+    readonly outbox: { readonly queue: Pick<EngineOutbox, 'enqueue' | 'pending' | 'awaiting'> }
   }
+  readonly replica: Pick<Replica, 'row'>
   readonly principal: { readonly userId: string }
 }
 

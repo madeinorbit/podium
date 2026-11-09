@@ -1,5 +1,9 @@
 import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
-import { machinePathBasename as basename, isMachinePathWithinRoot, normalizeMachinePath } from '@podium/model'
+import {
+  machinePathBasename as basename,
+  isMachinePathWithinRoot,
+  normalizeMachinePath,
+} from '@podium/model'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -63,7 +67,7 @@ export function cwdInWorktree(cwd: string, root: string): boolean {
  *  active session. Null = nothing to show. */
 export function resolveActiveWorktree(args: {
   paneA: string | null
-  fileTabs: FileTab[]
+  fileTabs: readonly FileTab[]
   sessions: SessionView[]
 }): ActiveWorktree | null {
   const { paneA, fileTabs, sessions } = args

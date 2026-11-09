@@ -42,7 +42,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const { withKeyedInputs } = await import('@podium/client-core/test-support/keyed-inputs')
   const { fixtureStoreSnapshot } = await import('@/test-support/fixture-store')
-  const { readFixture } = await import('@/app/store')
+  const { fixtureSnapshot: readFixture } = await import('@/test-support/fixture-snapshot')
   const owner = withKeyedInputs({
     getSnapshot: () => fixtureStoreSnapshot(readFixture((state) => state)),
     services: {},

@@ -41,7 +41,7 @@ const window = (path: string, issueId?: string): HeaderRows['window'] =>
     view: 'workspace',
     paneA: 'file',
     fileTabs: [{ id: 'file', worktreePath: path, issueId, scope: { kind: 'worktree' } }],
-  }) as HeaderRows['window']
+  }) as unknown as HeaderRows['window']
 function header(pool: MobxPool): void {
   headerEntities(pool).apply([
     { kind: 'window', id: 'window', value: window('/shared/src/file') },

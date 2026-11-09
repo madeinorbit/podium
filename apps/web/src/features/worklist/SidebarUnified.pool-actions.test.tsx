@@ -365,27 +365,27 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => actions.selectIssue('synthetic-3'))
     await settle()
     await act(async () => {
-      runtime.access.openArtifact({
+      runtime.ui.openArtifact({
         issueId: asIssueId('synthetic-3'),
         artifactId: asArtifactId(artifactId),
         path,
         ...(worktreePath ? { worktreePath } : {}),
       })
     })
-    await waitFor(() => expect(runtime.access.paneA).toMatch(/^file:/))
-    const artifactTabId = runtime.access.paneA
-    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    await waitFor(() => expect(runtime.ui.paneA).toMatch(/^file:/))
+    const artifactTabId = runtime.ui.paneA
+    const saved = runtime.ui.workspaces[runtime.ui.workspaceKey()]
     await act(async () => actions.selectIssue('synthetic-6'))
-    expect(runtime.access.selectedIssueId).toBe('synthetic-6')
-    expect(runtime.access.paneA).not.toBe(artifactTabId)
+    expect(runtime.ui.selectedIssueId).toBe('synthetic-6')
+    expect(runtime.ui.paneA).not.toBe(artifactTabId)
     await act(async () => actions.selectIssue('synthetic-3'))
-    expect(runtime.access.paneA).toBe(artifactTabId)
-    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
+    expect(runtime.ui.paneA).toBe(artifactTabId)
+    expect(runtime.ui.workspaces[runtime.ui.workspaceKey()]).toEqual(saved)
     // An explicit agent click still replaces the selected artifact.
     await act(async () =>
       actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3')),
     )
-    expect(runtime.access.paneA).toBe('synthetic-session-3')
+    expect(runtime.ui.paneA).toBe('synthetic-session-3')
   })
 
   it('restores the selected session and focused split pane across task switches', async () => {
@@ -394,16 +394,16 @@ describe('pool navigation uses the existing gesture semantics', () => {
     })
     await act(async () => {
       actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
-      const layout = runtime.access.workspaces[runtime.access.workspaceKey()]!
-      runtime.access.openSessionTab(asSessionId('synthetic-session-4'))
-      runtime.access.splitWorkspacePane(layout.focusedPaneId, 'row')
-      runtime.access.openSessionTab(asSessionId('synthetic-session-1'))
+      const layout = runtime.ui.workspaces[runtime.ui.workspaceKey()]!
+      runtime.ui.openSessionTab(asSessionId('synthetic-session-4'))
+      runtime.ui.splitWorkspacePane(layout.focusedPaneId, 'row')
+      runtime.ui.openSessionTab(asSessionId('synthetic-session-1'))
     })
-    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    const saved = runtime.ui.workspaces[runtime.ui.workspaceKey()]
     await act(async () => actions.selectIssue('synthetic-6'))
     await act(async () => actions.selectIssue('synthetic-3'))
-    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
-    expect(runtime.access.focusedPane).toBe(saved!.focusedPaneId)
+    expect(runtime.ui.workspaces[runtime.ui.workspaceKey()]).toEqual(saved)
+    expect(runtime.ui.focusedPane).toBe(saved!.focusedPaneId)
   })
 
   it('borrows immutable full drag order across heartbeat and selection changes', async () => {

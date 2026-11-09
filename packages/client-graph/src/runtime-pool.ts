@@ -245,7 +245,7 @@ type TransactionsRuntime = WorklistRuntime & {
 /** The transaction log over the app's runtime; fixtures reuse this wiring. */
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
-  const outbox = rt.services.outbox.queue
+  const outbox = rt.services?.outbox.queue
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
   if (
     !rt.principal ||
@@ -360,7 +360,7 @@ export function createRuntimeWorklistPool(
           : {}),
         subscribe: (listener) => rows.source.subscribe(listener),
       },
-      { get: () => ({ selectedIssueId: runtime.ui.selectedIssueId }), subscribe: () => () => {} },
+      { get: () => ({ selectedIssueId: null }), subscribe: () => () => {} },
       // POD-5423: the worklist's lanes are filed only while a screen that
       // draws them holds them (its pool screen's attachment) or reads them.
       {

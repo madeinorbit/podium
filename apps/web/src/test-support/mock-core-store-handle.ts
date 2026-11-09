@@ -28,7 +28,10 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
           ),
       )
       if (typeof state.workspaceKey !== 'function')
-        state.workspaceKey = () => workspaceKeyForState(state)
+        Object.defineProperty(state, 'workspaceKey', {
+          value: () => workspaceKeyForState(state),
+          configurable: true,
+        })
       return state
     },
     services: {},

@@ -21,7 +21,7 @@ import { NotificationService } from './services/notification-service'
 import { PaneLinkService } from './services/pane-link-service'
 import { TabPruningService } from './services/tab-pruning-service'
 import { ViewStateService } from './services/view-state-service'
-import type { ServerConfig } from './types'
+import type { ServerOrigin } from './types'
 
 /**
  * THE RUNTIME ROOT (POD-6681): one per signed-in user, created at sign-in,
@@ -137,7 +137,7 @@ function fakeVisibility(): VisibilitySource & { set(v: boolean): void; subscribe
   }
 }
 
-const config: ServerConfig = { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }
+const config: ServerOrigin = { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }
 const principal = asClientPrincipal(asUserId('operator'))
 
 function parts() {

@@ -4,7 +4,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
-import { asUserId } from '@podium/model/browser'
+import { asIssueId, asUserId } from '@podium/model/browser'
 import { getObserverTree } from 'mobx'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -47,7 +47,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   const paints = { selected: { selected: true }, empty: { selected: false } }
   const read = (current: MobxPool) => {
     reads++
-    return worklistView(current).selectedId === 'projection-target' ? paints.selected : paints.empty
+    return current.ui!.selectedIssueId === 'projection-target' ? paints.selected : paints.empty
   }
   let reader = read
   let target = 'projection-target'
@@ -56,7 +56,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
     reads++
-    return worklistView(current).selectedId === captured ? paints.selected : paints.empty
+    return current.ui!.selectedIssueId === captured ? paints.selected : paints.empty
   }
   // This fixture counts ordinary hook-driven renders, including an unchanged
   // parent render. Keep it plain and give React its name without an observer
@@ -139,11 +139,10 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     snapshot: () => snapshot!,
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
-    observers: () => getObserverTree(worklistView(pool!), 'selectedId').observers?.length ?? 0,
-    // The host also owns a standing sidebar selection reaction. Count this
-    // probe's projection separately; unmount still checks every observer.
+    observers: () => getObserverTree(runtime.ui, 'selectedIssueId').observers?.length ?? 0,
+    // Count this projection on UiStore; unmount must release every observer.
     projectionObservers: () =>
-      getObserverTree(worklistView(pool!), 'selectedId').observers?.filter(
+      getObserverTree(runtime.ui, 'selectedIssueId').observers?.filter(
         (observer) => observer.name === PROJECTION_NAME,
       ).length ?? 0,
     unmount,
@@ -162,17 +161,11 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     },
     select: (id: string) =>
       act(async () => {
-        const publisher = runtime as unknown as {
-          apply(patch: { selectedIssueId: string | null }): void
-        }
-        publisher.apply({ selectedIssueId: id })
+        runtime.ui.setSelectedIssueId(asIssueId(id))
       }),
     change: () =>
       act(async () => {
-        const publisher = runtime as unknown as {
-          apply(patch: { selectedIssueId: string | null }): void
-        }
-        publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
+        runtime.ui.setSelectedIssueId(snapshot!.selected ? null : asIssueId('projection-target'))
       }),
   }
 }
