@@ -27,6 +27,7 @@ function commandDeps() {
   // rather than as a passing test on the other object.
   const actions = {
     updateIssue: vi.fn(async () => {}),
+    setPinned: vi.fn(async () => {}),
     deleteIssue: vi.fn(async () => {}),
     closeIssue: vi.fn(async () => {}),
     deferIssue: vi.fn(async () => {}),
@@ -135,7 +136,7 @@ describe('shared issue menu command execution', () => {
     expect(actions.updateIssue).toHaveBeenCalledWith('i', { stage: 'review' })
   })
 
-  it('toggles the pin through the patch action — one command, one queue', async () => {
+  it('toggles the pin as my pin record, never an issue patch (POD-6692)', async () => {
     const data = menuData()
     const { deps, actions } = commandDeps()
     const pin = issueMenuEntries(data).find((entry) => entry.id === 'pin')
@@ -143,7 +144,8 @@ describe('shared issue menu command execution', () => {
 
     await runIssueMenuCommand(data, pin, undefined, deps)
 
-    expect(actions.updateIssue).toHaveBeenCalledWith('i', { pinned: true })
+    expect(actions.setPinned).toHaveBeenCalledWith('issue', 'i', true)
+    expect(actions.updateIssue).not.toHaveBeenCalled()
   })
 
   it('asks before archiving an issue that has children, counting the issue itself', async () => {

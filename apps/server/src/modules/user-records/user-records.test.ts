@@ -491,11 +491,24 @@ describe('the per-user records reach their owner only', () => {
     const authority = o.reg.changeLedger.authority
     const before = await authority.cursor()
     const sessionId = await shellSession(o)
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    const task = (await o.call.issues.create({ repoPath: '/r', title: 't', startNow: false })) as {
+      id: string
+    }
     for (const env of [
       envelope(
         'records.pin.create',
         { id: pinRowId(ME, 'repo', '/r'), fields: { userId: ME, kind: 'repo', entityId: '/r' } },
         'v-pin',
+      ),
+      // An issue pin (POD-6692) is the same kind, with the same reach.
+      envelope(
+        'records.pin.create',
+        {
+          id: pinRowId(ME, 'issue', task.id),
+          fields: { userId: ME, kind: 'issue', entityId: task.id },
+        },
+        'v-issue-pin',
       ),
       envelope(
         'records.tabOrder.edit',
@@ -525,6 +538,7 @@ describe('the per-user records reach their owner only', () => {
     expect(await mine(ME)).toEqual(
       [
         pinRowId(ME, 'repo', '/r'),
+        pinRowId(ME, 'issue', task.id),
         tabOrderRowId(ME, '/w'),
         userPreferencesRowId(ME),
         readPositionRowId(ME, 'issueEvents'),
@@ -543,6 +557,7 @@ describe('the per-user records reach their owner only', () => {
     expect([...deltaIds].sort()).toEqual(
       [
         pinRowId(ME, 'repo', '/r'),
+        pinRowId(ME, 'issue', task.id),
         tabOrderRowId(ME, '/w'),
         userPreferencesRowId(ME),
         readPositionRowId(ME, 'issueEvents'),

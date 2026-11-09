@@ -16,8 +16,8 @@ import {
   issueDisplayTitle,
   presenceNote,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, asUserId, pinRowId } from '@podium/model/browser'
-import type { IssueProjection } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model/browser'
+import { asUserId, type IssueProjection, pinRowId } from '@podium/model'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { menuIssues } from '@podium/client-graph/issue-page-menu.before.test.fixture'

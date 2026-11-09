@@ -520,9 +520,26 @@ function preservedMemberData(root: string) {
       .all(),
     markers: db
       .prepare(
-        'SELECT user_id, issue_id, read_at, tucked_at, pinned_at FROM issue_user_state WHERE read_at IS NOT NULL ORDER BY user_id, issue_id',
+        'SELECT user_id, issue_id, read_at, tucked_at FROM issue_user_state WHERE read_at IS NOT NULL ORDER BY user_id, issue_id',
       )
       .all(),
+    // An issue pin moved from `issue_user_state.pinned_at` to a `pins` row
+    // (POD-6692): the same pins, whichever table this chain step holds them in.
+    issuePins: (
+      db.prepare('SELECT name FROM pragma_table_info(?)').all('issue_user_state') as {
+        name: string
+      }[]
+    ).some((column) => column.name === 'pinned_at')
+      ? db
+          .prepare(
+            'SELECT user_id, issue_id, pinned_at FROM issue_user_state WHERE pinned_at IS NOT NULL ORDER BY user_id, issue_id',
+          )
+          .all()
+      : db
+          .prepare(
+            "SELECT user_id, id AS issue_id, pinned_at FROM pins WHERE kind = 'issue' ORDER BY user_id, id",
+          )
+          .all(),
     accounts: db
       .prepare(
         'SELECT id, provider, kind, credential, identity, scope, created_at FROM accounts ORDER BY id',

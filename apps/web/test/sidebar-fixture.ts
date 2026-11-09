@@ -7,6 +7,7 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  pinRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -90,8 +91,16 @@ export function createSidebarFixture(
       entityId: id,
       readAt,
       tuckedAt: tuckedAt ?? null,
-      pinned,
     })
+    // A pinned task is my pin record (POD-6692), never a marker.
+    if (pinned) {
+      put('pin', pinRowId(asUserId(userId), 'issue', id), {
+        userId,
+        kind: 'issue',
+        entityId: id,
+        pinnedAt: iso(-86400000),
+      })
+    }
     put('issueProjection', id, {
       ...normalized,
       description: { value: '' },
@@ -180,6 +189,22 @@ export function createSidebarFixture(
       if (!current) throw new Error(`Unknown synthetic ${entity}:${id}`)
       const record = put(entity, id, { ...(current.value as object), ...patch })
       replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+    },
+    /** Pin or unpin a task for the fixture's user: its `pin` record (POD-6692). */
+    pinIssue(id: string, pinned: boolean) {
+      const pinId = pinRowId(asUserId(userId), 'issue', id)
+      if (pinned) {
+        const record = put('pin', pinId, {
+          userId,
+          kind: 'issue',
+          entityId: id,
+          pinnedAt: iso(-86400000),
+        })
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+        return
+      }
+      if (!records.delete(`pin:${pinId}`)) return
+      replica.onKernelEvent({ type: 'removed', entity: 'pin', entityId: pinId })
     },
   }
 }

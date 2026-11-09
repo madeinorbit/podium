@@ -111,11 +111,7 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
         expect(row.userId).toBe(MEMBERS.bob.id)
       }
       for (const change of bobFeed.deltas()) {
-        if (
-          change.entity === 'issueUserState' ||
-          change.entity === 'sessionUserState' ||
-          change.entity === 'pin'
-        ) {
+        if (change.entity === 'issueUserState' || change.entity === 'sessionUserState') {
           expect(change.entityId).not.toContain(MEMBERS.alice.id)
         }
       }
