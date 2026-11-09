@@ -471,9 +471,9 @@ jobs:
       - name: Build the desktop signature verifier
         run: cargo build --release --locked --manifest-path scripts/stable-candidate-minisign/Cargo.toml
       - name: Verify and backfill the complete release inventory
-        run: bun scripts/release-mirror-backfill.ts --channels "$BACKFILL_CHANNELS" --report "$RUNNER_TEMP/release-mirror-backfill.json" --execute
+        run: bun --conditions=@podium/source scripts/release-mirror-backfill.ts --channels "$BACKFILL_CHANNELS" --report "$RUNNER_TEMP/release-mirror-backfill.json" --execute
       - name: Prove public mirror delivery with the primary unavailable
-        run: bun scripts/verify-live-release-mirror.ts --report "$RUNNER_TEMP/release-mirror-backfill.json"
+        run: bun --conditions=@podium/source scripts/verify-live-release-mirror.ts --report "$RUNNER_TEMP/release-mirror-backfill.json"
       - name: Retain mirror publication evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -72,9 +72,10 @@ describe('release mirror activation wiring', () => {
           step.run?.includes('release-mirror-backfill.ts') && step.run.includes('--execute'),
       ),
     ).toBe(true)
-    expect(backfill.steps.some((step) => step.run?.includes('verify-live-release-mirror.ts'))).toBe(
-      true,
-    )
+    for (const script of ['release-mirror-backfill.ts', 'verify-live-release-mirror.ts']) {
+      const step = backfill.steps.find((step) => step.run?.includes(script))!
+      expect(step.run).toContain('bun --conditions=@podium/source ')
+    }
   })
 
   it('does not install tools when publishing is off and does not print credential values on refusal', () => {
