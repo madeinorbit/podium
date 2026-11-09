@@ -179,14 +179,18 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
             uiState: runtime.deviceState,
             readPosition: runtime.readPosition,
             setPaletteOpen: runtime.palette.setOpen,
+            workspaceKey: runtime.ui.workspaceKey,
             closeAutoContinuePrompt: runtime.autoContinueDialog.close,
           }
         : {}),
       ...('ui' in runtime
         ? Object.fromEntries(
-            Object.getOwnPropertyNames(Object.getPrototypeOf(runtime.ui))
-              .filter((key) => typeof Reflect.get(runtime.ui, key) === 'function')
-              .map((key) => [key, Reflect.get(runtime.ui, key)]),
+            Object.entries(Object.getOwnPropertyDescriptors(Object.getPrototypeOf(runtime.ui)))
+              .filter(
+                ([key, descriptor]) =>
+                  key !== 'constructor' && typeof descriptor.value === 'function',
+              )
+              .map(([key]) => [key, Reflect.get(runtime.ui, key)]),
           )
         : {}),
       coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(),

@@ -332,6 +332,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   read<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
+    this.startCatalog()
     return this.source.read(entity, id) as Loaded<PoolSourceRows[K]>
   }
 
