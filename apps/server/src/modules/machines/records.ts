@@ -34,8 +34,7 @@ import {
   type CheckoutReach,
   type CheckoutReaders,
   checkoutReaders,
-  type LostCheckoutReach,
-  lostReach,
+  covers,
   reachOf,
 } from '../../checkout-reach'
 import { userCommandPrincipal } from '../../command-principal'
@@ -75,13 +74,20 @@ export interface MachineRecordsDeps {
     of(
       ids: readonly MachineId[],
     ): Promise<ReadonlyMap<MachineId, ReadonlyMap<string, { reach: CheckoutReach }>>>
+    /** Each member's lost checkouts on these machines (`checkout_lost`). */
+    lost(
+      ids: readonly MachineId[],
+    ): Promise<ReadonlyMap<MachineId, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>>
+    /** The live checkouts of these machines, each marked root or not. */
+    paths(
+      ids: readonly MachineId[],
+    ): Promise<ReadonlyMap<MachineId, readonly { path: string; root: boolean }[]>>
     apply(
-      rows: readonly {
-        userId: string
-        machineId: MachineId
-        reach: CheckoutReach
-        lost: LostCheckoutReach | null
-      }[],
+      change: {
+        readonly reach: readonly { userId: string; machineId: MachineId; reach: CheckoutReach }[]
+        readonly lost: readonly { userId: string; machineId: MachineId; path: string; root: boolean }[]
+        readonly found: readonly { userId: string; machineId: MachineId; path: string }[]
+      },
       at: string,
     ): Promise<void>
     transact<T>(fn: () => Promise<T>): Promise<T>
@@ -193,11 +199,12 @@ export async function machineRecordSpecs(
  * Write the records on `writer`. Unchanged rows append nothing.
  *
  * With `deps.reach`, each member whose access row this write appended has
- * their checkout reach recorded in the same transaction: the new reach, and
- * what the write took away from the old one (cleared by their next appended
- * row). The feed's machineAccess anchor reads it to evict exactly the
- * checkouts the member lost (POD-6644). A run that appends no access row
- * reads and writes no reach.
+ * their checkout reach recorded in the same transaction: the new reach, the
+ * live checkouts a shrink took away (`checkout_lost`, kept until the member's
+ * reach covers them again), and the lost ones it re-admits. The feed's
+ * machineAccess anchor evicts every lost checkout on each move of that
+ * member's row, so a device away across several writes still catches up
+ * (POD-6644). A run that appends no access row reads and writes no reach.
  */
 export async function writeMachineRecords(
   deps: MachineRecordsDeps,
@@ -235,17 +242,38 @@ async function recordReach(
     }
   })
   if (moved.length === 0) return
-  const stored = await reach.of([...new Set(moved.map((row) => row.machineId))])
+  const machines = [...new Set(moved.map((row) => row.machineId))]
+  const [stored, held] = await Promise.all([reach.of(machines), reach.lost(machines)])
+  const before = (row: (typeof moved)[number]) =>
+    stored.get(row.machineId)?.get(row.userId)?.reach ?? 'none'
+  // A shrink records exactly the live checkouts the old reach covered and the
+  // new one does not. The machine's paths are read only when one shrank.
+  const shrank = moved.filter(
+    (row) => (before(row) === 'all' && row.next !== 'all') || (before(row) !== 'none' && row.next === 'none'),
+  )
+  const paths =
+    shrank.length === 0
+      ? new Map<MachineId, readonly { path: string; root: boolean }[]>()
+      : await reach.paths([...new Set(shrank.map((row) => row.machineId))])
+  const lost = shrank.flatMap((row) =>
+    (paths.get(row.machineId) ?? [])
+      .filter((checkout) => covers(before(row), checkout) && !covers(row.next, checkout))
+      .map((checkout) => ({ userId: row.userId, machineId: row.machineId, ...checkout })),
+  )
+  // A lost checkout the new reach covers again is re-admitted, so it leaves.
+  const found = moved.flatMap((row) =>
+    (held.get(row.machineId)?.get(row.userId) ?? [])
+      .filter((checkout) => covers(row.next, checkout))
+      .map((checkout) => ({ userId: row.userId, machineId: row.machineId, path: checkout.path })),
+  )
   await reach.apply(
-    moved.map((row) => {
-      const before = stored.get(row.machineId)?.get(row.userId)?.reach ?? 'none'
-      return {
-        userId: row.userId,
-        machineId: row.machineId,
-        reach: row.next,
-        lost: lostReach(before, row.next),
-      }
-    }),
+    {
+      reach: moved
+        .filter((row) => before(row) !== row.next)
+        .map((row) => ({ userId: row.userId, machineId: row.machineId, reach: row.next })),
+      lost,
+      found,
+    },
     reach.now(),
   )
 }

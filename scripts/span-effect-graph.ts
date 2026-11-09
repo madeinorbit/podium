@@ -655,9 +655,17 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The recorded checkout reach of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_reach inside the same transaction; it writes and publishes nothing.",
   },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.lost': {
+    kind: 'contained',
+    why: "The lost checkouts of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_lost inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.paths': {
+    kind: 'contained',
+    why: "The live checkouts of the machines where a member's reach shrank [POD-6644]: one grouped read of checkouts inside the same transaction, only on a shrink; it writes and publishes nothing.",
+  },
   'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.apply': {
     kind: 'contained',
-    why: "The appended members' new checkout reach and lost reach, written to the server-only checkout_reach table [POD-6644] in the same transaction as the access rows' capture. Nothing outside the process reads it until commit, and a rollback takes it with the rows.",
+    why: "The appended members' new checkout reach and the checkouts a shrink took from them or a re-grant gave back, written to the server-only checkout_reach and checkout_lost tables [POD-6644] in the same transaction as the access rows' capture. Nothing outside the process reads them until commit, and a rollback takes them with the rows.",
   },
   'apps/server/src/machine-access.ts#MachineOwnershipIndex.rowFor': {
     kind: 'contained',

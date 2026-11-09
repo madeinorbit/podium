@@ -12,8 +12,8 @@
 
 import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
-import type { CheckoutReach, LostCheckoutReach } from '../checkout-reach'
-import { checkoutReach, checkouts } from '../migrations/schema'
+import type { CheckoutReach } from '../checkout-reach'
+import { checkoutLost, checkoutReach, checkouts } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -104,7 +104,6 @@ const reachOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
       userId: checkoutReach.userId,
       machineId: checkoutReach.machineId,
       reach: checkoutReach.reach,
-      lost: checkoutReach.lost,
     })
     .from(checkoutReach)
     .where(inListOf(checkoutReach.machineId, size))
@@ -118,16 +117,12 @@ const upsertReach = prepared((db: StoreDrizzle) =>
       userId: sql.placeholder('userId'),
       machineId: sql.placeholder('machineId'),
       reach: sql.placeholder('reach'),
-      lost: sql.placeholder('lost'),
+      lost: null,
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
       target: [checkoutReach.userId, checkoutReach.machineId],
-      set: {
-        reach: sql.placeholder('reach'),
-        lost: sql.placeholder('lost'),
-        updatedAt: sql.placeholder('updatedAt'),
-      },
+      set: { reach: sql.placeholder('reach'), lost: null, updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
 )
@@ -139,6 +134,47 @@ const deleteReach = prepared((db: StoreDrizzle) =>
       and(
         eq(checkoutReach.userId, param(checkoutReach.userId, 'userId')),
         eq(checkoutReach.machineId, param(checkoutReach.machineId, 'machineId')),
+      ),
+    )
+    .prepare(),
+)
+
+/** The lost checkouts of every member on several machines. */
+const lostOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      userId: checkoutLost.userId,
+      machineId: checkoutLost.machineId,
+      path: checkoutLost.path,
+      root: checkoutLost.root,
+    })
+    .from(checkoutLost)
+    .where(inListOf(checkoutLost.machineId, size))
+    .prepare(),
+)
+
+const insertLost = prepared((db: StoreDrizzle) =>
+  db
+    .insert(checkoutLost)
+    .values({
+      userId: sql.placeholder('userId'),
+      machineId: sql.placeholder('machineId'),
+      path: sql.placeholder('path'),
+      root: sql.placeholder('root'),
+      lostAt: sql.placeholder('lostAt'),
+    })
+    .onConflictDoNothing()
+    .prepare(),
+)
+
+const deleteLost = prepared((db: StoreDrizzle) =>
+  db
+    .delete(checkoutLost)
+    .where(
+      and(
+        eq(checkoutLost.userId, param(checkoutLost.userId, 'userId')),
+        eq(checkoutLost.machineId, param(checkoutLost.machineId, 'machineId')),
+        eq(checkoutLost.path, param(checkoutLost.path, 'path')),
       ),
     )
     .prepare(),
@@ -260,37 +296,62 @@ export class CheckoutsRepository {
    *  `checkout_reach`), keyed machine then member, one statement per 500. */
   async reachOfMachines(
     machineIds: readonly MachineId[],
-  ): Promise<Map<MachineId, Map<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>> {
-    const out = new Map<MachineId, Map<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>()
+  ): Promise<Map<MachineId, Map<string, { reach: CheckoutReach }>>> {
+    const out = new Map<MachineId, Map<string, { reach: CheckoutReach }>>()
     for (let at = 0; at < machineIds.length; at += 500) {
       const chunk = machineIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
       for (const row of await reachOfMachines(this.db, size).all(inListValues(chunk, size))) {
         const members = out.get(row.machineId) ?? new Map()
-        members.set(row.userId, { reach: row.reach, lost: row.lost })
+        members.set(row.userId, { reach: row.reach })
         out.set(row.machineId, members)
       }
     }
     return out
   }
 
-  /** Record these reaches. A member with no reach and nothing lost has no row. */
+  /** Each member's lost checkouts on each of these machines (see
+   *  `checkout_lost`), keyed machine then member, one statement per 500. */
+  async lostOfMachines(
+    machineIds: readonly MachineId[],
+  ): Promise<Map<MachineId, Map<string, { path: string; root: boolean }[]>>> {
+    const out = new Map<MachineId, Map<string, { path: string; root: boolean }[]>>()
+    for (let at = 0; at < machineIds.length; at += 500) {
+      const chunk = machineIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await lostOfMachines(this.db, size).all(inListValues(chunk, size))) {
+        const members = out.get(row.machineId) ?? new Map<string, { path: string; root: boolean }[]>()
+        const paths = members.get(row.userId) ?? []
+        paths.push({ path: row.path, root: row.root })
+        members.set(row.userId, paths)
+        out.set(row.machineId, members)
+      }
+    }
+    return out
+  }
+
+  /** Record these reaches, and add and drop these lost checkouts, in one
+   *  transaction. A member with no reach has no reach row. */
   async applyReach(
-    rows: readonly {
-      userId: string
-      machineId: MachineId
-      reach: CheckoutReach
-      lost: LostCheckoutReach | null
-    }[],
+    change: {
+      readonly reach: readonly { userId: string; machineId: MachineId; reach: CheckoutReach }[]
+      readonly lost?: readonly { userId: string; machineId: MachineId; path: string; root: boolean }[]
+      readonly found?: readonly { userId: string; machineId: MachineId; path: string }[]
+    },
     at: string,
   ): Promise<void> {
-    if (rows.length === 0) return
+    const lost = change.lost ?? [],
+      found = change.found ?? []
+    if (change.reach.length === 0 && lost.length === 0 && found.length === 0) return
     await this.createOrJoinTransaction(async () => {
-      for (const row of rows) {
+      for (const row of change.reach) {
         const key = { userId: row.userId, machineId: row.machineId }
-        if (row.reach === 'none' && row.lost === null) await deleteReach(this.db).run(key)
-        else await upsertReach(this.db).run({ ...key, reach: row.reach, lost: row.lost, updatedAt: at })
+        if (row.reach === 'none') await deleteReach(this.db).run(key)
+        else await upsertReach(this.db).run({ ...key, reach: row.reach, updatedAt: at })
       }
+      for (const row of found) await deleteLost(this.db).run(row)
+      for (const row of lost)
+        await insertLost(this.db).run({ ...row, root: row.root ? 1 : 0, lostAt: at })
     })
   }
 

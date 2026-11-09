@@ -33,6 +33,10 @@ import * as schema from './schema'
 /** The 0/1 integer columns, `<table>.<column>`. */
 const BOOLEAN_COLUMNS = [
   'automations.enabled',
+  // A checkout's flags and a lost checkout's kind (POD-6644).
+  'checkout_lost.root',
+  'checkouts.locked',
+  'checkouts.prunable',
   'effects.cancel_requested',
   'issues.archived',
   'issues.draft',

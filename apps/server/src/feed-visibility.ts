@@ -67,12 +67,7 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
-import {
-  type CheckoutReach,
-  checkoutReaders,
-  type LostCheckoutReach,
-  reachCovers,
-} from './checkout-reach'
+import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
@@ -1252,7 +1247,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }),
         ),
       ]
-      const [audiences, departures, custody, checkoutPaths, checkoutReach] = await Promise.all([
+      const [audiences, departures, custody, checkoutPaths, checkoutReach, checkoutLost] =
+        await Promise.all([
         issueIds.length === 0
           ? new Map<string, readonly string[]>()
           : deps.audiencesFor('issue', issueIds),
@@ -1262,8 +1258,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           ? new Map<string, { path: string; root: boolean }[]>()
           : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
         accessMachines.length === 0
-          ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach; lost: LostCheckoutReach | null }>>()
+          ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
           : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
+        accessMachines.length === 0
+          ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
+          : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
       ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
@@ -1278,12 +1277,19 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           } catch {
             return null
           }
-          const recorded = checkoutReach.get(key.machineId)?.get(key.userId)
-          if (recorded === undefined) return null
-          const covers = reachCovers(recorded.reach, recorded.lost)
-          const paths = (checkoutPaths.get(key.machineId) ?? []).filter((checkout) =>
-            checkout.root ? covers.roots : covers.worktrees,
-          )
+          // What the member reads now (re-admitted), and every checkout a
+          // shrink took from them that their reach has not covered again
+          // (evicted, live or gone): never a checkout they could not read.
+          const reach = checkoutReach.get(key.machineId)?.get(key.userId)?.reach ?? 'none'
+          const lost = checkoutLost.get(key.machineId)?.get(key.userId) ?? []
+          const paths = [
+            ...new Set([
+              ...(checkoutPaths.get(key.machineId) ?? [])
+                .filter((checkout) => covers(reach, checkout))
+                .map((checkout) => checkout.path),
+              ...lost.map((checkout) => checkout.path),
+            ]),
+          ].map((path) => ({ path }))
           if (paths.length === 0) return null
           return {
             audience: [key.userId],

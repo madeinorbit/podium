@@ -48,7 +48,7 @@ export interface FeedVisibilityStore {
    *  reach on it (POD-6644). */
   readonly checkouts: Pick<
     SessionStore['checkouts'],
-    'pathsOfMachines' | 'rootPathsOfMachines' | 'reachOfMachines'
+    'pathsOfMachines' | 'rootPathsOfMachines' | 'reachOfMachines' | 'lostOfMachines'
   >
 }
 export type DeliveryMessages = Pick<

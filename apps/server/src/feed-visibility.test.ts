@@ -723,7 +723,7 @@ describe('machine access and checkout rows', () => {
       }),
     ).toBeNull()
     await store.checkouts.applyReach(
-      [{ userId: reader, machineId: asMachineId('m1'), reach: 'all', lost: null }],
+      { reach: [{ userId: reader, machineId: asMachineId('m1'), reach: 'all' }] },
       '2026-11-09T00:00:00Z',
     )
     const edge = await edgeOf(policy.anchors, {

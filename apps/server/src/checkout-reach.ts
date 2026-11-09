@@ -12,8 +12,6 @@
 
 /** What a member may read of one machine's checkouts. */
 export type CheckoutReach = 'all' | 'roots' | 'none'
-/** What one access-row write took away from a member's reach. */
-export type LostCheckoutReach = 'worktrees' | 'roots' | 'all'
 
 interface MachineEdge {
   readonly grantee: string
@@ -49,23 +47,16 @@ export function reachOf(userId: string, readers: CheckoutReaders): CheckoutReach
   return 'none'
 }
 
-/** What a member could read before and may not after; `null` when nothing. */
-export function lostReach(before: CheckoutReach, after: CheckoutReach): LostCheckoutReach | null {
-  const lostWorktrees = before === 'all' && after !== 'all'
-  const lostRoots = before !== 'none' && after === 'none'
-  if (lostWorktrees && lostRoots) return 'all'
-  if (lostWorktrees) return 'worktrees'
-  if (lostRoots) return 'roots'
-  return null
+/** Which kinds of checkout a reach covers. */
+export function reachCovers(reach: CheckoutReach): {
+  readonly roots: boolean
+  readonly worktrees: boolean
+} {
+  return { roots: reach !== 'none', worktrees: reach === 'all' }
 }
 
-/** Which kinds of checkout a reach and a loss cover, together. */
-export function reachCovers(
-  reach: CheckoutReach,
-  lost: LostCheckoutReach | null,
-): { readonly roots: boolean; readonly worktrees: boolean } {
-  return {
-    roots: reach !== 'none' || lost === 'roots' || lost === 'all',
-    worktrees: reach === 'all' || lost === 'worktrees' || lost === 'all',
-  }
+/** Whether a reach covers this checkout (a root, or a worktree). */
+export function covers(reach: CheckoutReach, checkout: { readonly root: boolean }): boolean {
+  const kinds = reachCovers(reach)
+  return checkout.root ? kinds.roots : kinds.worktrees
 }

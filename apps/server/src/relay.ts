@@ -1048,7 +1048,9 @@ export class SessionRegistry {
       // transaction: the feed evicts exactly what a member lost (POD-6644).
       reach: {
         of: async (ids) => await this.store.checkouts.reachOfMachines(ids),
-        apply: async (rows, at) => await this.store.checkouts.applyReach(rows, at),
+        lost: async (ids) => await this.store.checkouts.lostOfMachines(ids),
+        paths: async (ids) => await this.store.checkouts.pathsOfMachines(ids),
+        apply: async (change, at) => await this.store.checkouts.applyReach(change, at),
         transact: async (fn) => await this.store.transact(fn),
         now: () => new Date(this.now()).toISOString(),
       },

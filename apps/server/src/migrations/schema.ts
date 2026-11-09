@@ -1018,12 +1018,42 @@ export const checkoutReach = sqliteTable(
     userId: text('user_id').$type<UserId>().notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     reach: text({ enum: ['all', 'roots', 'none'] }).notNull(),
+    // LEGACY(remove-after: 2027-02): the lost KIND, written by faafbecbea only and never read since `checkout_lost` holds the lost paths; a contract migration drops the column.
     lost: text({ enum: ['worktrees', 'roots', 'all'] }),
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.machineId], name: 'checkout_reach_pk' }),
     index('idx_checkout_reach_machine').on(table.machineId),
+  ],
+)
+
+/**
+ * THE CHECKOUTS A MEMBER COULD READ AND NO LONGER MAY (POD-6644): one row per
+ * member, machine and path. Server-only, never on the wire.
+ *
+ * Written by the access-row write that shrank the member's reach: exactly the
+ * live checkouts the old reach covered and the new one does not. The feed's
+ * machineAccess anchor evicts every one of them, on every later move of that
+ * member's access row too, so a device that was away across several writes
+ * still receives the evicts when it catches up. A path leaves only when the
+ * member's reach covers it again (a re-grant re-admits it). Bounded by the
+ * paths the machine held at the shrinks; a repeated evict of an id the device
+ * no longer holds is harmless.
+ */
+export const checkoutLost = sqliteTable(
+  'checkout_lost',
+  {
+    userId: text('user_id').$type<UserId>().notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    path: text().notNull(),
+    /** The path was a registered root (MANAGE covers it), else a worktree. */
+    root: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
+    lostAt: text('lost_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.machineId, table.path], name: 'checkout_lost_pk' }),
+    index('idx_checkout_lost_machine').on(table.machineId),
   ],
 )
 
