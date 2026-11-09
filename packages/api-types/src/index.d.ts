@@ -5066,6 +5066,7 @@ type Output_issues_get = (null) | ({
     tuckedAt: null | string;
     type: "decision" | "phase" | "task";
     updatedAt: string;
+    viewerUserId?: (string & z.BRAND<"UserId">) | undefined;
     worktreePath: null | string;
 });
 type Output_issues_mailClaim = {
