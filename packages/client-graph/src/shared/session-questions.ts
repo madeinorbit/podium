@@ -221,8 +221,8 @@ export function createSessionQuestions(
     const visible = value !== undefined && !collapsed(id)
     if (membership || before.cwd !== value.cwd || before.order !== value.order ||
         before.archived !== value.archived || before.headless !== value.headless) {
-      const previousPaths = before?.activityPaths.filter(key => key.startsWith('activity:within:')) ?? []
-      const nextPaths = value?.activityPaths.filter(key => key.startsWith('activity:within:')) ?? []
+      const previousPaths = before ? machinePathAncestors(before.cwd).map(path => `workspace:within:${machinePathKey(path)}`) : []
+      const nextPaths = value ? machinePathAncestors(value.cwd).map(path => `workspace:within:${machinePathKey(path)}`) : []
       const nextKeys = new Set(nextPaths)
       for (const key of previousPaths) if (!nextKeys.has(key))
         bucket(workspaceMembers, key, id, undefined, compareReference)
@@ -314,7 +314,7 @@ export function createSessionQuestions(
     hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
     firstWithin(path, preferred) {
       visits++
-      const answer = workspaceMembers.get(`activity:within:${machinePathKey(path)}`)?.answer
+      const answer = workspaceMembers.get(`workspace:within:${machinePathKey(path)}`)?.answer
       return preferred && answer?.has(preferred) ? preferred : answer?.first()?.id
     },
     present(id) {

@@ -1499,12 +1499,12 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
       "rule": "reader-summary",
-      "tokens": "1e89d24337303e4ac0ce825c85d1f3036e875a4db45bd0339ae0d725b8a9fe57",
+      "tokens": "abf973d642d457867fa630f0852d68f0170bbef9116ba367e0ff180b1e2ab6d0",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "1dc7c92a40eb04cec8294aecde96048df581640da48b6fd422c5ae68753e5732",
+      "fingerprint": "c18d582f82a138493d48e61d2aee4466de751bfe9291ffa48fa939d43602e14f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36940,6 +36940,92 @@
       "bound": "Only the supplied workspace pane tree and its operator-opened tab identities; no session/issue catalogue or joined rows.",
       "reason": "Pure workspace value reducers operate on the caller-selected layout. UiStore invokes them next to the screen fields they change.",
       "guard": "packages/client-core/src/values/workspace-layout.test.ts and the UiStore tab-close test; the latter asserts zero session lookups."
+    },
+    {
+      "file": "apps/web/src/app/Workspace.tsx",
+      "holder": "Workspace/renderChrome/callback/map:callback",
+      "rule": "helper-consumer",
+      "tokens": "11894f77f451568ac519a44dcb98e3c76f012ccd976cdc70e056aac7475055e3",
+      "gate": [
+        "exit:then:14f51dd716089ff1328518ed2bbe37789405decb316ad3799a7af076f437c317",
+        "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
+        "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
+        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9",
+        "exit:then:8efae713e8de8961567a10f9f38a858872836247cd8540c190761346a0fe3d31"
+      ],
+      "origin": [
+        "696502b4a621e86e5720bf0232ceb86eac926407f55ba07dc69d64f8bc0a171b"
+      ],
+      "fingerprint": "77fd6425c0296541aa73a866618dd402a4109b05678e00dd2a32ef7846dae378",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5797",
+      "trigger": "Render the named workspace tab strip.",
+      "bound": "Only tab IDs supplied by allTabIds(currentWorkspace) or the current pane tabs; resolution uses the already addressed workspace inputs.",
+      "reason": "Materializes the open tab strip, not a session catalogue. The resolver has exactly these two layout-owned callers.",
+      "guard": "apps/web/src/app/workspace-inputs.test.tsx checks only current/retained IDs with 128 and 512 unrelated sessions; no catalogue query is made."
+    },
+    {
+      "file": "apps/web/src/app/Workspace.tsx",
+      "holder": "Workspace/renderChrome/callback/map:callback",
+      "rule": "reader-summary",
+      "tokens": "ff457b6f1befc3dcffddc08690296ee106cd14b32c655c319da9512a5a9e6a78",
+      "gate": [
+        "exit:then:14f51dd716089ff1328518ed2bbe37789405decb316ad3799a7af076f437c317",
+        "exit:then:8d0e517780f780d0b65811aed51e832f53210d62d377912f307c59ce6f18a21e",
+        "exit:then:1c5dd456b5bcf33db147abf4ad917f4455bf2c313c7303259436a30021b956a5",
+        "exit:then:2eaa8f4a090b781f446401422fcd407cccb29c62bb7352c64e06d869c88be82f",
+        "exit:then:ddb495793224dd237c39edc75ebac74694735a6cc773463f40a870bdf2672cf9",
+        "exit:then:8efae713e8de8961567a10f9f38a858872836247cd8540c190761346a0fe3d31"
+      ],
+      "origin": [
+        "696502b4a621e86e5720bf0232ceb86eac926407f55ba07dc69d64f8bc0a171b"
+      ],
+      "fingerprint": "ae1b4ae88ed5c827fd21492bca82beb683ac1ae092b1508d035dc9d01af8c2a8",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5797",
+      "trigger": "Render the named workspace tab strip.",
+      "bound": "Only tab IDs supplied by allTabIds(currentWorkspace) or the current pane tabs; resolution uses the already addressed workspace inputs.",
+      "reason": "Materializes the open tab strip, not a session catalogue. The resolver has exactly these two layout-owned callers.",
+      "guard": "apps/web/src/app/workspace-inputs.test.tsx checks only current/retained IDs with 128 and 512 unrelated sessions; no catalogue query is made."
+    },
+    {
+      "file": "apps/web/src/app/Workspace.tsx",
+      "holder": "Workspace/resolveAll/callback",
+      "rule": "consume:map",
+      "tokens": "0e7c2de93ebad11bf75e3fbf004a135315fe6cadf91f0c17a1ec0f77cb36f076",
+      "gate": [],
+      "origin": [
+        "696502b4a621e86e5720bf0232ceb86eac926407f55ba07dc69d64f8bc0a171b"
+      ],
+      "fingerprint": "d2052d49f9647f7fb25cebb47882415489ace282c0e3669ea307275ee907aa94",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5797",
+      "trigger": "Render the named workspace tab strip.",
+      "bound": "Only tab IDs supplied by allTabIds(currentWorkspace) or the current pane tabs; resolution uses the already addressed workspace inputs.",
+      "reason": "Materializes the open tab strip, not a session catalogue. The resolver has exactly these two layout-owned callers.",
+      "guard": "apps/web/src/app/workspace-inputs.test.tsx checks only current/retained IDs with 128 and 512 unrelated sessions; no catalogue query is made."
+    },
+    {
+      "file": "apps/web/src/app/Workspace.tsx",
+      "holder": "Workspace/resolveAll/callback",
+      "rule": "consume:filter",
+      "tokens": "27d18b8871a56ad30b165aac90a4a9517a61e4881a74fed7d88640539726965d",
+      "gate": [],
+      "origin": [
+        "696502b4a621e86e5720bf0232ceb86eac926407f55ba07dc69d64f8bc0a171b"
+      ],
+      "fingerprint": "ffb819832e6ea2e288c26f46001d6bad41d2c0b32bfeaec4066879d9e8f54a8a",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5797",
+      "trigger": "Render the named workspace tab strip.",
+      "bound": "Only tab IDs supplied by allTabIds(currentWorkspace) or the current pane tabs; resolution uses the already addressed workspace inputs.",
+      "reason": "Materializes the open tab strip, not a session catalogue. The resolver has exactly these two layout-owned callers.",
+      "guard": "apps/web/src/app/workspace-inputs.test.tsx checks only current/retained IDs with 128 and 512 unrelated sessions; no catalogue query is made."
     }
   ]
 }
