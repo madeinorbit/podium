@@ -756,11 +756,10 @@ describe('pairing supersedes handoff intent', () => {
       profileSelected: false,
     })
     expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(handoffId)
-    expect(seams.router.replace).toHaveBeenCalledWith('/')
     expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
-    expect(seams.router.replace.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      seams.parsePairing.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    )
+    // The router never routes a pairing link (+native-intent), and navigating
+    // here remounted the root layout and wiped the gate's pairing state.
+    expect(seams.router.replace).not.toHaveBeenCalledWith('/')
     expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
   })
 
@@ -1616,7 +1615,7 @@ describe('hosted sign-in profile activation', () => {
     expect(seams.credentials.get('profile-a')).toBe('token-a')
     expect(seams.credentials.get(seams.activeContext!.profile.id)).toBe('cloud-token')
     expect(seams.parsePairing).not.toHaveBeenCalled()
-    expect(seams.router.replace).toHaveBeenCalledWith('/')
+    expect(seams.router.replace).not.toHaveBeenCalledWith('/')
     expect(JSON.stringify(seams.durableProfiles)).not.toContain('cloud-token')
     expect(
       seams.runtime.some(

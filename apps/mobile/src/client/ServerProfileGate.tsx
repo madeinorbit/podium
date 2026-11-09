@@ -49,6 +49,7 @@ import { startupTiming } from '../lib/startup-timing'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
+import { isGateOwnedAppLink } from './app-link-intent'
 import { clearInitialAppUrl, readInitialAppUrl, subscribeAppUrls } from './app-links'
 import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
@@ -388,16 +389,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
 
   const handleLink = useCallback((raw: string) => {
-    // Native app links can contain the one-time secret in router state. Drop
-    // that route before parsing, rendering, logging, or awaiting network I/O.
-    // Best-effort: on a cold launch the router may not be mounted yet, and a
-    // throw here silently swallowed the whole pairing link (found 2026-08-27).
-    // The app/pair route also redirects itself, so a failed replace is safe.
+    // Pairing and sign-in links never reach the router: +native-intent sends
+    // them to `/` before routing, so their secret is never in router state.
+    // Navigating here as well remounted the root layout under this gate and
+    // wiped the pairing state the link had just set (POD-2364). Other native
+    // links still drop the route the router opened for them before parsing.
+    // Best-effort: on a cold launch the router may not be mounted yet.
     if (Platform.OS !== 'web') {
-      try {
-        router.replace('/')
-      } catch {
-        // not mounted yet — the pair route's own <Redirect> covers it
+      if (!isGateOwnedAppLink(raw)) {
+        try {
+          router.replace('/')
+        } catch {
+          // not mounted yet
+        }
       }
       setupOwnsStartup.current = false
     }
