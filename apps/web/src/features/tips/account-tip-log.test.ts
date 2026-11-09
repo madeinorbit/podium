@@ -30,8 +30,7 @@ function account(initial: Readonly<Record<string, unknown>> = {}) {
       async (kind, input) => {
         expect(input.kind).toBe('userLayout')
         const key = parseLayoutRowId(input.id).key
-        if (kind === 'recordEdit')
-          data.set(key, (input as { patch: { value: unknown } }).patch.value)
+        if (kind === 'recordEdit' && 'patch' in input) data.set(key, input.patch.value)
         else if (kind === 'recordRemove') data.delete(key)
         else throw new Error(`Unexpected tip write: ${kind}`)
         deliver()

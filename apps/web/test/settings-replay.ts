@@ -41,7 +41,7 @@ const readonly = (): never => { throw new Error('Replay cannot write') }
 const none = () => () => {}
 const ui = createRoutedUiState({
   local: { get: () => null, set: readonly, subscribe: none },
-  replicated: { hydrate: async () => {}, get: (key) => layout[key], set: readonly, clear: readonly, subscribe: none },
+  replicated: { get: (key) => layout[key], set: readonly, clear: readonly, subscribe: none },
 })
 const state = { sessions: dedupeSessionsByResume(sessions), machines, repos, settingsTab: 'accounts' }
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: none, ui })

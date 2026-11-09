@@ -114,7 +114,7 @@ function harness(
   }))
   const router = {
     current: () => ({
-      view: 'tasks',
+      view: 'issues',
       settingsTab: null,
       issueId: null,
       worktree: null,
@@ -213,7 +213,7 @@ function harness(
     navigate: (runtime as unknown as { navigate: (intent: NavigationIntent) => boolean }).navigate,
   })
   cleanups.push(() => ui.dispose())
-  ui.patch({ view: 'tasks', navigation })
+  ui.patch({ view: 'issues', navigation })
   function readState() {
     return {
       ...state,
@@ -625,7 +625,7 @@ describe('tucking the task on screen leaves it (POD-2293)', () => {
     expect(h.state().selectedIssueId).toBeNull()
     // The worktree stays: clearing it would hand over to the worktree fallback.
     expect(h.state().selectedWorktree).toBe('/wt')
-    expect(h.navigated.at(-1)).toMatchObject({ view: 'tasks' })
+    expect(h.navigated.at(-1)).toMatchObject({ view: 'issues' })
     expect(h.state().workspaces).toBe(workspaces)
   })
 

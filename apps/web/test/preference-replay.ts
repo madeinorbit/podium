@@ -31,7 +31,6 @@ const none = () => () => {}
 const ui = createRoutedUiState({
   local: { get: () => null, set: readonly, subscribe: none },
   replicated: {
-    hydrate: async () => {},
     get: (key) => values[key],
     set: readonly,
     clear: readonly,

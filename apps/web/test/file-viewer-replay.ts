@@ -1,4 +1,3 @@
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 /** Read-only saved file-mode replay. Operator paths and values remain in memory
  * on ludovico; only counts and comparison positions are printed. */
 import { readFileSync } from 'node:fs'
@@ -11,11 +10,9 @@ import {
   MD_MODE_MAP_KEY,
 } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { isMarkdownPath } from '../src/features/files/file-kind'
-import {
-  checkFileViewerPreferences,
-  type FileViewerPreference,
-} from './files/file-viewer-check'
+import { checkFileViewerPreferences, type FileViewerPreference } from './files/file-viewer-check'
 
 if (hostname() !== 'ludovico') throw new Error('Operator file-mode replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(
@@ -37,7 +34,6 @@ const readonly = () => {
 const ui = createRoutedUiState({
   local: { get: () => null, set: readonly, subscribe: none },
   replicated: {
-    hydrate: async () => {},
     get: (key) => values[key],
     set: readonly,
     clear: readonly,
