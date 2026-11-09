@@ -89,6 +89,9 @@ const IssueLabels = z
 /** `sync.submit` is served over tRPC; the other adapters come with POD-6359. */
 const SUBMIT_ONLY: readonly TransportTag[] = ['trpc']
 
+/** Served over tRPC and through an agent's relay. */
+const SUBMIT_AND_RELAY: readonly TransportTag[] = ['trpc', 'relay']
+
 const QUEUED: DeliveryPolicy = {
   class: 'offline-eligible',
   outboxReconciliation:
@@ -507,7 +510,10 @@ export const PIN_RECORD = defineSyncedKind({
     remove: { policy: OWN_ROW_WRITE, note: 'Unpin it.' },
   },
   visibility: PER_USER_VISIBILITY,
-  exposure: SUBMIT_ONLY,
+  // An agent pins for its human too (`podium issue update --pinned`, POD-6692),
+  // as it could while a pin was a field of the task. The adapter's own-human
+  // check is the guard: a pin row naming anybody else is unknown.
+  exposure: SUBMIT_AND_RELAY,
   delivery: QUEUED,
   redaction: {
     reviewed: true,

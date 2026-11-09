@@ -864,11 +864,16 @@ const defs = {
         const sessions = (
           await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id, reader)
         ).filter((session) => session.agentKind !== 'shell')
+        // The human the caller acts for (an agent's, or the person themself):
+        // the CLI names that person's own records with it, such as the pin
+        // record `update --pinned` creates (POD-6692).
+        const viewerUserId = ctx.markerUser()
         return {
           ...issue,
           sessions,
           sessionSummaries: await sessionSummaries(ctx, issue),
           allowed: await allowedActions(ctx, issue.id),
+          ...(viewerUserId !== undefined ? { viewerUserId } : {}),
         }
       }),
   }),

@@ -103,6 +103,10 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // sessionId; the target is ALWAYS the CALLING session (bound from the
   // capability), so it grants no reach over any other session.
   offer: new Set(['set', 'clear']),
+  // An issue pin is the human's own pin record (POD-6692): `podium issue update
+  // --pinned` creates or removes it through the entry point. Only pins, and the
+  // pin adapter refuses any row that is not the caller's human's.
+  records: new Set(['pin.create', 'pin.remove']),
 }
 
 /**

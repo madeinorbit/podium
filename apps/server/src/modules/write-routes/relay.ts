@@ -154,6 +154,10 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   },
   'offer.set': SYNC_ADAPTER,
   'offer.clear': SYNC_ADAPTER,
+  // The human's own issue pin, from `podium issue update --pinned` (POD-6692).
+  // Reached only inside a `sync.submit` envelope: there is no direct arm.
+  'records.pin.create': entry('records.pin.create'),
+  'records.pin.remove': entry('records.pin.remove'),
 }
 
 /**

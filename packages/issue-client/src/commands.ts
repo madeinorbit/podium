@@ -18,10 +18,12 @@ import {
   machineRejectionMessage,
   machinesFor,
   type NameableMachine,
+  pinRowId,
   RETIRED_ISSUE_TYPES,
   type SelectableMachine,
   type SessionId,
   structuralEligibility,
+  type UserId,
 } from '@podium/model'
 import {
   bareSelfRefCount,
@@ -29,7 +31,9 @@ import {
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   issueDisplayRef,
+  type SyncSubmitTransport,
   selfRefNudge,
+  submitNow,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
 import { z } from 'zod'
@@ -533,6 +537,41 @@ type TreeNode = Omit<IssueTreeNode<ShowSession>, 'sessions' | 'children'> & {
   children: TreeNode[]
 }
 
+/**
+ * PIN OR UNPIN A TASK FOR THE CALLER'S HUMAN (POD-6692): a pin is that person's
+ * own `pin` record of the task (kind `issue`), never a field of it. One read
+ * resolves the reference and names the human the caller acts for (an agent's,
+ * or the person themself); the pin is then a generic record create or remove
+ * on the sync write entry point, idempotent by key: pinning a pinned task, or
+ * unpinning one that is not, changes nothing.
+ */
+async function setIssuePin(
+  c: IssueTrpc,
+  ref: string,
+  pinned: boolean,
+): Promise<{ id: IssueId; seq: number; pinned: boolean }> {
+  const issue = (await c.issues.get.query({ id: ref })) as {
+    id: IssueId
+    seq: number
+    viewerUserId?: UserId
+  } | null
+  if (!issue) throw new Error(`unknown issue ${ref}`)
+  if (issue.viewerUserId === undefined) {
+    throw new Error('update --pinned: a pin is a person’s own, and this caller acts for nobody')
+  }
+  const id = pinRowId(issue.viewerUserId, 'issue', issue.id)
+  const transport = c as unknown as SyncSubmitTransport
+  if (pinned) {
+    await submitNow(transport, 'records.pin.create', {
+      id,
+      fields: { userId: issue.viewerUserId, kind: 'issue', entityId: issue.id },
+    })
+  } else {
+    await submitNow(transport, 'records.pin.remove', { id })
+  }
+  return { id: issue.id, seq: issue.seq, pinned }
+}
+
 export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'ready',
@@ -880,8 +919,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       dueAt: z.string().optional(),
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
-      // No `--pinned` (POD-6692): a pin is the person's own `pin` record, made
-      // in the app, never a field of the task.
+      // `--pinned` (POD-6692) is not a field of the task: it creates or removes
+      // the caller's human's own `pin` record of it (see {@link setIssuePin}).
+      pinned: cliBool.optional(),
       // Manual sidebar order (POD-168): fractional key, ascending = top of the
       // row's sibling scope. Normally written by the sidebar drag; exposed here
       // so agents/scripts can reorder too.
@@ -922,9 +962,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.profile != null) patch.agentProfile = a.profile === 'none' ? null : a.profile
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
+      const pinned = a.pinned as boolean | undefined
       // An empty patch is a caller mistake (typo'd/absent flags), not a success (#345).
-      if (Object.keys(patch).length === 0) {
+      if (Object.keys(patch).length === 0 && pinned === undefined) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')
+      }
+      if (Object.keys(patch).length === 0) {
+        const pin = await setIssuePin(c, a.id as string, pinned!)
+        return { text: `${pinned ? 'pinned' : 'unpinned'} #${pin.seq}`, data: pin }
       }
       const i = (await c.issues.update.mutate({
         id: a.id as string,
@@ -932,6 +977,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
         ...(a.expectedRevision != null ? { expectedRevision: a.expectedRevision as number } : {}),
       })) as { seq: number; acceptance?: string | null }
+      if (pinned !== undefined) await setIssuePin(c, a.id as string, pinned)
       const handoff = patch.stage === 'review' || patch.stage === 'done'
       return { text: `updated #${i.seq}${handoff ? acceptanceReminder(i) : ''}`, data: i }
     },
