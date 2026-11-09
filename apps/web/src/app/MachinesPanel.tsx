@@ -3,6 +3,7 @@ import { type FailureReason, MachineFailureReason } from '@/features/updates/Mac
 // This app-level surface composes settings, setup, and machine capabilities.
 
 import { relativeTime } from '@podium/client-core/focus'
+import { useCommands } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import { asMachineId } from '@podium/model'
@@ -1023,7 +1024,7 @@ const MachineRow = observer(function MachineRow({
   /** Ask the panel to re-read the fleet now. */
   onConvergenceChanged?: () => void
 }): JSX.Element {
-  const { renameMachine } = useSettingsClient()
+  const { rename: renameMachine } = useCommands().machines
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -1897,7 +1898,7 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
   const channel: UpdateChannel | null = machine.updateChannelOverride ?? null
   const targetVersion = machine.targetVersion ?? null
   const unavailableReason = machine.targetUnavailableReason ?? null
-  const { setMachineUpdateChannel } = useSettingsClient()
+  const { setUpdateChannel: setMachineUpdateChannel } = useCommands().machines
   const developing = useFeature('podium-development')
   const [changingChannel, setChangingChannel] = useState(false)
   const [applying, setApplying] = useState(false)

@@ -157,6 +157,14 @@ export function fixtureRoot<T extends object>(
         return read(access(), 'gitCommitDiffFile')
       },
     },
+    machines: {
+      get rename() {
+        return read(access(), 'renameMachine')
+      },
+      get setUpdateChannel() {
+        return read(access(), 'setMachineUpdateChannel')
+      },
+    },
     preferences: {
       get setPinned() {
         return read(access(), 'setPinned')

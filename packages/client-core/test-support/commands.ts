@@ -6,6 +6,8 @@ export function fixtureCommands<TApi extends PodiumClientApi>(rt: FixtureCommand
   const modules = createCommands(rt)
   const chat = createChatSends(rt)
   return {
+    renameMachine: modules.machines.rename,
+    setMachineUpdateChannel: modules.machines.setUpdateChannel,
     setPinned: modules.preferences.setPinned,
     setTabOrder: modules.preferences.setTabOrder,
     navigateWorkspace: rt.ui.navigateWorkspace,

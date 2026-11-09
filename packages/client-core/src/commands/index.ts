@@ -8,6 +8,8 @@ import { createFilesCommands } from './files'
 import type { FilesCommands } from './files-types'
 import { createIssuesCommands } from './issues'
 import type { IssuesCommands } from './issues-types'
+import { createMachinesCommands } from './machines'
+import type { MachinesCommands } from './machines-types'
 import { createPreferencesCommands } from './preferences'
 import type { PreferencesCommands } from './preferences-types'
 import { createSessionsCommands } from './sessions'
@@ -20,6 +22,7 @@ export type { AutomationsCommands } from './automations-types'
 export type { CommandDeps } from './context'
 export type { FilesCommands } from './files-types'
 export type { IssuesCommands } from './issues-types'
+export type { MachinesCommands } from './machines-types'
 export type { PreferencesCommands } from './preferences-types'
 export type {
   SessionEndResult,
@@ -33,6 +36,7 @@ export interface Commands<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly sessions: SessionsCommands<TApi>
   readonly issues: IssuesCommands<TApi>
   readonly files: FilesCommands<TApi>
+  readonly machines: MachinesCommands
   readonly preferences: PreferencesCommands<TApi>
   readonly automations: AutomationsCommands<TApi>
   readonly threads: ThreadsCommands<TApi>
@@ -47,6 +51,7 @@ export function createCommands<TApi extends PodiumClientApi>(
     sessions: createSessionsCommands(deps, shared),
     issues: createIssuesCommands(deps, shared),
     files: createFilesCommands(deps, shared.reportFailure),
+    machines: createMachinesCommands(shared),
     preferences: createPreferencesCommands(deps, shared),
     automations: createAutomationsCommands(deps, shared),
     threads: createThreadsCommands(deps, shared),
