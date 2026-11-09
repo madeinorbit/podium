@@ -33,6 +33,10 @@ export const REFRESHABLE_CHANNELS: readonly UpdateChannel[] = ['dev', 'edge', 's
 export const REFRESH_INTERVAL_MS = 24 * 60 * 60_000
 /** A publication gap is expected to close in minutes, not at tomorrow's tick. */
 export const REFRESH_RETRY_INTERVAL_MS = 2 * 60_000
+export const REFRESH_FAILURE_INTERVALS_MS = [2 * 60_000, 10 * 60_000, 60 * 60_000] as const
+
+/** False is a failing feed; only an incomplete publication keeps the short retry. */
+export type TargetRefreshResult = boolean | void | 'incomplete'
 
 /**
  * Boot already refreshes, so the first SCHEDULED tick exists to catch a feed
@@ -45,10 +49,9 @@ export const REFRESH_INITIAL_JITTER_MS = 5 * 60_000
 
 export interface TargetRefreshDeps {
   /**
-   * Resolve one channel's target. False means the feed was incomplete or
-   * unavailable and needs the short retry cadence; void keeps test adapters compatible.
+   * Resolve one channel's target. Void keeps test adapters compatible.
    */
-  refresh(channel: UpdateChannel): Promise<boolean | void>
+  refresh(channel: UpdateChannel): Promise<TargetRefreshResult>
   /** True while a wave is in flight on this channel; the tick skips it. */
   operationActive(channel: UpdateChannel): Promise<boolean>
   /**
@@ -63,6 +66,10 @@ export interface TargetRefreshDeps {
   /** Stated by tests; production jitters it from `random`. */
   initialDelayMs?: number
   random?(): number
+  now?(): number
+  /** Results of the immediate boot check, so a healthy feed waits a full day. */
+  initialResults?: Partial<Record<UpdateChannel, TargetRefreshResult>>
+  enabled?: boolean
 }
 
 export interface TargetRefreshHandle {
@@ -79,20 +86,25 @@ export interface TargetRefreshHandle {
  * jittered tick. A caller may state channels only for an armed negative control.
  */
 export async function refreshTargetsOnBoot(deps: {
-  refresh(channel: UpdateChannel): Promise<unknown>
+  refresh(channel: UpdateChannel): Promise<TargetRefreshResult>
   channels?: readonly UpdateChannel[]
-}): Promise<void> {
+  enabled?: boolean
+}): Promise<Partial<Record<UpdateChannel, TargetRefreshResult>>> {
+  const results: Partial<Record<UpdateChannel, TargetRefreshResult>> = {}
+  if (deps.enabled === false) return results
   const channels = deps.channels ?? REFRESHABLE_CHANNELS
   await Promise.all(
     channels.map(async (channel) => {
       try {
-        await deps.refresh(channel)
+        results[channel] = await deps.refresh(channel)
       } catch {
+        results[channel] = false
         // The update service records the channel-specific outcome. One feed
         // being unavailable must not make the rest of the server unbootable.
       }
     }),
   )
+  return results
 }
 
 /** The production scheduler: an unref'd single-shot timer, re-armed per tick. */
@@ -112,10 +124,36 @@ export function initialRefreshDelayMs(random: () => number = Math.random): numbe
  * server would refresh a service whose store is closed.
  */
 export function startTargetRefresh(deps: TargetRefreshDeps): TargetRefreshHandle {
+  if (deps.enabled === false) return { stop() {} }
   const channels = deps.channels ?? REFRESHABLE_CHANNELS
   const intervalMs = deps.intervalMs ?? REFRESH_INTERVAL_MS
   const retryIntervalMs = deps.retryIntervalMs ?? REFRESH_RETRY_INTERVAL_MS
   const firstDelayMs = deps.initialDelayMs ?? initialRefreshDelayMs(deps.random ?? Math.random)
+  const now = deps.now ?? Date.now
+  const failures = new Map<UpdateChannel, number>()
+  const due = new Map<UpdateChannel, number>()
+  const delayFor = (channel: UpdateChannel, result: TargetRefreshResult): number => {
+    if (result === false) {
+      const count = (failures.get(channel) ?? 0) + 1
+      failures.set(channel, count)
+      return (
+        REFRESH_FAILURE_INTERVALS_MS[
+          Math.min(count - 1, REFRESH_FAILURE_INTERVALS_MS.length - 1)
+        ] ?? 60 * 60_000
+      )
+    }
+    failures.delete(channel)
+    return result === 'incomplete' ? retryIntervalMs : intervalMs
+  }
+  const startedAt = now()
+  for (const channel of channels) {
+    const hasBootResult = deps.initialResults && channel in deps.initialResults
+    const delay = hasBootResult ? delayFor(channel, deps.initialResults?.[channel]) : firstDelayMs
+    due.set(
+      channel,
+      startedAt + (hasBootResult && delay < intervalMs ? Math.max(delay, firstDelayMs) : delay),
+    )
+  }
   let cancel: (() => void) | undefined
   let stopped = false
 
@@ -127,33 +165,38 @@ export function startTargetRefresh(deps: TargetRefreshDeps): TargetRefreshHandle
   }
 
   const tick = async (): Promise<void> => {
-    let retrySoon = false
     for (const channel of channels) {
       if (stopped) return
+      if ((due.get(channel) ?? Infinity) > now()) continue
       // Skipping is the whole coordination: never yank a target out from under a
       // machine that is mid-grant on it.
       // AWAITED: a bare call here is a truthy promise, so every channel would
       // look mid-grant and no target would ever refresh.
       if (await deps.operationActive(channel)) {
-        retrySoon = true
+        due.set(channel, now() + retryIntervalMs)
         continue
       }
       // `refreshTarget` records its own failure as a check outcome, but a rejected
       // promise here would leave the loop unarmed and silently end the schedule —
       // which is the failure mode this module exists to remove.
+      let result: TargetRefreshResult
       try {
-        if ((await deps.refresh(channel)) === false) retrySoon = true
+        result = await deps.refresh(channel)
       } catch {
         // Deliberately swallowed: the outcome is recorded on the service.
-        retrySoon = true
+        result = false
       }
+      due.set(channel, now() + delayFor(channel, result))
     }
     // A release manifest may lead its companion desktop build by a few minutes.
     // Do not turn that honest temporary rejection into a day-long stale answer.
-    arm(retrySoon ? retryIntervalMs : intervalMs)
+    armNext()
   }
 
-  arm(firstDelayMs)
+  const armNext = (): void => {
+    if (due.size > 0) arm(Math.max(0, Math.min(...due.values()) - now()))
+  }
+  armNext()
   return {
     stop(): void {
       stopped = true

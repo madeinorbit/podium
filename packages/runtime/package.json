@@ -30,6 +30,7 @@
     "./setup-enrollment": "./src/setup-enrollment.ts",
     "./vps-bootstrap": "./src/vps-bootstrap.ts",
     "./installer": "./src/installer.ts",
+    "./release-origins": "./src/release-origins.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",
     "./loop-metrics": "./src/loop-metrics.ts",
     "./loop-profile": "./src/loop-profile.ts",

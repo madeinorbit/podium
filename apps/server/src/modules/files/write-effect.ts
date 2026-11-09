@@ -25,8 +25,9 @@
  */
 
 import { FILE_CONTRACTS } from '@podium/commands'
-import { type MachineId, mintDeviceId } from '@podium/model'
+import { asMachineId, asSessionId, type MachineId, mintDeviceId } from '@podium/model'
 import type { z } from 'zod'
+import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import { isAllowedRoot } from '../../root-allowlist'
 import type { EffectRow } from '../../store/effects'
@@ -54,7 +55,7 @@ export interface FileWriteAnswer {
 export interface FileWriteEffectDeps {
   modules(): RegistryModules
   /** The registered repository roots (the root allowlist), read per call. */
-  repoPaths(): Promise<string[]>
+  repoPaths(machineId: MachineId): Promise<string[]>
   /** The machine a root-addressed save without a machine names. */
   readonly hostMachineId: MachineId
 }
@@ -77,10 +78,13 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
   if (effects === undefined) throw new Error('file write effect: no effects module')
   const rpc = () => deps.modules().rpc
   const rootAllowed = async (input: FileWriteInput) =>
-    !('root' in input) || isAllowedRoot(await deps.repoPaths(), input.root)
+    !('root' in input) || isAllowedRoot(await deps.repoPaths(input.machineId ?? deps.hostMachineId), input.root)
+  const resolvedInput = (input: FileWriteInput): FileWriteInput =>
+    'root' in input ? { ...input, machineId: input.machineId ?? deps.hostMachineId } : input
 
   /** Did the save land? Reads the file back through the same daemon. */
-  const readBack = async (input: FileWriteInput): Promise<EffectOutcome> => {
+  const readBack = async (raw: FileWriteInput): Promise<EffectOutcome> => {
+    const input = resolvedInput(raw)
     const read = await rpc().readFile(
       'sessionId' in input
         ? { sessionId: input.sessionId, path: input.path }
@@ -111,8 +115,22 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
   effects.executors.register<FileWriteInput>({
     kind: FILE_WRITE_EFFECT_KIND,
     input: FILE_CONTRACTS.write.input,
-    // The shipped gate is the root allowlist, which `admit` applies with the input.
-    target: async () => NO_TARGET,
+    // Direct sync submissions must pass the same live private-class gate as the
+    // route adapter. Use on a machine never grants another human's session.
+    target: async (target, principal) => {
+      const modules = deps.modules()
+      const access = privateResourceAccess({
+        sessionOwnerUserId: async (sessionId) => (await modules.sessions.sessionOwner(sessionId))?.owner,
+        machines: modules.machines,
+      }, principal)
+      if (target.kind === 'session') {
+        return await access.ownsSession(asSessionId(target.id)) ? NO_TARGET : undefined
+      }
+      if (target.kind === 'machine') {
+        return await access.mayReadMachineFiles(asMachineId(target.id)) ? NO_TARGET : undefined
+      }
+      return undefined
+    },
     admit: async (input, target) => {
       const addressed = fileWriteTarget(input, deps.hostMachineId)
       if (addressed.kind !== target.kind || addressed.id !== target.id) {
@@ -128,7 +146,7 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
       ...(input.baseHash ? { baseHash: input.baseHash } : {}),
     }),
     run: async (ctx: EffectRunContext<FileWriteInput>) => {
-      const input = ctx.input
+      const input = resolvedInput(ctx.input)
       if (!(await rootAllowed(input))) {
         return {
           status: 'failed',

@@ -1,3 +1,4 @@
+import { ReleasePublicationPendingError } from './feed-errors'
 import { createLogger, describeError } from '@podium/logger'
 import { updateFingerprint } from '@podium/runtime/machine-update'
 import type { MachineId, UpdateChannel } from '@podium/model'
@@ -73,7 +74,8 @@ export interface UpdatesDeps {
    * the publisher, and that exclusion is what made it the one channel whose
    * resolution path nothing else exercised.
    */
-  resolveTarget?(channel: UpdateChannel): Promise<UpdateTarget>
+  resolveTarget?(channel: UpdateChannel, previous?: UpdateTarget): Promise<UpdateTarget>
+  feedPollingEnabled?(): boolean
   /**
    * Does THIS server also mint targets for this channel? True for `dev` on a
    * source host, false everywhere else. See {@link UpdatesService.resolvedMayReplace}
@@ -419,6 +421,7 @@ export class UpdatesService {
 
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
+  private readonly incompleteFeeds = new Set<UpdateChannel>()
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
   /** Versions published while an exclusive operation held the group (§3.2). */
   private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
@@ -890,6 +893,11 @@ export class UpdatesService {
    * one promise per channel removes the overlap that makes the ordering question
    * exist at all, so the guard cannot be reintroduced by adding a seventh caller.
    */
+  async refreshTargetForPolling(channel: UpdateChannel): Promise<boolean | 'incomplete'> {
+    const ok = await this.refreshTarget(channel)
+    return ok ? true : this.incompleteFeeds.has(channel) ? 'incomplete' : false
+  }
+
   async refreshTarget(channel: UpdateChannel): Promise<boolean> {
     const inFlight = this.refreshesInFlight.get(channel)
     if (inFlight) return inFlight
@@ -954,6 +962,13 @@ export class UpdatesService {
     // dev feed to ask. There is one now, so every channel takes the same three
     // lines below — which is the point of the convergence: the resolve path
     // production uses is exercised many times a day rather than at release.
+    this.incompleteFeeds.delete(channel)
+    if (this.deps.feedPollingEnabled?.() === false && !this.deps.locallyPublished?.(channel)) {
+      const reason = 'Release feed polling is disabled for this instance.'
+      if (!this.target(channel)) this.unavailableReasons.set(channel, reason)
+      this.recordCheck(channel, { status: 'unavailable', reason })
+      return false
+    }
     if (!this.deps.resolveTarget) {
       const reason = `${channel} target resolver is not configured.`
       this.unavailableReasons.set(channel, reason)
@@ -961,7 +976,16 @@ export class UpdatesService {
       return false
     }
     try {
-      const resolved = await this.deps.resolveTarget(channel)
+      const previous = this.target(channel)
+      const resolved = previous
+        ? await this.deps.resolveTarget(channel, previous)
+        : await this.deps.resolveTarget(channel)
+      // An unchanged advertisement has no publication or recovery work to do.
+      if (previous && previous.version === resolved.version && updateFingerprint(previous) === updateFingerprint(resolved)) {
+        this.unavailableReasons.delete(channel)
+        this.recordCheck(channel, { status: 'ok' })
+        return true
+      }
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.
@@ -970,6 +994,7 @@ export class UpdatesService {
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {
+      if (error instanceof ReleasePublicationPendingError) this.incompleteFeeds.add(channel)
       const reason = describeError(error)
       // The reason shown to clients describes the ABSENCE of a target, so a
       // failed lookup that leaves a previously-good target standing must not

@@ -117,6 +117,8 @@ export type MachineFailureCode =
   | 'machine-artifact-rejected'
   /** This machine cannot reach the address embedded in the published release. */
   | 'artifact-unreachable'
+  /** The manifest is visible before its named artifact. Retry after publication. */
+  | 'artifact-not-published'
   /** It restarted but did not come back on the target version. */
   | 'machine-update-not-confirmed'
   /** The server retracted the target while this machine was mid-flight. */
@@ -343,10 +345,16 @@ const UPDATE_FAILURE_MATCHERS = [
     example: 'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
   },
   {
+    token: 'artifact-not-published',
+    pattern: /artifact download returned 404\b/i,
+    code: 'artifact-not-published',
+    example: 'artifact download returned 404 — not published yet; retry later',
+  },
+  {
     token: 'download-http-status',
     pattern: /artifact download returned \d+/i,
     code: 'download-failed',
-    example: 'artifact download returned 404',
+    example: 'artifact download returned 503',
   },
   {
     token: 'download-timed-out',

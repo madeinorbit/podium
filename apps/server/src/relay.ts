@@ -1149,8 +1149,10 @@ export class SessionRegistry {
       // installation's own feed descriptor, which only the composition root can
       // state; without one the resolver refuses `dev` by name rather than
       // resolving something else.
-      resolveTarget: async (channel) =>
+      feedPollingEnabled: () => this.store.settings.resolve('updateFeedPolling').value,
+      resolveTarget: async (channel, previous) =>
         await resolveReleaseTarget(channel, {
+          ...(previous ? { previous } : {}),
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
         }),
       // `dev` on a source host is the one channel this server both PUBLISHES
@@ -4812,7 +4814,7 @@ export class SessionRegistry {
     // Saving a file from the app (POD-6395).
     registerFileWriteEffect({
       modules: () => this.modules,
-      repoPaths: async () => await this.store.repos.listRepoPaths(),
+      repoPaths: async (machineId) => await this.store.repos.listRepoPaths(machineId),
       hostMachineId: this.store.hostMachineId,
     })
     // Scans and clones on a machine (POD-6396).
@@ -4878,7 +4880,8 @@ export class SessionRegistry {
         workflowCallerForCapability,
         workflows,
       }),
-      capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
+      capabilityForSession: (sessionId, machineId) =>
+        sessionsSvc.capabilityForSession(sessionId, machineId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // Self-stop kill only after agentRelayResult is on the wire [spec:SP-9904].
       // POD-3989: graceful lifecycle(stop) first, kill frame as escalation.

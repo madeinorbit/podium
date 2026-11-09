@@ -42,6 +42,7 @@ import {
   resolvePublicUrl,
   resolveTranscriptLake,
   resolveUpdateScope,
+  resolveUpdateFeedPolling,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
@@ -651,6 +652,7 @@ export async function startServer(
   // Fails the boot rather than advertising a UI origin whose browser could never
   // hold this server's session cookie (PDM-26).
   assertAppUrlCompatible(config, process.env)
+  const feedPollingEnabled = resolveUpdateFeedPolling(config, process.env)
   const updateScope = resolveUpdateScope(config, process.env)
   const fleetOnly = updateScope === 'fleet-only'
   ensureInstanceStateIdentity({ instanceId })
@@ -2593,9 +2595,10 @@ export async function startServer(
       recoveryOnly
         ? Promise.resolve()
         : refreshTargetsOnBoot({
-            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+            refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+            enabled: feedPollingEnabled,
           })
-    ).then(async () => {
+    ).then(async (initialResults) => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
       if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
@@ -2606,7 +2609,9 @@ export async function startServer(
         recoveryOnly || rehearsal
           ? { stop: () => {} }
           : startTargetRefresh({
-              refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+              refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+              enabled: feedPollingEnabled,
+              initialResults: initialResults ?? {},
               operationActive: (channel) => registry.modules.updates.operationActive(channel),
               schedule: timerSchedule,
             })

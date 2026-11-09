@@ -620,8 +620,8 @@ export class SessionLifecycle {
   async createSession(input: Parameters<SessionStart['create']>[0]): Promise<SessionSpawnResult> {
     return await this.sessionStart.create(input)
   }
-  capabilityForSession(sessionId: SessionId): Promise<Capability> {
-    return this.sessionAuthz.capabilityForSession(sessionId)
+  capabilityForSession(sessionId: SessionId, senderMachineId?: MachineId): Promise<Capability> {
+    return this.sessionAuthz.capabilityForSession(sessionId, senderMachineId)
   }
   inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
     return this.sessionAuthz.inboxPrincipalForCapability(capability)

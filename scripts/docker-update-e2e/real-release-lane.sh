@@ -577,7 +577,7 @@ point_real_release_at_feed() {
   dropin="$REAL_UNIT_DIR/$(real_legacy_unit server).d"
   real_exec mkdir -p "$dropin"
   real_exec bash -lc \
-    "printf '[Service]\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$dropin/real-release-feed.conf'"
+    "printf '[Service]\nEnvironment=PODIUM_UPDATE_FEED_POLLING=on\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$dropin/real-release-feed.conf'"
   real_exec systemctl --user daemon-reload
   real_exec systemctl --user restart "$(real_legacy_unit server)"
   wait_for 120 "real $REAL_RELEASE_VERSION server on the run-local feed" real_healthy
@@ -823,7 +823,7 @@ run_real_release_lane() {
     # not see it.
     real_exec mkdir -p "$REAL_UNIT_DIR/$REAL_PARENT_UNIT.d"
     real_exec bash -lc \
-      "printf '[Service]\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$REAL_UNIT_DIR/$REAL_PARENT_UNIT.d/sandbox.conf'"
+      "printf '[Service]\nEnvironment=PODIUM_UPDATE_FEED_POLLING=on\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$REAL_UNIT_DIR/$REAL_PARENT_UNIT.d/sandbox.conf'"
     real_exec systemctl --user daemon-reload
     require_disk_margin "held real-release sandbox"
     print_real_release_hold_instructions

@@ -7,8 +7,9 @@ import { spanOpen } from '../../store/executor/executor'
 
 
 import { createLogger, describeError } from '@podium/logger'
-import type { SessionId, UserId } from '@podium/model'
+import type { MachineId, SessionId, UserId } from '@podium/model'
 import { asSessionId, asUserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -268,9 +269,25 @@ export class SessionAuthz {
 
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
    *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
-   *  issue needs --outside-scope). Unknown session → most-restricted. */
-  async capabilityForSession(sessionId: SessionId): Promise<Capability> {
-    const s = await this.ports.records.ownershipOf(sessionId, 'capability')
+   *  issue needs --outside-scope). Trusted internal calls retain the restricted
+   *  unknown-session fallback; daemon calls must bind the authenticated sender. */
+  async capabilityForSession(
+    sessionId: SessionId,
+    senderMachineId?: MachineId,
+  ): Promise<Capability> {
+    // The durable placement and the authority below come from ONE row. A live
+    // object or transport binding can still name the old machine after a handoff;
+    // checking it separately and then resolving ownership would split the snapshot.
+    const relaySession = senderMachineId === undefined
+      ? undefined
+      : await this.ports.store.sessions.loadSession(sessionId)
+    if (
+      senderMachineId !== undefined &&
+      (!relaySession || relaySession.deletedAt || relaySession.machineId !== senderMachineId)
+    ) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'not authorized' })
+    }
+    const s = relaySession ?? await this.ports.records.ownershipOf(sessionId, 'capability')
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     // A DELEGATION ACTS ONLY WHILE ITS HUMAN CAN (POD-6293; design §2.3, §4.5).
     // A disabled or removed owner's agents keep running (POD-4152 lets them

@@ -1,4 +1,4 @@
-import { type InstallerChannel, installerUrl } from './installer'
+import { type InstallerChannel, installerUrls } from './installer'
 
 export type VpsReleaseChannel = InstallerChannel
 
@@ -12,7 +12,7 @@ export type VpsReleaseChannel = InstallerChannel
  * user chose.
  */
 export function buildVpsBootstrapCommand(channel: VpsReleaseChannel): string {
-  const url = installerUrl(channel)
+  const urls = installerUrls(channel)
   // Keep the command inspectable without returning to `curl | sh`: curl must finish a complete
   // file before a shell executes it.
   //
@@ -23,7 +23,7 @@ export function buildVpsBootstrapCommand(channel: VpsReleaseChannel): string {
   return (
     'tmp="$(mktemp)" && ' +
     'trap \'rm -f "$tmp"\' EXIT HUP INT TERM && ' +
-    `curl -fsSL "${url}" -o "$tmp" && ` +
+    `(${urls.map((url) => `curl -fsSL --connect-timeout 5 --max-time 10 "${url}" -o "$tmp"`).join(' || ')}) && ` +
     `sh "$tmp" --channel ${channel} --agents codex,claude-code,grok --vps`
   )
 }

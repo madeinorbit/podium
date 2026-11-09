@@ -198,6 +198,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     --config) config="$2"; shift 2 ;;
+    -D|--connect-timeout|--max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
@@ -212,6 +213,55 @@ chmod +x "$AUTHBIN/curl"
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR" "$WORK/curl.log"
 env PATH="$AUTHBIN:$PATH" GH_TOKEN="gh_testtoken" PODIUM_CURL_LOG="$WORK/curl.log" sh "$ROOT/install.sh" --channel edge
 grep -F 'Authorization: Bearer gh_testtoken' "$WORK/curl.log" >/dev/null || { echo "FAIL: authenticated install did not send GitHub token"; exit 1; }
+
+echo "== primary outage fetches the artifact/signature pair from the mirror =="
+MIRRORBIN="$WORK/mirrorbin"; mkdir -p "$MIRRORBIN"
+cat > "$MIRRORBIN/curl" <<'SH'
+#!/bin/sh
+out=""; url=""; auth="no"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    --config) auth="yes"; shift 2 ;;
+    -D|--connect-timeout|--max-time) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+printf '%s auth=%s\n' "$url" "$auth" >> "$PODIUM_MIRROR_TEST_LOG"
+case "$url" in
+  https://github.com/*) exit 22 ;;
+  https://releases.podium.do/latest/*)
+    name="${url##*/}"
+    if [ -n "${PODIUM_MIRROR_BAD_SIGNATURE:-}" ] && [ "$name" = podium-headless-linux-x64.tar.gz.sig ]; then
+      printf 'YmFk' > "$out"
+    else cp "$PODIUM_MIRROR_TEST_REL/$name" "$out"; fi
+    ;;
+  *) echo "unexpected origin: $url" >&2; exit 1 ;;
+esac
+SH
+chmod +x "$MIRRORBIN/curl"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
+env -u PODIUM_INSTALL_BASE PATH="$MIRRORBIN:$PATH" GH_TOKEN=gh_testtoken \
+  PODIUM_MIRROR_TEST_LOG="$WORK/mirror.log" PODIUM_MIRROR_TEST_REL="$REL" \
+  PODIUM_STUB_LOG="$LOG" sh "$ROOT/install.sh"
+test "$(wc -l < "$WORK/mirror.log")" -eq 3 || { echo "FAIL: origin retry loop"; exit 1; }
+grep -F 'https://releases.podium.do/latest/podium-headless-linux-x64.tar.gz auth=no' "$WORK/mirror.log" >/dev/null \
+  || { echo "FAIL: mirror artifact missing or received GitHub credentials"; exit 1; }
+grep -F 'https://releases.podium.do/latest/podium-headless-linux-x64.tar.gz.sig auth=no' "$WORK/mirror.log" >/dev/null \
+  || { echo "FAIL: mirror signature missing or received GitHub credentials"; exit 1; }
+test -f "$HOME/.local/share/podium/VERSION" || { echo "FAIL: mirror pair did not install"; exit 1; }
+
+echo "== mirror signature failure refuses installation =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium"
+if env -u PODIUM_INSTALL_BASE PATH="$MIRRORBIN:$PATH" \
+  PODIUM_MIRROR_TEST_LOG="$WORK/mirror-bad.log" PODIUM_MIRROR_TEST_REL="$REL" \
+  PODIUM_MIRROR_BAD_SIGNATURE=1 sh "$ROOT/install.sh" > "$WORK/mirror-bad-output" 2>&1; then
+  echo "FAIL: invalid mirror signature installed"; exit 1
+fi
+grep -F 'signature verification FAILED' "$WORK/mirror-bad-output" >/dev/null \
+  || { echo "FAIL: mirror failure did not reach verification"; exit 1; }
+test ! -e "$HOME/.local/share/podium" || { echo "FAIL: wrote a bundle with an invalid mirror signature"; exit 1; }
 
 echo "== tamper rejection [R1] =="
 printf 'x' >> "$REL/podium-headless-linux-x64.tar.gz"   # corrupt after signing

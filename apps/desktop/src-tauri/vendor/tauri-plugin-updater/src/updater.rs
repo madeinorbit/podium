@@ -128,6 +128,8 @@ impl RemoteRelease {
 
 pub type OnBeforeExit = Arc<dyn Fn() + Send + Sync + 'static>;
 pub type OnBeforeRequest = Arc<dyn Fn(ClientBuilder) -> ClientBuilder + Send + Sync + 'static>;
+pub type ManifestTransform =
+    Arc<dyn Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
 pub type VersionComparator = Arc<dyn Fn(Version, RemoteRelease) -> bool + Send + Sync>;
 type MainThreadClosure = Box<dyn FnOnce() + Send + Sync + 'static>;
 type RunOnMainThread =
@@ -140,6 +142,7 @@ pub struct UpdaterBuilder {
     current_version: Version,
     config: Config,
     pub(crate) version_comparator: Option<VersionComparator>,
+    manifest_transform: Option<ManifestTransform>,
     executable_path: Option<PathBuf>,
     target: Option<String>,
     endpoints: Option<Vec<Url>>,
@@ -169,6 +172,7 @@ impl UpdaterBuilder {
             current_version: app.package_info().version.clone(),
             config,
             version_comparator: None,
+            manifest_transform: None,
             executable_path: None,
             target: None,
             endpoints: None,
@@ -191,6 +195,16 @@ impl UpdaterBuilder {
 
     pub fn target(mut self, target: impl Into<String>) -> Self {
         self.target.replace(target.into());
+        self
+    }
+
+    /// Bind artifact references to the endpoint that served this document before parsing it.
+    /// A trust refusal fails closed rather than trying a different publication.
+    pub fn manifest_transform<F>(mut self, transform: F) -> Self
+    where
+        F: Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
+    {
+        self.manifest_transform = Some(Arc::new(transform));
         self
     }
 
@@ -329,6 +343,7 @@ impl UpdaterBuilder {
             app_name: self.app_name,
             current_version: self.current_version,
             version_comparator: self.version_comparator,
+            manifest_transform: self.manifest_transform,
             timeout: self.timeout,
             proxy: self.proxy,
             no_proxy: self.no_proxy,
@@ -364,6 +379,7 @@ pub struct Updater {
     app_name: String,
     current_version: Version,
     version_comparator: Option<VersionComparator>,
+    manifest_transform: Option<ManifestTransform>,
     timeout: Option<Duration>,
     proxy: Option<Url>,
     no_proxy: bool,
@@ -477,7 +493,7 @@ impl Updater {
 
             let response = request
                 .build()?
-                .get(url)
+                .get(url.clone())
                 .headers(headers.clone())
                 .send()
                 .await;
@@ -492,6 +508,10 @@ impl Updater {
                         };
 
                         let update_response: serde_json::Value = res.json().await?;
+                        let update_response = match &self.manifest_transform {
+                            Some(transform) => transform(&url, update_response)?,
+                            None => update_response,
+                        };
                         log::debug!("update response: {update_response:?}");
                         raw_json = Some(update_response.clone());
                         match serde_json::from_value::<RemoteRelease>(update_response)
@@ -1587,6 +1607,7 @@ mod tests {
             app_name: "Podium".into(),
             current_version: Version::parse("2.0.0").unwrap(),
             version_comparator: Some(Arc::new(|_, _| panic!("recovery consulted discovery"))),
+            manifest_transform: None,
             timeout: None,
             proxy: Some(Url::parse("https://proxy.invalid").unwrap()),
             no_proxy: false,

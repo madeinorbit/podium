@@ -38,6 +38,11 @@ import {
   type MinRequired as MinRequiredShape,
 } from '../packages/protocol/src/update/target'
 import {
+  PRIMARY_RELEASE_ORIGIN,
+  releaseUrl as publicReleaseUrl,
+  releaseTagPath,
+} from '../packages/runtime/src/release-origins'
+import {
   BUN_TARGETS,
   beginFreshClientPackagingSession,
   bunTargetForPlatform,
@@ -53,7 +58,10 @@ import { validateReferencedDesktopManifest } from './desktop-release'
 // Via the scripts/ re-export, per the relative-import convention noted above.
 import { timeReleaseBuildSync } from './release-build-timing'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
+import { publishReleaseDestinations } from './release-destinations'
 import { buildManifest } from './release-manifest'
+import { publishReleaseMirror } from './release-mirror'
+import { publishReleaseAssets } from './release-upload'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -277,7 +285,7 @@ export function isRollingChannel(channel: PublishChannel): boolean {
 }
 
 function releaseUrl(_channel: PublishChannel, tag: string, asset: string): string {
-  return `https://github.com/madeinorbit/podium/releases/download/${tag}/${asset}`
+  return publicReleaseUrl(releaseTagPath(tag) + asset)
 }
 
 function descriptorName(asset: string): string {
@@ -629,7 +637,7 @@ export function releaseNotesWithPage(
 ): { summary: string; url?: string } | null {
   if (!notes) return null
   if (channel !== 'stable' || !tag) return notes
-  return { ...notes, url: `https://github.com/madeinorbit/podium/releases/tag/${tag}` }
+  return { ...notes, url: `${PRIMARY_RELEASE_ORIGIN.baseUrl}tag/${tag}` }
 }
 
 export function publishPreparedHeadless(p: {
@@ -646,6 +654,18 @@ export function publishPreparedHeadless(p: {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
+  // Standing releases keep the last manifest's files available throughout publication.
+  // Fixed names remain installer aliases, replaced only after the manifest switches.
+  const published = prepared.map((item) => {
+    if (!isRollingChannel(p.channel)) return item
+    const digest = createHash('sha256')
+      .update(readFileSync(join(p.dir, item.asset)))
+      .digest('hex')
+    const asset = item.asset.replace(/\.tar\.gz$/, `-${version}-${digest}.tar.gz`)
+    cpSync(join(p.dir, item.asset), join(p.dir, asset))
+    cpSync(join(p.dir, `${item.asset}.sig`), join(p.dir, `${asset}.sig`))
+    return { ...item, asset }
+  })
   const notes = releaseNotesWithPage(
     releaseNotesFor(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version),
     p.channel,
@@ -656,7 +676,7 @@ export function publishPreparedHeadless(p: {
     `${JSON.stringify(
       buildManifest({
         version,
-        platforms: prepared.map((item) => ({
+        platforms: published.map((item) => ({
           target: item.target,
           url: releaseUrl(p.channel, p.tag, item.asset),
           signature: item.signature,
@@ -689,7 +709,7 @@ export function publishPreparedHeadless(p: {
   }
   const releaseFiles = [
     ...desktopFiles,
-    ...prepared.flatMap((item) => [item.asset, `${item.asset}.sig`]),
+    ...new Set([...prepared, ...published].flatMap((item) => [item.asset, `${item.asset}.sig`])),
     manifestName,
     'VERSION',
     CLIENT_ROOT_DIGEST_FILE,
@@ -726,71 +746,95 @@ export function publishPreparedHeadless(p: {
   })
   if (notice) console.log(notice)
 
-  const assets = [...releaseFiles.map((file) => join(p.dir, file)), checksums, 'install.sh']
+  const aliases = isRollingChannel(p.channel)
+    ? prepared.flatMap((item) => [item.asset, `${item.asset}.sig`])
+    : []
+  const assets = [
+    ...releaseFiles
+      .filter((file) => file !== manifestName && !aliases.includes(file))
+      .map((file) => join(p.dir, file)),
+    checksums,
+    'install.sh',
+  ]
   // The page body names the build and carries the same notes the update prompt shows.
   const rollingBody = `Rolling ${p.channel} build ${version}${notes ? `\n\n${notes.summary}` : ''}`
-  if (isRollingChannel(p.channel)) {
-    // The tag IS the channel name here, and every reference below goes through it so a
-    // rolling channel added later cannot half-publish onto `edge`.
-    const rollingTag = p.tag
-    const releaseExists =
-      spawnSync('gh', ['release', 'view', rollingTag], { stdio: 'ignore' }).status === 0
-    const sha =
-      process.env.GITHUB_SHA ??
-      execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-    if (releaseExists) {
-      const repo = process.env.GITHUB_REPOSITORY ?? 'madeinorbit/podium'
-      execFileSync('gh', [
-        'api',
-        '--method',
-        'PATCH',
-        `repos/${repo}/git/refs/tags/${rollingTag}`,
-        '-f',
-        `sha=${sha}`,
-        '-F',
-        'force=true',
-      ])
-      execFileSync('gh', [
-        'release',
-        'edit',
-        rollingTag,
-        '--prerelease',
-        '--title',
-        `${rollingTag} (${version})`,
-        '--notes',
-        rollingBody,
-      ])
-      execFileSync('gh', ['release', 'upload', rollingTag, ...assets, '--clobber'])
-    } else {
-      execFileSync('gh', [
-        'release',
-        'create',
-        rollingTag,
-        '--target',
-        sha,
-        '--prerelease',
-        '--title',
-        `${rollingTag} (${version})`,
-        '--notes',
-        rollingBody,
-        ...assets,
-      ])
-    }
-  } else {
-    // The page shows the same changelog notes the update prompt does; a version with no
-    // changelog section falls back to GitHub's generated list rather than an empty page.
-    const notesDir = mkdtempSync(join(tmpdir(), 'podium-release-notes-'))
-    const notesFile = join(notesDir, 'notes.md')
-    if (notes) writeFileSync(notesFile, `${notes.summary}\n`)
-    execFileSync('gh', [
-      'release',
-      'create',
-      p.tag,
-      '--latest',
-      ...stableReleasePageNotesArgs(notes ? notesFile : undefined),
-      ...assets,
-    ])
-  }
+  publishReleaseDestinations(
+    () => {
+      if (isRollingChannel(p.channel)) {
+        // The tag IS the channel name here, and every reference below goes through it so a
+        // rolling channel added later cannot half-publish onto `edge`.
+        const rollingTag = p.tag
+        const releaseExists =
+          spawnSync('gh', ['release', 'view', rollingTag], { stdio: 'ignore' }).status === 0
+        const sha =
+          process.env.GITHUB_SHA ??
+          execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+        if (releaseExists) {
+          const repo = process.env.GITHUB_REPOSITORY ?? 'madeinorbit/podium'
+          execFileSync('gh', [
+            'api',
+            '--method',
+            'PATCH',
+            `repos/${repo}/git/refs/tags/${rollingTag}`,
+            '-f',
+            `sha=${sha}`,
+            '-F',
+            'force=true',
+          ])
+          execFileSync('gh', [
+            'release',
+            'edit',
+            rollingTag,
+            '--prerelease',
+            '--title',
+            `${rollingTag} (${version})`,
+            '--notes',
+            rollingBody,
+          ])
+        } else {
+          execFileSync('gh', [
+            'release',
+            'create',
+            rollingTag,
+            '--target',
+            sha,
+            '--prerelease',
+            '--title',
+            `${rollingTag} (${version})`,
+            '--notes',
+            rollingBody,
+          ])
+        }
+      } else {
+        // The page shows the same changelog notes the update prompt does; a version with no
+        // changelog section falls back to GitHub's generated list rather than an empty page.
+        const notesDir = mkdtempSync(join(tmpdir(), 'podium-release-notes-'))
+        const notesFile = join(notesDir, 'notes.md')
+        if (notes) writeFileSync(notesFile, `${notes.summary}\n`)
+        execFileSync('gh', [
+          'release',
+          'create',
+          p.tag,
+          '--latest',
+          ...stableReleasePageNotesArgs(notes ? notesFile : undefined),
+        ])
+      }
+      publishReleaseAssets({
+        tag: p.tag,
+        artifacts: assets,
+        manifest: join(p.dir, manifestName),
+        aliases: aliases.map((file) => join(p.dir, file)),
+      })
+    },
+    () => {
+      publishReleaseMirror({
+        channel: p.channel,
+        tag: p.tag,
+        aliases: aliases.map((file) => join(p.dir, file)),
+        files: [...assets, join(p.dir, manifestName), ...aliases.map((file) => join(p.dir, file))],
+      })
+    },
+  )
   console.log(`[release] published ${version} → ${p.channel}`)
 }
 

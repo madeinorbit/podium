@@ -430,6 +430,7 @@ jobs:
           pattern: desktop-*
           path: dist-desktop-input
       - name: Prepare and validate static updater manifest
+        id: desktop_candidate
         env:
           CHANNEL: ${{ needs.validate.outputs.channel }}
           RELEASE_TAG: ${{ needs.validate.outputs.stable_tag }}
@@ -441,6 +442,7 @@ jobs:
           --notes "$RELEASE_NOTES"
           --bundle-dir dist-desktop-input
       - name: Record desktop shell input hash
+        id: desktop_inventory
         env:
           SHELL_INPUT_HASH: ${{ needs.validate.outputs.shell_input_hash }}
         run: printf "%s\n" "$SHELL_INPUT_HASH" > dist-desktop/desktop-shell-input.sha256
@@ -453,6 +455,15 @@ jobs:
             dist-desktop/latest.json
             dist-desktop/desktop-shell-input.sha256
           if-no-files-found: error
+      - name: Prepare mirror publishing client
+        if: vars.PODIUM_PUBLISH_RELEASE_MIRROR == '1' && (github.event_name != 'workflow_dispatch' || inputs.publish_release)
+        env:
+          PODIUM_PUBLISH_RELEASE_MIRROR: ${{ vars.PODIUM_PUBLISH_RELEASE_MIRROR }}
+          PODIUM_RELEASE_R2_ENDPOINT: ${{ vars.PODIUM_RELEASE_R2_ENDPOINT }}
+          PODIUM_RELEASE_R2_BUCKET: ${{ vars.PODIUM_RELEASE_R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.PODIUM_RELEASE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PODIUM_RELEASE_R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/setup-release-mirror.sh
       - name: Upload promoted desktop assets
         if: github.event_name != 'workflow_dispatch' || inputs.publish_release
         env:
@@ -495,7 +506,13 @@ jobs:
             sleep 30
           done
           gh release view "$target_tag" >/dev/null
-          gh release upload "$target_tag" dist-desktop/* --clobber
+          # gh can upload a batch concurrently. Keep discovery out of that batch.
+          payloads=()
+          for file in dist-desktop/*; do
+            [ "$file" = dist-desktop/latest.json ] || payloads+=("$file")
+          done
+          gh release upload "$target_tag" "${payloads[@]}" --clobber
+          gh release upload "$target_tag" dist-desktop/latest.json --clobber
           # Edge and dev are rolling releases, and DMG/AppImage names embed the version, so
           # --clobber never replaces them: every past build keeps offering its (possibly
           # pre-notarization) installer. Prune desktop assets this upload did not replace —
@@ -509,3 +526,15 @@ jobs:
                   gh release delete-asset "$target_tag" "$asset" --yes
                 done
           fi
+
+      - name: Publish the validated desktop inventory to R2
+        if: always() && !cancelled() && steps.desktop_inventory.outcome == 'success' && vars.PODIUM_PUBLISH_RELEASE_MIRROR == '1' && (github.event_name != 'workflow_dispatch' || inputs.publish_release)
+        env:
+          PODIUM_PUBLISH_RELEASE_MIRROR: ${{ vars.PODIUM_PUBLISH_RELEASE_MIRROR }}
+          PODIUM_RELEASE_R2_ENDPOINT: ${{ vars.PODIUM_RELEASE_R2_ENDPOINT }}
+          PODIUM_RELEASE_R2_BUCKET: ${{ vars.PODIUM_RELEASE_R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.PODIUM_RELEASE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PODIUM_RELEASE_R2_SECRET_ACCESS_KEY }}
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+          TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
+        run: bun scripts/release-mirror.ts --channel "$CHANNEL" --tag "$TARGET_TAG" --dir dist-desktop

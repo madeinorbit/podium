@@ -340,7 +340,7 @@ describe('a create that asked to start, after its commit', () => {
       } as never,
     }
   }
-  const operator = { capability: { role: 'admin', scope: { kind: 'all' } } } as never
+  const operator = { capability: OPERATOR } as never
   const agent = {
     capability: {
       role: 'worker',
