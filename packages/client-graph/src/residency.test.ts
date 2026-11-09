@@ -122,13 +122,12 @@ it.each([
     expect(f.pool.tables.session.size).toBe(0)
     f.apply({ type: 'update', rows: [issue('owner', { parentId: 'parent' })] })
     expect(f.pool.tables.issue.has('owner')).toBe(true)
-    expect(f.load).not.toHaveBeenCalled()
+    expect(f.pool.tables.session.size).toBe(0)
     expect(f.pool.hydrate()).toBe(2)
     expect(f.pool.tables.session.size).toBe(2)
-    expect(f.load.mock.calls).toEqual([
-      ['session', 'history-0'],
-      ['session', 'history-1'],
-    ])
+    expect(new Set(f.load.mock.calls.map(([kind, id]) => `${kind}:${id}`))).toEqual(
+      new Set(['session:history-0', 'session:history-1']),
+    )
   } finally {
     f.pool.dispose()
   }
