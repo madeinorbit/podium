@@ -87,7 +87,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     },
     {
       key: 'window',
-      fields: window && window !== LOADING ? window : {},
+      fields: window && window !== LOADING ? { settingsTab: window.settingsTab } : {},
       pendingFields: window === LOADING ? ['settingsTab'] : [],
       rows: [],
     },

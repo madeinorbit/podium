@@ -12,6 +12,13 @@ import { emptyWorkspace, focusPane, leafPaneIds, openTab, splitPane } from '../s
 import { workspaceKeyForState } from '../src/ui/state'
 import { fixtureNavigation } from './navigation'
 
+const refreshers = new WeakMap<object, () => void>()
+/** Publish hand-held render inputs before a provider-free render. Source
+ * fixtures instead publish through their owner's ordinary subscription. */
+export function refreshFixtureUi(owner: object): void {
+  refreshers.get(owner)?.()
+}
+
 /** UI fixture for snapshot-era test doubles. The product never uses this adapter. */
 export function fixtureUi(keys?: RoutedUiState): UiStore {
   const values = new Map<string, string>()
@@ -94,7 +101,12 @@ export function addFixtureUi(
       if (focused) workspace = focusPane(workspace, focused)
       ui.patch({ workspaces: { ...ui.workspaces, [key]: workspace } })
     }
-    previous = snapshot
+    previous = {
+      paneA: snapshot.paneA,
+      paneB: snapshot.paneB,
+      split: snapshot.split,
+      focusedPane: snapshot.focusedPane,
+    }
     palette.setOpen(snapshot.paletteOpen ?? false)
     if (snapshot.autoContinuePromptSessionId)
       autoContinueDialog.open(snapshot.autoContinuePromptSessionId)
@@ -107,13 +119,17 @@ export function addFixtureUi(
   // owner only on first use, after the suite has initialized its producer.
   let following = false
   const read = <T>(value: T): T => {
-    sync()
     if (!following) {
       following = true
+      sync()
       fake.subscribe(sync)
     }
     return value
   }
+  refreshers.set(fake, () => {
+    if (following) sync()
+    else read(ui)
+  })
   fake.deviceState = keys
   Object.defineProperties(fake, {
     ui: { configurable: true, enumerable: true, get: () => read(ui) },

@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -51,16 +51,20 @@ function fixture(sessions: SliceSession[] = []) {
     sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]),
   }
   const read = vi.fn(() => state as object)
-  const owner = withKeyedInputs({
+  const screen = fixtureUi(ui)
+  screen.patch({ settingsTab: state.settingsTab })
+  const owner = {
     getSnapshot: read,
-    ui,
+    get access() { return state },
+    ui: screen,
+    deviceState: ui,
     subscribe: (wake: () => void) => {
       listeners.add(wake)
       return () => {
         listeners.delete(wake)
       }
     },
-  })
+  }
   const feed = new Map(sessions.map((row) => [row.sessionId, row]))
   const load = vi.fn((_entity: string, id: string) => feed.get(id))
   const pool = new MobxPool(
@@ -93,6 +97,7 @@ function fixture(sessions: SliceSession[] = []) {
     state: () => state,
     publish(patch: Partial<typeof state>) {
       state = { ...state, ...patch }
+      screen.patch({ settingsTab: state.settingsTab })
       for (const wake of listeners) wake()
     },
   }
@@ -151,7 +156,7 @@ describe('declared settings readers', () => {
   })
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
-    const { pool, read, publish } = fixture()
+    const { pool, read, publish, owner } = fixture()
     const initialView = createPoolProjection(pool, (current) => ({
       catalog: omitGone(current.row('settingsCatalog', 'catalog')),
       window: omitGone(current.row('settingsWindow', 'window')),
@@ -161,13 +166,15 @@ describe('declared settings readers', () => {
     disposals.push(initialStop)
     const initial = initialView.getSnapshot()
     expect(initial.catalog).toBe(LOADING)
-    expect(initial.window).toBe(LOADING)
+    expect(initial.window).toBe(owner.ui)
+    expect(initial.window).toMatchObject({ settingsTab: 'accounts' })
     expect(initial.machine).toBe(LOADING)
     expect(read).not.toHaveBeenCalled()
     await Promise.resolve()
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
-    expect(omitGone(pool.row('settingsWindow', 'window'))).toEqual({ settingsTab: 'accounts' })
+    expect(omitGone(pool.row('settingsWindow', 'window'))).toBe(owner.ui)
+    expect(owner.ui.settingsTab).toBe('accounts')
     expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
     const view = createPoolProjection(pool, (current) =>
       omitGone(current.row('settingsMachine', 'host')),
@@ -218,7 +225,7 @@ describe('declared settings readers', () => {
       { ...session('headless', 'codex'), headless: true },
     ])
     f.owner.deviceState.set('podium.sounds.enabled', 'false')
-    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toBe(LOADING)
+    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({ key: 'podium.sounds.enabled', value: 'false' })
     expect(
       checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
     ).toBeGreaterThan(0)
@@ -246,7 +253,7 @@ describe('declared settings readers', () => {
     expect(catalog.getSnapshot()).toBe(LOADING)
     omitGone(f.pool.row('preference', 'podium.sounds.enabled'))
     expect(f.listeners.size).toBe(1)
-    expect(f.uiListeners.size).toBe(1)
+    expect(f.uiListeners.size).toBe(0)
     f.pool.dispose()
     expect(f.listeners.size).toBe(0)
     expect(f.uiListeners.size).toBe(0)

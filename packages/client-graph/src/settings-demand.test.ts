@@ -1,3 +1,4 @@
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asMachineId, type CheckoutWire, checkoutRepositoryId, checkoutRowId } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
@@ -27,15 +28,17 @@ function fixture(scale: 1 | 4) {
     )
   const lists = new Set<(batch: ReplicaAddressedBatch) => void>(),
     locals = new Set<() => void>()
-  let tab: SettingsRows['settingsWindow']['settingsTab'] = 'sessions'
+  const ui = fixtureUi()
+  ui.patch({ settingsTab: 'sessions' })
   const checkoutRows: readonly CheckoutWire[] = [...repos.values()]
   const ids = vi.fn((kind: string) =>
       kind === 'machines' ? [...machines.values()] : kind === 'checkouts' ? checkoutRows : [],
     ),
     row = vi.fn((kind: string, id: string) => (kind === 'machines' ? machines.get(id) : undefined)),
-    local = vi.fn(() => tab),
+    local = vi.spyOn(ui, 'settingsTab', 'get'),
     off = vi.fn()
   const owner = {
+    ui,
     readLocal: local,
     onLocals(_keys: readonly string[], changed: () => void) {
       locals.add(changed)
@@ -94,9 +97,8 @@ function fixture(scale: 1 | 4) {
     emit,
     measure,
     clear,
-    tab(next: typeof tab) {
-      tab = next
-      for (const changed of locals) changed()
+    tab(next: string) {
+      runInAction(() => { ui.settingsTab = next })
     },
   }
 }
@@ -135,7 +137,8 @@ it('answers imperative settings questions directly without subscribing or warmin
       // Repositories are derived from the checkout records: one list read.
       expect(repository).toMatchObject({ ids: 1, rows: 0, locals: 0 })
       const window = await f.measure('imperative settings tab', () => {
-        expect(f.source.read('settingsWindow', 'window')).toEqual({ settingsTab: 'sessions' })
+        expect(f.source.read('settingsWindow', 'window')).toBe(f.owner.ui)
+        expect(f.owner.ui.settingsTab).toBe('sessions')
       })
       expect(window).toMatchObject({ ids: 0, rows: 0, locals: 1 })
       expect(f.lists.size).toBe(0)
@@ -172,17 +175,21 @@ it('loads only the settings window from first demand and does no work while clos
       expect(closedBefore).toMatchObject({ ids: 0, rows: 0, locals: 0 })
       const first = await f.measure('first settings tab', () => {
         stop = autorun(() => {
-          value = f.source.read('settingsWindow', 'window')
+          const window = f.source.read('settingsWindow', 'window')
+          value = window && window !== LOADING ? { settingsTab: window.settingsTab } : window
         })
       })
       expect(value).toEqual({ settingsTab: 'sessions' })
       expect(first).toMatchObject({ ids: 0, rows: 0, locals: 1 })
       expect(f.lists.size).toBe(0)
       const repeat = await f.measure('repeat settings tab', () => {
-        const current = autorun(() => f.source.read('settingsWindow', 'window'))
+        const current = autorun(() => {
+          const window = f.source.read('settingsWindow', 'window')
+          if (window && window !== LOADING) window.settingsTab
+        })
         current()
       })
-      expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 0 })
+      expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 1 })
       const changed = await f.measure('settings tab changed', () => f.tab('updates'))
       expect(value).toEqual({ settingsTab: 'updates' })
       expect(changed).toMatchObject({ ids: 0, rows: 0, locals: 1 })
@@ -364,14 +371,14 @@ it('cancels undrained demand when closed and detaches disposal channels exactly 
   expect(f.local).not.toHaveBeenCalled()
   expect(f.lists.size).toBe(0)
   expect(f.locals.size).toBe(0)
-  expect(f.off).toHaveBeenCalledTimes(3)
+  expect(f.off).toHaveBeenCalledTimes(2)
   const stop = autorun(() => f.source.read('settingsMachine', 'm0'))
   f.source.dispose()
   f.source.dispose()
   await Promise.resolve()
   expect(f.source.read('settingsMachine', 'm0')).toBe(LOADING)
   expect(f.row).not.toHaveBeenCalled()
-  expect(f.off).toHaveBeenCalledTimes(4)
+  expect(f.off).toHaveBeenCalledTimes(3)
   expect(f.lists.size).toBe(0)
   stop()
 })

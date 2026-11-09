@@ -1,3 +1,4 @@
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -22,8 +23,8 @@ it('reads only changed settings keys and no list membership on scalar updates at
       kind: 'repository',
     }))
     const listeners = new Set<(batch: ReplicaAddressedBatch) => void>()
-    let local!: (changed: ReadonlySet<string>) => void
-    let tab = 'sessions'
+    const ui = fixtureUi()
+    ui.patch({ settingsTab: 'sessions' })
     const ids = vi.fn((kind: string) =>
         kind === 'machines' ? [...machines.values()] : kind === 'checkouts' ? checkouts : [],
       ),
@@ -32,11 +33,7 @@ it('reads only changed settings keys and no list membership on scalar updates at
       for (const listener of [...listeners]) listener({ type: 'update', rows: [{ kind: 'machines', id }] })
     }
     const source = new SettingsSource({
-      readLocal: () => tab,
-      onLocals: (_keys: readonly string[], changed: typeof local) => {
-        local = changed
-        return () => {}
-      },
+      ui,
       replica: {
         rows: ids,
         row,
@@ -67,7 +64,8 @@ it('reads only changed settings keys and no list membership on scalar updates at
         catalogValue = source.read('settingsCatalog', 'catalog')
       })
       stopWindow = autorun(() => {
-        source.read('settingsWindow', 'window')
+        const window = source.read('settingsWindow', 'window')
+        if (window && window !== LOADING) window.settingsTab
       })
       await Promise.resolve()
       const catalog = catalogValue
@@ -96,12 +94,12 @@ it('reads only changed settings keys and no list membership on scalar updates at
       expect(paints).toBe(0)
       row.mockClear()
       const window = await measure('settings tab changed', () => {
-        tab = 'updates'
-        local(new Set(['settingsTab']))
+        ui.patch({ settingsTab: 'updates' })
       })
       expect(row).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
-      expect(source.read('settingsWindow', 'window')).toEqual({ settingsTab: 'updates' })
+      expect(source.read('settingsWindow', 'window')).toBe(ui)
+      expect(ui.settingsTab).toBe('updates')
       expect(paints).toBe(0)
       stop()
       row.mockClear()

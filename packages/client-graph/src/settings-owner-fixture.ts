@@ -1,3 +1,4 @@
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 /**
  * TESTS ONLY: a settings source owner over a replica that answers checkout and
  * machine records (POD-6644). Tests give the repositories and machines in the
@@ -64,7 +65,10 @@ export function settingsOwnerFixture(input: {
   const announce = (kind: 'checkouts' | 'machines', id: string) => {
     for (const listener of [...listeners]) listener({ type: 'update', rows: [{ kind, id }] })
   }
+  const ui = fixtureUi()
+  ui.patch({ settingsTab: String(input.settingsTab?.() ?? 'sessions') })
   const owner = {
+    ui,
     readLocal: () => input.settingsTab?.() ?? 'sessions',
     onLocals: () => () => {},
     replica: {
