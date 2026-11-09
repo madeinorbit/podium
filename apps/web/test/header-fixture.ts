@@ -105,13 +105,14 @@ export function createHeaderFixture(count: number, sessionCount = count) {
     bindHub(real: SocketHub, store?: LiveStore, conditions: LiveStore | undefined = store) {
       deliver = (real as unknown as { emit: typeof hub.emit }).emit.bind(real)
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
-      live = store
+      live = conditions
       machineLive = conditions
       if (store)
         runInAction(() =>
           store.applyTopic('account.quota', 'me', knownReading({ machines: quota } as never, now)),
         )
       applyConditions()
+      publishHostMetrics(metrics)
     },
     /** Machines (records plus their live condition) and repositories (checkout records). */
     putMachinesAndRepos(input: Parameters<typeof base.putMachinesAndRepos>[0]) {

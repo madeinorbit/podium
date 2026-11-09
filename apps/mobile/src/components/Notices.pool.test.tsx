@@ -253,6 +253,9 @@ async function mount() {
     },
     connect(next: boolean) {
       connected = next
+      // This fixture disables the network feed, so publish its condition at
+      // the same LiveStore boundary the feed owns in the running client.
+      runtime.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
       const hub = runtime.hub as unknown as { emit(kind: string, value: unknown): void }
       hub.emit('connectionHealth', runtime.hub.connectionHealth())
     },

@@ -248,7 +248,9 @@ beforeEach(() => {
   uiListeners.clear()
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
-    navigation: fixtureNavigation({ issues: () => replicaIssues as never, sessions: () => state.sessions as never }),
+    // The engine's mission is present even when the view's deliberately
+    // separate projection has not arrived or has already archived the row.
+    navigation: fixtureNavigation({ issues: () => [task] as never, sessions: () => state.sessions as never }),
     selectedWorktree: '/repo/wt',
     selectedIssueId: task.id,
     paneA: 's2',

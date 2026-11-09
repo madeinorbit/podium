@@ -151,7 +151,7 @@ export function addFixtureUi(
     // Snapshot-era fixtures supplied pane mirrors. Seed the layout that owns
     // them now, and turn later scalar publications into edits of that layout.
     const key = workspaceKeyForState(ui.screen)
-    if ((!snapshot.workspaces?.[key] && !previous) ||
+    if ((snapshot.workspaces === undefined && !previous) ||
         (previous && ['paneA', 'paneB', 'split', 'focusedPane'].some(key => Object.hasOwn(snapshot, key) && Reflect.get(snapshot, key) !== Reflect.get(previous!, key)))) {
       let workspace = snapshot.workspaces?.[key] ?? emptyWorkspace(key)
       if (snapshot.paneA) workspace = openTab(workspace, snapshot.paneA, { permanent: true, paneId: leafPaneIds(workspace.root)[0] })
@@ -159,7 +159,11 @@ export function addFixtureUi(
         workspace = splitPane(workspace, leafPaneIds(workspace.root)[0]!, 'row', snapshot.paneB ? { tabId: snapshot.paneB } : undefined)
       if (snapshot.paneB && snapshot.split)
         workspace = openTab(workspace, snapshot.paneB, { permanent: true, paneId: leafPaneIds(workspace.root)[1] })
-      const focused = snapshot.focusedPane === 'B' ? leafPaneIds(workspace.root)[1] : leafPaneIds(workspace.root)[0]
+      const focusedTab = snapshot.focusedPane === 'B' ? snapshot.paneB : snapshot.paneA
+      // Opening a tab already in another pane focuses that existing tab; a
+      // workspace never contains the same tab in two panes.
+      const focused = Object.values(workspace.panes).find(pane => focusedTab && pane.activeTabId === focusedTab)?.id
+        ?? (snapshot.focusedPane === 'B' ? leafPaneIds(workspace.root)[1] : leafPaneIds(workspace.root)[0])
       if (focused) workspace = focusPane(workspace, focused)
       if (workspace !== ui.workspaces[key] && (snapshot.paneA || snapshot.paneB || snapshot.workspaces?.[key]))
         ui.patch({ workspaces: { ...ui.workspaces, [key]: workspace } })

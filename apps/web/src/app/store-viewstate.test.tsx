@@ -82,6 +82,13 @@ class FakeHub {
   connectionHealth() {
     return { status: 'ok', rttMs: null, since: 0 }
   }
+  serverIdentity() {
+    return null
+  }
+  clockSkewMs() {
+    return null
+  }
+  connected = false
   onConnectionHealth() {
     return () => {}
   }
