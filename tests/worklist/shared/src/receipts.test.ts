@@ -332,18 +332,16 @@ describe('receipts over a stub runtime', () => {
         listeners.add(l)
         return () => listeners.delete(l)
       },
-      root: {
-        services: {
-          outbox: {
-            queue: {
-              enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never,
-              pending: () => (opts.queued ?? []).map(entry),
-              awaiting: () => [],
-            },
+      services: {
+        outbox: {
+          queue: {
+            enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never,
+            pending: () => (opts.queued ?? []).map(entry),
+            awaiting: () => [],
           },
         },
-        replica: { row: () => undefined },
       },
+      replica: { row: () => undefined },
       principal: { userId: 'stub' },
     }
     const emit = (o: OutboxOutcome): void => {

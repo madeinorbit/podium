@@ -224,8 +224,9 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 export type WorklistRuntime = RowSourceRuntime &
   Pick<
     import('@podium/client-core/runtime-root').ClientRuntime,
-    'ui' | 'live' | 'services' | 'replica' | 'pool' | 'attachPool'
+    'ui' | 'services' | 'replica' | 'pool' | 'attachPool'
   > & {
+    readonly live?: import('@podium/client-core/live').LiveStore
     /** Historical corpus harness only; production supplies no manual clock. */
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
     readonly deviceState?: RoutedUiState

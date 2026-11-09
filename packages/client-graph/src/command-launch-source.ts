@@ -91,6 +91,17 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       }),
       { equals: compareStructural },
     )
+  }
+
+  private catalogStarted = false
+
+  /** Optional launcher data is demand-bound. Registering the source must not
+   * list machines/checkouts after the workspace has already painted. */
+  private startCatalog(): void {
+    if (this.catalogStarted || this.disposed) return
+    this.catalogStarted = true
+    const pool = this.pool
+    const runtime = this.runtime
     // The window reads UiStore where it is shown; a repository change
     // re-links only the sessions under a path whose targets moved.
     // Repositories from the `checkout` records, machines from the `machine`
@@ -329,6 +340,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
 
     if (entity === 'commandIssue')
       return omitGone(this.pool.row('issue', id, 'summary')) as Loaded<PoolSourceRows[K]>
+    this.startCatalog()
     return (
       entity === 'commandCatalog' && id === 'catalog'
         ? this.catalog.get()
@@ -336,6 +348,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     ) as Loaded<PoolSourceRows[K]>
   }
   related(entity: string, id: string, name: string): readonly string[] {
+    this.startCatalog()
     return this.relations.many(`${entity}:${id}:${name}`)
   }
   dispose(): void {
