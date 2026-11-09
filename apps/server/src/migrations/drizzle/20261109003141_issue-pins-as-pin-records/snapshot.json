@@ -1,11 +1,15 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "858f2f61-5699-4932-8c86-6a67dce171f6",
+  "id": "5ad38c4b-b0d2-4f61-aba3-4a50ac517852",
   "prevIds": [
-    "d8ffa00e-77d0-4a50-83ff-4b7eb06953b0"
+    "78510581-3899-4c9c-a105-cb15f010558b"
   ],
   "ddl": [
+    {
+      "name": "account_machine_sends",
+      "entityType": "tables"
+    },
     {
       "name": "accounts",
       "entityType": "tables"
@@ -87,6 +91,10 @@
       "entityType": "tables"
     },
     {
+      "name": "issue_text_revisions",
+      "entityType": "tables"
+    },
+    {
       "name": "issue_user_state",
       "entityType": "tables"
     },
@@ -144,6 +152,14 @@
     },
     {
       "name": "meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "native_login_opt_ins",
+      "entityType": "tables"
+    },
+    {
+      "name": "native_login_transfers",
       "entityType": "tables"
     },
     {
@@ -400,6 +416,36 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "account_id",
+      "entityType": "columns",
+      "table": "account_machine_sends"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "table": "account_machine_sends"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sent_at",
+      "entityType": "columns",
+      "table": "account_machine_sends"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -475,6 +521,16 @@
       "default": null,
       "generated": null,
       "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "accounts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ref",
       "entityType": "columns",
       "table": "accounts"
     },
@@ -1719,6 +1775,26 @@
       "table": "effects"
     },
     {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "decision",
+      "entityType": "columns",
+      "table": "effects"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "deciders",
+      "entityType": "columns",
+      "table": "effects"
+    },
+    {
       "type": "integer",
       "notNull": false,
       "autoincrement": false,
@@ -2010,6 +2086,36 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edited_at",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edited_by",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edited_on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -2209,6 +2315,106 @@
       "table": "issue_ref_letters"
     },
     {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "issue_id",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "field",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "body",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "restored_from",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "issue_revision",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "issue_text_revisions"
+    },
+    {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
@@ -2245,6 +2451,46 @@
       "default": null,
       "generated": null,
       "name": "tucked_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "joined_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "joined_via",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "assigned_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "assigned_by",
       "entityType": "columns",
       "table": "issue_user_state"
     },
@@ -2635,6 +2881,16 @@
       "default": null,
       "generated": null,
       "name": "closed_at",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "closed_by_user_id",
       "entityType": "columns",
       "table": "issues"
     },
@@ -4164,6 +4420,136 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "harness",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fingerprint",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "enabled",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "harness",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fingerprint",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "outcome",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "at",
+      "entityType": "columns",
+      "table": "native_login_transfers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "fact_key",
       "entityType": "columns",
       "table": "notification_facts"
@@ -4975,6 +5361,16 @@
       "default": null,
       "generated": null,
       "name": "trail_json",
+      "entityType": "columns",
+      "table": "quota_windows"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "quota_windows"
     },
@@ -8949,6 +9345,26 @@
       "table": "users"
     },
     {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "authz_generation",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "authz_changed_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
@@ -9800,6 +10216,21 @@
     },
     {
       "columns": [
+        "account_id"
+      ],
+      "tableTo": "accounts",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_account_machine_sends_account_id_accounts_id_fk",
+      "entityType": "fks",
+      "table": "account_machine_sends"
+    },
+    {
+      "columns": [
         "automation_id"
       ],
       "tableTo": "automations",
@@ -9917,6 +10348,21 @@
       "name": "fk_issue_messages_issue_id_issues_id_fk",
       "entityType": "fks",
       "table": "issue_messages"
+    },
+    {
+      "columns": [
+        "issue_id"
+      ],
+      "tableTo": "issues",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_issue_text_revisions_issue_id_issues_id_fk",
+      "entityType": "fks",
+      "table": "issue_text_revisions"
     },
     {
       "columns": [
@@ -10440,6 +10886,16 @@
     },
     {
       "columns": [
+        "account_id",
+        "machine_id"
+      ],
+      "nameExplicit": true,
+      "name": "account_machine_sends_pk",
+      "entityType": "pks",
+      "table": "account_machine_sends"
+    },
+    {
+      "columns": [
         "machine_id",
         "native_id",
         "sequence"
@@ -10572,6 +11028,29 @@
       "name": "messaging_session_attachments_pk",
       "entityType": "pks",
       "table": "messaging_session_attachments"
+    },
+    {
+      "columns": [
+        "owner_user_id",
+        "harness",
+        "fingerprint"
+      ],
+      "nameExplicit": true,
+      "name": "native_login_opt_ins_pk",
+      "entityType": "pks",
+      "table": "native_login_opt_ins"
+    },
+    {
+      "columns": [
+        "owner_user_id",
+        "harness",
+        "fingerprint",
+        "machine_id"
+      ],
+      "nameExplicit": true,
+      "name": "native_login_transfers_pk",
+      "entityType": "pks",
+      "table": "native_login_transfers"
     },
     {
       "columns": [
@@ -10910,6 +11389,15 @@
       "nameExplicit": false,
       "name": "issue_ref_letters_pk",
       "table": "issue_ref_letters",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "issue_text_revisions_pk",
+      "table": "issue_text_revisions",
       "entityType": "pks"
     },
     {
@@ -11701,6 +12189,38 @@
     {
       "columns": [
         {
+          "value": "kind",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "decision = 'awaiting'",
+      "origin": "manual",
+      "name": "idx_effects_awaiting",
+      "entityType": "indexes",
+      "table": "effects"
+    },
+    {
+      "columns": [
+        {
+          "value": "revision",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "revision = 0",
+      "origin": "manual",
+      "name": "idx_effects_unpublished",
+      "entityType": "indexes",
+      "table": "effects"
+    },
+    {
+      "columns": [
+        {
           "value": "resource_id",
           "isExpression": false
         }
@@ -11819,6 +12339,28 @@
       "name": "idx_issue_messages_issue_time",
       "entityType": "indexes",
       "table": "issue_messages"
+    },
+    {
+      "columns": [
+        {
+          "value": "issue_id",
+          "isExpression": false
+        },
+        {
+          "value": "field",
+          "isExpression": false
+        },
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_issue_text_revisions_issue_field",
+      "entityType": "indexes",
+      "table": "issue_text_revisions"
     },
     {
       "columns": [
@@ -12641,6 +13183,32 @@
       "where": null,
       "origin": "manual",
       "name": "idx_quota_windows_series",
+      "entityType": "indexes",
+      "table": "quota_windows"
+    },
+    {
+      "columns": [
+        {
+          "value": "owner_user_id",
+          "isExpression": false
+        },
+        {
+          "value": "account_key",
+          "isExpression": false
+        },
+        {
+          "value": "window_key",
+          "isExpression": false
+        },
+        {
+          "value": "resets_at_ms",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_quota_windows_owner",
       "entityType": "indexes",
       "table": "quota_windows"
     },
@@ -13934,6 +14502,18 @@
       "table": "issue_deps"
     },
     {
+      "value": "field IN ('description', 'brief')",
+      "name": "issue_text_revisions_field",
+      "entityType": "checks",
+      "table": "issue_text_revisions"
+    },
+    {
+      "value": "source IN ('create', 'baseline', 'edit', 'restore')",
+      "name": "issue_text_revisions_source",
+      "entityType": "checks",
+      "table": "issue_text_revisions"
+    },
+    {
       "value": "stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'verifying', 'done')",
       "name": "issues_check_1",
       "entityType": "checks",
@@ -13998,6 +14578,12 @@
       "name": "messages_delivery_held",
       "entityType": "checks",
       "table": "messages"
+    },
+    {
+      "value": "outcome IN ('installed', 'preserved')",
+      "name": "native_login_transfers_outcome",
+      "entityType": "checks",
+      "table": "native_login_transfers"
     },
     {
       "value": "status IN ('asked','answered','expired','superseded')",
