@@ -76,8 +76,23 @@ const KINDS = [
   'machine',
   'issueGitState',
 ] as const satisfies readonly Kind[]
-/** Feed kinds added after the recording: POD-6357's one-shot effects. */
-const KINDS_ADDED_SINCE = ['effect'] as const satisfies readonly Kind[]
+/** Feed kinds added after the recording: POD-6357's one-shot effects, and the synced records of POD-5620 (machines and checkouts, profiles, workflows and subscriptions, instance and personal settings, pins and tab orders, superagent threads). */
+const KINDS_ADDED_SINCE = [
+  'effect',
+  'checkout',
+  'machineAccess',
+  'agentProfile',
+  'subscription',
+  'workflow',
+  'workflowBinding',
+  'workflowRevision',
+  'workflowRun',
+  'instancePreferences',
+  'pin',
+  'tabOrder',
+  'userPreferences',
+  'superagentThread',
+] as const satisfies readonly Kind[]
 
 type Op =
   | { kind: 'commit'; specs: StagedChangeSpec[] }

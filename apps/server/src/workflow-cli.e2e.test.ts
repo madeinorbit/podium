@@ -20,7 +20,7 @@
  * they cross both halves of the cutover.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeIssueClient } from '@podium/issue-client'
@@ -39,6 +39,13 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-workflow-e2e-'))
+    // A configured all-in-one instance, as a real `podium workflow` talks to.
+    // Workflows are synced records since POD-6676, written through the data
+    // plane, which an unconfigured (setup-required) server keeps blocked.
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry

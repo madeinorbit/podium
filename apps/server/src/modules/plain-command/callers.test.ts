@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 27 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 29 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -20,7 +20,7 @@
  *  - first-run setup, as the bootstrap principal (the earliest admin);
  *  - the operator CLI (`podium logs level|daemon`, `podium join`, `podium setup`),
  *    on the operator's own credential;
- *  - agents and the daemon: none of the 27 today. The agent rows below pin what
+ *  - agents and the daemon: none of the 29 today. The agent rows below pin what
  *    one would get;
  *  - `accounts.share` (POD-6360): Settings → Accounts, the owner on their own key
  *    and an admin on any key (POD-6390);
@@ -275,13 +275,17 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 27 non-sync commands', () => {
-  it('covers the 27 commands, and only them', () => {
-    // + two queued commands that are not plain. (The settings preference tiers
-    // are synced records since POD-6673 and POD-6677.)
-    expect(CONTRACTS.size).toBe(27 + 2)
+describe('every current caller of the 29 non-sync commands', () => {
+  it('covers the 29 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(29)
+    // None is queued any more. The two that were moved onto synced record
+    // edits on purpose:
+    //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
+    //  - settings.updateInstance: records.instancePreferences.edit (POD-6677).
+    const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
+    expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(27)
+    expect(plain).toHaveLength(29)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

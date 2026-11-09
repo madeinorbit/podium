@@ -160,6 +160,12 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
+  // A machine's checkouts, its roots, and each member's reach and lost
+  // checkouts on it, for a batch of machines (POD-6644).
+  ['apps/server/src/store/checkouts.ts:pathsOfMachines', SIZES],
+  ['apps/server/src/store/checkouts.ts:rootPathsOfMachines', SIZES],
+  ['apps/server/src/store/checkouts.ts:reachOfMachines', SIZES],
+  ['apps/server/src/store/checkouts.ts:lostOfMachines', SIZES],
   ['apps/server/src/store/users.ts:accountsByIds', SIZES],
   ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
   ['apps/server/src/store/issues.ts:liveWorktreesOnMachines', SIZES],
@@ -549,6 +555,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/checkouts.ts:allCheckouts',
+    "Whole-table read (POD-6644): the boot reconcile puts every live checkout on the change log once per server start, the `checkout` kind's full truth; nothing at request time reads it.",
+  ],
+  [
     'apps/server/src/store/issue-listings.ts:issueListing',
     "Whole-table read (POD-6172): an unpaged issue listing reads every issue in its scope (one repository by its index, or all of them) and sorts it; it replaces the issue map's scan of every issue (POD-6191), and paging with a cursor bounds it.",
   ],
@@ -610,7 +620,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/superagent.ts:seedMemberGlobals',
-    "Whole-table read (POD-6675): every active member without a global superagent thread gets one, once per boot (the users table is the roster; each probe of superagent_threads is on its owner index).",
+    'Whole-table read (POD-6675): every active member without a global superagent thread gets one, once per boot (the users table is the roster; each probe of superagent_threads is on its owner index).',
   ],
   [
     'apps/server/src/store/user-preferences.ts:allPreferenceRows',
