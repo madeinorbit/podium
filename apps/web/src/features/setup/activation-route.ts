@@ -85,13 +85,34 @@ export function isActivationEligible({
   hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
 }): boolean {
+  // The setup step in the URL is authoritative: the first-task step starts a
+  // session before setup finishes. The saved "setup in progress" flag alone
+  // (kept for a reload that lost the query string) only holds setup open while
+  // the instance has no session. On an instance with sessions and no URL step it
+  // is stale, e.g. written while a broken build read placeholder zero counts,
+  // and must not lock a working instance out of its own shell.
   return (
     loaded &&
     ((repoCount === 0 && sessionCount === 0) ||
-      setupInProgress ||
+      (setupInProgress && sessionCount === 0) ||
       hasActivationCheckpoint ||
       hasVpsCheckpoint)
   )
+}
+
+/** A saved setup flag, with no setup step in the URL, on an instance that already has sessions. */
+export function hasStaleActivation({
+  loaded,
+  sessionCount,
+  setupInProgress,
+  hasActivationCheckpoint,
+}: {
+  loaded: boolean
+  sessionCount: number
+  setupInProgress: boolean
+  hasActivationCheckpoint: boolean
+}): boolean {
+  return loaded && sessionCount > 0 && setupInProgress && !hasActivationCheckpoint
 }
 
 /**
