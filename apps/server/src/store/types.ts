@@ -19,6 +19,7 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  SessionMeta,
   SuperagentTurnFailureWire,
   ThreadId,
   TranscriptItemRef,
@@ -52,6 +53,9 @@ export type OfferMap = Record<string, OfferRecord>
 
 export type SessionStatusPersisted = 'starting' | 'live' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
+
+/** Capabilities reported with the last measured driver binding; absence is unknown. */
+export type SessionDriverCapabilities = Pick<SessionMeta, 'configureFields' | 'attachKinds'>
 
 /** Durable observer lease plus the last accepted causal checkpoint. */
 export interface ObservationLeaseRecord {
@@ -197,6 +201,7 @@ export interface SessionRow {
   /** Concrete per-session driver preference, preserved independently of fallback. */
   requestedDriverId?: string | null
   boundDriverId?: string | null
+  boundDriverCapabilities?: SessionDriverCapabilities | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null

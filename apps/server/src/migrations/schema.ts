@@ -209,6 +209,8 @@ export const sessions = sqliteTable(
      * restarted. NULL = never bound, or bound before this column.
      */
     boundDriverId: text('bound_driver_id'),
+    /** Daemon-reported capabilities of that binding, retained across server restarts. */
+    boundDriverCapabilities: text('bound_driver_capabilities'),
     /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
      *

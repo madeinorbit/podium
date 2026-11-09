@@ -493,8 +493,7 @@ function rowFields(row: SessionRow): SelectionFields {
 /**
  * WHAT A SESSION THAT RAN IN THIS PROCESS KEEPS AND ITS RECORD DOES NOT: the
  * last values of its live plane — its terminal (controller, geometry, epoch,
- * attached clients, gated requests, busy), what its live driver told us on
- * bind (driver id, configure fields, attach kinds, the draft engine), the facts
+ * attached clients, gated requests, busy), the draft engine, the facts
  * learned from its transcript tail and never stored (colour, observed model and
  * effort, context use), and the handoff overlay. None of them describes a
  * stopped session; a restart and an eviction clear every one of them.
@@ -506,9 +505,6 @@ export const LIVE_PLANE_META_FIELDS = [
   'epoch',
   'clientCount',
   'busy',
-  'driverId',
-  'configureFields',
-  'attachKinds',
   'draftSyncEngine',
   'agentColor',
   'observedModel',

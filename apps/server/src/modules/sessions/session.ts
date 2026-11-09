@@ -20,7 +20,12 @@ import {
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
-import type { ConversationBinding, SessionLifecycleRow, SessionRow } from '../../store'
+import type {
+  ConversationBinding,
+  SessionDriverCapabilities,
+  SessionLifecycleRow,
+  SessionRow,
+} from '../../store'
 import { NO_LIFECYCLE } from '../../store/types'
 import {
   applyObservationCheckpointTo,
@@ -124,6 +129,7 @@ export interface SessionInit {
   requestedDriverId?: string
   /** The driver a daemon last bound, restored from the row (POD-6160 D2g). */
   boundDriverId?: string
+  boundDriverCapabilities?: SessionDriverCapabilities
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -182,12 +188,13 @@ export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
 /** Mutable metadata covered by draft installation and rollback.
  * Row launch identity (model, effort, accountId, loginHarness, workflowRunId,
  * workflowStepId, agentProfileId) is readonly and constructor-only.
- * Transient driver handles and capabilities are not row columns. */
+ * Live driver handles stay transient; their last reported facts are durable. */
 export interface SessionDurableState {
   selectedDriverId: string | undefined
   requestedDriverId: string | undefined
   /** The driver a daemon last bound (durable twin of the transient `driverId`). */
   boundDriverId: string | undefined
+  boundDriverCapabilities: SessionDriverCapabilities | undefined
   cwd: string
   issueId: IssueId | undefined
   refIssueId: IssueId | null
@@ -468,18 +475,19 @@ export class Session {
   /**
    * THE DRIVER A DAEMON LAST BOUND, DURABLY (POD-6160 D2g). `driverId` above is
    * the live handle and dies with the process (and with eviction and restart);
-   * this is the measured binding the row keeps, for the one decision that must
-   * not depend on residency: whether a parked-but-alive row may be revived.
+   * this is the measured binding the row keeps for publication and for deciding
+   * whether a parked-but-alive row may be revived.
    */
   boundDriverId: string | undefined = undefined
+  /** The daemon's capability report belongs to the measured binding, not server residency. */
+  boundDriverCapabilities: SessionDriverCapabilities | undefined = undefined
   /**
    * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087),
    * as its `configure.fields` declare — reported by the daemon on bind.
    *
-   * TRANSIENT, EXACTLY LIKE `driverId`, and for the same reason stated a
-   * different way: this describes a LIVE HANDLE, and a value that outlived the
-   * process that made it would offer a model control for a driver that is gone.
-   * Re-established by every bind.
+   * These fields describe the live handle and are re-established by every bind.
+   * The last report is also retained in `boundDriverCapabilities`, so restoring
+   * a server-side session does not erase the unchanged daemon's capabilities.
    *
    * UNDEFINED vs EMPTY is the distinction consumers must keep. Undefined = we
    * have not been told (an older daemon, or a row that has not bound yet), so a
@@ -551,6 +559,7 @@ export class Session {
     this.selectedDriverId = d.selectedDriverId
     this.requestedDriverId = d.requestedDriverId
     this.boundDriverId = d.boundDriverId
+    this.boundDriverCapabilities = d.boundDriverCapabilities
     this.cwd = d.cwd
     this.issueId = d.issueId
     this.refIssueId = d.refIssueId
@@ -682,6 +691,7 @@ export class Session {
     // exited row as a driver family that never ran.
     d.selectedDriverId = undefined
     d.boundDriverId = undefined
+    d.boundDriverCapabilities = undefined
     this.driverId = undefined
     // …and the capability that came with the handle. Same reason: an exited row
     // must not describe what a driver that never ran could have changed.
@@ -874,6 +884,7 @@ export class Session {
       selectedDriverId: this.selectedDriverId,
       requestedDriverId: this.requestedDriverId,
       boundDriverId: this.boundDriverId,
+      boundDriverCapabilities: this.boundDriverCapabilities,
       cwd: this.cwd,
       issueId: this.issueId,
       refIssueId: this.refIssueId,
@@ -946,6 +957,7 @@ export class Session {
     this.selectedDriverId = state.selectedDriverId
     this.requestedDriverId = state.requestedDriverId
     this.boundDriverId = state.boundDriverId
+    this.boundDriverCapabilities = state.boundDriverCapabilities
     this.cwd = state.cwd
     this.issueId = state.issueId
     this.refIssueId = state.refIssueId
@@ -1024,6 +1036,7 @@ export class Session {
       selectedDriverId: d.selectedDriverId ?? null,
       requestedDriverId: d.requestedDriverId ?? null,
       boundDriverId: d.boundDriverId ?? null,
+      boundDriverCapabilities: d.boundDriverCapabilities ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,
       exitCode: d.exitCode ?? null,

@@ -472,13 +472,23 @@ export class SessionDaemonLifecycle {
            * cannot erase a selection this session already reported.
            */
           // Commit the driver decision and live status together. Handle facts
-          // above remain transient; durable fields are installed from the draft.
+          // above remain transient; their measured report survives residency
+          // changes for publication, and durable fields install from the draft.
           await this.write(s, (draft) => {
             if (msg.driverId) draft.selectedDriverId = msg.driverId
             // The measured binding, durably (POD-6160 D2g): what the revive of
             // a parked-but-alive row decides on once `driverId` is gone. Like
             // `driverId`, a bind that names none clears it.
             draft.boundDriverId = msg.driverId
+            draft.boundDriverCapabilities =
+              msg.driverId === undefined
+                ? undefined
+                : {
+                    ...(msg.configureFields !== undefined
+                      ? { configureFields: [...msg.configureFields] }
+                      : {}),
+                    ...(msg.attachKinds !== undefined ? { attachKinds: [...msg.attachKinds] } : {}),
+                  }
             // Preserve the first requested driver across reconnects.
             if (msg.requestedDriverId && !draft.requestedDriverId)
               draft.requestedDriverId = msg.requestedDriverId

@@ -42,7 +42,9 @@ import type { SessionRow } from './types'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
-  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  repo: {
+    allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]>
+  },
   userId: string,
 ): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
   const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
@@ -53,7 +55,9 @@ async function pinsOf(
 /** One person's tab orders by worktree, read the way the boot reconcile reads them. */
 async function tabOrdersOf(
   repo: {
-    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+    allTabOrdersForBootReconcile(): Promise<
+      { userId: string; entityId: string; sessionIds: string[] }[]
+    >
   },
   userId: string,
 ): Promise<Record<string, string[]>> {
@@ -119,6 +123,53 @@ const put = async (input: Omit<Partial<SessionRow>, 'id'> & { id: string }): Pro
 // ---------------------------------------------------------------------------
 // The batched id readers
 // ---------------------------------------------------------------------------
+
+describe('last bound driver capabilities', () => {
+  it('round-trips reported empty sets and unknown-driver fields without inference', async () => {
+    const report = { configureFields: ['future-control'], attachKinds: [] }
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row({
+        id: 'driver-report',
+        boundDriverId: 'future-driver',
+        boundDriverCapabilities: report,
+      }),
+    )
+    expect(await sessions.getSession(asSessionId('driver-report'))).toMatchObject({
+      boundDriverId: 'future-driver',
+      boundDriverCapabilities: report,
+    })
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row({
+        id: 'driver-report',
+        boundDriverId: 'legacy-driver',
+        boundDriverCapabilities: {},
+      }),
+    )
+    expect(await sessions.getSession(asSessionId('driver-report'))).toMatchObject({
+      boundDriverId: 'legacy-driver',
+      boundDriverCapabilities: {},
+    })
+  })
+
+  it('quarantines a corrupt report without losing the session or guessing an empty set', async () => {
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row({ id: 'driver-report', boundDriverId: 'claude-sdk' }),
+    )
+    for (const corrupt of ['{bad', '{"attachKinds":["invalid"]}', '{"configureFields":false}']) {
+      db.prepare('UPDATE sessions SET bound_driver_capabilities = ? WHERE id = ?').run(
+        corrupt,
+        'driver-report',
+      )
+      expect(await sessions.getSession(asSessionId('driver-report'))).toMatchObject({
+        boundDriverId: 'claude-sdk',
+        boundDriverCapabilities: null,
+      })
+    }
+  })
+})
 
 describe('boolean columns round-trip at their NON-DEFAULT value', () => {
   /**

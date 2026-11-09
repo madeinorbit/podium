@@ -155,6 +155,7 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     selectedDriverId: init.selectedDriverId,
     requestedDriverId: init.requestedDriverId,
     boundDriverId: init.boundDriverId,
+    boundDriverCapabilities: init.boundDriverCapabilities,
     cwd: init.cwd,
     issueId: init.issueId,
     refIssueId: init.refIssueId ?? null,
@@ -341,6 +342,7 @@ export function storedSessionInit(
     ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
     ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
     ...(r.boundDriverId ? { boundDriverId: r.boundDriverId } : {}),
+    ...(r.boundDriverCapabilities ? { boundDriverCapabilities: r.boundDriverCapabilities } : {}),
     // Passed through, never defaulted: a row from before this column exists
     // makes no claim about whether its launch ever had a conversation, and
     // inventing `'never'` for it would authorize discarding one.
@@ -398,7 +400,14 @@ export function projectSessionMeta(
   // what it ended up with. They agree on every path that works, and where
   // they can differ — a launch that failed and fell back — the one that
   // describes a running session has to win.
-  const driverFamily = driverFamilyForId(live.driverId ?? d.selectedDriverId ?? '')
+  // A server restart or materialization does not change the daemon's binding.
+  // Keep the last measured facts on the wire without claiming a live handle
+  // for server-side routing. Only another bind (or spawn failure) replaces them.
+  const driverId = live.driverId ?? d.boundDriverId
+  const capabilities = live.driverId === undefined ? (d.boundDriverCapabilities ?? live) : live
+  const configureFields = capabilities.configureFields
+  const attachKinds = capabilities.attachKinds
+  const driverFamily = driverFamilyForId(driverId ?? d.selectedDriverId ?? '')
   return {
     sessionId: s.sessionId,
     agentKind: s.agentKind,
@@ -448,8 +457,8 @@ export function projectSessionMeta(
     // POD-3087. Published even when EMPTY, because empty is an answer — "this
     // driver changes nothing" — and a client that could not tell it from
     // "nobody told me" would hide the control on both.
-    ...(live.configureFields ? { configureFields: [...live.configureFields] } : {}),
-    ...(live.attachKinds ? { attachKinds: [...live.attachKinds] } : {}),
+    ...(configureFields ? { configureFields: [...configureFields] } : {}),
+    ...(attachKinds ? { attachKinds: [...attachKinds] } : {}),
     ...(d.contextUsagePercent !== undefined
       ? { contextUsagePercent: d.contextUsagePercent }
       : {}),
@@ -457,7 +466,7 @@ export function projectSessionMeta(
     ...(live.draftSyncEngine ? { draftSyncEngine: true } : {}),
     ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
     ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
-    ...(live.driverId ? { driverId: live.driverId } : {}),
+    ...(driverId ? { driverId } : {}),
     ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
     // The bound driver's FAMILY, so a client can pick a surface without
     // learning driver ids (POD-2290). Resolved through the manifests — the

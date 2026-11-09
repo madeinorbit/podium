@@ -15,10 +15,17 @@
  * compared in-process and after a reboot. The selections are compared with
  * their predicate applied to every row.
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  firstAdminMemberId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -37,6 +44,7 @@ import {
   subjectMeta,
 } from './records'
 import type { Session } from './session'
+import { wireRecord } from './view'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -63,6 +71,191 @@ async function sessionView<T>(
 ): Promise<T> {
   return await reg.modules.sessions.residency.withSession(id, 'test', (session) => view(session!))
 }
+
+type DriverFacts = Pick<SessionMeta, 'driverId' | 'configureFields' | 'attachKinds'>
+const driverFacts = (meta: SessionMeta | undefined): DriverFacts => ({
+  driverId: meta?.driverId,
+  configureFields: meta?.configureFields,
+  attachKinds: meta?.attachKinds,
+})
+
+describe('measured driver facts across session publication paths', () => {
+  it.each<DriverFacts>([
+    { driverId: 'generic-pty', configureFields: [], attachKinds: ['engine'] },
+    { driverId: 'claude-sdk', configureFields: ['model', 'effort'], attachKinds: [] },
+    // A newer daemon's report must survive without the server guessing capabilities.
+    { driverId: 'future-driver', configureFields: ['future-control'], attachKinds: ['client'] },
+    { driverId: 'legacy-driver', configureFields: undefined, attachKinds: undefined },
+  ])('keeps $driverId through boot, records, materialization and unchanged publishes', async (facts) => {
+    const directory = mkdtempSync(join(tmpdir(), 'podium-driver-publication-'))
+    const file = join(directory, 'state.sqlite')
+    let store = await openTestStore(file)
+    let reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg)
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/driver-publication',
+      })
+      const bind = () =>
+        reg.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'bind',
+          sessionId,
+          cmd: 'claude',
+          cwd: '/driver-publication',
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+          ...facts,
+        })
+      await bind()
+      await reg.modules.sessions.flushActivity()
+      await reg.modules.sessions.flushBroadcasts()
+      expect(driverFacts(await reg.modules.sessions.sessionById(sessionId))).toEqual(facts)
+
+      // Reproduce the live failure: boot reconciles before any daemon can rebind.
+      const beforeBoot = await store.sync.maxChangeSeq()
+      const machineId = store.hostMachineId
+      await reg.dispose()
+      await store.close()
+      store = await openTestStore(file, machineId)
+      reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      const sessions = reg.modules.sessions
+      expect(driverFacts(await sessions.sessionById(sessionId))).toEqual(facts)
+      // Wire facts are retained without inventing an in-process driver handle.
+      expect(sessions.sessions.get(sessionId)?.driverId).toBeUndefined()
+      expect(sessions.sessions.get(sessionId)?.hasBoundDriver).toBe(false)
+      const sessionChanges = async (after: number) =>
+        (await store.sync.changesSince(after)).filter(
+          (change) => change.entity === 'session' && change.entityId === sessionId,
+        )
+      expect(await sessionChanges(beforeBoot)).toEqual([])
+
+      // Both the plain record publisher and the resident publisher must agree.
+      const publishRecord = async () => {
+        const record = (await sessions.records.read([sessionId])).get(sessionId)!
+        expect(driverFacts(subjectMeta(record))).toEqual(facts)
+        const pass = await sessions.view.buildProjectionPass([record])
+        return sessions.serverWriter.capture([
+          { entity: 'session', id: sessionId, op: 'upsert', value: wireRecord(record, pass) },
+        ])
+      }
+      await attachHostDaemon(reg)
+      await bind()
+      await sessions.flushBroadcasts()
+      const beforeRepublish = await store.sync.maxChangeSeq()
+      for (let index = 0; index < 3; index++) {
+        await bind()
+        const resident = sessions.sessions.get(sessionId)!
+        await sessions.repository.persist(sessions.serverWriter, resident)
+        sessions.repository.markVolatileSessionDirty(sessionId)
+        expect(await sessions.repository.flushVolatileSessionCaptures()).toEqual([])
+        expect(await publishRecord()).toEqual([])
+        // Runtime metadata also republishes through the durable session writer.
+        const event: RuntimeEvent = {
+          t: 'metadata',
+          change: { kind: 'title', title: resident.title, source: 'native' },
+          at: '2026-11-09T00:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'driver-publication', components: { seq: index + 1 } },
+          observerGeneration: 1,
+          turnEpoch: 0,
+        }
+        await reg.gateway.routeDaemonFrame(machineId, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: `driver-metadata-${index}`,
+          event,
+        })
+        await sessions.runtimeGateway.replayBoardProjection()
+        expect(await store.events.listRuntimeEvents(sessionId)).toContainEqual(event)
+        expect(driverFacts(await sessions.sessionById(sessionId))).toEqual(facts)
+      }
+      await sessions.flushBroadcasts()
+      expect(await sessionChanges(beforeRepublish)).toEqual([])
+
+      // A stopped session can leave memory; a lease restores the same facts.
+      await reg.gateway.routeDaemonFrame(machineId, { type: 'agentExit', sessionId, code: 0 })
+      await sessions.flushActivity()
+      await sessions.flushBroadcasts()
+      sessions.residency.sweep()
+      expect(sessions.sessions.has(sessionId)).toBe(false)
+      const beforeMaterialize = await store.sync.maxChangeSeq()
+      for (let index = 0; index < 3; index++) {
+        await sessions.residency.withSession(
+          sessionId,
+          'driver-publication-test',
+          async (session) => {
+            expect(driverFacts(session?.toMeta())).toEqual(facts)
+            await sessions.repository.persist(sessions.serverWriter, session!)
+          },
+        )
+        expect(await publishRecord()).toEqual([])
+      }
+      expect(await sessionChanges(beforeMaterialize)).toEqual([])
+    } finally {
+      await reg.dispose()
+      await store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('replaces a binding report and clears it when the next bind reports no driver', async () => {
+    const store = await openTestStore(':memory:')
+    const reg = await boot(store)
+    await attachHostDaemon(reg)
+    const sessions = reg.modules.sessions
+    const { sessionId } = await sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/driver-replacement',
+    })
+    const bind = (facts: DriverFacts) =>
+      reg.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'claude',
+        cwd: '/driver-replacement',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+        ...facts,
+      })
+    await bind({ driverId: 'generic-pty', configureFields: [], attachKinds: ['engine'] })
+    const replacement: DriverFacts = {
+      driverId: 'claude-sdk',
+      configureFields: ['model', 'effort'],
+      attachKinds: [],
+    }
+    await bind(replacement)
+    expect(
+      driverFacts(subjectMeta((await sessions.records.read([sessionId])).get(sessionId)!)),
+    ).toEqual(replacement)
+    await bind({})
+    expect(
+      driverFacts(subjectMeta((await sessions.records.read([sessionId])).get(sessionId)!)),
+    ).toEqual({
+      driverId: undefined,
+      configureFields: undefined,
+      attachKinds: undefined,
+    })
+    expect(await store.sessions.getSession(sessionId)).toMatchObject({
+      boundDriverId: null,
+      boundDriverCapabilities: null,
+    })
+    await bind(replacement)
+    const resident = sessions.sessions.get(sessionId)!
+    await sessions.repository.write(sessions.serverWriter, resident, (draft) => {
+      resident.markSpawnError('replacement never started', draft)
+    })
+    expect(driverFacts(await sessions.sessionById(sessionId))).toEqual({
+      driverId: undefined,
+      configureFields: undefined,
+      attachKinds: undefined,
+    })
+    expect(await store.sessions.getSession(sessionId)).toMatchObject({
+      boundDriverId: null,
+      boundDriverCapabilities: null,
+    })
+  })
+})
 
 describe('durable session records: the database answers as the session does', () => {
   it('over the benchmark corpus', async () => {

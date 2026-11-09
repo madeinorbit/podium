@@ -13,10 +13,11 @@ import {
   type IssueId,
   type MachineId,
   machinePathSeparator,
+  type PinWire,
   SessionDesired,
   type SessionId,
   SessionLifecycleFailure,
-  type PinWire,
+  SessionMeta,
   type SessionUserStateWire,
   type TabOrderWire,
   type UserId,
@@ -69,6 +70,7 @@ import type {
   OfferRecord,
   PinKind,
   SessionDeletionSource,
+  SessionDriverCapabilities,
   SessionLifecycleRow,
   SessionRow,
   SessionStatusPersisted,
@@ -519,6 +521,7 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     selectedDriverId: value('selectedDriverId'),
     requestedDriverId: value('requestedDriverId'),
     boundDriverId: value('boundDriverId'),
+    boundDriverCapabilities: value('boundDriverCapabilities'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
     // lives here rather than in the caller because it is the premise the
@@ -688,6 +691,8 @@ function sessionUpsertValues(row: SessionRow) {
     selectedDriverId: row.selectedDriverId ?? null,
     requestedDriverId: row.requestedDriverId ?? null,
     boundDriverId: row.boundDriverId ?? null,
+    boundDriverCapabilities:
+      row.boundDriverCapabilities == null ? null : JSON.stringify(row.boundDriverCapabilities),
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
     exitCode: row.exitCode,
@@ -2371,6 +2376,19 @@ function decodeLifecycleFailure(raw: string | null): SessionLifecycleRow['failur
   }
 }
 
+const driverCapabilities = SessionMeta.pick({ configureFields: true, attachKinds: true })
+
+/** A corrupt capability report is unknown, never an invented empty answer. */
+function decodeDriverCapabilities(raw: string | null): SessionDriverCapabilities | null {
+  if (raw === null) return null
+  try {
+    const parsed = driverCapabilities.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * SERIALIZATION EDGE — the one place a `sessions` row becomes a `SessionRow`.
  *
@@ -2410,6 +2428,7 @@ function mapSession(r: SessionSelect): SessionRow {
     selectedDriverId: r.selectedDriverId ?? null,
     requestedDriverId: r.requestedDriverId ?? null,
     boundDriverId: r.boundDriverId ?? null,
+    boundDriverCapabilities: decodeDriverCapabilities(r.boundDriverCapabilities),
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
     // and here it is the safety property itself: only a literal 'never'
