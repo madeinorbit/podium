@@ -62,6 +62,7 @@ describe('release mirror activation wiring', () => {
     const backfill = jobs['mirror-backfill']!
     expect(backfill.permissions).toEqual({ contents: 'read' })
     expect(backfill.needs).toBeUndefined()
+    for (const value of Object.values(backfill.env ?? {})) expect(value).not.toContain('runner.')
     expect(backfill.env).toMatchObject({ ...expected, PODIUM_PUBLISH_RELEASE_MIRROR: '1' })
     expect(jobs.headless!.if).toContain("inputs.mirror_backfill == 'off'")
     expect(backfill.steps.some((step) => step.run?.includes('release:prepare'))).toBe(false)
