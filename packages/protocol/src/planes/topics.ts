@@ -357,7 +357,7 @@ export const isNewerTopicPosition = (
 // ---------------------------------------------------------------------------
 
 /** Wire key: a well-formed `kind:id`. An unknown KIND is answered `unsupported`, not dropped. */
-const TopicKeyField = z
+export const TopicKeyField = z
   .string()
   .min(3)
   .max(512)

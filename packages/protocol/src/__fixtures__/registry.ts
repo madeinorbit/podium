@@ -65,6 +65,7 @@ import * as workflows from '../messages/workflows'
 import * as workspace from '../messages/workspace'
 import * as perf from '../perf'
 import * as presenceRooms from '../planes/presence-rooms'
+import * as topics from '../planes/topics'
 
 /** One fixture family == one protocol module. The name is the golden filename. */
 const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, unknown>]> = [
@@ -112,6 +113,9 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['shipping', shipping],
   ['sync', sync],
   ['terminal', terminal],
+  // Topics on the stream plane (ADR 7 Am.2 D23, POD-5800): their frames are arms of
+  // ClientMessage, ServerMessage, DaemonMessage and ControlMessage.
+  ['topics', topics],
   ['transcript', transcript],
   ['update', update],
   ['workflows', workflows],
