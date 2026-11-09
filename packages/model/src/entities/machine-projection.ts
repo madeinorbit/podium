@@ -31,7 +31,15 @@
  */
 
 import { z } from 'zod'
-import { asMachineId, asUserId, MachineIdField, RepoIdField, type MachineId, type UserId, UserIdField } from '../ids'
+import {
+  asMachineId,
+  asUserId,
+  type MachineId,
+  MachineIdField,
+  RepoIdField,
+  type UserId,
+  UserIdField,
+} from '../ids'
 import { joinKeyParts, splitKeyParts } from '../ids/keys'
 import { machinePathKey } from '../machine-path'
 import { AgentKind } from './agent'
@@ -190,7 +198,8 @@ export function checkoutRowId(machineId: MachineId, path: string): string {
 /** Inverse of {@link checkoutRowId}. Throws on a malformed id. */
 export function parseCheckoutRowId(id: string): { machineId: MachineId; path: string } {
   const [machine, path] = splitKeyParts(CHECKOUT_SEP, id, 2) as [string, string]
-  if (machine === '' || path === '') throw new Error(`malformed checkout row id: ${JSON.stringify(id)}`)
+  if (machine === '' || path === '')
+    throw new Error(`malformed checkout row id: ${JSON.stringify(id)}`)
   return { machineId: asMachineId(machine), path }
 }
 

@@ -1,21 +1,21 @@
-import { settingsView } from '@podium/client-graph/settings-views'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
+import { settingsView } from '@podium/client-graph/settings-views'
+import type { HostMetricsWire } from '@podium/model'
 import { asUserId } from '@podium/model'
+import type { MobileClientSession } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Platform } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
-import type { MobileClientSession } from '@podium/protocol'
-import type { HostMetricsWire } from '@podium/model'
-import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -338,7 +338,10 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     // A rename is a change of each machine's record (POD-6644).
     const machines = referenceState(enabled.runtime).machines
     enabled.data.putMachinesAndRepos({
-      machines: machines.map((machine) => ({ ...machine, name: `${machine.name} updated` })) as never,
+      machines: machines.map((machine) => ({
+        ...machine,
+        name: `${machine.name} updated`,
+      })) as never,
     })
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())

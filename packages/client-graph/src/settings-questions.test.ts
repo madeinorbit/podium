@@ -59,7 +59,8 @@ function fixture(rows: RowRecord[]) {
 }
 
 it('keeps checkout-derived repository answers inside their principal pool', async () => {
-  const a = fixture([]), b = fixture([])
+  const a = fixture([]),
+    b = fixture([])
   const repos = [{ path: '/shared', kind: 'repository' as const, branch: 'main' }]
   const first = settingsOwnerFixture({ userId: 'first', repos })
   const second = settingsOwnerFixture({ userId: 'second', repos })
@@ -70,7 +71,9 @@ it('keeps checkout-derived repository answers inside their principal pool', asyn
   const before = read(b.pool)
   expect(read(a.pool)).toEqual(before)
   expect(read(a.pool)).not.toBe(before)
-  const stop = autorun(() => { a.pool.row('settingsRepository', id) })
+  const stop = autorun(() => {
+    a.pool.row('settingsRepository', id)
+  })
   try {
     await Promise.resolve()
     await Promise.resolve()

@@ -1,12 +1,18 @@
 import type { LiveStore } from '@podium/client-core/live'
-import type { UiStore } from '@podium/client-core/ui'
-import { repositoriesFromCheckouts, type AccountView, type CheckoutWire, type GitRepositoryWire, type LayoutWire, type MemberView, type PinKind } from '@podium/model'
-import type { MobileClientSession } from '@podium/protocol'
-
 import type { NotificationSession, SessionPhaseChange } from '@podium/client-core/sound'
+import type { UiStore } from '@podium/client-core/ui'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
-import { asSessionId } from '@podium/model'
-import type { PendingInteractionWire } from '@podium/protocol'
+import {
+  type AccountView,
+  asSessionId,
+  type CheckoutWire,
+  type GitRepositoryWire,
+  type LayoutWire,
+  type MemberView,
+  type PinKind,
+  repositoriesFromCheckouts,
+} from '@podium/model'
+import type { MobileClientSession, PendingInteractionWire } from '@podium/protocol'
 import type { MessagePoolRow } from './message-models'
 import { isPinned } from './per-user-records'
 import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
@@ -315,7 +321,9 @@ export interface PoolRows {
       Record<string, unknown>
     >
   /** POD-6677: the instance settings, resolved, its feed id stamped as `id`. */
-  instancePreferences: Readonly<InstancePreferences> & { readonly id: string } & Readonly<Record<string, unknown>>
+  instancePreferences: Readonly<InstancePreferences> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>
@@ -357,14 +365,16 @@ export class MobxPool {
   }
 
   @observableRef accessor ui: UiStore | undefined = undefined
-  @observableRef private accessor readCheckouts: (() => readonly CheckoutWire[]) | undefined = undefined
+  @observableRef private accessor readCheckouts: (() => readonly CheckoutWire[]) | undefined =
+    undefined
   @observable private accessor checkoutRevision = 0
   /** A read port to the one replica; checkout facts are never copied here. */
   @action bindCheckouts(read: () => readonly CheckoutWire[]): () => void {
     this.readCheckouts = read
-    return () => runInAction(() => {
-      if (this.readCheckouts === read) this.readCheckouts = undefined
-    })
+    return () =>
+      runInAction(() => {
+        if (this.readCheckouts === read) this.readCheckouts = undefined
+      })
   }
   @action checkoutRecordsChanged(): void {
     this.checkoutRevision++
@@ -372,7 +382,7 @@ export class MobxPool {
   /** The repository derivation belongs to this pool and ends with it. */
   @lazy get checkoutRepositories() {
     this.checkoutRevision
-    return repositoriesFromCheckouts(this.disposed ? [] : this.readCheckouts?.() ?? [])
+    return repositoriesFromCheckouts(this.disposed ? [] : (this.readCheckouts?.() ?? []))
   }
   @action bindUi(ui: UiStore): void {
     this.ui = ui

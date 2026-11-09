@@ -13,8 +13,8 @@ import {
   type SettingsRows,
 } from './settings-schema'
 import {
-  type CheckoutRepository,
   bindCheckoutRecords,
+  type CheckoutRepository,
   checkoutRepositoryId,
   repositoriesFromCheckouts,
 } from './shared/checkout-repositories'
@@ -167,7 +167,10 @@ export class SettingsSource {
    * observed repositories; checkouts move rarely.
    */
   private changed(name: Discovery, batch: ReplicaAddressedBatch): void {
-    if (name === 'repos' && (batch.type === 'replace' || batch.rows.some(row => KINDS.repos.has(row.kind))))
+    if (
+      name === 'repos' &&
+      (batch.type === 'replace' || batch.rows.some((row) => KINDS.repos.has(row.kind)))
+    )
       this.pool?.checkoutRecordsChanged()
     if (batch.type === 'replace') {
       for (const key of this.rows.keys())
@@ -205,7 +208,10 @@ export class SettingsSource {
   }
 
   private repositories() {
-    return this.pool?.checkoutRepositories ?? repositoriesFromCheckouts(this.owner.replica.rows('checkouts'))
+    return (
+      this.pool?.checkoutRepositories ??
+      repositoriesFromCheckouts(this.owner.replica.rows('checkouts'))
+    )
   }
 
   /** The repositories by id, built once per replica answer. */

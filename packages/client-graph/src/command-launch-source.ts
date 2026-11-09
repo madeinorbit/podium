@@ -17,8 +17,8 @@ import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
 import {
-  type CheckoutRepository,
   bindCheckoutRecords,
+  type CheckoutRepository,
   checkoutRepositoryId,
 } from './shared/checkout-repositories'
 import { defineSource, type PoolSource, type PoolSourceRows } from './source-registry'

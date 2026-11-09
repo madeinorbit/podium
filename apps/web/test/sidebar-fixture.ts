@@ -231,7 +231,8 @@ export function createSidebarFixture(
       for (const next of nextRecords) {
         // The feed publishes changed records. Re-supplying a discovery list
         // does not create a delta for every unchanged checkout and access row.
-        if (compareStructural(records.get(`${next.entity}:${next.entityId}`)?.value, next.value)) continue
+        if (compareStructural(records.get(`${next.entity}:${next.entityId}`)?.value, next.value))
+          continue
         const record = put(next.entity, next.entityId, next.value)
         replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
       }

@@ -2,7 +2,12 @@
 import '@podium/client-graph/synced-models'
 import { knownReading, type LiveStore } from '@podium/client-core/live'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { INSTANCE_PREFERENCES_ROW_ID, instancePreferencesRecordOf, type HostMetricsWire, type MachineId } from '@podium/model/browser'
+import {
+  type HostMetricsWire,
+  INSTANCE_PREFERENCES_ROW_ID,
+  instancePreferencesRecordOf,
+  type MachineId,
+} from '@podium/model/browser'
 import { runInAction } from 'mobx'
 import { createSidebarFixture } from './sidebar-fixture'
 
@@ -84,8 +89,10 @@ export function createHeaderFixture(count: number, sessionCount = count, userId 
     worktreeGc: { enabled: false, afterDays: 14 },
   }
   base.records.set(`instancePreferences:${INSTANCE_PREFERENCES_ROW_ID}`, {
-    entity: 'instancePreferences', entityId: INSTANCE_PREFERENCES_ROW_ID,
-    value: instancePreferencesRecordOf(lifecycle), provenance: { seq: 1 },
+    entity: 'instancePreferences',
+    entityId: INSTANCE_PREFERENCES_ROW_ID,
+    value: instancePreferencesRecordOf(lifecycle),
+    provenance: { seq: 1 },
   })
   Object.assign(base.api, {
     settings: { get: { query: async () => lifecycle } },

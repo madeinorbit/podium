@@ -298,10 +298,24 @@ describe('memory chip is machine-aware', () => {
     expect(screen.queryByText('3 processes')).toBeNull()
     const listener = processHub.subscribeTopic.mock.calls.find(([, id]) => id === 'vmi34')?.[2]
     if (!listener) throw new Error('The clicked machine has no processes subscription')
-    act(() => listener.onState?.({ status: 'value', position: { epoch: 'fixture', seq: 2 }, value: {
-      breakdown: { ...breakdownFor('vmi'), agents: [{ sessionId: 'pushed-session', bytes: 1e9, processCount: 3 }] },
-      reclaim: { candidates: [], orphans: [], diagnostics: [], estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null } },
-    } }))
+    act(() =>
+      listener.onState?.({
+        status: 'value',
+        position: { epoch: 'fixture', seq: 2 },
+        value: {
+          breakdown: {
+            ...breakdownFor('vmi'),
+            agents: [{ sessionId: 'pushed-session', bytes: 1e9, processCount: 3 }],
+          },
+          reclaim: {
+            candidates: [],
+            orphans: [],
+            diagnostics: [],
+            estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+          },
+        },
+      }),
+    )
     expect(await screen.findByText('3 processes')).toBeTruthy()
     expect(screen.getByText('pushed-s')).toBeTruthy()
   })

@@ -14,7 +14,10 @@ import type { MobxPool } from '../pool'
 
 /** All optional sources borrow this pool's one checkout read port. Their
  * existing addressed subscriptions invalidate it; no extra feed is installed. */
-export function bindCheckoutRecords(pool: MobxPool, replica: { rows(kind: 'checkouts'): readonly CheckoutWire[] }): void {
+export function bindCheckoutRecords(
+  pool: MobxPool,
+  replica: { rows(kind: 'checkouts'): readonly CheckoutWire[] },
+): void {
   pool.sources.view('checkouts.records', () => ({
     dispose: pool.bindCheckouts(() => replica.rows('checkouts')),
   }))

@@ -68,41 +68,37 @@ export function sessionPaneFixture(): SessionView[] {
       unread: false,
     },
   ]
-  return variants.map(
-    (patch, index) => {
-      // be8f95667b deleted SessionStatus.reconnecting (the former pane-12).
-      // Keep the remaining corpus identities; offline live sessions below
-      // exercise the machine-derived condition instead.
-      const i = index < 12 ? index : index + 1
-      return (
-      ({
-        sessionId: asSessionId(`pane-${i}`),
-        agentKind: DEFAULT_HARNESS_AGENT,
-        title: `Synthetic pane ${i}`,
-        name: i % 2 ? `Named pane ${i}` : undefined,
-        cwd: `/synthetic/w${i}`,
-        status: 'live',
-        machineId: 'machine-a',
-        machineName: 'Host',
-        displayRef: `POD-${i}.a`,
-        controllerId: 'controller',
-        geometry: { cols: 80, rows: 24 },
-        epoch: 0,
-        clientCount: 1,
-        createdAt: '2026-10-01T00:00:00Z',
-        lastActiveAt: '2026-10-01T23:50:00Z',
-        origin: { kind: 'spawn' },
-        archived: false,
-        readAt: null,
-        unread: true,
-        agentState: { phase: 'idle' },
-        driverFamily: 'terminal',
-        attachKinds: ['client'],
-        model: 'auto',
-        effort: 'auto',
-        ...patch,
-      }) as SessionView
-      )
-    },
-  )
+  return variants.map((patch, index) => {
+    // be8f95667b deleted SessionStatus.reconnecting (the former pane-12).
+    // Keep the remaining corpus identities; offline live sessions below
+    // exercise the machine-derived condition instead.
+    const i = index < 12 ? index : index + 1
+    return {
+      sessionId: asSessionId(`pane-${i}`),
+      agentKind: DEFAULT_HARNESS_AGENT,
+      title: `Synthetic pane ${i}`,
+      name: i % 2 ? `Named pane ${i}` : undefined,
+      cwd: `/synthetic/w${i}`,
+      status: 'live',
+      machineId: 'machine-a',
+      machineName: 'Host',
+      displayRef: `POD-${i}.a`,
+      controllerId: 'controller',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-10-01T00:00:00Z',
+      lastActiveAt: '2026-10-01T23:50:00Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+      readAt: null,
+      unread: true,
+      agentState: { phase: 'idle' },
+      driverFamily: 'terminal',
+      attachKinds: ['client'],
+      model: 'auto',
+      effort: 'auto',
+      ...patch,
+    } as SessionView
+  })
 }

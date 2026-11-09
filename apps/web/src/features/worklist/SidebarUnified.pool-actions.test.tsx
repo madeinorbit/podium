@@ -206,10 +206,13 @@ function enableRecordRequests(fixture: Fixture) {
             requests.push({
               procedure: command,
               input,
-              resolve: (result) => resolve({
-                outcome: 'applied', result, replayed: false,
-                receipt: { feedId: 'fixture', epoch: 'fixture', seq: 1 },
-              }),
+              resolve: (result) =>
+                resolve({
+                  outcome: 'applied',
+                  result,
+                  replayed: false,
+                  receipt: { feedId: 'fixture', epoch: 'fixture', seq: 1 },
+                }),
               reject,
             }),
           ),
@@ -824,7 +827,9 @@ describe('real pool row mutations and receipts', () => {
     expect(sort.input['patch']).not.toHaveProperty('pinned')
     expect(pin.input).toMatchObject({
       id: issuePinId(movedId),
-      ...(pinned ? { fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: movedId } } : {}),
+      ...(pinned
+        ? { fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: movedId } }
+        : {}),
     })
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
     await settle()

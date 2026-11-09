@@ -134,7 +134,13 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
         unknown
       >
       return [
-        { ...mineFacts, ...machine, ...presence, id: machine.id, online: condition?.online === true },
+        {
+          ...mineFacts,
+          ...machine,
+          ...presence,
+          id: machine.id,
+          online: condition?.online === true,
+        },
       ]
     })
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
@@ -165,7 +171,7 @@ export function watchReference(owner: ClientRuntime, changed: () => void): () =>
     ),
     owner.replica.subscribeRowBatch!(changed),
   ]
-  return () => stops.forEach((stop) => stop())
+  return () => stops.forEach((stop) => { stop() })
 }
 
 export function issueActivityAt(

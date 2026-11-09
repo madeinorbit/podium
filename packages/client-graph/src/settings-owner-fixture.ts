@@ -98,13 +98,17 @@ export function settingsOwnerFixture(input: {
     listeners,
     /** Publish the same machine and repository records as the runtime row/header sources. */
     seed(pool: MobxPool) {
-      const repositories = repositoriesFromCheckouts(checkouts as unknown as readonly CheckoutWire[])
-      headerEntities(pool).apply(
-        [
-          ...seedFixtureMachines(pool, listed as unknown as MachineFacts[]),
-          ...repositories.map(value => ({ kind: 'repository', id: checkoutRepositoryId(value), value })),
-        ] as never,
+      const repositories = repositoriesFromCheckouts(
+        checkouts as unknown as readonly CheckoutWire[],
       )
+      headerEntities(pool).apply([
+        ...seedFixtureMachines(pool, listed as unknown as MachineFacts[]),
+        ...repositories.map((value) => ({
+          kind: 'repository',
+          id: checkoutRepositoryId(value),
+          value,
+        })),
+      ] as never)
       headerEntities(pool).order('repository', repositories.map(checkoutRepositoryId))
       headerEntities(pool).order(
         'machine',

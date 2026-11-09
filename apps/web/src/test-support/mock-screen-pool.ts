@@ -50,7 +50,7 @@ import {
 } from '@podium/model'
 import { sessionWorkingFact } from '@podium/model/browser'
 import { computed, observable, reaction, runInAction } from 'mobx'
-import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { afterEach, vi } from 'vitest'
 import * as storeInputs from '@/app/store'
 
@@ -433,7 +433,7 @@ function useFixturePool(): MobxPool {
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
   const input = { state: { ...state, ...borrowed.read() }, issues }
-  const signal = useMemo(() => observable.box(input, { deep: false }), [])
+  const [signal] = useState(() => observable.box(input, { deep: false }))
   live.current = input
   useLayoutEffect(() => {
     if (!isDeepStrictEqual(signal.get(), input)) runInAction(() => signal.set(input))
@@ -464,6 +464,7 @@ function useFixturePool(): MobxPool {
     }
   }, [])
   const version = useSyncExternalStore(subscribe, () => versionRef.current)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Publications intentionally replace the fixture adapter identity through version.
   return useMemo(() => {
     const current = () => live.current.state
     // Board and detail readers use the real pool over these same synthetic
@@ -745,8 +746,8 @@ function useFixturePool(): MobxPool {
           if (name === 'sidebar') return fixture.sidebar
           // The member roster (POD-6294): a fixture is a one-member instance
           // unless it supplies its own, so the task views keep their former rules.
-          if (name === 'members.roster')
-            return (fixture.memberRoster ??= {
+          if (name === 'members.roster') {
+            fixture.memberRoster ??= {
               shared: false,
               members: [],
               currentMemberId: undefined,
@@ -754,7 +755,9 @@ function useFixturePool(): MobxPool {
               nameOf: (): undefined => undefined,
               read: async (): Promise<void> => {},
               dispose: (): void => {},
-            })
+            }
+            return fixture.memberRoster
+          }
           if (name === 'header.entities') return fixture.header
           if (name === 'header.views') return fixture.headerViews
           if (name === 'sessionPanes') return fixture.sessionPanes
@@ -966,7 +969,7 @@ function useFixturePool(): MobxPool {
     const reader = createChatContextReader(pool)
     Object.assign(pool, { settingsViews: settingsView(pool) })
     return pool
-  }, [version])
+  }, [version, signal])
 }
 
 vi.mock('@/app/store-worklist-pool', () => ({

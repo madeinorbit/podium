@@ -16,9 +16,7 @@ const readClientCore = (rel: string) =>
 // binding (P5b, issue #262). Structure assertions about the store's
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
-  ['engine/runtime.ts', 'engine/wiring.ts', 'react/provider.tsx']
-    .map(readClientCore)
-    .join('\n')
+  ['engine/runtime.ts', 'engine/wiring.ts', 'react/provider.tsx'].map(readClientCore).join('\n')
 
 // This file is deliberately narrow: source-grep assertions that only check a
 // symbol is present bitrot without guarding behavior, so POD-619 removed them.

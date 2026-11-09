@@ -128,6 +128,7 @@ export interface MachineModel
     Readonly<Partial<Omit<MachineAccessWire, 'userId' | 'machineId' | MachineLiveFields>>> {}
 
 /** Stored target, schedule and agent instruction fields are schema-installed. */
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: The registered schema installs these readonly record fields.
 export class AutomationModel extends EntityModel {
   declare readonly id: AutomationWire['id']
   constructor(id: string, host: ModelHost) {
@@ -137,6 +138,7 @@ export class AutomationModel extends EntityModel {
 export interface AutomationModel extends Readonly<AutomationWire> {}
 
 /** Stored occurrence and link fields are schema-installed. */
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: The registered schema installs these readonly record fields.
 export class AutomationRunModel extends EntityModel {
   declare readonly id: AutomationRunWire['id']
   constructor(id: string, host: ModelHost) {
