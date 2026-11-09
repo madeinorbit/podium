@@ -9,7 +9,6 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { CommandPalette } from './CommandPalette'
 import {
@@ -79,14 +78,18 @@ it('declares launch and palette demand after attachment, follows window updates 
     expect(result.current.palette).not.toBe(LOADING)
   })
   const { launch, palette, actions, owner } = result.current
-  expect(launch).toMatchObject({
-    initialRepoPath: '/synthetic/project',
-    repoPaths: ['/synthetic/project'],
-    machines: [{ id: 'host-one' }, { id: 'host-two' }, { id: 'host-three' }],
-  })
-  expect(palette).toMatchObject({ paletteOpen: false, selectedIssueId: null })
-  expect(actions.setPaletteOpen).toBe(referenceState(owner).setPaletteOpen)
-  expect(actions.updateIssue).toBe(referenceState(owner).updateIssue)
+  if (launch === LOADING || palette === LOADING) throw new Error('Launch readers did not settle')
+  expect(launch.initialRepoPath).toBe('/synthetic/project')
+  expect(launch.repoPaths).toEqual(['/synthetic/project'])
+  expect(launch.machines.map((machine) => machine.id)).toEqual([
+    'host-one',
+    'host-two',
+    'host-three',
+  ])
+  expect(palette.paletteOpen).toBe(false)
+  expect(palette.selectedIssueId).toBeNull()
+  expect(actions.setPaletteOpen).toBe(owner.palette.setOpen)
+  expect(actions.updateIssue).toBe(owner.root.commands.issues.update)
 
   storeStats.enable()
   storeStats.reset()
@@ -96,10 +99,10 @@ it('declares launch and palette demand after attachment, follows window updates 
     for (let step = 1; step <= 20; step++) fixture.activity(step)
   })
   expect(result.current.open).toBe(true)
-  expect(result.current.palette).toMatchObject({
-    paletteOpen: true,
-    selectedIssueId: 'synthetic-1',
-  })
+  const updated = result.current.palette
+  if (updated === LOADING) throw new Error('Palette became unavailable')
+  expect(updated.paletteOpen).toBe(true)
+  expect(updated.selectedIssueId).toBe('synthetic-1')
   expect(storeStats.snapshot().runtimes).toEqual([])
   expect(fatal).not.toHaveBeenCalled()
 })

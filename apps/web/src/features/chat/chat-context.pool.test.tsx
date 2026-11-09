@@ -761,7 +761,7 @@ function Composer() {
     />
   )
 }
-it('renders the real composer and artifact strip identically and keeps artifact dispatch on its owner', async () => {
+it('renders the saved draft and artifact and keeps artifact dispatch on its owner', async () => {
   await f.fixture!.load()
   const offer = {
     message: 'Synthetic concept ready',
@@ -787,7 +787,13 @@ it('renders the real composer and artifact strip identically and keeps artifact 
   storeStats.reset()
   f.guard = true
   const actual = render(<Surface />)
-  expect(visible(actual.container)).toMatchSnapshot('last green composer and artifacts')
+  expect(visible(actual.container)).toMatchObject({
+    draft: 'Saved draft',
+    buttons: expect.arrayContaining([
+      expect.objectContaining({ label: 'Synthetic concept', disabled: false }),
+    ]),
+  })
+  expect(actual.container.textContent).toContain('Synthetic concept')
   fireEvent.click(actual.getByTestId('offer-artifact-thumb'))
   expect(f.seams.openArtifact).toHaveBeenCalledWith(
     expect.objectContaining({

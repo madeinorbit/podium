@@ -21,7 +21,6 @@ import { createPoolNavigationProvider } from './pool-navigation-provider'
 const binding = vi.hoisted(() => ({
   state: {} as RuntimeState,
   pool: null as MobxPool | null,
-  missionReady: false,
 }))
 const workspaceOwner = withKeyedInputs({
   getSnapshot: () => binding.state,
@@ -41,8 +40,6 @@ vi.mock('./store-worklist-pool', () => ({
       projection?.subscribe ?? (() => () => {}),
       projection?.getSnapshot ?? (() => empty),
     )
-    if (value && typeof value === 'object' && 'loading' in value && value.loading === false)
-      binding.missionReady = true
     return value
   },
 }))
@@ -122,14 +119,12 @@ it('renders identical workspace labels, tab order and layout after pool navigati
     let route = routeDefaults('issues')
     const screen = async (state: RuntimeState) => {
       binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as RuntimeState
-      binding.missionReady = false
       const view = render(<Workspace />)
       await waitFor(() => {
         handle.pool.hydrate()
-        expect(binding.missionReady).toBe(true)
+        expect(view.container.querySelectorAll('[data-tab-drag-id]').length).toBeGreaterThan(0)
       })
       const result = output(view.container)
-      expect(view.container.querySelectorAll('[data-tab-drag-id]').length).toBeGreaterThan(0)
       view.unmount()
       return result
     }

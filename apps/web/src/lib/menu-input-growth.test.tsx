@@ -1,9 +1,10 @@
 import '@podium/client-graph/synced-models'
-import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
-import { requireHere } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { LOADING, MobxPool, type MobxPool as Pool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
+import { requireHere } from '@podium/client-graph/lookup'
 
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
@@ -204,9 +205,11 @@ const SidebarIssueMenu = observer(function SidebarIssueMenu({
 }: {
   issue: ReturnType<typeof makeIssue>
 }) {
-  const data = createPoolWorkActions(f.pool!, { access: {} } as never, noop).resolveMenuData(
-    issue.id,
-  )
+  const data = createPoolWorkActions(
+    f.pool!,
+    fixtureRoot({ access: {} }) as never,
+    noop,
+  ).resolveMenuData(issue.id)
   return data.poolInputs === LOADING ? null : (
     <IssueContextMenu
       issues={data.single}
@@ -249,7 +252,10 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
           },
           { pool },
         )
-        for (const [entity, id] of row.mock.calls) (reads[entity] ??= new Set()).add(id)
+        for (const [entity, id] of row.mock.calls) {
+          reads[entity] ??= new Set()
+          reads[entity].add(id)
+        }
         row.mockRestore()
         windows[name] = {
           ...work,

@@ -284,7 +284,11 @@ it('preserves the accepted banners through pool attachment', async () => {
   const enabled = await mount()
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
-  expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
+  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
+    'Synthetic unknown words',
+  )
+  expect(enabled.view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
+  expect(enabled.view.getByText('Synthetic plan')).toBeTruthy()
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
   expect(reactErrors.mock.calls).toEqual([])

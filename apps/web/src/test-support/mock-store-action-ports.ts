@@ -14,8 +14,8 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   })
   return {
     ...actual,
+    ...fixtureRuntimeHooks(() => owner),
     ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-    useClientRuntime: () => owner,
     useHarnessDescriptors: () => ({ served: [] }),
   }
 })

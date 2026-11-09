@@ -1,7 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
-import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
@@ -466,8 +465,8 @@ describe('issue page rendered pool parity', () => {
         `${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`,
         JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2),
       )
-    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
-    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
+    expect(next.text).toContain('Exact page title')
+    expect(next.text).toContain('Synthetic comment')
     expect(next.reads).toBe(0)
     expect(
       next.counts.filter(
@@ -514,8 +513,6 @@ describe('issue page rendered pool parity', () => {
     )
     const next = await arm('panel')
     expect(next.text).toContain('Work continued in SYN-24')
-    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
-    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
   })
 

@@ -28,11 +28,15 @@ async function mount() {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
   pool = null
-  const fixture = createSidebarFixture(6, NOW, true, USER)
+  const fixture = createSidebarFixture(8, NOW, true, USER)
   fixture.patch('issueProjection', 'synthetic-2', { parentId: 'synthetic-0' })
   fixture.patch('issueProjection', 'synthetic-3', { parentId: 'synthetic-2' })
   fixture.patch('issueProjection', 'synthetic-4', { parentId: 'synthetic-0' })
   fixture.patch('issueProjection', 'synthetic-5', { parentId: 'synthetic-1' })
+  // Three leaf work units under the old parent, two under the new one.
+  // The intermediate task is a branch, rather than another work unit.
+  fixture.patch('issueProjection', 'synthetic-6', { parentId: 'synthetic-0' })
+  fixture.patch('issueProjection', 'synthetic-7', { parentId: 'synthetic-1' })
   fixture.patch('session', 'synthetic-session-3', {
     agentState: { phase: 'working', since: new Date(NOW - 60_000).toISOString() },
   })

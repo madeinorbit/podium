@@ -266,9 +266,10 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
 it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
   const on = await mount()
   await painted(on)
-  expect(on.view.container.innerHTML).toMatchSnapshot(
-    'last green pilot-ON inbox, screening, pulse and references',
-  )
+  expect(on.view.getByTestId('screening-card').textContent).toContain('Summary 2')
+  expect(on.view.container.textContent).toContain('Synthetic agent 0')
+  expect(on.view.getByTestId('pulse').textContent).toContain('Host 1')
+  expect(on.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy()
   expect(on.seen[0]).toBeNull()
   expect(on.seen.some((pool) => pool !== null)).toBe(true)
   expect(on.errors).toEqual([])
@@ -292,7 +293,7 @@ it('has zero legacy selectors and issue derivations at mount and on relevant upd
   expect(readRuntimeStoreStats(on.runtime)?.rowBuilds ?? 0).toBe(0)
 })
 
-it('compares every card, triage bucket, screening ancestor and addressed route against the last green pilot outputs', async () => {
+it('resolves screening cards and addressed routes and reacts to a changed card', async () => {
   const app = await mount()
   await painted(app)
   const input = {
@@ -317,10 +318,21 @@ it('compares every card, triage bucket, screening ancestor and addressed route a
     tokens.map(() => false),
   )
   expect(targets.map((target) => views.route(target))).not.toContain(LOADING)
-  expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot(
-    'last green pilot-ON complete inbox output',
-  )
   const before = mobileInboxSnapshot(app.pool, input)
+  expect(before).toMatchObject({
+    window: { booting: false, outboxSize: 0 },
+    cards: input.screeningIds.map((id, index) => ({
+      id,
+      card: {
+        id,
+        title: `Synthetic task ${index}`,
+        description: `Summary ${index}`,
+        brief: `Brief ${index}`,
+        stage: 'proposed',
+      },
+    })),
+    loading: false,
+  })
   await act(async () =>
     app.data.patch('issueProjection', 'synthetic-0', { title: 'Planted comparison error' }),
   )

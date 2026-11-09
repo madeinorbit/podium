@@ -18,6 +18,7 @@ import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import { LayoutWire, parseLayoutRowId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -155,12 +156,17 @@ function pickFirstClaudeModel() {
  * A draft start is a `session.launch` effect on `sync.submit` (POD-6408). The
  * spy sees what the old `sessions.create` payload carried: the launch input.
  */
-function launchApi(create: (input: unknown) => unknown) {
+function launchApi(
+  create: (input: unknown) => unknown,
+  layout?: (input: { id: string; patch: { value: unknown } }) => void,
+) {
   return {
     sync: {
       submit: {
         mutate: async (envelope: { command: string; input: { input?: unknown } }) => {
           if (envelope.command === 'effects.create') await create(envelope.input.input)
+          if (envelope.command === 'records.userLayout.edit')
+            layout?.(envelope.input as unknown as { id: string; patch: { value: unknown } })
           return {
             outcome: 'applied',
             result: {},
@@ -671,6 +677,7 @@ describe('phone last launched pair', () => {
     }
     const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
     const layoutSet = vi.fn(async () => ({}))
+    let echoLayout!: (input: { id: string; patch: { value: unknown } }) => void
     const view = await renderWithMobileStore(<NewWorkButton />, {
       repos: [
         repo('/home/dev/podium'),
@@ -680,8 +687,19 @@ describe('phone last launched pair', () => {
         machine({ 'claude-code': 'in', codex: 'in' }),
         machine({ 'claude-code': 'in', codex: 'in' }, 'remote', 'Remote'),
       ],
-      api: { ...launchApi(create), layout: { set: { mutate: layoutSet } } },
+      api: {
+        ...launchApi(create, (input) => echoLayout(input)),
+        layout: { set: { mutate: layoutSet } },
+      },
     })
+    // A successful generic edit has a feed echo. Otherwise seq=0 acknowledges
+    // the paint while the fixture's authoritative preference stays absent.
+    echoLayout = (input) =>
+      view.replica.applyChanges(
+        'userLayouts',
+        [LayoutWire.parse({ ...parseLayoutRowId(input.id), value: input.patch.value })],
+        [],
+      )
     return { ...view, create, layoutSet }
   }
   async function choose(field: string, choice: string) {
@@ -695,7 +713,10 @@ describe('phone last launched pair', () => {
 
   it('restores all four machine/harness pairs and Auto when a combination is absent', async () => {
     const { runtime } = await setup()
-    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await act(async () => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await waitFor(() =>
+      expect(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)).toBe(JSON.stringify(picks)),
+    )
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Model', 'Codex Reported GPT')
@@ -712,7 +733,9 @@ describe('phone last launched pair', () => {
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Machine', 'Remote')
     await expectPair('Claude Code · Reported Sonnet', 'Low')
-    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })))
+    await act(async () =>
+      runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })),
+    )
     await choose('Machine', 'Studio')
     await choose('Machine', 'Remote')
     await expectPair('Auto', 'Auto')
@@ -735,24 +758,28 @@ describe('phone last launched pair', () => {
       model: 'reported-opus',
       effort: 'high',
     })
-    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
-      mine: { 'claude-code': picks.mine['claude-code'] },
-    })
+    await waitFor(() =>
+      expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
+        mine: { 'claude-code': picks.mine['claude-code'] },
+      }),
+    )
     fireEvent.click(screen.getByLabelText('New work'))
     await choose('Model', 'Auto')
     expect(pairWrites()).toHaveLength(1)
     await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
-      mine: { 'claude-code': { model: 'auto', effort: 'auto' } },
-    })
+    await waitFor(() =>
+      expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({
+        mine: { 'claude-code': { model: 'auto', effort: 'auto' } },
+      }),
+    )
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('model')
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('effort')
   })
 
   it('keeps a saved draft with different model and effort across reload, including explicit Auto', async () => {
     const { runtime } = await setup()
-    act(() => {
+    await act(async () => {
       runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks))
       runtime.deviceState.set(NEW_WORK_MODEL_KEY, 'codex:reported-gpt')
       runtime.deviceState.set(NEW_WORK_EFFORT_KEY, 'high')
@@ -771,7 +798,10 @@ describe('phone last launched pair', () => {
   it('resets a restored stale model after the selected machine list arrives', async () => {
     const { runtime } = await setup()
     catalogFixture.byMachine.mine = {}
-    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await act(async () => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await waitFor(() =>
+      expect(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)).toBe(JSON.stringify(picks)),
+    )
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · reported-opus', 'High')
     catalogFixture.byMachine.mine = {
@@ -789,7 +819,10 @@ describe('phone last launched pair', () => {
       label: 'Second',
       efforts: ['high'],
     })
-    act(() => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await act(async () => runtime.deviceState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    await waitFor(() =>
+      expect(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)).toBe(JSON.stringify(picks)),
+    )
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · Reported Opus', 'High')
     await choose('Model', 'Claude Code Second')

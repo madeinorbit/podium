@@ -1,11 +1,11 @@
-import {
-  referenceCommandAccess,
-  type ReferenceCommandAccess,
-} from '@podium/client-core/test-support/reference-commands'
 import type { ClientRuntime, OverlayTarget, Store } from '@podium/client-core/engine'
 import { foldRowOverlays } from '@podium/client-core/engine'
 import type { ReplicaRows } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
+import {
+  type ReferenceCommandAccess,
+  referenceCommandAccess,
+} from '@podium/client-core/test-support/reference-commands'
 import type { PendingRows } from '@podium/client-graph/shared/row-source'
 import type { IssueProjection } from '@podium/model'
 import {
@@ -124,13 +124,15 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
     const prompts = log?.spawnPrompts ?? new Map<string, string>()
     // Machines and repositories are records (POD-6644): my machines joined with
     // my access rows, and the repositories derived from the checkouts.
-    const live = (
-      runtime as {
-        live?: {
-          conditionOf(id: string): { known: boolean; value?: { online: boolean } } | undefined
+    const live =
+      runtime.root?.live ??
+      (
+        runtime as {
+          live?: {
+            conditionOf(id: string): { known: boolean; value?: { online: boolean } } | undefined
+          }
         }
-      }
-    ).live
+      ).live
     const access_ = new Map(
       replica.rows('machineAccess').map((row) => [String(row.machineId), row]),
     )

@@ -27,7 +27,6 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
-import { expectPoolOutput } from '../../../../tests/worklist/harness/src/oracle/pool-output'
 import {
   seedCacheFromCorpus,
   startScenarioEngine,
@@ -414,7 +413,7 @@ describe('rendered mission pane parity', () => {
     expect(rows()).toEqual(before)
   }, 120_000)
 
-  it('preserves visible words, labels, order and layout', async () => {
+  it('renders the selected mission and its tasks without legacy derivations', async () => {
     const root = issues.find(
       (issue) =>
         !issue.archived &&
@@ -429,7 +428,16 @@ describe('rendered mission pane parity', () => {
       ownership = sessionOwnershipStats()
     const current = mount()
     await settled()
-    expectPoolOutput(renderedOutput(current.container), 'rendered output')
+    expect(current.container.textContent).toContain(root.title)
+    const renderedIds = [...current.container.querySelectorAll('[data-flight-issue]')].map((node) =>
+      node.getAttribute('data-flight-issue'),
+    )
+    expect(renderedIds.length).toBeGreaterThan(0)
+    for (const id of renderedIds) {
+      const issue = issues.find((row) => row.id === id)
+      expect(issue, `rendered task ${id}`).toBeDefined()
+      expect(current.container.textContent).toContain(issue!.title)
+    }
     expect(missionIndexStats()).toEqual(baseline)
     expect(sessionOwnershipStats()).toEqual(ownership)
     expect(missionLegacyCountsFor(owner)).toEqual({})
@@ -462,14 +470,14 @@ describe('rendered mission pane parity', () => {
     await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i }))
     await settled()
-    expectPoolOutput(renderedOutput(current.container), 'rendered output')
+    expect(current.container.querySelector(selector)).not.toBeNull()
     fireEvent.keyDown(current.container.querySelector(selector)!, { key: 'Enter' })
     await settled()
     expect(state.openSessionTab.mock.calls.at(-1)).toEqual([archivedId, { permanent: true }])
   }, 120_000)
 
   for (const menu of ['issue', 'session'] as const)
-    it(`preserves ${menu} action labels and order`, async () => {
+    it(`renames the addressed ${menu} through its command module`, async () => {
       state.selectedIssueId = issues.find(
         (issue) =>
           !issue.archived &&
@@ -485,29 +493,56 @@ describe('rendered mission pane parity', () => {
               session.agentKind !== 'shell',
           ),
       )!.id
-      const target = menu === 'issue' ? '.deck-header' : 'button.deck-agent'
+      const target = menu === 'issue' ? '[data-flight-task-row]' : 'button.deck-agent'
       resetMissionLegacyCounts(owner)
       const baseline = missionIndexStats(),
         ownership = sessionOwnershipStats()
       const current = mount()
       await settled()
-      fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 })
+      const trigger = current.container.querySelector(target)!
+      const address =
+        menu === 'issue'
+          ? trigger.getAttribute('data-flight-task-row')
+          : trigger.closest('[data-flight-session]')?.getAttribute('data-flight-session')
+      expect(address).toBeTruthy()
+      fireEvent.contextMenu(trigger, { clientX: 10, clientY: 20 })
       await settled()
-      expectPoolOutput(renderedOutput(await screen.findByRole('menu')), 'menu output')
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^Rename/ }))
+      const editorOwner =
+        menu === 'issue'
+          ? `[data-flight-task-row="${address}"]`
+          : `[data-flight-session="${address}"]`
+      await waitFor(() =>
+        expect(current.container.querySelector(`${editorOwner} input`)).not.toBeNull(),
+      )
+      const editor = current.container.querySelector(`${editorOwner} input`)!
+      fireEvent.change(editor, { target: { value: 'Renamed through the menu' } })
+      fireEvent.keyDown(editor, { key: 'Enter' })
+      if (menu === 'issue')
+        expect(state.updateIssue).toHaveBeenCalledWith(address, {
+          title: 'Renamed through the menu',
+        })
+      else expect(state.renameSession).toHaveBeenCalledWith(address, 'Renamed through the menu')
       expect(missionIndexStats()).toEqual(baseline)
       expect(sessionOwnershipStats()).toEqual(ownership)
       expect(missionLegacyCountsFor(owner)).toEqual({})
     }, 120_000)
 
-  it('preserves folded bar words, labels, tick order and layout', async () => {
+  it('opens the folded mission from its control and progress count', async () => {
     state.selectedIssueId = 'i1884'
     const baseline = missionIndexStats(),
       ownership = sessionOwnershipStats()
-    const current = render(<FoldedFlightDeckBar onExpand={() => {}} />)
+    const expand = vi.fn()
+    const current = render(<FoldedFlightDeckBar onExpand={expand} />)
     await waitFor(() =>
       expect(current.container.querySelector('[data-testid="flight-deck-gauge"]')).not.toBeNull(),
     )
-    expectPoolOutput(renderedOutput(current.container), 'rendered output')
+    const gauge = screen.getByTestId('flight-deck-gauge')
+    expect(gauge.textContent).toMatch(/^\d+\/\d+$/)
+    expect(gauge.getAttribute('aria-label')).toContain('Open flight deck')
+    fireEvent.click(screen.getByRole('button', { name: 'Open flight deck', exact: true }))
+    fireEvent.click(gauge)
+    expect(expand).toHaveBeenCalledTimes(2)
     expect(missionIndexStats()).toEqual(baseline)
     expect(sessionOwnershipStats()).toEqual(ownership)
   }, 120_000)

@@ -1,15 +1,14 @@
-import { superagentSourcePorts, noticeSourcePorts } from '@podium/client-graph/source-ports'
-import { omitGone } from './lookup'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
+import { noticeSourcePorts, superagentSourcePorts } from '@podium/client-graph/source-ports'
 import type { IssueEventWire } from '@podium/model'
 import { issueEventRowId, type SuperagentThreadWire, superagentThreadRowId } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { checkSuperagent } from '../../../tests/worklist/diagnostics/superagent-check'
+import { omitGone } from './lookup'
 
 import { NOTICE_ENTITIES } from './notice-schema'
 import { NOTICE_SOURCE_KEY, NoticeSource } from './notice-source'
@@ -458,6 +457,8 @@ it('batches addressed cold session loads without indexing cold session payloads'
   expect(f.pool.hydrate()).toBe(1)
   expect(f.load).toHaveBeenCalledTimes(1)
   expect(omitGone(f.pool.row('session', cold.sessionId))).toMatchObject({ cwd: '/synthetic' })
+  expect(omitGone(f.pool.row('session', 'known-absent'))).toBe(LOADING)
+  expect(f.pool.hydrate()).toBe(1)
   expect(omitGone(f.pool.row('session', 'known-absent'))).toBeUndefined()
 })
 it('releases all scoped state and subscriptions, including an already queued demand', async () => {
