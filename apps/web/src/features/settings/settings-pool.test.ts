@@ -229,9 +229,8 @@ describe('declared settings readers', () => {
     requested.getSnapshot()
     f.owner.deviceState.set('podium.sounds.enabled', 'false')
     expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({ key: 'podium.sounds.enabled', value: 'false' })
-    expect(
-      checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
-    ).toBeGreaterThan(0)
+    // A component observes catalog demand; imperative oracle reads are immediate.
+    expect(requested.getSnapshot().pending).toBeGreaterThan(0)
     await Promise.resolve()
     const result = checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })

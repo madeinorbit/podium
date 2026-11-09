@@ -1,10 +1,12 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { lazy } from '@podium/mobx-helpers'
-import { compareStructural, observable, runInAction } from 'mobx'
+import { compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { RelationBuckets } from './relations'
 import { SHELL_RELATIONS, type ShellEntity, type ShellRows } from './shell-schema'
 import { defineSource, type PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
+
+const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 /** Read-side attachment. Locals are already authoritative engine values;
  * replica deltas read just the addressed lane, not the legacy ship collection. */
@@ -25,13 +27,19 @@ export class ShellSource implements PoolSource<ShellEntity> {
       },
     },
   ) as ShellRows['shellWindow']
-  @lazy get screenCatalog(): ShellRows['shellCatalog'] {
-    return {
-      files: [...this.runtime.ui.fileTabs.keys()],
-      workspaces: Object.keys(this.runtime.ui.workspaces),
-      lanes: this.orders.get('shellShipLane') ?? [],
-    }
+  @lazy({ equals: compareShallow }) private get fileIds(): readonly string[] {
+    return [...this.runtime.ui.fileTabs.keys()]
   }
+  @lazy({ equals: compareShallow }) private get workspaceIds(): readonly string[] {
+    return Object.keys(this.runtime.ui.workspaces)
+  }
+  // Each question follows only its own membership. Editing a workspace must
+  // not rebuild the unchanged file list or wake its observers.
+  private readonly screenCatalog = Object.defineProperties({}, {
+    files: { enumerable: true, get: () => this.fileIds },
+    workspaces: { enumerable: true, get: () => this.workspaceIds },
+    lanes: { enumerable: true, get: () => this.orders.get('shellShipLane') ?? EMPTY_IDS },
+  }) as ShellRows['shellCatalog']
 
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private readonly orders = observable.map<ShellEntity, readonly string[]>(undefined, {

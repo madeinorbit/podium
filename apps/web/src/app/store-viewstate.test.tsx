@@ -1,5 +1,4 @@
 import type { MobxPool } from '@podium/client-graph'
-import { useWorklistPool } from './store-worklist-pool'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
@@ -111,6 +110,7 @@ vi.mock('./trpc', () => ({
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
 const { StoreProvider, useRuntimeSelector } = await import('./store')
+const { useWorklistPool } = await import('./store-worklist-pool')
 
 // A tiny consumer that publishes the store handlers onto a module-level ref so a
 // test can imperatively drive pane/focus state.
