@@ -39,6 +39,12 @@ const task = (id: string, patch: object = {}) => ({
     ...patch,
   },
 })
+/** My pin of a task: a `pin` record (POD-6692), never a field of its row. */
+const pin = (id: string) => ({
+  kind: 'pin' as const,
+  id: `issue:${id}`,
+  value: { userId: 'u1', kind: 'issue', entityId: id, pinnedAt: stamp },
+})
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pools.push(pool)
@@ -49,11 +55,13 @@ function fixture() {
         project('alpha', 0),
         project('empty', 1),
         project('beta', 2),
-        task('pinned-ask', { pinned: true, stage: 'review', title: 'Review the API' }),
+        task('pinned-ask', { stage: 'review', title: 'Review the API' }),
+        pin('pinned-ask'),
         task('live', { title: 'Reconnect gracefully' }),
-        task('nap', { pinned: true, deferUntil: '2026-11-01T12:00:00Z' }),
+        task('nap', { deferUntil: '2026-11-01T12:00:00Z' }),
+        pin('nap'),
+        pin('recent'),
         task('recent', {
-          pinned: true,
           stage: 'done',
           closedReason: 'done',
           closedAt: '2026-10-29T12:00:00Z',
@@ -114,7 +122,6 @@ describe('phone Work list desktop parity', () => {
         type: 'update',
         rows: [
           task('nap', {
-            pinned: true,
             repoId: 'orphan',
             repoPath: '/code/paper-prototype',
             deferUntil: '2026-11-01T12:00:00Z',

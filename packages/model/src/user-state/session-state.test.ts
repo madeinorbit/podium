@@ -178,15 +178,16 @@ describe('the members’ own semantics', () => {
     expect(PinState.safeParse({ ...base, kind: 'session' }).success).toBe(false)
   })
 
-  it('the three issue markers are one row, and all three are independently nullable', () => {
+  it('the two issue markers are one row, and both are independently nullable', () => {
     const key = { userId: 'u1', entityId: 'i1' }
-    expect(
-      IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null, pinnedAt: null }).success,
-    ).toBe(true)
+    expect(IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null }).success).toBe(true)
     // A row missing one marker is not a valid row: three spellings of "not done"
     // (null, absent, and a default) is how a per-user table acquires a second
     // meaning nobody documented.
-    expect(IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null }).success).toBe(false)
+    expect(IssueUserState.safeParse({ ...key, readAt: null }).success).toBe(false)
+    // A pin is not a marker on this row: it is the person's own pin record
+    // (POD-6692), so the row has no `pinnedAt` to set.
+    expect(IssueUserState.shape).not.toHaveProperty('pinnedAt')
   })
 
   it('two users’ rows for the SAME entity are two distinct keys', () => {
@@ -206,9 +207,7 @@ describe('the projection overlays', () => {
     // one wire value, or a client would render a tucked-away issue differently
     // depending on whether a row was ever written and then cleared.
     expect(issueOverlayOf(undefined)).toEqual(NO_ISSUE_USER_STATE)
-    expect(issueOverlayOf({ readAt: null, tuckedAt: null })).toEqual(
-      NO_ISSUE_USER_STATE,
-    )
+    expect(issueOverlayOf({ readAt: null, tuckedAt: null })).toEqual(NO_ISSUE_USER_STATE)
   })
 
   it('the empty session overlay is never-opened and never-snoozed, and they differ', () => {

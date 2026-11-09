@@ -230,7 +230,17 @@ it.each([
           createdAt: '2026-10-01T00:00:00Z',
           updatedAt: '2026-10-01T00:00:00Z',
           isDraftVessel: true,
-          pinned: true,
+        } as never,
+      },
+      // My pin of the task is my `pin` record (POD-6692), not a field of its row.
+      {
+        kind: 'pin',
+        id: 'issue:draft',
+        value: {
+          userId: 'u1',
+          kind: 'issue',
+          entityId: 'draft',
+          pinnedAt: '2026-10-01T00:00:00Z',
         } as never,
       },
       {

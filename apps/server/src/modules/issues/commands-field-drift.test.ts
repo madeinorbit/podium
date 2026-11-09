@@ -45,6 +45,9 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     patchKeys.delete('archived')
     const cliKeys = mapCliKeys(cliShape('update'))
     cliKeys.delete('id') // outer input field, not part of the patch
+    // `--pinned` is not a field of the task: it creates or removes the caller's
+    // human's own pin record of it (POD-6692).
+    cliKeys.delete('pinned')
     expect([...cliKeys].sort()).toEqual([...patchKeys].sort())
   })
 
@@ -91,13 +94,15 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     const input = issueRegistry.defs.attachSession.input as z.ZodObject<z.ZodRawShape>
     const sub = input.shape.newSubissue as z.ZodOptional<z.ZodObject<z.ZodRawShape>>
     expect(Object.keys(sub.unwrap().shape)).toEqual(['title'])
-    expect(input.safeParse({ sessionId: asSessionId('s1'), confirmRehome: true }).success).toBe(true)
+    expect(input.safeParse({ sessionId: asSessionId('s1'), confirmRehome: true }).success).toBe(
+      true,
+    )
   })
 
   it('keeps the label palette and excludes task color flags', () => {
     expect(LabelColor.options).toEqual([...LABEL_COLOR_SLOTS])
     for (const name of ['create', 'update']) {
-      const command = ISSUE_COMMANDS.find(command => command.name === name)!
+      const command = ISSUE_COMMANDS.find((command) => command.name === name)!
       const input = name === 'create' ? { repoPath: '/r', title: 'x' } : { id: '1' }
       expect(command.args.safeParse(input).success).toBe(true)
       expect(command.args.safeParse({ ...input, color: 'violet' }).success).toBe(false)
