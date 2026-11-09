@@ -18,9 +18,21 @@ export class MobileChatViewModel {
   @observable accessor searching = false
   @observableRef accessor backendPick: SuperagentBackendPick = {}
   @lazy({ equals: compareStructural }) get backend() { return resolveSuperagentBackend(superagentState(this.pool).active, this.backendPick) }
-  @actionBound setBackendModel(model: string, agentKind?: string): void { this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind) }
-  @actionBound setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
-  constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {
+  @actionBound setBackendModel(model: string, agentKind?: string): void {
+    this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind)
+    this.saveBackend?.({ model, effort: 'auto' })
+  }
+  @actionBound setBackendEffort(effort: string): void {
+    this.backendPick = { ...this.backendPick, effort }
+    this.saveBackend?.({ effort })
+  }
+  /** `saveBackend`: the pick as the thread's own choice, a queued edit of its
+   *  record (POD-6675). The send still carries the pick for its own turn. */
+  constructor(
+    private readonly service: MobileConversation,
+    private readonly pool: MobxPool,
+    private readonly saveBackend?: (choice: { model?: string; effort?: string }) => void,
+  ) {
     this.find = new MobileTranscriptSearch(service.presentation)
   }
 

@@ -29,6 +29,7 @@ import {
   pinRowId,
   SESSION_INTERRUPT_KIND,
   sessionUserStateRowId,
+  superagentThreadRowId,
   tabOrderRowId,
   UNSNOOZE_BACKDATE_MS,
   userPreferencesRowId,
@@ -202,6 +203,7 @@ export const COMMAND_ACTIONS = [
   'chatSendsFor',
   'discardChat',
   'renameSession',
+  'setSuperagentBackend',
   'archiveSession',
   'dismissOffer',
   'setWorkState',
@@ -1242,6 +1244,21 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // same edit.
     renameSession: async (sessionId, name) =>
       editRecord({ kind: 'session', id: sessionId }, { name }),
+    // The prompt box's model and effort are spec fields of my thread's record
+    // (POD-6675, ADR 12 D2): one writer, this edit; `auto` clears the field so
+    // the thread follows the superagent settings role again.
+    setSuperagentBackend: async (threadId, choice) => {
+      const cell = (value: string) => (value === 'auto' ? UNSET : value)
+      const patch: RecordPatch<'superagentThread'> = {
+        ...(choice.model !== undefined ? { model: cell(choice.model) } : {}),
+        ...(choice.effort !== undefined ? { effort: cell(choice.effort) } : {}),
+      }
+      if (Object.keys(patch).length === 0) return
+      await editRecord(
+        { kind: 'superagentThread', id: superagentThreadRowId(rt.userId, threadId) },
+        patch,
+      )
+    },
     archiveSession: async (sessionId, archived) => {
       const write = editRecord(
         { kind: 'session', id: sessionId },

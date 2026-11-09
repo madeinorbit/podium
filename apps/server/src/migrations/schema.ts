@@ -2389,6 +2389,14 @@ export const superagentQueuedInputs = sqliteTable(
      *  the recomputed on-screen report — and a queued turn must not lose it
      *  across a restart, which an in-memory side map would. */
     attachSessionId: text('attach_session_id').$type<SessionId>(),
+    /**
+     * The model and effort the send carried, for THIS turn only (POD-6675):
+     * never written to the thread, whose own choice is the owner's generic
+     * edit. Null = run the thread's choice. A column, as `attach_session_id`,
+     * so a queued turn keeps its pick across a restart.
+     */
+    model: text(),
+    effort: text(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),

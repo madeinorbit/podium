@@ -140,7 +140,12 @@ export function useThreadConversation() {
       enabled: pool !== null && !superagentState(pool).loading,
     },
   )
-  const view = useMemo(() => conversation && pool ? new MobileChatViewModel(conversation, pool) : undefined, [conversation, pool])
+  const view = useMemo(() => conversation && pool
+    ? new MobileChatViewModel(conversation, pool, (choice) => {
+        const thread = superagentState(pool).active
+        if (thread) void owner.access.setSuperagentBackend(thread.id, choice).catch(() => {})
+      })
+    : undefined, [conversation, owner, pool])
   useEffect(() => view?.open(), [view])
   const podiumSid = readSid()
   return { conversation: view, podiumSid, binding: thread }

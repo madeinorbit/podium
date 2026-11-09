@@ -416,6 +416,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     opts?: { timeoutMs?: number; excludeSessionIds?: readonly SessionId[] },
   ) => Promise<SessionId | null>
   renameSession: (sessionId: SessionId, name: string) => Promise<void>
+  /** My superagent thread's model and effort, as the prompt box picked them
+   *  (POD-6675): a queued edit of its record; `auto` follows the settings role. */
+  setSuperagentBackend: (
+    threadId: string,
+    choice: { readonly model?: string; readonly effort?: string },
+  ) => Promise<void>
   hibernateSession: (sessionId: SessionId) => Promise<void>
   /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,
    *  KEEPING the branch, the transcript and the session row, so Resume can

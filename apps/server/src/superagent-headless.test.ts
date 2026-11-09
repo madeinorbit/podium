@@ -2340,6 +2340,11 @@ describe('harness switch + effort (#199)', () => {
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
+    // The thread's own choice is the owner's edit of its record (POD-6675):
+    // records.superagentThread.edit writes the model through this store call.
+    await h.registry.sessionStore.superagent.updateSuperagentThreadBinding('global', {
+      model: 'opus',
+    })
     await setSuperagentHarness(h, { harness: 'codex' })
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
@@ -2350,6 +2355,49 @@ describe('harness switch + effort (#199)', () => {
     expect(h.turnReqs[1]?.agent).toBe(h.turnReqs[0]?.agent)
     expect(h.turnReqs[1]?.resumeValue).toBe('claude-1')
     expect(h.turnReqs[1]?.model).toBe('opus')
+  })
+
+  it('a send’s model and effort run its own turn and are never written to the thread (POD-6675)', async () => {
+    const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'hi',
+      model: 'opus',
+      effort: 'high',
+    })
+    expect(h.turnReqs[0]).toMatchObject({ model: 'opus', effort: 'high' })
+    // One writer for the thread's spec fields: the owner's generic edit.
+    const thread = await h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(thread?.model).toBeUndefined()
+    expect(thread?.effort).toBeUndefined()
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+
+    // The thread's own choice (the edit) runs the next turn that carries none,
+    // and `auto` on a send follows the role for that turn whatever it holds.
+    await h.registry.sessionStore.superagent.updateSuperagentThreadBinding('global', {
+      model: 'sonnet',
+    })
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'again',
+    })
+    expect(h.turnReqs[1]?.model).toBe('sonnet')
+    h.resolveTurn(h.turnReqs[1]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'role please',
+      model: 'auto',
+    })
+    expect(h.turnReqs[2]?.model).not.toBe('sonnet')
+    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.model).toBe(
+      'sonnet',
+    )
   })
 
   it('uses a native Codex superagent model even when coding uses another harness', async () => {

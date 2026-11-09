@@ -287,6 +287,8 @@ const insertQueuedInput = prepared((db: StoreDrizzle) =>
       focusJson: P('focusJson'),
       agentKind: P('agentKind'),
       attachSessionId: P('attachSessionId'),
+      model: P('model'),
+      effort: P('effort'),
       createdAt: P('createdAt'),
     })
     .prepare(),
@@ -618,6 +620,8 @@ export class SuperagentRepository {
       focusJson: row.focus ? JSON.stringify(row.focus) : null,
       agentKind: row.agentKind ?? null,
       attachSessionId: row.attachSessionId ?? null,
+      model: row.model ?? null,
+      effort: row.effort ?? null,
       createdAt,
     })
     return { ...row, createdAt }
@@ -637,6 +641,8 @@ export class SuperagentRepository {
       text: row.text,
       ...(row.agentKind ? { agentKind: row.agentKind } : {}),
       ...(row.attachSessionId ? { attachSessionId: row.attachSessionId } : {}),
+      ...(row.model ? { model: row.model } : {}),
+      ...(row.effort ? { effort: row.effort } : {}),
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
         row.focusJson,
         `queued superagent input ${String(row.inputId)}`,

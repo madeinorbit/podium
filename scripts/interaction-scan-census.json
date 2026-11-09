@@ -932,14 +932,14 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "364d286bebc27c2fcdad2d9c39f6adf43a57277c142a91e7c4fdb914cae24f22",
+      "tokens": "e1bee47d3932a15d221700d1d762452c86daa5d0419fa275d48b68115ea4f34c",
       "gate": [],
       "origin": [
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d",
         "f916189f23c60cdc94e4c4d0d59c05245ef18d38d7c66d809aa41229eb15d818"
       ],
-      "fingerprint": "61e21696ad47f1a253a2e80773066023bb5673776de33c24576565da02fad086",
+      "fingerprint": "7587bd59e6e8eaf33f6f7fa4c4c8fd7cb699f37308f9eed2b6716deef2668afa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

@@ -829,6 +829,10 @@ export interface QueuedSuperagentInputRow {
   /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
    *  Deliberately outside `focus` — see the contract's field note. */
   attachSessionId?: SessionId
+  /** This turn's own model and effort (POD-6675), never the thread's. `auto`
+   *  follows the settings role; undefined runs the thread's choice. */
+  model?: string
+  effort?: string
   focus?: {
     view?: string
     worktreePath?: string

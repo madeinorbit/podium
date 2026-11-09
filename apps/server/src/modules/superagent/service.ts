@@ -241,6 +241,16 @@ export function superagentResponseContract(text: string): string {
   )
 }
 
+/**
+ * A turn's model or effort (POD-6675): what its send carried, else the thread's
+ * own. `auto` from the send means "follow the settings role" for this turn,
+ * whatever the thread holds; undefined is "no choice, the role decides".
+ */
+export function turnChoice(sent: string | undefined, stored: string | undefined): string | undefined {
+  if (sent === undefined) return stored
+  return sent === 'auto' ? undefined : sent
+}
+
 export class SuperagentService {
   // Threads with a headless turn in flight. A second sendTurn is REJECTED — one
   // writer per harness session, and the UI shows the running turn live via
@@ -645,8 +655,10 @@ export class SuperagentService {
       /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
        *  Rides the queued row, so a turn that waits behind another keeps it. */
       attachSessionId?: SessionId
-      /** Per-thread backend choice from the prompt box (POD-782). Persisted onto
-       *  the thread, so it holds for every later turn until changed. */
+      /** The model and effort the prompt box showed, for THIS turn only
+       *  (POD-6675): `auto` follows the settings role, absent follows the
+       *  thread. Never written to the thread: its own choice is the owner's
+       *  generic edit of the record. */
       model?: string
       effort?: string
       /** Prompt-box connector pick. When set, this turn runs that harness. */
@@ -662,10 +674,6 @@ export class SuperagentService {
     const threadId = asThreadId(thread.id)
     const lockError = await this.terminalLockError(thread)
     if (lockError) throw new SuperagentRefusal('conflict', lockError)
-    await this.applyBackendChoice(threadId, {
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
-    })
     // A TURN IS ALREADY RUNNING — QUEUE, DON'T REFUSE (POD-782).
     //
     // This used to throw "a turn is already running on this thread". The main
@@ -687,10 +695,13 @@ export class SuperagentService {
     if (inFlight) {
       podiumSessionId = await this.ensureHeadlessSession(writer, thread)
     } else {
-      // The thread as the backend choice above left it (a model override keeps
-      // its frozen harness).
-      thread = (await this.store.superagent.getSuperagentThread(threadId, ownerUserId)) ?? thread
-      turnAgent = await this.intendedAgent(thread, agentKind, ownerUserId)
+      // A model override keeps its frozen harness: the turn's own, else the thread's.
+      turnAgent = await this.intendedAgent(
+        thread,
+        agentKind,
+        ownerUserId,
+        turnChoice(model, thread.model),
+      )
       thread = await this.freezeIntendedAgent(thread, turnAgent, ownerUserId)
       // A switch to another harness is the turn's own work (it hands the
       // outgoing session's context on, a daemon read): until it runs, the
@@ -708,6 +719,9 @@ export class SuperagentService {
       ...(focus ? { focus } : {}),
       ...(turnAgent ? { agentKind: turnAgent } : {}),
       ...(attachSessionId ? { attachSessionId } : {}),
+      // This turn's own pick, on its queued row (never the thread's).
+      ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
     })
     let ack = { threadId, podiumSessionId, queued: inFlight }
     // THE TURN RUNS AFTER THE COMMIT (POD-6419): preparing it reads transcripts
@@ -780,10 +794,12 @@ export class SuperagentService {
     thread: SuperagentThreadRow,
     requested: HarnessAgentKind | undefined,
     ownerUserId: UserId,
+    /** The model this turn runs with: its own pick, else the thread's. */
+    model: string | undefined = thread.model,
   ): Promise<HarnessAgentKind> {
     if (requested) return requested
     const frozen = HarnessAgent.safeParse(thread.agentKind)
-    if (thread.model && frozen.success) return frozen.data
+    if (model && frozen.success) return frozen.data
     return superagentHarnessAgent(await this.store.settings.getSettingsFor(ownerUserId))
   }
 
@@ -815,20 +831,6 @@ export class SuperagentService {
     })
     const { harnessSessionId: _dropped, ...cold } = current
     return { ...cold, agentKind: intended }
-  }
-
-  /** Persist a prompt-box model/effort choice onto the thread. 'auto' clears the
-   *  override rather than storing a sentinel: the absence of a value is what
-   *  "follow the settings role" means everywhere else in this file. */
-  private async applyBackendChoice(
-    threadId: ThreadId,
-    choice: { model?: string; effort?: string },
-  ): Promise<void> {
-    const patch: { model?: string | null; effort?: string | null } = {}
-    if (choice.model !== undefined) patch.model = choice.model === 'auto' ? null : choice.model
-    if (choice.effort !== undefined) patch.effort = choice.effort === 'auto' ? null : choice.effort
-    if (Object.keys(patch).length === 0) return
-    await this.store.superagent.updateSuperagentThreadBinding(threadId, patch)
   }
 
   /**
@@ -1017,7 +1019,11 @@ export class SuperagentService {
     const requested =
       this.queuedHarness.get(queued.inputId) ?? HarnessAgent.safeParse(queued.agentKind).data
     this.queuedHarness.delete(queued.inputId)
-    const intended = await this.intendedAgent(thread, requested, ownerUserId)
+    // This turn's own model and effort, when its send carried them: on its
+    // queued row, never on the thread.
+    const turnModel = turnChoice(queued.model, thread.model)
+    const turnEffort = turnChoice(queued.effort, thread.effort)
+    const intended = await this.intendedAgent(thread, requested, ownerUserId, turnModel)
     // Freeze the agent onto the thread on first contact. On later turns, if the
     // user has since changed the superagent harness, SWITCH (#199): the harness
     // owns its native session so we can't retarget it — start a fresh one and
@@ -1077,8 +1083,9 @@ export class SuperagentService {
     const systemPrompt = baseSystemPrompt + '\n\n' + superagentResponseContract(text)
     // WHICH MODEL THIS TURN RUNS ON (POD-782).
     //
-    // The thread's own choice wins — that is what the prompt box's two pills
-    // write, and an explicit pick must not be reinterpreted. Only when the
+    // The turn's choice wins: the one its send carried, else the thread's own
+    // (what the prompt box's two pills edit on the record). An explicit pick
+    // must not be reinterpreted. Only when the
     // thread has no choice does the settings role decide, and only then does the
     // `coding` fall-through apply: the `superagent` role can be pointed at an
     // API backend, or at a different harness than the one frozen onto this
@@ -1094,8 +1101,8 @@ export class SuperagentService {
         ? backend
         : resolveRole(settings, 'coding')
     const turnBackend = {
-      model: thread.model ?? roleBackend.model,
-      effort: thread.effort ?? roleBackend.effort,
+      model: turnModel ?? roleBackend.model,
+      effort: turnEffort ?? roleBackend.effort,
     }
     // The manifest declares whether the harness accepts a pre-minted first-turn id.
     const sessionUuid =

@@ -10,6 +10,7 @@ import {
   tabOrderRowId,
   userPreferencesRowId,
   sessionUserStateRowId,
+  superagentThreadRowId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
@@ -399,6 +400,22 @@ describe('engine action ownership boundary', () => {
           unset: ['roles.coding.harness'],
         },
       },
+    ])
+  })
+
+  it('queues the prompt box’s model and effort as an edit of my thread record (POD-6675)', async () => {
+    const h = harness()
+    await h.actions.setSuperagentBackend('global', { model: 'opus', effort: 'auto' })
+    await h.actions.setSuperagentBackend('global', { effort: 'high' })
+    await h.actions.setSuperagentBackend('global', {})
+    const thread = superagentThreadRowId(ME, 'global')
+    expect(h.queued).toEqual([
+      {
+        kind: 'recordEdit',
+        // `auto` clears the field: the thread follows the settings role again.
+        input: { kind: 'superagentThread', id: thread, patch: { model: 'opus' }, unset: ['effort'] },
+      },
+      { kind: 'recordEdit', input: { kind: 'superagentThread', id: thread, patch: { effort: 'high' } } },
     ])
   })
 

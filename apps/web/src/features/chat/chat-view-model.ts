@@ -281,9 +281,23 @@ export class ChatViewModel {
       agentKind: model === 'auto' ? null : (agentKind ?? this.backendPick.agentKind),
       effort: 'auto',
     }
+    this.saveBackend({ model, effort: 'auto' })
   }
   @actionBound setBackendEffort(effort: string): void {
     this.backendPick = { ...this.backendPick, effort }
+    this.saveBackend({ effort })
+  }
+  /**
+   * The pick is the thread's own choice (POD-6675): a queued edit of its
+   * record, its one writer, so it holds for later turns and on my other
+   * devices. The send still carries the pick for its own turn, which runs with
+   * it even when the edit has not landed yet. A thread with no record yet (a
+   * concierge intake before its first send) has nothing to edit.
+   */
+  private saveBackend(choice: { model?: string; effort?: string }): void {
+    const thread = this.conversation.thread
+    if (this.superThread === undefined || thread === undefined) return
+    void this.conversation.runtime.access.setSuperagentBackend(thread.id, choice).catch(() => {})
   }
   @actionBound captureContext(): void {
     if (!this.compact) return
