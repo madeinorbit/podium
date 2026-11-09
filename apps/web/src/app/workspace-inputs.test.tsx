@@ -214,8 +214,8 @@ it('reads only the winning orphan while unrelated session history grows', () => 
 it('preserves filesystem-root and Windows ancestor matching for the orphan fallback', () => {
   const f = fixture()
   expect(readOrphanWorkspaceSession(f.pool, '/', null)?.sessionId).toBe('a')
-  f.publish([f.session('a', { cwd: 'C:Repogone\nested' })])
-  expect(readOrphanWorkspaceSession(f.pool, 'c:\repogone', null)?.sessionId).toBe('a')
+  f.publish([f.session('a', { cwd: String.raw`C:\Repo\gone\nested` })])
+  expect(readOrphanWorkspaceSession(f.pool, String.raw`c:\repo\gone`, null)?.sessionId).toBe('a')
 })
 it('updates the orphan winner when its cwd or eligibility changes', () => {
   const f = fixture()
