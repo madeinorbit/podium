@@ -258,12 +258,9 @@ export class ReaderQueries {
     }
     // Index stored fields, including painted edits, from the resident slot.
     // A display facade would evaluate companion joins during hydration.
+    // biome-ignore format: Keep the call-site inventory tag immediately above its call.
     // untracked-read: reader-resident-maintenance
-    const row = present
-      ? (untracked(() => this.pool.tables[entity].get(id)) as
-          | Readonly<Record<string, unknown>>
-          | undefined)
-      : undefined
+    const row = present ? (untracked(() => this.pool.tables[entity].get(id)) as | Readonly<Record<string, unknown>> | undefined) : undefined
     if (entity === 'session') this.residents.updateSession(id, row, previous)
     else
       this.residents.apply({
