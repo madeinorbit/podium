@@ -983,8 +983,8 @@ export const checkouts = sqliteTable(
     repoId: text('repo_id').$type<RepoId>(),
     branch: text(),
     originUrl: text('origin_url'),
-    locked: integer({ mode: 'boolean' }).notNull().default(false),
-    prunable: integer({ mode: 'boolean' }).notNull().default(false),
+    locked: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
+    prunable: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     updatedAt: text('updated_at').notNull(),
     /** Set when a registered root is unregistered: the root's tombstone, kept
      *  so the feed still knows the removal was a root's and sends it to the
@@ -1001,15 +1001,14 @@ export const checkouts = sqliteTable(
 
 /**
  * WHAT EACH MEMBER MAY READ OF EACH MACHINE'S CHECKOUTS (POD-6644): the reach
- * the server last wrote with the member's access row, and what that write took
- * away. Server-only: never on the wire.
+ * the server last wrote with the member's access row. Server-only: never on
+ * the wire.
  *
  * `reach` is `all` for a member holding USE (roots and worktrees), `roots` for
- * MANAGE alone, `none` otherwise. `lost` is what the last access-row write
- * removed (`worktrees`, `roots` or `all`), and is cleared by the next one. The
- * feed's machineAccess anchor reads it to evict exactly the checkouts the
- * member could read before and no longer may, and to send no checkout id to a
- * member who could never read it. A table, not a field on the access row,
+ * MANAGE alone, `none` otherwise; a member with no reach has no row. The
+ * feed's machineAccess anchor reads it to re-admit what the member reads now,
+ * and evicts what they lost from `checkout_lost`, so no checkout id ever goes
+ * to a member who could never read it. Tables, not fields on the access row,
  * because losing SEE removes that row and the removal still needs its evicts.
  */
 export const checkoutReach = sqliteTable(
@@ -1018,8 +1017,6 @@ export const checkoutReach = sqliteTable(
     userId: text('user_id').$type<UserId>().notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     reach: text({ enum: ['all', 'roots', 'none'] }).notNull(),
-    // LEGACY(remove-after: 2027-02): the lost KIND, written by faafbecbea only and never read since `checkout_lost` holds the lost paths; a contract migration drops the column.
-    lost: text({ enum: ['worktrees', 'roots', 'all'] }),
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [

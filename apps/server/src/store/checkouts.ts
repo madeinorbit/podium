@@ -117,12 +117,11 @@ const upsertReach = prepared((db: StoreDrizzle) =>
       userId: sql.placeholder('userId'),
       machineId: sql.placeholder('machineId'),
       reach: sql.placeholder('reach'),
-      lost: null,
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
       target: [checkoutReach.userId, checkoutReach.machineId],
-      set: { reach: sql.placeholder('reach'), lost: null, updatedAt: sql.placeholder('updatedAt') },
+      set: { reach: sql.placeholder('reach'), updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
 )

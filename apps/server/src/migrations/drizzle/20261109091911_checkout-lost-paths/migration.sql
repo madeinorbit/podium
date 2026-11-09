@@ -5,8 +5,7 @@
 -- each later move of that member's access row, so a device that was away
 -- across several writes still receives the evicts when it catches up. A path
 -- leaves when the member's reach covers it again. Server-only, never on the
--- wire. Replaces `checkout_reach.lost` (the lost kind), which is no longer
--- written or read; a later contract migration drops that column.
+-- wire.
 --
 -- EXPAND-ONLY. One new table. ROLLBACK: a binary swap; an older server
 -- ignores the table, and `DROP TABLE checkout_lost` removes it.

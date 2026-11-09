@@ -52,6 +52,7 @@ const BOOLEAN_COLUMNS = [
   'subscriptions.enabled',
   'superagent_pending_turns.first_turn',
   'superagent_threads.archived',
+  'superagent_threads.turn_running',
 ].sort()
 
 interface DeclaredColumn {

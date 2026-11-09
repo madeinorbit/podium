@@ -8,8 +8,8 @@
 --    MANAGE-only member included). Registering the path again clears it.
 --    Worktree rows are still deleted.
 -- 2. `checkout_reach`: per member and machine, the checkout reach the server
---    last wrote with the member's access row and what that write took away.
---    The feed evicts exactly what a member lost and never sends a checkout id
+--    last wrote with the member's access row (what lost reach takes away is
+--    `checkout_lost`, the next migration). The feed never sends a checkout id
 --    to a member who could not read it. Server-only, never on the wire. Empty
 --    after the upgrade; the boot's access-row write fills it, which loses
 --    nothing because nothing was lost yet.
@@ -22,7 +22,6 @@ CREATE TABLE `checkout_reach` (
 	`user_id` text NOT NULL,
 	`machine_id` text NOT NULL,
 	`reach` text NOT NULL,
-	`lost` text,
 	`updated_at` text NOT NULL,
 	CONSTRAINT `checkout_reach_pk` PRIMARY KEY(`user_id`, `machine_id`)
 );

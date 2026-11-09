@@ -20,8 +20,8 @@ CREATE TABLE `checkouts` (
 	`repo_id` text,
 	`branch` text,
 	`origin_url` text,
-	`locked` integer DEFAULT false NOT NULL,
-	`prunable` integer DEFAULT false NOT NULL,
+	`locked` integer DEFAULT 0 NOT NULL,
+	`prunable` integer DEFAULT 0 NOT NULL,
 	`updated_at` text NOT NULL,
 	CONSTRAINT `checkouts_pk` PRIMARY KEY(`machine_id`, `path`)
 );
