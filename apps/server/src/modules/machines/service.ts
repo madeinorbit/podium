@@ -1935,7 +1935,7 @@ export class MachinesService {
           targetUnavailableReason: targetUnavailableReason ?? null,
         },
         use: {
-          harnessVersions: (m.harnessVersions ?? []).map((report) => {
+          harnessVersions: (m.harnessVersions ?? []).map(({ lastSeen: _lastSeen, ...report }) => {
             const policy =
               HARNESS_VERSION_POLICIES[report.harness as keyof typeof HARNESS_VERSION_POLICIES]
             return {

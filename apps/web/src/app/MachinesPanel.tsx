@@ -1346,7 +1346,7 @@ const MachineRow = observer(function MachineRow({
               {(machine.harnessVersions ?? []).map((row) => (
                 <li
                   key={row.harness}
-                  title={`First seen ${row.firstSeen}; last seen ${row.lastSeen}`}
+                  title={`First seen ${row.firstSeen}`}
                 >
                   <span className="font-mono">
                     {row.harness} {row.version}

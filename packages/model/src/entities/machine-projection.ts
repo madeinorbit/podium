@@ -191,7 +191,9 @@ export const MachineAccessWire = z.object({
   targetUnavailableReason: z.string().nullable().optional(),
   // Execution detail (USE only: absent unless `use` is granted)
   /** Installed harnesses and their version history. */
-  harnessVersions: z.array(MachineHarnessVersion).optional(),
+  /** Without `lastSeen`: it moves on every inventory report, and a synced record
+   *  must not be rewritten for a liveness time (see SyncedServiceReport). */
+  harnessVersions: z.array(MachineHarnessVersion.omit({ lastSeen: true })).optional(),
   /** What can run there, and as whom. */
   inventory: Inventory.optional(),
 })
@@ -362,6 +364,7 @@ export function repositoriesFromCheckouts(
  */
 export type MachineFacts = Readonly<Pick<MachineProjection, 'id' | 'name'>> &
   Readonly<Partial<Pick<MachineProjection, 'loggedOutHarnesses'>>> &
-  Readonly<Partial<Omit<import('./machine').MachineWire, 'id' | 'name' | 'online'>>> & {
+  Readonly<Partial<Omit<import('./machine').MachineWire, 'id' | 'name' | 'online' | 'harnessVersions'>>> &
+  Readonly<Partial<Pick<MachineAccessWire, 'harnessVersions'>>> & {
     readonly online: boolean
   }
