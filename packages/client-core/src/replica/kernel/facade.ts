@@ -664,7 +664,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     outboxStorage: (): OutboxStorage => side.outboxStorage(),
     outboxAwaitingStorage: (): OutboxStorage => side.outboxAwaitingStorage(),
     outboxDeadLetterStorage: (): OutboxStorage => side.outboxDeadLetterStorage(),
-    uiState: (): UiState => side.uiState(),
+    deviceStorage: () => side.deviceStorage(),
 
     async flush(): Promise<void> {
       // Entity durability is the kernel store's own commit, awaited by whoever

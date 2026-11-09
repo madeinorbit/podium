@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import { workspaceFetch } from '@/lib/workspace-request'
 
@@ -164,14 +165,14 @@ export function useMobileHandoffUrl(
 const FOCUS_ACTIONS = ['workspaceKey'] as const
 export function useFocusedHandoffSessionId(): string | null {
   const { workspaceKey } = useRuntimeActions(FOCUS_ACTIONS)
-  const workspaces = useRuntimeLocal('workspaces')
-  const paneA = useRuntimeLocal('paneA'),
-    paneB = useRuntimeLocal('paneB')
-  const split = useRuntimeLocal('split'),
-    focus = useRuntimeLocal('focusedPane')
+  const workspaces = useUiValue('workspaces')
+  const paneA = useUiValue('paneA'),
+    paneB = useUiValue('paneB')
+  const split = useUiValue('split'),
+    focus = useUiValue('focusedPane')
   // Selection changes can resolve to a different existing layout.
-  const selectedIssueId = useRuntimeLocal('selectedIssueId')
-  const selectedWorktree = useRuntimeLocal('selectedWorktree')
+  const selectedIssueId = useUiValue('selectedIssueId')
+  const selectedWorktree = useUiValue('selectedWorktree')
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
   const read = useCallback(() => {
     const layout = workspaces?.[workspaceKey()]

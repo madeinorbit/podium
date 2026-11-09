@@ -1,9 +1,10 @@
-import { issueWrites } from '@podium/commands/issues-synced'
+import { useUiValue } from '@podium/client-core/react'
 import {
   activeFilterCount,
   assigneeFacet,
   DEFAULT_ISSUES_FILTERS,
 } from '@podium/client-core/values'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   asUserId,
   type IssueId,
@@ -83,7 +84,7 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
 export function IssuesView(): JSX.Element {
   const base = useBoardBase()
   const { openIssueId } = base
-  const setOpenIssueId = useRuntimeSelector((store) => store.setOpenIssueId)
+  const setOpenIssueId = useUiValue('setOpenIssueId')
   const trpc = useRuntimeSelector((store) => store.trpc)
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
   // store actions the right-click menu uses, so a stage move made from a card

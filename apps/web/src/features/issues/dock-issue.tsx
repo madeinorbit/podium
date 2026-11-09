@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -86,7 +87,7 @@ const UNRESOLVED: { target: string | null | typeof LOADING; grounded: boolean } 
 }
 
 export function DockIssueProvider({ children }: { children: ReactNode }): ReactElement {
-  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const selectedId = useUiValue('selectedIssueId')
   const { focusedIssueId } = useOperatorFocus()
   const readTarget = useCallback(
     (pool: MobxPool): typeof UNRESOLVED => ({

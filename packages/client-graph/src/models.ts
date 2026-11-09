@@ -1,3 +1,4 @@
+import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { LiveStore } from '@podium/client-core/live'
 import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
@@ -1369,6 +1370,13 @@ export class PinModel extends EntityModel {
 }
 export interface PinModel extends Readonly<PinWire> {}
 
+export class UserLayoutModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('userLayout', id, host)
+  }
+}
+export interface UserLayoutModel extends Readonly<LayoutWire> {}
+
 export class TabOrderModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('tabOrder', id, host)
@@ -1496,6 +1504,7 @@ export type ModelOf = {
   repo: RepoModel & Readonly<RepoRow> & { readonly path?: string } & RelationGetters<'repo'>
   effect: EffectModel
   pin: PinModel
+  userLayout: UserLayoutModel
   tabOrder: TabOrderModel
   userPreferences: UserPreferencesModel
   userReadPosition: UserReadPositionModel
@@ -1514,7 +1523,8 @@ export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pi
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
   effect: EffectModel,
-  pin: PinModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
+  pin: PinModel,
+  userLayout: UserLayoutModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
   instancePreferences: InstancePreferencesModel,

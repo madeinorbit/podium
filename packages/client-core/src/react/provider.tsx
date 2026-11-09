@@ -1,3 +1,5 @@
+import { reaction } from 'mobx'
+import { useCallback } from 'react'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).
@@ -246,7 +248,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     try {
       detach?.()
     } finally {
-      held.runtime.destroy()
+      held.runtime.destroy({ eraseUi: principal === null })
       runtimeRef.current = null
     }
   }
@@ -445,4 +447,22 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
  */
 export function useLive(): LiveStore {
   return useStoreHandle().live
+}
+
+/** Screen state belongs to this device's MobX UiStore. Read fields in observers. */
+export function useUi(): import('../ui/ui-store').UiStore {
+  return useStoreHandle().ui
+}
+export function useDeviceState(): import('../ui-state').RoutedUiState {
+  return useStoreHandle().deviceState
+}
+
+/** Bind one MobX screen field for a leaf that is not an observer. */
+export function useUiValue<K extends keyof import('../ui/ui-store').UiStore>(
+  key: K,
+): import('../ui/ui-store').UiStore[K] {
+  const ui = useUi()
+  const read = useCallback(() => ui[key], [ui, key])
+  const subscribe = useCallback((notify: () => void) => reaction(read, notify), [read])
+  return useSyncExternalStore(subscribe, read)
 }

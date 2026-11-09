@@ -1,4 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
+import { parseLayoutRowId } from '@podium/model'
 import { type LaunchRecord, PoolLaunches, type PoolLaunchPorts } from './launches'
 /** PoolTransactions owns client optimism and spawn placeholders over one outbox.
  * A press reduces and paints inside one MobX action before the durable enqueue.
@@ -50,6 +51,7 @@ type PoolRow = { readonly kind: PoolRowKind; readonly id: string }
  *  pool entity. */
 const PER_USER_POOL_KIND = {
   pins: 'pin',
+  userLayouts: 'userLayout',
   tabOrders: 'tabOrder',
   userPreferences: 'userPreferences',
   userReadPositions: 'userReadPosition',
@@ -88,6 +90,7 @@ const TARGETS: readonly OverlayTarget[] = [
   'issueProjections',
   'issueUserStates',
   'pins',
+  'userLayouts',
   'tabOrders',
   'userPreferences',
   'userReadPositions',
@@ -220,6 +223,7 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
     case 'issueUserStates':
       return `issue:${id.slice(id.lastIndexOf(':') + 1)}`
     case 'pins':
+    case 'userLayouts':
     case 'tabOrders':
     case 'userPreferences':
     case 'userReadPositions':
@@ -257,6 +261,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     issueProjections: new Map(),
     issueUserStates: new Map(),
     pins: new Map(),
+    userLayouts: new Map(),
     tabOrders: new Map(),
     userPreferences: new Map(),
     userReadPositions: new Map(),
@@ -387,6 +392,10 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     }
     // An absent tab order or preferences record is "nothing chosen": an edit
     // paints over its key alone (POD-6673). A pin has no edit to paint.
+    if (entity === 'userLayouts' && ports.userId !== undefined) {
+      const key = parseLayoutRowId(id).key
+      return { userId: ports.userId, key }
+    }
     if (entity === 'tabOrders' && ports.userId !== undefined) {
       try {
         return { userId: ports.userId, entityId: parseTabOrderRowId(id).worktree }

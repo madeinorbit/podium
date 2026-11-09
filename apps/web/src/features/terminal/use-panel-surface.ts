@@ -1,3 +1,4 @@
+import { useDeviceState, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE ARBITRATION HOOK (POD-408) — the store/effect half of `panel-surface.ts`.
@@ -36,11 +37,10 @@ import {
   type TerminalOutlook,
 } from '@podium/client-core/values'
 import { createLogger } from '@podium/logger'
-import type { SessionId} from '@podium/model/browser'
+import type { SessionId } from '@podium/model/browser'
 import { useEffect, useRef } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { useMyStartScreen } from '@/lib/my-preferences'
-import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 import {
   type PanelGates,
   type PanelSurface,
@@ -49,6 +49,7 @@ import {
   panelOfflineMachine,
   panelSurface,
 } from './panel-surface'
+import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 
 const log = createLogger('web:panel-mode')
 
@@ -115,13 +116,10 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { setPanelMode, uiState } = useRuntimeSelector(
-    (s) => ({
-      setPanelMode: s.setPanelMode,
-      uiState: s.uiState,
-    }),
-    shallowEqual,
-  )
+  const { setPanelMode, uiState } = {
+    setPanelMode: useUiValue('setPanelMode'),
+    uiState: useDeviceState(),
+  }
   const panelMode = usePanePanelModes()
   const machines = usePaneMachines()
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input

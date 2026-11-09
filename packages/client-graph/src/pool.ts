@@ -1,5 +1,6 @@
 import type { LiveStore } from '@podium/client-core/live'
-import type { AccountView, GitRepositoryWire, MemberView, PinKind } from '@podium/model'
+import type { UiStore } from '@podium/client-core/ui'
+import type { AccountView, GitRepositoryWire, LayoutWire, MemberView, PinKind } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 
 import type { NotificationSession, SessionPhaseChange } from '@podium/client-core/sound'
@@ -82,8 +83,8 @@ import type {
   PersonalPreferences,
   PinWire,
   ReadPositionWire,
-  SuperagentThreadWire,
   SubscriptionWire,
+  SuperagentThreadWire,
   TabOrderWire,
   WorkflowBindingWire,
   WorkflowRevisionWire,
@@ -287,11 +288,18 @@ export interface PoolRows {
   } & Readonly<Record<string, unknown>>
   /** POD-6673's per-user records, each with its feed id stamped as `id`. */
   pin: Readonly<PinWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  userLayout: Readonly<LayoutWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   tabOrder: Readonly<TabOrderWire> & { readonly id: string } & Readonly<Record<string, unknown>>
-  userPreferences: Readonly<PersonalPreferences> & { readonly id: string } & Readonly<Record<string, unknown>>
-  userReadPosition: Readonly<ReadPositionWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  userPreferences: Readonly<PersonalPreferences> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
+  userReadPosition: Readonly<ReadPositionWire> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
   /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
-  superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
   /** POD-6676: profiles, workflows and trigger subscriptions, each keyed by its
    *  feed id (a binding's and a subscription's stamped as `id`). */
   agentProfile: Readonly<AgentProfileWire> & Readonly<Record<string, unknown>>
@@ -319,6 +327,11 @@ export interface LazyMembers {
 }
 
 export class MobxPool {
+  @observableRef accessor ui: UiStore | undefined = undefined
+  @action bindUi(ui: UiStore): void {
+    this.ui = ui
+  }
+
   /**
    * This user's LiveStore (POD-5798), bound by the runtime that owns both. The
    * machine model's online, since and metrics fields read it; a pool with no

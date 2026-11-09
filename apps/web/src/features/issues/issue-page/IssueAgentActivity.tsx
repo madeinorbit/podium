@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { resolveMachinePath } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
 /**
@@ -59,14 +60,11 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
 }: {
   issue: IssueViewModel
 }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      openFileInWorktree: s.openFileInWorktree,
-      openArtifact: s.openArtifact,
-    }),
-    shallowEqual,
-  )
+  const { httpOrigin, openFileInWorktree, openArtifact } = {
+    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    openFileInWorktree: useUiValue('openFileInWorktree'),
+    openArtifact: useUiValue('openArtifact'),
+  }
   const [lightbox, setLightbox] = useState<string | null>(null)
 
   const artifacts = issue.panel?.artifacts ?? []

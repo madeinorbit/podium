@@ -7,10 +7,10 @@ import {
   issueUserStateRowId,
   layoutRowId,
   pinRowId,
-  tabOrderRowId,
-  userPreferencesRowId,
   sessionUserStateRowId,
   superagentThreadRowId,
+  tabOrderRowId,
+  userPreferencesRowId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
@@ -18,6 +18,7 @@ import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
+import { type NavigationIntent, planNavigation } from '../ui/navigation'
 import type { Router } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
 import {
@@ -26,8 +27,7 @@ import {
   type EngineActionRuntime,
   UI_LOCAL_ACTIONS,
 } from './actions'
-import { type NavigationIntent, planNavigation } from './navigation'
-import type { EngineState } from './state'
+import type { RuntimeState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -162,7 +162,7 @@ function harness(
     ...(layout.seed !== undefined ? { layoutSeed: layout.seed } : {}),
     state: () => state,
     navigate: (intent: NavigationIntent) => {
-      const plan = planNavigation(state as unknown as EngineState, router.current(), intent, {
+      const plan = planNavigation(state as unknown as RuntimeState, router.current(), intent, {
         visible: true,
         now: '2026-09-18T00:00:00.000Z',
       })
@@ -374,7 +374,10 @@ describe('engine action ownership boundary', () => {
     await h.actions.setPinned('repo', '/repo', false)
     await h.actions.setTabOrder('/w', [sessionId])
     await h.actions.setTabOrder('/x', [])
-    await h.actions.setPreferences({ 'sidebar.repoSort': 'custom', 'roles.coding.harness': undefined })
+    await h.actions.setPreferences({
+      'sidebar.repoSort': 'custom',
+      'roles.coding.harness': undefined,
+    })
 
     expect(h.queued).toEqual([
       {
@@ -388,7 +391,11 @@ describe('engine action ownership boundary', () => {
       { kind: 'recordRemove', input: { kind: 'pin', id: pinRowId(ME, 'repo', '/repo') } },
       {
         kind: 'recordEdit',
-        input: { kind: 'tabOrder', id: tabOrderRowId(ME, '/w'), patch: { sessionIds: [sessionId] } },
+        input: {
+          kind: 'tabOrder',
+          id: tabOrderRowId(ME, '/w'),
+          patch: { sessionIds: [sessionId] },
+        },
       },
       { kind: 'recordRemove', input: { kind: 'tabOrder', id: tabOrderRowId(ME, '/x') } },
       {
@@ -413,9 +420,17 @@ describe('engine action ownership boundary', () => {
       {
         kind: 'recordEdit',
         // `auto` clears the field: the thread follows the settings role again.
-        input: { kind: 'superagentThread', id: thread, patch: { model: 'opus' }, unset: ['effort'] },
+        input: {
+          kind: 'superagentThread',
+          id: thread,
+          patch: { model: 'opus' },
+          unset: ['effort'],
+        },
       },
-      { kind: 'recordEdit', input: { kind: 'superagentThread', id: thread, patch: { effort: 'high' } } },
+      {
+        kind: 'recordEdit',
+        input: { kind: 'superagentThread', id: thread, patch: { effort: 'high' } },
+      },
     ])
   })
 

@@ -64,6 +64,8 @@ import {
   sessionHandoffEffect,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
+import type { NavigationIntent } from '../ui/navigation'
+import { sessionLinkProblem, sessionLinkSelection } from '../ui/session-link'
 import type { Router } from '../ui-state'
 import type {
   DockTab,
@@ -98,12 +100,10 @@ import {
   outboxChatSends,
   sendChatThroughOutbox,
 } from './chat-send'
-import type { NavigationIntent } from './navigation'
 import {
   createReplicatedLayoutController,
   type ReplicatedLayoutController,
 } from './replicated-layout'
-import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
   NAVIGATION_LOADING,
@@ -276,7 +276,7 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
   | 'gitCommitFiles'
   | 'gitCommitDiffFile'
 > & {
-  readonly replicatedLayout: ReplicatedLayoutController
+  readonly replicatedLayout: import('../ui/layout-access').LayoutAccess
   /**
    * S5 gesture batch: run navigation + its optimistic paints synchronously
    * inside one store publication. No write of its own; revert = remove the
@@ -287,6 +287,8 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
 }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
+  readonly layout: import('../ui/layout-access').LayoutAccess
+  readonly ui: import('../ui/ui-store').UiStore
   readonly api: TApi
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
@@ -558,7 +560,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       return { ok: false, reason }
     }
   }
-  let transcriptRevealNonce = 0
+  const transcriptRevealNonce = 0
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
@@ -630,86 +632,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     pendingReads.set(key, { readAt, write })
     return write
   }
-  const replicatedLayout = createReplicatedLayoutController({
-    outbox: rt.outbox,
-    notices: rt.notices,
-    userId: rt.userId,
-    ...(rt.layoutSeed !== undefined ? { seed: rt.layoutSeed } : {}),
-  })
-  /**
-   * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites
-   * exactly the CURRENT workspace and re-derives the pane mirrors from it, so
-   * `paneA`/`paneB`/`split`/`focusedPane` can never drift from what is on
-   * screen. `selection` names the workspace a navigation is moving TO, when the
-   * same apply also changes the selected issue/worktree.
-   */
-  const editWorkspace = (
-    reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
-    selection?: Partial<WorkspaceSelection>,
-  ): void => {
-    rt.apply(workspaceEdit(rt.state(), reduce, selection))
-  }
-
-  const openInWorkspace = (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }): void => {
-    if (!tabId) return
-    editWorkspace((ws) =>
-      openTab(ws, tabId, {
-        // Default PERMANENT: only the flight deck's single click asks for a
-        // preview, and a caller that has not thought about it wants a tab that
-        // stays rather than one the next click recycles.
-        permanent: opts?.permanent !== false,
-        ...(opts?.paneId !== undefined ? { paneId: opts.paneId } : {}),
-      }),
-    )
-  }
-
-  /**
-   * [spec:SP-a1c0] The one jump-to-a-session path (#411), hoisted out of the
-   * action table so `focusIssueSession` can land on it once its session exists
-   * rather than spelling the same navigation a second time.
-   */
-  const navigateToSession = (sessionIdOrRef: string): void => {
-    const state = rt.state()
-    const meta = state.navigation.session(sessionIdOrRef)
-    if (meta === NAVIGATION_LOADING) {
-      rt.waitForSessionNavigation?.(sessionIdOrRef)
-      return
-    }
-    if (!meta) {
-      // A short id this client cannot match (POD-4637): the server answers,
-      // through the CLI's rule — no prefix matching here. Anything else stays
-      // inert, as before: an unknown full id may be a spawn still arriving.
-      if (isSessionIdPrefix(sessionIdOrRef)) void navigateToSessionLink(sessionIdOrRef)
-      return
-    }
-    rt.navigate({
-      view: 'workspace',
-      ...sessionLinkSelection(state, meta),
-      tabId: meta.sessionId,
-      history: 'push',
-    })
-  }
-
-  const navigateToSessionLink = async (identifier: string): Promise<void> => {
-    let answer: SessionIdentifierResolution
-    try {
-      answer = await rt.api.sessions.resolve.query({ identifier })
-    } catch (error) {
-      log.debug('session link resolve failed', { identifier, error })
-      return
-    }
-    if (answer.kind !== 'session') {
-      rt.notices.error(sessionLinkProblem(identifier, answer))
-      return
-    }
-    // The row may not be in this replica yet; a full id is then inert here,
-    // exactly as any other unknown full id is.
-    const state = rt.state()
-    if (state.navigation.session(answer.sessionId)) {
-      navigateToSession(answer.sessionId)
-    }
-  }
-
+  const replicatedLayout = rt.layout
   // Pins, tab orders and personal settings are synced records of mine
   // (POD-6673): generic creates, edits and removes, shown at once from the
   // record's own overlay and on every device of mine once they land.
@@ -729,28 +652,17 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (sessionIds.length === 0) await records.remove(ref)
       else await records.edit(ref, { sessionIds })
     },
-    navigateWorkspace: (intent) => rt.navigate({ ...intent, view: 'workspace' }),
+    navigateWorkspace: rt.ui.navigateWorkspace,
     batchGesture: (fn) => rt.batch(fn),
-    setView: (view) => {
-      if (rt.router.current().view !== view) rt.navigate({ view })
-    },
-    setSettingsTab: (tab) => {
-      const current = rt.router.current()
-      if (current.view === 'settings') {
-        if (current.settingsTab !== tab) rt.router.navigate({ ...current, settingsTab: tab })
-      } else if (tab !== null) {
-        rt.router.navigate({ ...current, view: 'settings', settingsTab: tab, issueId: null })
-      }
-    },
-    setOpenIssueId: (id) => {
-      const current = rt.router.current()
-      if (current.view !== 'issues' || current.issueId !== id) {
-        rt.router.navigate({ ...current, view: 'issues', issueId: id })
-      }
-    },
-    setSuperThreadId: (superThreadId) => rt.apply({ superThreadId: asThreadId(superThreadId) }),
-    setSuperOpen: (superOpen) => rt.apply({ superOpen }),
-    setDockTab: (dockTab) => rt.apply({ dockTab }),
+    setView: rt.ui.setView,
+
+    setSettingsTab: rt.ui.setSettingsTab,
+
+    setOpenIssueId: rt.ui.setOpenIssueId,
+
+    setSuperThreadId: rt.ui.setSuperThreadId,
+    setSuperOpen: rt.ui.setSuperOpen,
+    setDockTab: rt.ui.setDockTab,
     /**
      * "ASK SUPERAGENT (BTW)" — OPEN THE ONE CHAT, WITH THIS SESSION ATTACHED
      * (POD-1069).
@@ -773,13 +685,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * attachment staged behind a pane that never mentions it — the same "nothing
      * happened" this issue is about, one surface further in.
      */
-    startBtw: async (sessionId) => {
-      rt.apply({ attachedSessionId: sessionId, superOpen: true, dockTab: 'superagent' })
-    },
-    clearAttachedSession: () => rt.apply({ attachedSessionId: null }),
+    startBtw: rt.ui.startBtw,
+
+    clearAttachedSession: rt.ui.clearAttachedSession,
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
-    setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
-    setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),
+    setSelectedWorktree: rt.ui.setSelectedWorktree,
+    setSelectedIssueId: rt.ui.setSelectedIssueId,
     /**
      * PANE-SHAPED ADAPTER over the workspace model, and nothing more.
      *
@@ -799,60 +710,28 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      *    operator makes one by splitting. Writing `paneB` anyway produced a
      *    session that the strip had no tab for and no pane rendered.
      */
-    setPane: (pane, id) => {
-      if (id === null) return
-      const st = rt.state()
-      const leaves = leafPaneIds(workspaceFor(st, workspaceKeyForState(st)).root)
-      const paneId = pane === 'A' ? leaves[0] : leaves[1]
-      if (paneId === undefined) return
-      editWorkspace((ws) => openTab(ws, id, { permanent: true, paneId }))
-    },
-    openSessionTab: (sessionId, opts) => openInWorkspace(sessionId, opts),
-    openSessionAtTranscript: (sessionId, itemKey, opts) => {
-      if (!sessionId || !itemKey) return
-      const state = rt.state()
-      transcriptRevealNonce += 1
-      rt.apply({
-        ...workspaceEdit(state, (workspace) =>
-          openTab(workspace, sessionId, { permanent: opts?.permanent !== false }),
-        ),
-        transcriptReveal: { nonce: transcriptRevealNonce, sessionId, itemKey },
-      })
-    },
+    setPane: rt.ui.setPane,
+
+    openSessionTab: rt.ui.openSessionTab,
+    openSessionAtTranscript: rt.ui.openSessionAtTranscript,
+
     clearTranscriptReveal: (nonce) => {
       if (rt.state().transcriptReveal?.nonce === nonce) rt.apply({ transcriptReveal: null })
     },
-    openTabInWorkspace: (tabId, opts) => openInWorkspace(tabId, opts),
-    promoteWorkspaceTab: (tabId) => editWorkspace((ws) => promoteTab(ws, tabId)),
-    activateWorkspaceTab: (tabId) => editWorkspace((ws) => activateTab(ws, tabId)),
+    openTabInWorkspace: rt.ui.openTabInWorkspace,
+    promoteWorkspaceTab: rt.ui.promoteWorkspaceTab,
+    activateWorkspaceTab: rt.ui.activateWorkspaceTab,
     // Closing a tab closes a VIEW: the session is untouched (it lives in the
     // flight deck now), and a file tab's buffer goes with its only view.
-    closeWorkspaceTab: (tabId) => {
-      const st = rt.state()
-      // A file tab's buffer dies with its view, so it leaves every workspace; a
-      // session tab is only a view here and closes in the one on screen.
-      const isFile = st.fileTabs.some((tab) => tab.id === tabId)
-      const patch = isFile ? forgetTab(st, tabId) : workspaceEdit(st, (ws) => closeTab(ws, tabId))
-      const fileTabs = st.fileTabs.filter((tab) => tab.id !== tabId)
-      rt.apply({
-        ...forgottenPanes(patch, st, tabId),
-        ...(fileTabs.length !== st.fileTabs.length ? { fileTabs } : {}),
-      })
-      // TAB RELEASE (POD-4435): a session tab actually closed (not a file tab,
-      // which carries no session). The server answers it through the shell
-      // lifetime policy — an untouched shell dies, a used one stays. Only when
-      // the tab held a session: file tabs report nothing.
-      if (!isFile) rt.hub.reportTabRelease(tabId as SessionId)
-    },
-    moveWorkspaceTab: (tabId, toPaneId, toIndex) =>
-      editWorkspace((ws) => moveTab(ws, tabId, toPaneId, toIndex)),
-    splitWorkspacePane: (paneId, axis, opts) =>
-      editWorkspace((ws) => splitPane(ws, paneId, axis, opts)),
-    closeWorkspacePane: (paneId) => editWorkspace((ws) => closePane(ws, paneId)),
-    focusWorkspacePane: (paneId) => editWorkspace((ws) => focusPane(ws, paneId)),
-    resizeWorkspaceSplit: (path, sizes) => editWorkspace((ws) => resizeSplit(ws, path, sizes)),
-    setFocusedPane: (focusedPane) => rt.apply({ focusedPane }),
-    navigateToSession,
+    closeWorkspaceTab: rt.ui.closeWorkspaceTab,
+
+    moveWorkspaceTab: rt.ui.moveWorkspaceTab,
+    splitWorkspacePane: rt.ui.splitWorkspacePane,
+    closeWorkspacePane: rt.ui.closeWorkspacePane,
+    focusWorkspacePane: rt.ui.focusWorkspacePane,
+    resizeWorkspaceSplit: rt.ui.resizeWorkspaceSplit,
+    setFocusedPane: rt.ui.setFocusedPane,
+    navigateToSession: rt.ui.navigateToSession,
     /**
      * LAND ON THE SESSION A LAUNCH JUST STARTED (POD-1202).
      *
@@ -876,55 +755,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * snapshot in `excludeSessionIds`, leaving the same replica wait to resolve
      * only when the newly-added session arrives.
      */
-    focusIssueSession: async (issueId, opts) => {
-      const excluded = new Set(opts?.excludeSessionIds ?? [])
-      rt.apply({ selectedIssueId: issueId })
-      const session = await waitForState(
-        (listener) => {
-          let stopRows: (() => void) | undefined
-          const arm = () => {
-            stopRows?.()
-            const navigation = rt.state().navigation
-            stopRows = navigation.watch?.(
-              () => [navigation.issue(issueId), navigation.issueSessions?.(issueId)],
-              listener,
-            )
-          }
-          arm()
-          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => {
-            arm()
-            listener()
-          })
-          return () => {
-            stopRows?.()
-            stopLocal()
-          }
-        },
-        () => {
-          const st = rt.state()
-          const issue = st.navigation.issue(issueId)
-          if (!issue || issue === NAVIGATION_LOADING) return undefined
-          const rows = st.navigation.issueSessions?.(issueId)
-          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId)
-            return undefined
-          return rows.find(
-            (candidate) =>
-              candidate.issueId === issueId &&
-              !candidate.archived &&
-              !excluded.has(candidate.sessionId),
-          )
-        },
-        opts?.timeoutMs ?? ISSUE_SESSION_WAIT_MS,
-      )
-      if (!session || rt.state().selectedIssueId !== issueId) return null
-      navigateToSession(session.sessionId)
-      return session.sessionId
-    },
-    setPanelMode: (sessionId, mode) => {
-      const panelMode = rt.state().panelMode
-      if (panelMode[sessionId] !== mode)
-        rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
-    },
+    focusIssueSession: rt.ui.focusIssueSession,
+
+    setPanelMode: rt.ui.setPanelMode,
+
     /**
      * A SUGGESTION, NOT A PICK (POD-1702).
      *
@@ -941,20 +775,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * what makes "in CLI" mean something for the sessions nobody has decided
      * about, which is nearly all of them.
      */
-    preferPanelMode: (sessionId, mode) => {
-      const panelMode = rt.state().panelMode
-      if (panelMode[sessionId] !== undefined) return
-      rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
-    },
-    setDockVisibleSession: (dockVisibleSession) => rt.apply({ dockVisibleSession }),
-    setDockShell: (worktreePath, sessionId) => {
-      const current = rt.state().dockShells
-      if ((current[worktreePath] ?? null) === sessionId) return
-      const dockShells = { ...current }
-      if (sessionId) dockShells[worktreePath] = sessionId
-      else delete dockShells[worktreePath]
-      rt.apply({ dockShells })
-    },
+    preferPanelMode: rt.ui.preferPanelMode,
+
+    setDockVisibleSession: rt.ui.setDockVisibleSession,
+    setDockShell: rt.ui.setDockShell,
+
     /**
      * SPLIT / UNSPLIT, as a layout edit (POD-710 wave 2).
      *
@@ -968,105 +793,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * rule) rather than closing them — unsplitting is a change of arrangement,
      * and it must not silently take views away with it.
      */
-    toggleSplit: () => {
-      const leaves = leafPaneIds(currentWorkspace(rt.state()).root)
-      if (leaves.length < 2) {
-        editWorkspace((ws) => splitPane(ws, ws.focusedPaneId, 'row'))
-        return
-      }
-      editWorkspace((ws) => leaves.slice(1).reduce((acc, paneId) => closePane(acc, paneId), ws))
-    },
-    openFile: (sessionId, path) => {
-      const scope: FileScope = { kind: 'session', sessionId }
-      const id = tabIdFor(scope, path)
-      const state = rt.state()
-      const rawSession = state.navigation.session(sessionId)
-      const session = rawSession === NAVIGATION_LOADING ? undefined : rawSession
-      const cwd = session?.cwd ?? ''
-      const worktreePath =
-        reposToViews(state.repos)
-          .flatMap((repo) => repo.worktrees)
-          .map((candidate) => candidate.path)
-          .filter((candidate) => isMachinePathWithinRoot(candidate, cwd))
-          .sort((a, b) => b.length - a.length)[0] ?? cwd
-      const existing = state.fileTabs.find((tab) => tab.id === id)
-      const issueId = existing
-        ? existing.issueId
-        : (session?.issueId ?? state.selectedIssueId ?? undefined)
-      rt.revealFileTab({
-        tabId: id,
-        ...(worktreePath ? { worktreePath } : {}),
-        ...(issueId ? { issueId } : {}),
-        fileTab: existing ?? { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) },
-        recentFile: {
-          path,
-          worktreePath,
-          ...(session?.machineId ? { machineId: session.machineId } : {}),
-        },
-      })
-    },
-    openFileInWorktree: (args) => {
-      const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
-      const id = tabIdFor(scope, args.path)
-      const state = rt.state()
-      const existing = state.fileTabs.find((tab) => tab.id === id)
-      const issueId = existing
-        ? existing.issueId
-        : (args.issueId ?? state.selectedIssueId ?? undefined)
-      rt.revealFileTab({
-        tabId: id,
-        worktreePath: args.root,
-        ...(issueId ? { issueId } : {}),
-        ...(args.permanent === false ? { permanent: false } : {}),
-        fileTab: existing ?? {
-          id,
-          scope,
-          path: args.path,
-          worktreePath: args.root,
-          ...(issueId ? { issueId } : {}),
-        },
-        recentFile: {
-          path: args.path,
-          worktreePath: args.root,
-          ...(args.machineId ? { machineId: args.machineId } : {}),
-        },
-      })
-    },
-    openArtifact: (args) => {
-      const scope: FileScope = {
-        kind: 'artifact',
-        issueId: args.issueId,
-        artifactId: args.artifactId,
-      }
-      const id = tabIdFor(scope, args.path)
-      rt.revealFileTab({
-        tabId: id,
-        issueId: args.issueId,
-        ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
-        fileTab: {
-          id,
-          scope,
-          path: args.path,
-          worktreePath: args.worktreePath ?? '',
-          issueId: args.issueId,
-        },
-        recentFile: {
-          path: args.path,
-          worktreePath: args.worktreePath ?? '',
-          artifact: { issueId: args.issueId, artifactId: args.artifactId },
-        },
-      })
-    },
-    closeFileTab: (id) => {
-      const state = rt.state()
-      rt.apply({
-        // The WHOLE mirror, not a hand-picked `workspaces`/`paneA`/`paneB`:
-        // dropping `split`/`focusedPane` left the layout saying one pane and
-        // the scalars saying two, with no later write able to correct it.
-        ...forgottenPanes(forgetTab(state, id), state, id),
-        fileTabs: state.fileTabs.filter((tab) => tab.id !== id),
-      })
-    },
+    toggleSplit: rt.ui.toggleSplit,
+
+    openFile: rt.ui.openFile,
+
+    openFileInWorktree: rt.ui.openFileInWorktree,
+
+    openArtifact: rt.ui.openArtifact,
+
+    closeFileTab: rt.ui.closeFileTab,
+
     readFileScoped: ((scope: FileScope, path: string) =>
       scope.kind === 'session'
         ? api.files.read.query({ sessionId: scope.sessionId, path })

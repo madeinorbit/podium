@@ -4,7 +4,7 @@ import {
   type LocalKey,
   type LocalsListener,
 } from '../src/engine/keyed-inputs'
-import type { EngineState } from '../src/engine/state'
+import type { RuntimeState } from '../src/engine/state'
 
 /**
  * Keyed inputs over a hand-held snapshot store (fixtures and harness fakes
@@ -16,7 +16,7 @@ export function keyedInputsOverStore(store: {
   getSnapshot(): object
   subscribe(listener: () => void): () => void
 }): KeyedInputs & { dispose(): void } {
-  const state = () => (store.getSnapshot() ?? {}) as EngineState
+  const state = () => (store.getSnapshot() ?? {}) as RuntimeState
   const channel = createKeyedInputs(state, true)
   // Only followed keys are compared (a fixture may forbid reading the rest),
   // and the store is followed only while someone follows a key, so an

@@ -71,6 +71,7 @@ export type OverlayTarget =
  *  (POD-6677). */
 export type PerUserRecordTarget =
   | 'pins'
+  | 'userLayouts'
   | 'tabOrders'
   | 'userPreferences'
   | 'userReadPositions'
@@ -78,6 +79,7 @@ export type PerUserRecordTarget =
   | 'instancePreferences'
 export const PER_USER_RECORD_TARGETS: readonly PerUserRecordTarget[] = [
   'pins',
+  'userLayouts',
   'tabOrders',
   'userPreferences',
   'userReadPositions',

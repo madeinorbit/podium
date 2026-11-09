@@ -2,16 +2,16 @@ import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView } from '../session-values'
+import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
 import { createEngineActions } from './actions'
-import { planNavigation } from './navigation'
 import { Reactions } from './reactions'
 import {
-  type EngineState,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
   type NavigationProvider,
+  type RuntimeState,
   resolvedWorkspaceKey,
   workspaceKeyForState,
 } from './state'
@@ -56,7 +56,7 @@ const state = (navigation?: NavigationProvider) => {
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  } as unknown as EngineState & {
+  } as unknown as RuntimeState & {
     issueProjections: IssueProjection[]
     sessions: SessionView[]
     issueUserStates: object[]
@@ -74,7 +74,7 @@ describe('addressed workspace pruning', () => {
     path: 'notes.txt',
     worktreePath: '/repo',
   })
-  function reaction(st: EngineState) {
+  function reaction(st: RuntimeState) {
     return new Reactions({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
@@ -90,8 +90,12 @@ describe('addressed workspace pruning', () => {
   it('keeps the same membership, spawn and grace results without reading legacy lists', () => {
     vi.useFakeTimers()
     const foreign = { ...seat, sessionId: asSessionId('foreign'), issueId: asIssueId('other') }
-    const rows = [seat, foreign, { ...seat, sessionId: asSessionId('unreferenced') },
-      { ...seat, sessionId: asSessionId('pending'), status: 'starting' as const }]
+    const rows = [
+      seat,
+      foreign,
+      { ...seat, sessionId: asSessionId('unreferenced') },
+      { ...seat, sessionId: asSessionId('pending'), status: 'starting' as const },
+    ]
     const reads = vi.fn((id: string) => rows.find((row) => row.sessionId === id))
     const make = (navigation?: NavigationProvider) => {
       let ws = emptyWorkspace('mission:root')
@@ -105,7 +109,9 @@ describe('addressed workspace pruning', () => {
       ])
         ws = openTab(ws, id, { permanent: true })
       return {
-        ...state(navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => rows })),
+        ...state(
+          navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => rows }),
+        ),
         sessions: rows,
         selectedIssueId: child.id,
         workspaces: { 'mission:root': ws },
@@ -220,14 +226,16 @@ describe('addressed worktree reactions', () => {
     { ...seat, sessionId: asSessionId('subdir'), name: 'Subdirectory' },
   ]
   const make = (sessions: SessionView[], navigation?: NavigationProvider) => ({
-    ...state(navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => sessions })),
+    ...state(
+      navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => sessions }),
+    ),
     sessions,
     pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(),
     reposLoaded: true,
     view: 'workspace' as const,
     repos: [{ path: '/repo', kind: 'repository' as const, worktrees: [{ path: '/dest' }] }],
   })
-  const owner = (st: EngineState, info = vi.fn()) =>
+  const owner = (st: RuntimeState, info = vi.fn()) =>
     new Reactions({
       state: () => st,
       publish: (patch) => Object.assign(st, patch),
@@ -237,7 +245,7 @@ describe('addressed worktree reactions', () => {
       markSessionRead: vi.fn(),
       markIssueRead: vi.fn(),
     })
-  const forbidSessions = (st: EngineState) =>
+  const forbidSessions = (st: RuntimeState) =>
     Object.defineProperty(st, 'sessions', {
       get() {
         throw new Error('Legacy worktree list read')

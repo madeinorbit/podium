@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { type IssueNavigationModel, planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
@@ -146,7 +147,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
 }
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
-  const clear = useRuntimeSelector((s) => s.setSelectedIssueId)
+  const clear = useUiValue('setSelectedIssueId')
   const evicted = sidebarView(pool).selectionGone()
   useEffect(() => {
     if (evicted) clear(null)
@@ -329,7 +330,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const [collapsed, toggle] = useCollapsedKeys(keys)
   const needle = normalizeWorkQuery(query)
   const filtering = needle.length > 0
-  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const selectedId = useUiValue('selectedIssueId')
   const revealedSelection = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedId) {

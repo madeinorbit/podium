@@ -7,7 +7,7 @@ import type { IssueId, SessionMeta } from '@podium/model'
 import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { reposToViews } from '../values'
-import type { EngineState } from './state'
+import type { ScreenState } from './state'
 
 export function sessionLinkProblem(
   identifier: string,
@@ -30,7 +30,7 @@ export function sessionLinkProblem(
  * would show whatever that workspace had active instead.
  */
 export function sessionLinkSelection(
-  st: Pick<EngineState, 'repos' | 'selectedWorktree'>,
+  st: Pick<ScreenState, 'repos' | 'selectedWorktree'>,
   session: Pick<SessionMeta, 'cwd' | 'issueId'>,
   linkedWorktree?: string | null,
 ): { selectedIssueId?: IssueId; selectedWorktree?: string } {

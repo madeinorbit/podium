@@ -1,5 +1,11 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 import { bindStoreStatsOwner } from '../perf/store-stats'
+import { LayoutAccess } from '../ui/layout-access'
+import {
+  AutoContinueDialogModel,
+  PaletteViewModel,
+  TranscriptRevealActions,
+} from '../ui/view-models'
 
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
@@ -63,7 +69,7 @@ import type {
 import { readPositionRowId, resolveUserPreferences, userPreferencesRowId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
-import { runInAction } from 'mobx'
+import { reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
@@ -78,12 +84,18 @@ import { createRecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
+import { createDeviceKeys } from '../ui/device-storage'
+import { type NavigationIntent, planNavigation } from '../ui/navigation'
+import { UiPersistence } from '../ui/persistence'
+import { sessionLinkProblem, sessionLinkSelection } from '../ui/session-link'
+import type { ScreenState } from '../ui/state'
+import { UiStore } from '../ui/ui-store'
+import { UrlMirror } from '../ui/url-mirror'
 import {
-  createRouterUiState,
-  createUiStateRouter,
+  createRoutedUiState,
+  createRouter,
   type RoutedUiState,
   type Router,
-  type RouterUiState,
   type RouterWindow,
   type RouteState,
 } from '../ui-state'
@@ -102,10 +114,8 @@ import {
   type LocalsListener,
 } from './keyed-inputs'
 import { machinesMaterialSignature } from './machines-material'
-import { type NavigationIntent, planNavigation } from './navigation'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import type { ReplicatedLayoutController } from './replicated-layout'
-import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   asIssueIdOrNull,
   type EngineState,
@@ -294,13 +304,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (POD-4762). Created before the outbox, whose callbacks release them. */
   private readonly outboxSettlements = new OutboxSettlements()
   readonly router: Router
-  readonly ui: RoutedUiState
-  readonly replicatedLayout: ReplicatedLayoutController
+  readonly ui: UiStore
+  readonly deviceState: RoutedUiState
+  readonly replicatedLayout: LayoutAccess
   /** This person's event-stream read positions (POD-1380) — its own family
    *  because a cursor merges monotonically, not last-writer-wins. */
   readonly readPosition: ReadPositionPort
 
-  private readonly routerUi: RouterUiState
+  private readonly uiPersistence: UiPersistence
+  private readonly urlMirror: UrlMirror
   private readonly reactions: Reactions
   private readonly boot: BootFetches<TApi>
 
@@ -321,11 +333,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * sign-out. Models and screens read it; only the live feed and the outbox
    * write it.
    */
+  readonly palette = new PaletteViewModel()
+  readonly autoContinueDialog = new AutoContinueDialogModel()
+  readonly transcriptReveals = new TranscriptRevealActions()
   readonly live: LiveStore
   /** The service behind {@link live}: its topics, connection facts and per-frame apply. */
   private readonly liveFeed: LiveFeed
 
-  private readonly state: EngineState
+  private readonly state: EngineState & ScreenState
   private stopNavigationWatch: (() => void) | undefined
   private pendingNavigation: NavigationIntent | undefined
   private pendingSessionNavigation: string | undefined
@@ -378,10 +393,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private applyingHydratedUi = false
   /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
   private batchDepth = 0
-  private pendingChanges = new Set<keyof EngineState>()
+  private pendingChanges = new Set<keyof (EngineState & ScreenState)>()
   /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
   private readonly inputs: KeyedInputsChannel
-  private pendingReactions = new Set<keyof EngineState>()
+  private pendingReactions = new Set<keyof (EngineState & ScreenState)>()
   readonly drafts: DraftStore
   private conversationCache: ConversationCache | undefined
   private readonly networkEnabled: boolean
@@ -465,8 +480,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // remain durable-but-invisible.
       onDeadLetter: () => this.publishOutbox(),
     })
-    const localUi = this.replica.uiState()
-    this.router = createUiStateRouter(localUi, init.routerWindow)
+    const device = this.replica.deviceStorage()
+    const localUi = createDeviceKeys(device)
+    this.state = initialEngineState() as EngineState & ScreenState
+    this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
     // ORDER IS LOAD-BEARING HERE. `createActions()` builds the replicated-layout
     // controller and seeds its base from the persisted rows (`layoutSeed`), and
     // that has to happen before the two readers below: `routerUi.hydrate()` a few
@@ -474,8 +491,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // replicated layout consumer (`usePersistedUiValue`) reads it on its first
     // render. A base seeded after either one arrived too late to decide what the
     // shell mounts, which is the whole of POD-571.
+    this.replicatedLayout = new LayoutAccess(
+      this.principal.userId,
+      createRecordsApi((kind, input) => this.requirePoolWriter().write(kind, input)),
+    )
     const actions = this.createActions()
-    this.replicatedLayout = actions.replicatedLayout
     // An advance is a queued edit of my `userReadPosition` record (POD-6673):
     // painted at once, kept offline, retired by its receipt.
     const readPositionRecords = createRecordsApi((kind, input) =>
@@ -496,15 +516,67 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       publish: (patch) => this.apply(patch),
     })
-    this.routerUi = createRouterUiState({
-      local: localUi,
-      replicated: this.replicatedLayout,
+    this.deviceState = createRoutedUiState({ local: localUi, replicated: this.replicatedLayout })
+    this.ui = new UiStore({
+      api: this.api,
+      hub: this.hub,
+      notices: this.notices,
+      keys: this.deviceState,
       router: this.router,
+      repos: () => this.state.repos,
+      reposLoaded: () => this.state.reposLoaded,
+      isVisible: () => this.visibility.isVisible(),
+      changed: (changed) => {
+        if (this.inputs)
+          this.runReactions(changed as ReadonlySet<keyof (EngineState & ScreenState)>)
+      },
+      watch: (keys, listener) => {
+        return reaction(() => [this.ui.selectedIssueId, this.ui.navigation], listener)
+      },
+      navigate: (intent) => this.navigate(intent),
+      revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
+      waitForSessionNavigation: (identifier) => {
+        this.pendingSessionNavigation = identifier
+        this.watchNavigation()
+      },
     })
-    this.ui = this.routerUi.ui
-    // Switch-latency debug flag is principal-scoped — no raw localStorage (POD-329).
-    bindSwitchTraceUi(this.ui)
-    const persisted = this.routerUi.hydrate()
+    this.uiPersistence = new UiPersistence(this.ui, device, localUi, this.visibility)
+    // Only internal policy code uses this read port. Every value is a getter
+    // into the MobX home; no device field is retained in EngineState.
+    Object.defineProperties(this.state, Object.getOwnPropertyDescriptors(this.ui.screen))
+    Object.defineProperties(this.state, {
+      paletteOpen: { enumerable: true, get: () => this.palette.open },
+      autoContinuePromptSessionId: {
+        enumerable: true,
+        get: () => this.autoContinueDialog.sessionId,
+      },
+      issueVisitBaseline: {
+        enumerable: true,
+        get: () => this.reactions?.issueVisitBaseline ?? null,
+      },
+    })
+    bindSwitchTraceUi(this.deviceState)
+    const parsed = this.router.current()
+    const emptyPath = !init.routerWindow
+      ? typeof window === 'undefined' || /^\/(?:w\/[^/]+\/?)?$/.test(window.location.pathname)
+      : /^\/(?:w\/[^/]+\/?)?$/.test(init.routerWindow.location.pathname)
+    if (emptyPath)
+      this.router.replace({
+        ...parsed,
+        view: this.ui.view,
+        settingsTab: this.ui.settingsTab,
+        issueId: this.ui.openIssueId,
+        worktree: this.ui.selectedWorktree,
+        pane: this.ui.paneA,
+      })
+    else
+      this.ui.patch({
+        view: parsed.view,
+        settingsTab: parsed.settingsTab,
+        openIssueId: parsed.issueId,
+        ...(parsed.worktree ? { selectedWorktree: parsed.worktree } : {}),
+      })
+    this.urlMirror = new UrlMirror(this.ui, this.router, (route) => this.onRouteChanged(route))
     const route = this.router.current()
     this.prevRoute = route
     this.reactions = new Reactions({
@@ -521,10 +593,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       linkedWorktree: () => this.paneLink?.worktree ?? null,
     })
     this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
-    this.state = initialEngineState({
-      persisted,
-      route,
-    })
     // Hydrate-first, like the entity slices: the outbox constructor has already
     // restored its durable recovery home, so the first paint must show the
     // parked writes without waiting for start() or a queue notification. The
@@ -538,13 +606,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // effect — a frame late is a frame of blank box, and on a cold boot with no
     // server there is nothing else that would ever fill it in.
     this.drafts = new DraftStore({
-      storage: this.ui,
+      storage: this.deviceState,
       hub: this.hub,
       onStorageError: (err) => log.warn('could not cache this device drafts', { err }),
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.inputs = createKeyedInputs(() => this.state, false, ['selectedIssueId'])
+    this.inputs = createKeyedInputs(() => this.state, false, [])
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
       { ...this.services },
@@ -560,7 +628,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The provider supplies addressed pool ports once, for this principal. */
   readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
     if (this.destroyed) throw new Error('The conversation owner has changed')
-    return (this.conversationCache ??= new ConversationCache(options))
+    this.conversationCache ??= new ConversationCache(options)
+    return this.conversationCache
   }
 
   // ------------------------------------------------------------------ read seam
@@ -570,7 +639,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly onLocals = (keys: readonly LocalKey[], listener: LocalsListener): (() => void) =>
     this.inputs.onLocals(keys, listener)
   /** The value of one local as the last batch published it. */
-  readonly readLocal = <K extends LocalKey>(key: K): EngineState[K] => this.inputs.readLocal(key)
+  readonly readLocal = <K extends LocalKey>(key: K): (EngineState & ScreenState)[K] =>
+    this.inputs.readLocal(key)
   /** Discovery and window lists by id: the ids whose row changed per batch. */
   readonly onList = <N extends KeyedListName>(
     name: N,
@@ -611,20 +681,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts.start()
     const offs = this.offs
 
-    // Router changes fan in through one subscription; RouterUiState owns every
-    // URL write and the state mirror.
-    offs.push(this.router.subscribe((r) => this.onRouteChanged(r)))
-    this.router.attach()
-    // A route may have changed between dispose() and a re-start (StrictMode).
-    const cur = this.router.current()
-    if (cur !== this.prevRoute) this.onRouteChanged(cur)
-    offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
-
+    this.uiPersistence.start()
+    this.urlMirror.start()
     // The outbox publishes local recovery state; PoolTransactions owns paint.
     offs.push(
       this.outbox.subscribe(() => {
         this.publishOutbox()
-        this.replicatedLayout.outboxChanged()
       }),
     )
     this.outbox.attach()
@@ -636,11 +698,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     void this.replica.hydrate().catch((error) => {
       if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
     })
-    offs.push(
-      this.replica.subscribeRows('userLayouts', () => {
-        this.replicatedLayout.replace(layoutSnapshotFromRows(this.replica.rows('userLayouts')))
-      }),
-    )
     // My read positions are synced records the replica keeps (POD-6673): a
     // position moved on my other device arrives here, and a reload paints the
     // stored one before the network answers. No request reads them.
@@ -715,7 +772,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     )
 
     this.sounds ??= createNotificationSounds({
-      ui: this.ui,
+      ui: this.deviceState,
       phases: () => this.sessionPhases?.() ?? [],
       visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
     })
@@ -753,7 +810,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // offline reload keeps showing (and re-persisting) a tab for a session that
     // is long gone. Idempotent: it re-arms its own timer.
     this.reactions.pruneWorkspaces()
-    offs.push(this.onLocals(['fileTabs', 'workspaces'], () => this.reactions.pruneWorkspaces()))
+    offs.push(
+      reaction(
+        () => [this.ui.workspaces, this.ui.fileTabList],
+        () => this.reactions.pruneWorkspaces(),
+      ),
+    )
 
     if (this.networkEnabled) {
       this.connectTimer = setTimeout(() => {
@@ -780,7 +842,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
 
     // Normalize the URL through the same owner that hydrates and flushes state.
-    this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    this.urlMirror.mirror()
     // A cold `?pane=` link: onRouteChanged never saw it (the route was read at
     // construction), and hydration only seeded the pane scalar from it — the
     // restored layout still has its own tab active. Open the link here.
@@ -815,7 +877,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         // teardown is best-effort
       }
     }
-    this.router.dispose()
+    this.urlMirror.stopMirroring()
+    this.uiPersistence.stopSaving()
     this.outbox.dispose()
     this.hub.dispose()
   }
@@ -833,7 +896,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * is deliberately no "reset" path, because a reset is exactly the shape that
    * leaves one cached principal-derived value behind.
    */
-  destroy(): void {
+  destroy(options: { eraseUi?: boolean } = {}): void {
     if (this.destroyed) {
       this.dispose()
       return
@@ -851,12 +914,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingNavigationTopology = false
     this.pendingWorktreeMoves.clear()
     this.pendingWorktreeFallback = false
+    if (options.eraseUi) this.uiPersistence.erase()
     this.destroyed = true
     this.poolWriter?.dispose?.()
     this.poolWriter = null
     this.inputs.dispose()
     this.liveFeed.dispose()
     this.live.dispose()
+    this.ui.dispose()
+    this.transcriptReveals.dispose()
   }
 
   /** True once {@link destroy} has run. The provider asserts on this so a
@@ -1061,48 +1127,31 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Transfer the selection once; every legacy state read and write then
    * delegates to the always-on worklist. Detach takes it back when that view
    * disappears, before another principal or pool can attach. */
-  attachWorklistSelection(selection: {
-    readonly selectedId: string | null
-    select(id: string | null): void
-  }): () => void {
-    selection.select(this.state.selectedIssueId)
-    // Runtime navigation and teardown are imperative readers. The worklist
-    // remains the observable owner; UI derivations read its field directly.
-    const read = () => runInAction(() => selection.selectedId as IssueId | null)
-    const owner = this.state
-    Object.defineProperty(this.state, 'selectedIssueId', {
-      configurable: true,
-      enumerable: true,
-      get: read,
-      set(this: EngineState, id: IssueId | null) {
-        // Navigation plans inherit state. A speculative overlay owns its patch.
-        if (this !== owner) {
-          Object.defineProperty(this, 'selectedIssueId', {
-            configurable: true,
-            enumerable: true,
-            writable: true,
-            value: id,
-          })
-        } else selection.select(id)
-      },
-    })
-    return () => {
-      if (Object.getOwnPropertyDescriptor(this.state, 'selectedIssueId')?.get !== read) return
-      Object.defineProperty(this.state, 'selectedIssueId', {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: read(),
-      })
-    }
-  }
-
-  private apply(patch: Partial<EngineState>): void {
+  private apply(patch: Partial<EngineState & ScreenState>): void {
     if (this.destroyed) return
     if ('machines' in patch) this.lastMachinesMaterial = undefined
     this.batch(() => {
-      const changed = new Set<keyof EngineState>()
-      for (const k of Object.keys(patch) as Array<keyof EngineState>) {
+      if (patch.paletteOpen !== undefined) this.palette.setOpen(patch.paletteOpen)
+      if (patch.autoContinuePromptSessionId !== undefined) {
+        if (patch.autoContinuePromptSessionId)
+          this.autoContinueDialog.open(patch.autoContinuePromptSessionId)
+        else this.autoContinueDialog.close()
+      }
+      if (patch.issueVisitBaseline !== undefined)
+        this.reactions.setIssueVisitBaseline(patch.issueVisitBaseline)
+      const screenPatch = Object.fromEntries(
+        Object.entries(patch).filter(([key]) => Object.hasOwn(this.ui.screen, key)),
+      )
+      if (Object.keys(screenPatch).length) this.ui.patch(screenPatch)
+      const changed = new Set<keyof (EngineState & ScreenState)>()
+      for (const k of Object.keys(patch) as Array<keyof (EngineState & ScreenState)>) {
+        if (
+          Object.hasOwn(this.ui.screen, k) ||
+          k === 'paletteOpen' ||
+          k === 'autoContinuePromptSessionId' ||
+          k === 'issueVisitBaseline'
+        )
+          continue
         const next = patch[k]
         if (!Object.is(this.state[k], next)) {
           ;(this.state as unknown as Record<string, unknown>)[k as string] = next
@@ -1121,7 +1170,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
-  private runReactions(changed: ReadonlySet<keyof EngineState>): void {
+  private runReactions(changed: ReadonlySet<keyof (EngineState & ScreenState)>): void {
     this.statsReactionDepth++
     try {
       this.react(changed)
@@ -1160,10 +1209,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Effect → reaction table (#262): each old provider useEffect either lives
    *  here keyed by the slices it depended on, or in start() (mount-once). */
-  private react(changed: ReadonlySet<keyof EngineState>): void {
-    const any = (...keys: Array<keyof EngineState>): boolean => keys.some((k) => changed.has(k))
-    // ONE persistence reaction; routing and serialization live in ui-state.ts.
-    if (!this.applyingHydratedUi) this.routerUi.flush(workspaceUiSnapshot(this.state), changed)
+  private react(changed: ReadonlySet<keyof (EngineState & ScreenState)>): void {
+    const any = (...keys: Array<keyof (EngineState & ScreenState)>): boolean =>
+      keys.some((k) => changed.has(k))
+
     // Worktree fallback selection.
     if (any('repos', 'reposLoaded', 'selectedWorktree') && !this.pendingNavigationTopology) {
       if (!this.reactions.worktreeFallback() && this.state.navigation) {
@@ -1179,8 +1228,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
     // State→URL mirror — the single URL writer.
-    if (any('selectedWorktree', 'paneA'))
-      this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    if (any('selectedWorktree', 'paneA')) this.urlMirror.mirror()
     // View-state report to the server. `workspaces` is a trigger in its own
     // right: a third pane's active tab changes what is on screen without moving
     // `paneA`/`paneB`. `panelMode` is equally live: switching Native → Chat must
@@ -1292,40 +1340,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return workspaceWritePatch(st, key, next)
   }
 
-  private syncReplicatedUi(): void {
-    const persisted = this.routerUi.hydrate()
-    const patch: Partial<EngineState> = {}
-    if (persisted.dockTab !== this.state.dockTab) patch.dockTab = persisted.dockTab
-    if (persisted.superOpen !== this.state.superOpen) patch.superOpen = persisted.superOpen
-    if (JSON.stringify(persisted.panelMode) !== JSON.stringify(this.state.panelMode)) {
-      // The replicated map REPLACES the local one wholesale (POD-3932): a write
-      // from any of this person's other devices lands here as a full map, so a
-      // per-session pick made on this device can be overwritten by a device
-      // that never saw it. Name every session whose mode this replace changes.
-      const local = this.state.panelMode
-      const remote = persisted.panelMode
-      const changed: Array<{ sessionId: string; from: string | null; to: string | null }> = []
-      for (const sid of new Set([...Object.keys(local), ...Object.keys(remote)])) {
-        if (local[sid] !== remote[sid]) {
-          changed.push({ sessionId: sid, from: local[sid] ?? null, to: remote[sid] ?? null })
-        }
-      }
-      log.debug('replicated panel modes replaced the local map', {
-        changed,
-        localCount: Object.keys(local).length,
-        remoteCount: Object.keys(remote).length,
-      })
-      patch.panelMode = remote
-    }
-    if (Object.keys(patch).length === 0) return
-    this.applyingHydratedUi = true
-    try {
-      this.apply(patch)
-    } finally {
-      this.applyingHydratedUi = false
-    }
-  }
-
   // ------------------------------------------------------------------- routing
 
   private committingNavigation = false
@@ -1347,7 +1361,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       return false
     }
     const changed = Object.entries(plan.patch).some(
-      ([key, value]) => !Object.is(this.state[key as keyof EngineState], value),
+      ([key, value]) => !Object.is(this.state[key as keyof (EngineState & ScreenState)], value),
     )
     // History validates/serializes before state is committed. Its synchronous
     // callback must not independently adopt the same destination and publish.
@@ -1391,7 +1405,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state
-    const patch: Partial<EngineState> = {
+    const patch: Partial<EngineState & ScreenState> = {
       view: route.view,
       settingsTab: route.settingsTab,
       openIssueId: asIssueIdOrNull(route.issueId),
@@ -1427,7 +1441,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (!linked && route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
     this.apply(patch)
     if (linked) this.followPaneLink(route)
-    this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    this.urlMirror.mirror()
   }
 
   /**
@@ -1543,16 +1557,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
     await this.reactions.flushReadAcknowledgements()
     this.drafts.persist(true)
-    await this.replica.uiState().flush?.()
+    await this.uiPersistence.flush()
     await this.outbox.flushLocalWrites?.()
     // Typing can continue while an IndexedDB enqueue commits.
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
     this.drafts.persist(true)
-    await this.replica.uiState().flush?.()
+    await this.uiPersistence.flush()
     await this.replica.flush()
     await this.outbox.flushLocalWrites?.()
     this.drafts.persist(true)
-    await this.replica.uiState().flush?.()
+    await this.uiPersistence.flush()
   }
 
   private getUserFocus(): UserFocus {
@@ -1592,10 +1606,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       outboxSettlements: this.outboxSettlements,
       router: this.router,
       notices: this.notices,
-      layoutSeed: layoutSnapshotFromRows(this.replica.rows('userLayouts')),
+      layout: this.replicatedLayout,
       state: () => this.state,
+      ui: this.ui,
       apply: (patch) => this.apply(patch),
       navigate: (intent) => this.navigate(intent),
+      revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       waitForSessionNavigation: (identifier) => {
         this.dropPaneLink()
         this.pendingNavigation = undefined
@@ -1647,12 +1663,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       trpc: this.api,
       replica: this.replica,
-      uiState: this.ui,
+      uiState: this.deviceState,
       readPosition: this.readPosition,
       httpOrigin: this.httpOrigin,
       // The ONE key resolver, published so no view re-derives it (POD-710).
-      workspaceKey: () => workspaceKeyForState(this.state),
-      getUserFocus: () => this.getUserFocus(),
       recoverOutbox: {
         retry: (id, satisfaction) => this.outbox.retry(id, satisfaction),
         edit: (id, input) => this.outbox.edit(id, input),
@@ -1660,6 +1674,43 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       },
       refreshRepos: () => this.boot.refreshRepos(),
       ...actions,
+      navigateWorkspace: this.ui.navigateWorkspace,
+      setView: this.ui.setView,
+      setSettingsTab: this.ui.setSettingsTab,
+      setOpenIssueId: this.ui.setOpenIssueId,
+      setSuperThreadId: this.ui.setSuperThreadId,
+      setSuperOpen: this.ui.setSuperOpen,
+      setDockTab: this.ui.setDockTab,
+      startBtw: this.ui.startBtw,
+      clearAttachedSession: this.ui.clearAttachedSession,
+      setSelectedWorktree: this.ui.setSelectedWorktree,
+      setSelectedIssueId: this.ui.setSelectedIssueId,
+      setPane: this.ui.setPane,
+      openSessionTab: this.ui.openSessionTab,
+      openSessionAtTranscript: this.ui.openSessionAtTranscript,
+      openTabInWorkspace: this.ui.openTabInWorkspace,
+      promoteWorkspaceTab: this.ui.promoteWorkspaceTab,
+      activateWorkspaceTab: this.ui.activateWorkspaceTab,
+      closeWorkspaceTab: this.ui.closeWorkspaceTab,
+      moveWorkspaceTab: this.ui.moveWorkspaceTab,
+      splitWorkspacePane: this.ui.splitWorkspacePane,
+      closeWorkspacePane: this.ui.closeWorkspacePane,
+      focusWorkspacePane: this.ui.focusWorkspacePane,
+      resizeWorkspaceSplit: this.ui.resizeWorkspaceSplit,
+      setFocusedPane: this.ui.setFocusedPane,
+      focusIssueSession: this.ui.focusIssueSession,
+      setPanelMode: this.ui.setPanelMode,
+      preferPanelMode: this.ui.preferPanelMode,
+      setDockVisibleSession: this.ui.setDockVisibleSession,
+      setDockShell: this.ui.setDockShell,
+      toggleSplit: this.ui.toggleSplit,
+      openFile: this.ui.openFile,
+      openFileInWorktree: this.ui.openFileInWorktree,
+      openArtifact: this.ui.openArtifact,
+      closeFileTab: this.ui.closeFileTab,
+      navigateToSession: this.ui.navigateToSession,
+      getUserFocus: this.ui.getUserFocus,
+      workspaceKey: this.ui.workspaceKey,
     } as EngineStatics<TApi>
   }
 }

@@ -94,7 +94,7 @@ export function useHub(): SocketHub {
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
-  return useStoreHandle<MobileTrpc>().access.uiState
+  return useStoreHandle<MobileTrpc>().deviceState
 }
 
 /**

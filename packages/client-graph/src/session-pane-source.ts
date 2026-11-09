@@ -1,57 +1,41 @@
-import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { observable, runInAction } from 'mobx'
+import { action, observable } from 'mobx'
 import type { SessionPaneRows } from './session-pane-schema'
-
+import { defineSource } from './source-registry'
 export const SESSION_PANE_SOURCE_KEY = 'session-pane'
-
-/** A borrowed controls projection on the app-owned runtime, with no session
- * collection, transcript, replica, mutation or outbox of its own. */
 export class SessionPaneSource {
-  private readonly value = observable.box<SessionPaneRows['sessionPaneWindow'] | undefined>(
-    undefined,
-    { deep: false },
-  )
+  @observable private accessor version = 0
   private readonly stop: () => void
   private readonly source = defineSource({
-    readById: this.readById.bind(this),
-    release: this.release.bind(this),
-    disposedValue: undefined,
+    readById: () => this.window,
+    release: () => this.stop(),
   })
-  private get disposed(): boolean { return this.source.disposed }
-  constructor(runtime: Pick<ClientRuntime, 'readLocal' | 'onLocals'>) {
-    const update = () => {
-      if (this.disposed) return
-      const panelMode = runtime.readLocal('panelMode'),
-        dockShells = runtime.readLocal('dockShells'),
-        reposLoaded = runtime.readLocal('reposLoaded')
-      const previous = this.value.get()
-      if (
-        previous &&
-        previous.panelMode === panelMode &&
-        previous.dockShells === dockShells &&
-        previous.reposLoaded === reposLoaded
-      )
-        return
-      runInAction(() => this.value.set({ panelMode, dockShells, reposLoaded }))
+  private readonly window: SessionPaneRows['sessionPaneWindow']
+  constructor(runtime: Pick<ClientRuntime, 'ui' | 'readLocal' | 'onLocals'>) {
+    const version = () => this.version
+    this.window = {
+      get panelMode() {
+        return runtime.ui.panelMode
+      },
+      get dockShells() {
+        return runtime.ui.dockShells
+      },
+      get reposLoaded() {
+        version()
+        return runtime.readLocal('reposLoaded')
+      },
     }
-    update()
-    // Keyed (POD-5433): only these four locals wake the pane window.
-    this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded'], update)
+    this.stop = runtime.onLocals(
+      ['reposLoaded'],
+      action(() => {
+        this.version++
+      }),
+    )
   }
-  read(_entity: 'sessionPaneWindow', _id: string): SessionPaneRows['sessionPaneWindow'] | undefined {
-    return this.source.read(_entity, _id) as SessionPaneRows['sessionPaneWindow'] | undefined
+  read(entity: 'sessionPaneWindow', id: string): SessionPaneRows['sessionPaneWindow'] | undefined {
+    return this.source.read(entity, id) as SessionPaneRows['sessionPaneWindow'] | undefined
   }
-
-  private readById(_entity: 'sessionPaneWindow', _id: string) {
-    return this.value.get()
-  }
-  dispose() {
+  dispose(): void {
     this.source.dispose()
-  }
-
-  private release() {
-    this.stop()
-    runInAction(() => this.value.set(undefined))
   }
 }

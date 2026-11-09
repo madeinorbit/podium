@@ -1,0 +1,584 @@
+import { isMachinePathWithinRoot } from '@podium/model'
+import {
+  loadingNavigationProvider,
+  NAVIGATION_LOADING,
+  type NavigationIssue,
+  type NavigationProvider,
+} from '../engine/navigation-provider'
+import type { SessionView } from '../session-values'
+
+export * from '../engine/navigation-provider'
+
+/**
+ * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
+ *
+ * Split out of the old `engine.ts` god file. Everything here is a total function
+ * of `ScreenState` — no timers, no network, no subscriptions — so the
+ * derivations that the reaction table and the action surface both need (which
+ * pane is focused, which issue is in the foreground, what the operator is
+ * looking at) have ONE definition instead of a copy per caller.
+ *
+ * Under multi-user (docs/multi-user-readiness.md §3.1) these derive over the
+ * PRINCIPAL'S SLICE, not the world: `sessions` / `issues` / `issueProjections`
+ * can SHRINK under an evict and be REBUILT under a rescope without any row's
+ * revision moving. Nothing in this file may treat a referenced-but-absent id as
+ * "late" — every lookup below is a `find` whose miss is a legitimate,
+ * steady-state answer (the row is invisible to this principal), never a reason
+ * to wait for it to arrive.
+ */
+
+import type {
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  IssueId,
+  MachineWire,
+  SessionId,
+  ThreadId,
+} from '@podium/model'
+import { asIssueId, asThreadId } from '@podium/model'
+import type { PodiumClientApi } from '../api'
+import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from '../engine/types'
+import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
+import {
+  allTabIds,
+  type DockTab,
+  emptyWorkspace,
+  type FileTab,
+  leafPaneIds,
+  type RecentFileEntry,
+  type WorkspaceKey,
+  type WorkspaceLayout,
+  type WorkspaceMap,
+  workspaceKeyFor,
+} from '../values'
+
+/** The runtime's mutable data slices — exactly the non-function fields of Store
+ *  that change over time (constants like hub/trpc/replica live outside it). */
+export interface ScreenState {
+  /** Pool navigation port, loading until the principal's pool attaches. */
+  navigation: NavigationProvider
+  repos: GitRepositoryWire[]
+  reposLoading: boolean
+  reposLoaded: boolean
+  repoDiagnostics: GitDiscoveryDiagnosticWire[]
+  machines: MachineWire[]
+  view: MainView
+  settingsTab: string | null
+  openIssueId: IssueId | null
+  superThreadId: ThreadId
+  superOpen: boolean
+  /**
+   * THE SESSION "ASK SUPERAGENT (BTW)" ATTACHED, awaiting the next turn
+   * (POD-1069).
+   *
+   * The action used to point {@link superThreadId} at a `btw_<sessionId>` thread.
+   * Nothing has rendered a non-global thread since POD-782, so it aimed the dock
+   * at a thread with no session and the pane went blank — and stayed blank,
+   * because nothing ever aimed it back. The dock binds the one global chat now;
+   * what the operator picked rides HERE instead, is spent on the next turn, and
+   * is deliberately NOT persisted: an attachment is about a conversation
+   * happening right now, and a reload is the operator putting it down.
+   */
+  attachedSessionId: SessionId | null
+  dockTab: DockTab
+  /** The signed-in user's superagent threads, published by the store (POD-330,
+   *  audit item zero). The view no longer keeps its own copy. */
+  paletteOpen: boolean
+  selectedWorktree: string | null
+  selectedIssueId: IssueId | null
+  issueVisitBaseline: IssueVisitBaseline | null
+  transcriptReveal: TranscriptRevealRequest | null
+  /**
+   * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
+   * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
+   * `paneA` / `paneB` / `split` / `focusedPane` below are derived mirrors of it
+   * (see {@link workspaceMirrorPatch}).
+   */
+  workspaces: WorkspaceMap
+  paneA: SessionId | null
+  paneB: SessionId | null
+  split: boolean
+  focusedPane: 'A' | 'B'
+  panelMode: Record<string, 'chat' | 'native'>
+  dockShells: Record<string, SessionId>
+  dockVisibleSession: string | null
+  autoContinuePromptSessionId: SessionId | null
+  fileTabs: readonly FileTab[]
+  recentFiles: RecentFileEntry[]
+}
+
+/** Narrow a raw route/persisted value into the issue id space (POD-363). The URL
+ *  route and local state hand back raw strings, and this is the one
+ *  place they re-enter the id space — so the store's issue-selection surface can
+ *  be branded end to end without a cast at every consumer. */
+export const asIssueIdOrNull = (v: string | null | undefined): IssueId | null =>
+  v ? asIssueId(v) : null
+
+export const tabIsVisible = (): boolean =>
+  typeof document === 'undefined' || document.visibilityState === 'visible'
+
+/**
+ * The panes the operator can actually SEE, in strip order.
+ *
+ * Splitting is ordinary now (POD-1649), so every leaf of the current workspace's
+ * tree is rendered and this is exactly that walk. It stays a named seam because
+ * every "what is on screen" derivation goes through it, so they cannot disagree
+ * about a third pane or a hidden one.
+ */
+export function visibleLeafPaneIds(st: ScreenState): string[] {
+  return leafPaneIds(currentWorkspace(st).root)
+}
+
+/**
+ * The tab ids on screen — one per visible pane, in strip order.
+ *
+ * The layout is the truth. The pane scalars are the fallback for exactly one
+ * case: a workspace with nothing open in it at all, which is what a client
+ * restored from a pre-POD-710 install has (persisted `paneA`, no persisted
+ * layouts). Anything else reads the panes, so a hidden or third pane is
+ * reported exactly as it is rendered.
+ */
+export function visibleTabIds(st: ScreenState): SessionId[] {
+  const ws = currentWorkspace(st)
+  if (allTabIds(ws).length === 0) {
+    return [st.paneA, st.split ? st.paneB : null].filter((id): id is SessionId => id != null)
+  }
+  return visibleLeafPaneIds(st)
+    .map((paneId) => (ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
+    .filter((id): id is SessionId => id != null)
+}
+
+/**
+ * Which pane the operator is typing into.
+ *
+ * Answered from the LAYOUT, because `focusedPane` is a two-valued mirror and a
+ * workspace may have more than two panes — focus on the third pane spells 'A',
+ * which would report the FIRST pane's session. Focus that has landed on a pane
+ * the view is not rendering falls back to the first visible one, so a layout
+ * split with the flag on and then hidden reports the pane actually on screen.
+ * The scalar path survives for the empty-workspace case {@link visibleTabIds}
+ * describes.
+ */
+export function focusedPaneSession(st: ScreenState): SessionId | null {
+  const ws = currentWorkspace(st)
+  if (allTabIds(ws).length === 0) {
+    return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
+  }
+  const visible = visibleLeafPaneIds(st)
+  const paneId = visible.includes(ws.focusedPaneId) ? ws.focusedPaneId : visible[0]
+  return paneId === undefined ? null : ((ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces (POD-710)
+// ---------------------------------------------------------------------------
+
+/** The fields a workspace write touches: the layouts themselves and the four
+ *  pane scalars they are mirrored into. Narrower than `Partial<ScreenState>` so
+ *  it can be applied to the action surface's state as well as the engine's. */
+export interface WorkspacePatch {
+  workspaces?: WorkspaceMap
+  paneA?: SessionId | null
+  paneB?: SessionId | null
+  split?: boolean
+  focusedPane?: 'A' | 'B'
+}
+
+/** The selection a workspace key is computed from. */
+export type WorkspaceSelection = Pick<
+  ScreenState,
+  'selectedIssueId' | 'selectedWorktree' | 'navigation'
+>
+
+/**
+ * WHICH WORKSPACE IS ON SCREEN — the one key everything else agrees on.
+ *
+ * The mission root wins over the selected sub-issue because a mission shares one
+ * tab strip: selecting a task inside it must not swap the strip for an empty
+ * one. This mirrors what `Workspace.tsx` has always computed inline; it lives
+ * here so the engine and the view cannot disagree about which task's tabs they
+ * are writing.
+ */
+/**
+ * `st` with `patch` on top, for asking a question of a state that is not the
+ * current one (where a navigation lands, which workspace a selection resolves
+ * to). A prototype overlay, not a spread: a spread reads every key, and the
+ * runtime's replica-derived lists are built on read (POD-5434), so a spread
+ * would build them all to answer a question about two locals. Only reads are
+ * defined on the result; never spread or enumerate it.
+ */
+export function overlayState<T extends object, P extends object>(st: T, patch: P): T & P {
+  return Object.assign(Object.create(st) as T, patch) as T & P
+}
+
+export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
+  const key = resolvedWorkspaceKey(st)
+  // Existing view readers have a total key API. Loading has no writable
+  // workspace; selection commits use resolvedWorkspaceKey and wait instead.
+  return key === NAVIGATION_LOADING ? 'none' : key
+}
+
+export function resolvedWorkspaceKey(
+  st: WorkspaceSelection,
+): WorkspaceKey | typeof NAVIGATION_LOADING {
+  if (st.navigation) {
+    const selected = st.selectedIssueId ? st.navigation.issue(st.selectedIssueId) : undefined
+    if (selected === NAVIGATION_LOADING) return NAVIGATION_LOADING
+    const root =
+      selected && !selected.archived && !selected.deletedAt
+        ? st.navigation.missionRoot(selected.id)
+        : undefined
+    if (root === NAVIGATION_LOADING) return NAVIGATION_LOADING
+    // The provider owns invalidation. Never cache this answer against the
+    // legacy issue array, which need not move when a cold pool row arrives.
+    return workspaceKeyFor({
+      missionRootId: root ?? null,
+      issueId: st.selectedIssueId,
+      worktreePath: st.selectedWorktree,
+    })
+  }
+  return 'none'
+}
+
+/** The layout for a key — always a layout, never undefined, so no caller has to
+ *  invent the empty case. */
+export function workspaceFor(
+  st: Pick<ScreenState, 'workspaces'>,
+  key: WorkspaceKey,
+): WorkspaceLayout {
+  return st.workspaces[key] ?? emptyWorkspace(key)
+}
+
+/** The workspace the operator is looking at. */
+export function currentWorkspace(
+  st: WorkspaceSelection & Pick<ScreenState, 'workspaces'>,
+): WorkspaceLayout {
+  return workspaceFor(st, workspaceKeyForState(st))
+}
+
+/**
+ * THE DERIVED MIRROR — `paneA` / `paneB` / `split` / `focusedPane` from a layout.
+ *
+ * These four scalars have consumers well outside the tab strip (the `?pane=`
+ * route param, the PTY-relay priority in {@link userFocus}, the warm set,
+ * `use-unified-work`, the flight deck), so POD-710 keeps them rather than
+ * rewriting every one: the layout is the truth and these are recomputed on every
+ * layout write.
+ *
+ * ALL FOUR, EVERY TIME. There used to be a compatibility clause here — a write
+ * against a layout that neither had nor just had two leaves mirrored `paneA`
+ * only — because `toggleSplit` and `setPane('B', …)` still wrote `split` and
+ * `paneB` as raw scalars and a full mirror would have zeroed a pane the
+ * operator could see. Both are adapters over the layout now (POD-710 wave 2),
+ * so the layout is the only writer and a partial mirror is pure hazard: a write
+ * that computed `split: false` but did not APPLY it left a phantom second pane
+ * that no later write could ever clear, because the clause kept firing.
+ */
+export function workspaceMirrorPatch(next: WorkspaceLayout): WorkspacePatch {
+  const leaves = leafPaneIds(next.root)
+  const activeOf = (paneId: string | undefined): SessionId | null => {
+    const id = paneId ? (next.panes[paneId]?.activeTabId ?? null) : null
+    // Tab ids carry file tabs too; the pane scalars have always been typed as
+    // session ids and read as opaque tab ids (see revealFileTab).
+    return id === null ? null : (id as SessionId)
+  }
+  return {
+    paneA: activeOf(leaves[0]),
+    paneB: activeOf(leaves[1]),
+    split: leaves.length >= 2,
+    focusedPane: leaves[1] !== undefined && next.focusedPaneId === leaves[1] ? 'B' : 'A',
+  }
+}
+
+/**
+ * Apply a reducer to EVERY workspace and mirror the one on screen.
+ *
+ * Used where the thing behind a tab is gone — a killed session, a closed file,
+ * a pruned ghost — which is the only reason a tab may disappear from a
+ * workspace the operator is not looking at. Returns an empty patch when nothing
+ * moved, so an inert pass publishes no snapshot at all.
+ */
+export function workspacesPatch(
+  st: WorkspaceSelection & Pick<ScreenState, 'workspaces'>,
+  reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+): WorkspacePatch {
+  const workspaces: WorkspaceMap = {}
+  let changed = false
+  for (const [key, ws] of Object.entries(st.workspaces)) {
+    const next = reduce(ws)
+    if (next !== ws) changed = true
+    workspaces[key] = next
+  }
+  if (!changed) return {}
+  const key = resolvedWorkspaceKey(st)
+  const current = key === NAVIGATION_LOADING ? undefined : workspaces[key]
+  return { workspaces, ...(current ? workspaceMirrorPatch(current) : {}) }
+}
+
+/**
+ * The patch for ONE layout write: the workspace entry plus its mirror. Returns
+ * an empty patch when the reducer was a no-op, so an inert action publishes no
+ * snapshot at all.
+ */
+export function workspaceWritePatch(
+  st: Pick<ScreenState, 'workspaces'>,
+  key: WorkspaceKey,
+  next: WorkspaceLayout,
+): WorkspacePatch {
+  const mirror = workspaceMirrorPatch(next)
+  const current = st.workspaces[key]
+  // A key nobody has opened anything in stays ABSENT: a no-op action on a fresh
+  // task must not persist an empty layout for every task ever selected.
+  const vacuous =
+    current === undefined && leafPaneIds(next.root).length === 1 && allTabIds(next).length === 0
+  if (current === next || vacuous) return mirror
+  return { workspaces: { ...st.workspaces, [key]: next }, ...mirror }
+}
+
+/**
+ * Every tab id that names something which EXISTS right now: a session in this
+ * pool (including optimistic spawns), a loading session, or an open file buffer.
+ *
+ * The input to pruning, and the reason pruning cannot be a one-liner: an id
+ * missing from here is not necessarily dead. It may be early (a deep-linked
+ * pane that arrives before its session) or temporarily invisible (a scoped
+ * slice shrinking under an evict). Deciding which is which is the caller's job
+ * — see `Reactions.pruneWorkspaces`.
+ */
+export interface PruningState extends ScreenState {
+  sessions: SessionView[]
+  pendingSpawnIds: ReadonlySet<string>
+}
+
+export function knownTabIds(st: PruningState): Set<string> {
+  const ids = new Set<string>()
+  for (const session of st.sessions) ids.add(session.sessionId)
+  for (const id of st.pendingSpawnIds) ids.add(id)
+  for (const id of resolvableFileTabIds(st)) ids.add(id)
+  return ids
+}
+
+/**
+ * The file tabs that still name something readable.
+ *
+ * Only the session-scoped arm can go stale: the daemon read is addressed
+ * THROUGH that session, so once it is gone the tab can never render anything
+ * again. This became load-bearing when file tabs started surviving reloads
+ * (POD-1247) — before that a dead scope disappeared on its own, because the
+ * record did not come back at all. Worktree and artifact scopes are not ids in
+ * this slice and are never judged here; a missing directory is the file panel's
+ * error to report, not a reason to close a tab the operator opened.
+ *
+ * "Not resolvable" is deliberately NOT "drop it": the caller runs it through the
+ * same grace period a late-arriving session tab gets, because at boot the
+ * sessions slice may simply not have loaded yet.
+ */
+function resolvableFileTabIds(st: Pick<PruningState, 'sessions' | 'fileTabs'>): string[] {
+  const ids: string[] = []
+  // The session set is built ONCE per call rather than scanned per tab: this
+  // runs for every workspace on every inbound frame, and that is exactly the
+  // shape of scan POD-1641 measured at 93% of main-thread CPU.
+  let sessionIds: Set<string> | null = null
+  for (const tab of st.fileTabs) {
+    if (tab.scope.kind !== 'session') {
+      ids.push(tab.id)
+      continue
+    }
+    sessionIds ??= new Set(st.sessions.map((session) => session.sessionId))
+    if (sessionIds.has(tab.scope.sessionId)) ids.push(tab.id)
+  }
+  return ids
+}
+
+/**
+ * Which tabs THIS workspace may keep. A session that still exists but now
+ * belongs to another issue is not "unknown" (that is the grace-period path);
+ * it is foreign, and the origin strip must drop it immediately.
+ */
+export function knownTabIdsForWorkspace(
+  st: Pick<PruningState, 'navigation' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>,
+  key: WorkspaceKey,
+): Set<string> {
+  const ids = new Set<string>()
+  for (const id of st.pendingSpawnIds) ids.add(id)
+  for (const id of resolvableFileTabIds(st)) ids.add(id)
+  // ONE resolution of the key, then a membership test per session. The rule is
+  // unchanged; what moved is where the key's own share of the work happens.
+  const belongs = workspaceMembership(st, key)
+  for (const session of st.sessions) {
+    if (belongs(session)) ids.add(session.sessionId)
+  }
+  return ids
+}
+
+/**
+ * The workspace-membership rule, resolved for ONE key and then asked per session.
+ *
+ * Same rule as {@link sessionBelongsToWorkspace} — that function is now a call
+ * to this one — but everything the rule needs that depends on the KEY rather
+ * than on the session is computed here, once. That is the whole of the fix:
+ * `knownTabIdsForWorkspace` asked the old predicate 827 times per workspace and
+ * every single answer resolved the issue by scanning the slice, or rebuilt the
+ * mission's issue set from scratch. `pruneWorkspaces` runs this for every
+ * workspace on every `sessions` publish, i.e. on every inbound feed frame,
+ * which is how ~651 ms of main-thread time went missing per frame.
+ */
+export function workspaceMembership(
+  st: Pick<ScreenState, 'navigation'>,
+  key: WorkspaceKey,
+): (session: SessionView) => boolean {
+  if (key === 'none') return () => true
+  if (key.startsWith('wt:')) {
+    const path = key.slice(3)
+    return (session) => isMachinePathWithinRoot(path, session.cwd)
+  }
+  if (key.startsWith('issue:')) {
+    const issueId = key.slice(6)
+    // Resolved for the KEY, not for the session: the old code re-found the same
+    // issue for every session that did not name one.
+    const issue = st.navigation.issue(issueId)
+    const wt = issue !== NAVIGATION_LOADING ? issue?.worktreePath : undefined
+    return (session) => {
+      if (session.issueId !== undefined) return session.issueId === issueId
+      if (issue === NAVIGATION_LOADING) return true
+      return Boolean(wt && isMachinePathWithinRoot(wt, session.cwd))
+    }
+  }
+  if (key.startsWith('mission:')) {
+    const rootId = key.slice(8)
+    if (st.navigation) {
+      const navigation = st.navigation
+      const ids = navigation.missionMembers(rootId)
+      // A cold membership answer cannot establish that a tab is foreign.
+      // Keep it while the pool loads; never consult legacy mission topology.
+      if (ids === NAVIGATION_LOADING) return () => true
+      let worktrees: string[] | undefined
+      let loading = false
+      return (session) => {
+        if (session.issueId !== undefined) return ids.has(session.issueId)
+        // Only unassigned sessions need member worktrees. These addressed
+        // reads use the navigation summaries, including cold issue rows.
+        if (!worktrees) {
+          worktrees = []
+          for (const id of ids) {
+            const issue = navigation.issue(id)
+            if (issue === NAVIGATION_LOADING) loading = true
+            else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
+          }
+        }
+        return loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
+      }
+    }
+  }
+  return () => true
+}
+
+/** The membership rule for a SINGLE session. Kept as the one-shot spelling of
+ *  {@link workspaceMembership} — a caller with one session to test should not
+ *  have to know that the rule has a per-key half. */
+export function sessionBelongsToWorkspace(
+  st: Pick<ScreenState, 'navigation'>,
+  key: WorkspaceKey,
+  session: SessionView,
+): boolean {
+  return workspaceMembership(st, key)(session)
+}
+
+/** Every tab id any workspace on this device has open. */
+export function referencedTabIds(st: Pick<ScreenState, 'workspaces'>): Set<string> {
+  const ids = new Set<string>()
+  for (const ws of Object.values(st.workspaces)) for (const id of allTabIds(ws)) ids.add(id)
+  return ids
+}
+
+/** The issue in the FOREGROUND: the open issue page, or the issue whose
+ *  sessions the workspace is showing. Any other surface has none.
+ *
+ *  A miss is final, not pending: under a scoped slice the selected issue may
+ *  simply not be visible to this principal. */
+export function foregroundIssue(st: ScreenState): NavigationIssue | undefined {
+  const id =
+    st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
+  if (!id) return undefined
+  if (st.navigation) {
+    const issue = st.navigation.issue(id)
+    return issue === NAVIGATION_LOADING ? undefined : issue
+  }
+  return undefined
+}
+
+/** Session reactions use the same addressed provider as a selection gesture. */
+export function navigationSession(
+  st: Pick<ScreenState, 'navigation'>,
+  id: string,
+): SessionView | undefined {
+  if (st.navigation) {
+    const session = st.navigation.session(id)
+    return session === NAVIGATION_LOADING ? undefined : session
+  }
+  return undefined
+}
+
+/** Read reactions share the navigation port rather than scanning snapshot rows. */
+export function navigationActivityAt(st: ScreenState, issue: NavigationIssue): string | undefined {
+  const stamp = st.navigation.activityAt(issue.id)
+  return stamp === NAVIGATION_LOADING ? undefined : stamp
+}
+
+export function navigationIssueReadAt(st: ScreenState, id: string): string | null {
+  return st.navigation.issueReadAt(id) ?? null
+}
+
+/** The UI-state module's view of the workspace — the single input to routing,
+ *  persistence and the URL mirror. */
+export function workspaceUiSnapshot(st: ScreenState): WorkspaceUiSnapshot {
+  return {
+    view: st.view,
+    selectedWorktree: st.selectedWorktree,
+    selectedIssueId: st.selectedIssueId,
+    dockTab: st.dockTab,
+    workspaces: st.workspaces,
+    fileTabs: st.fileTabs,
+    paneA: st.paneA,
+    paneB: st.paneB,
+    split: st.split,
+    superOpen: st.superOpen,
+    panelMode: st.panelMode,
+    dockShells: st.dockShells,
+    recentFiles: st.recentFiles,
+  }
+}
+
+/** What this client is looking at, for the server's PTY relay priority and the
+ *  notification router. Ids that are not sessions in the CURRENT slice are
+ *  dropped rather than reported. */
+export function userFocus(st: ScreenState): UserFocus {
+  // EVERY pane it renders, not just the two the `paneA`/`paneB` mirrors can
+  // spell — a third pane's session is on screen and its PTY has the same claim
+  // on relay priority as the first two — and only the panes it renders, which
+  // is why this is `visibleTabIds` and not the layout's leaves.
+  const paneIds = visibleTabIds(st)
+  const focusedId = focusedPaneSession(st)
+  const isSession = (id: SessionId): boolean => navigationSession(st, id) !== undefined
+  const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined
+  // EVERY visible tab that is a FILE, not just the focused one (POD-782). The
+  // sessions half of `paneIds` has always been reported in full; the files half
+  // was thrown away by the `.filter(isSession)` above and only the focused pane's
+  // path survived, so a second open file was invisible to the orchestrator.
+  const openFilePaths = paneIds
+    .map((id) => st.fileTabs.find((f) => f.id === id)?.path)
+    .filter((path): path is string => path !== undefined)
+  return {
+    view: st.view,
+    ...(st.selectedWorktree ? { worktreePath: st.selectedWorktree } : {}),
+    ...(st.selectedIssueId ? { issueId: st.selectedIssueId } : {}),
+    // The issue detail drawer is what the operator is READING while it is
+    // open, even though the workspace underneath keeps its own selection — so
+    // reporting only `issueId` names the wrong issue for as long as it is up.
+    ...(st.openIssueId ? { openIssueId: st.openIssueId } : {}),
+    ...(focusedId && isSession(focusedId) ? { focusedSessionId: focusedId } : {}),
+    visibleSessionIds: paneIds.filter(isSession),
+    ...(focusedFile ? { filePath: focusedFile.path } : {}),
+    ...(openFilePaths.length ? { openFilePaths } : {}),
+  }
+}

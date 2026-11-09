@@ -1,22 +1,22 @@
-import { keyedInputsOverStore } from '../../test-support/keyed-inputs'
 import { describe, expect, it, vi } from 'vitest'
+import { keyedInputsOverStore } from '../../test-support/keyed-inputs'
 import { createKeyedInputs, discoveryRepoId } from './keyed-inputs'
-import type { EngineState } from './state'
+import type { RuntimeState } from './state'
 
-function channel(initial: Partial<EngineState>) {
-  let state = { ...initial } as EngineState
+function channel(initial: Partial<RuntimeState>) {
+  let state = { ...initial } as RuntimeState
   const inputs = createKeyedInputs(() => state)
   return {
     inputs,
-    write(patch: Partial<EngineState>) {
+    write(patch: Partial<RuntimeState>) {
       state = { ...state, ...patch }
-      inputs.emit(new Set(Object.keys(patch) as (keyof EngineState)[]))
+      inputs.emit(new Set(Object.keys(patch) as (keyof RuntimeState)[]))
     },
   }
 }
 
 const repo = (path: string, branch = 'main') =>
-  ({ path, branch, machineId: 'm1', worktrees: [] }) as unknown as EngineState['repos'][number]
+  ({ path, branch, machineId: 'm1', worktrees: [] }) as unknown as RuntimeState['repos'][number]
 
 describe('keyed inputs (POD-5433)', () => {
   it('wakes a listener only for its own keys, with the changed subset', () => {
@@ -32,7 +32,7 @@ describe('keyed inputs (POD-5433)', () => {
   })
 
   it('publishes only at emit: a reader never sees an unannounced local', () => {
-    let state = { paletteOpen: false } as EngineState
+    let state = { paletteOpen: false } as RuntimeState
     const inputs = createKeyedInputs(() => state)
     state = { ...state, paletteOpen: true }
     expect(inputs.readLocal('paletteOpen')).toBe(false)
@@ -41,12 +41,17 @@ describe('keyed inputs (POD-5433)', () => {
   })
 
   it('reads delegated selection from its owner while notifying at batch publication', () => {
-    let selected = 'first' as EngineState['selectedIssueId']
-    const state = { get selectedIssueId() { return selected }, paletteOpen: false } as EngineState
+    let selected = 'first' as RuntimeState['selectedIssueId']
+    const state = {
+      get selectedIssueId() {
+        return selected
+      },
+      paletteOpen: false,
+    } as RuntimeState
     const inputs = createKeyedInputs(() => state, false, ['selectedIssueId'])
     const listener = vi.fn()
     inputs.onLocals(['selectedIssueId'], listener)
-    selected = 'next' as EngineState['selectedIssueId']
+    selected = 'next' as RuntimeState['selectedIssueId']
     state.paletteOpen = true
     expect(inputs.readLocal('selectedIssueId')).toBe('next')
     expect(inputs.readLocal('paletteOpen')).toBe(false)

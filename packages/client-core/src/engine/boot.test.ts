@@ -3,7 +3,7 @@ import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { BootFetches } from './boot'
-import type { EngineState } from './state'
+import type { RuntimeState } from './state'
 
 describe('BootFetches.refreshRepos', () => {
   it('publishes the authorized machine snapshot atomically with a durable repo fallback', async () => {
@@ -20,7 +20,7 @@ describe('BootFetches.refreshRepos', () => {
       online: true,
       use: 'granted',
     } as MachineWire
-    const publish = vi.fn<(patch: Partial<EngineState>) => void>()
+    const publish = vi.fn<(patch: Partial<RuntimeState>) => void>()
     const api = {
       discovery: {
         refreshRepos: {
@@ -95,14 +95,12 @@ describe('BootFetches.refreshRepos', () => {
         refreshRepos: {
           mutate: vi
             .fn()
-            .mockImplementationOnce(
-              () => new Promise<RefreshResult>((r) => (resolveStale = r)),
-            )
+            .mockImplementationOnce(() => new Promise<RefreshResult>((r) => (resolveStale = r)))
             .mockImplementationOnce(() => new Promise<RefreshResult>((r) => (resolveFresh = r))),
         },
       },
     } as unknown as PodiumClientApi
-    const publish = vi.fn<(patch: Partial<EngineState>) => void>()
+    const publish = vi.fn<(patch: Partial<RuntimeState>) => void>()
     const boot = new BootFetches({ api, publish })
 
     // Coalescing (see `refreshRepos`) means the second trigger does not race the
@@ -128,7 +126,7 @@ type Deferred = { resolve: () => void; reject: (error: unknown) => void }
 
 function makeFetches() {
   const deferreds: Deferred[] = []
-  const patches: Partial<EngineState>[] = []
+  const patches: Partial<RuntimeState>[] = []
   let calls = 0
   const api = {
     discovery: {

@@ -1,7 +1,8 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allTabIds, orphanSessionFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback } from 'react'
 import { useRuntimeActions, useRuntimeList, useRuntimeLocal } from './keyed-runtime'
 import { useWorklistPoolProjection } from './store-worklist-pool'
@@ -39,7 +40,9 @@ export function workspaceSessions(
     if (fullIds.has(id) && !present) return []
     const detail = fullIds.has(id) ? omitGone(pool.row('session', id)) : undefined
     const row =
-      detail && typeof detail !== 'symbol' ? detail : omitGone(pool.row('session', id, 'summary-fields'))
+      detail && typeof detail !== 'symbol'
+        ? detail
+        : omitGone(pool.row('session', id, 'summary-fields'))
     return row && typeof row !== 'symbol' ? [row as unknown as SessionView] : []
   })
 }
@@ -83,12 +86,12 @@ export function pendingWorkspaceIssueHasSession(pool: MobxPool, issueId: string)
 
 export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingIssueId = '') {
   const actions = useRuntimeActions(ACTIONS)
-  const selectedWorktree = useRuntimeLocal('selectedWorktree')
-  const paneA = useRuntimeLocal('paneA')
-  const selectedIssueId = useRuntimeLocal('selectedIssueId')
-  const dockShells = useRuntimeLocal('dockShells')
-  const workspaces = useRuntimeLocal('workspaces')
-  const fileTabs = useRuntimeList('fileTabs')
+  const selectedWorktree = useUiValue('selectedWorktree')
+  const paneA = useUiValue('paneA')
+  const selectedIssueId = useUiValue('selectedIssueId')
+  const dockShells = useUiValue('dockShells')
+  const workspaces = useUiValue('workspaces')
+  const fileTabs = useUiValue('fileTabList')
   const repos = useRuntimeList('repos')
   // Use the engine's resolver, including its pool navigation provider.
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.

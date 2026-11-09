@@ -1,10 +1,16 @@
 import type { IssueId } from '@podium/model'
 import { type MainView, type RouteState, routeDefaults } from '../ui-state'
-import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } from '../values'
+import { allTabIds, type FileTab, leafPaneIds, openTab, type RecentFileEntry } from '../values'
 import {
-  type EngineState, foregroundIssue, workspaceFor, resolvedWorkspaceKey, NAVIGATION_LOADING,
-  workspaceMirrorPatch, workspaceWritePatch, navigationIssueReadAt,
+  foregroundIssue,
+  NAVIGATION_LOADING,
+  navigationIssueReadAt,
   overlayState,
+  resolvedWorkspaceKey,
+  type ScreenState,
+  workspaceFor,
+  workspaceMirrorPatch,
+  workspaceWritePatch,
 } from './state'
 
 export interface NavigationIntent {
@@ -23,7 +29,9 @@ export interface NavigationIntent {
 
 /** Compute everything before touching state, history, timers or commands. */
 export function planNavigation(
-  state: Readonly<EngineState>, current: RouteState, intent: NavigationIntent,
+  state: Readonly<ScreenState>,
+  current: RouteState,
+  intent: NavigationIntent,
   context: { visible: boolean; now: string },
 ) {
   const selection = {
@@ -32,15 +40,22 @@ export function planNavigation(
   }
   const landing = overlayState(state, selection)
   const key = resolvedWorkspaceKey(landing)
-  if (key === NAVIGATION_LOADING) return {
-    pending: true, patch: {} as Partial<EngineState>, route: current, key: 'none' as const, replace: false,
-  }
+  if (key === NAVIGATION_LOADING)
+    return {
+      pending: true,
+      patch: {} as Partial<ScreenState>,
+      route: current,
+      key: 'none' as const,
+      replace: false,
+    }
   const workspace = workspaceFor(landing, key)
-  const next = intent.tabId ? openTab(workspace, intent.tabId, {
-    permanent: intent.permanent !== false,
-    ...(intent.firstPane ? { paneId: leafPaneIds(workspace.root)[0] } : {}),
-  }) : workspace
-  const patch: Partial<EngineState> = {
+  const next = intent.tabId
+    ? openTab(workspace, intent.tabId, {
+        permanent: intent.permanent !== false,
+        ...(intent.firstPane ? { paneId: leafPaneIds(workspace.root)[0] } : {}),
+      })
+    : workspace
+  const patch: Partial<ScreenState> = {
     ...selection,
     ...(intent.tabId ? workspaceWritePatch(landing, key, next) : workspaceMirrorPatch(next)),
     view: intent.view,
@@ -50,7 +65,7 @@ export function planNavigation(
   const route: RouteState = {
     ...routeDefaults(intent.view),
     worktree: intent.view === 'workspace' ? landing.selectedWorktree : current.worktree,
-    pane: intent.view === 'workspace' ? patch.paneA ?? null : current.pane,
+    pane: intent.view === 'workspace' ? (patch.paneA ?? null) : current.pane,
   }
   // setView of the current surface is inert, including an open issue/settings tab.
   if (intent.view === current.view) {
@@ -71,16 +86,21 @@ export function planNavigation(
   if (intent.recentFile) {
     const entry = intent.recentFile
     const same = (candidate: Omit<RecentFileEntry, 'openedAt'>) =>
-      candidate.worktreePath === entry.worktreePath && candidate.path === entry.path &&
+      candidate.worktreePath === entry.worktreePath &&
+      candidate.path === entry.path &&
       candidate.artifact?.artifactId === entry.artifact?.artifactId
     if (!state.recentFiles[0] || !same(state.recentFiles[0])) {
-      patch.recentFiles = [{ ...entry, openedAt: Date.parse(context.now) },
-        ...state.recentFiles.filter((candidate) => !same(candidate))].slice(0, 30)
+      patch.recentFiles = [
+        { ...entry, openedAt: Date.parse(context.now) },
+        ...state.recentFiles.filter((candidate) => !same(candidate)),
+      ].slice(0, 30)
     }
   }
-  const issue = context.visible ? foregroundIssue(overlayState(landing, patch)) : undefined
-  patch.issueVisitBaseline = !issue ? null : state.issueVisitBaseline?.issueId === issue.id
-    ? state.issueVisitBaseline
-    : { issueId: issue.id, readAt: navigationIssueReadAt(state, issue.id), openedAt: context.now }
-  return { pending: false, patch, route, key, replace: intent.history !== 'push' && current.view === intent.view }
+  return {
+    pending: false,
+    patch,
+    route,
+    key,
+    replace: intent.history !== 'push' && current.view === intent.view,
+  }
 }

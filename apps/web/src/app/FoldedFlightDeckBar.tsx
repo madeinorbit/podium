@@ -1,7 +1,5 @@
-import {
-  type MissionProgress,
-  missionProgressLabel,
-} from '@podium/client-core/values'
+import { useUiValue } from '@podium/client-core/react'
+import { type MissionProgress, missionProgressLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { observer } from '@podium/client-graph/react'
@@ -61,7 +59,7 @@ type FoldedBarActions = {
 /** The Flight Deck's compact state. Folded is one opening of the mission: it
  *  gets its own view model, and reads only the progress tally from it. */
 export function FoldedFlightDeckBar(actions: FoldedBarActions): JSX.Element {
-  const selectedId = useRuntimeSelector((store) => store.selectedIssueId)
+  const selectedId = useUiValue('selectedIssueId')
   const pool = useWorklistPool()
   const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId), [selectedId])
   const rootId = useWorklistPoolProjection(readRoot, LOADING)
@@ -85,11 +83,7 @@ const FoldedOpening = observer(function FoldedOpening({
   useEffect(() => () => screen.close(), [screen])
   return (
     <FoldedBar
-      progress={
-        screen.ready && screen.full.ready
-          ? screen.full.buckets
-          : NO_PROGRESS
-      }
+      progress={screen.ready && screen.full.ready ? screen.full.buckets : NO_PROGRESS}
       actions={actions}
     />
   )

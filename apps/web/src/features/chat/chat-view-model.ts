@@ -38,6 +38,18 @@ export class ChatViewModel {
   } = {}
   readonly reply: MailReply
   private release: (() => void) | undefined
+  private releaseReveal: (() => void) | undefined
+  @observableRef accessor transcriptReveal:
+    | import('@podium/client-core/engine').TranscriptRevealRequest
+    | null = null
+  @actionBound revealTranscript(
+    request: import('@podium/client-core/engine').TranscriptRevealRequest,
+  ): void {
+    this.transcriptReveal = request
+  }
+  @actionBound clearTranscriptReveal(nonce: number): void {
+    if (this.transcriptReveal?.nonce === nonce) this.transcriptReveal = null
+  }
 
   constructor(
     readonly conversation: WebConversation,
@@ -57,9 +69,18 @@ export class ChatViewModel {
 
   open(): void {
     this.release = this.conversation.addView(this.presentation)
+    const sessionId = this.conversation.sessionId
+    if (sessionId)
+      this.releaseReveal = this.conversation.runtime.transcriptReveals.listen(
+        sessionId,
+        this.revealTranscript,
+      )
   }
   close(): void {
     this.reply.cancel()
+    this.releaseReveal?.()
+    this.releaseReveal = undefined
+    this.transcriptReveal = null
     this.release?.()
     this.release = undefined
   }
@@ -256,10 +277,6 @@ export class ChatViewModel {
       label: session?.name ?? session?.title ?? id,
       clear: this.clearAttachedSession,
     }
-  }
-  @lazy get transcriptReveal() {
-    const row = omitGone(this.conversation.pool.row('chatWindow', 'window'))
-    return row && typeof row !== 'symbol' ? row.transcriptReveal : null
   }
   @lazy({ equals: compareStructural }) get backend() {
     const model = this.backendPick.model ?? this.conversation.thread?.model ?? 'auto'

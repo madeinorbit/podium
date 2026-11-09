@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
@@ -82,14 +83,11 @@ export function OfferArtifactStrip({
   offer: SessionOffer
   session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element | null {
-  const { httpOrigin, openArtifact, openFileInWorktree } = useRuntimeSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      openArtifact: s.openArtifact,
-      openFileInWorktree: s.openFileInWorktree,
-    }),
-    shallowEqual,
-  )
+  const { httpOrigin, openArtifact, openFileInWorktree } = {
+    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    openArtifact: useUiValue('openArtifact'),
+    openFileInWorktree: useUiValue('openFileInWorktree'),
+  }
   const issue = useChatArtifactIssue(session)
   const [lightbox, setLightbox] = useState<string | null>(null)
   // Callback ref: the row is measured the moment it lands in the DOM.

@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -1097,36 +1098,24 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setIssueTucked,
     closeIssue,
     updateIssue,
-  } = useRuntimeSelector(
-    (store) => ({
-      paneA: store.paneA,
-      paneB: store.paneB,
-      split: store.split,
-      focusedPane: store.focusedPane,
-      setSelectedWorktree: store.setSelectedWorktree,
-      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
-      // member of this mission any more, so focusing it would resolve to nothing.
-      setSelectedIssueId: store.setSelectedIssueId,
-      // The deck OPENS TABS now (POD-710 §2) rather than assigning pane A: a
-      // preview open and a permanent open are different things, and only the
-      // workspace layout can tell them apart. `paneA`/`paneB` below stay as the
-      // derived mirrors they now are — this column still reads them to know
-      // which session the operator is actually in.
-      openSessionTab: store.openSessionTab,
-      focusIssueSession: store.focusIssueSession,
-      startIssueSession: store.startIssueSession,
-      preferPanelMode: store.preferPanelMode,
-      setView: store.setView,
-      markIssueRead: store.markIssueRead,
-      markSessionRead: store.markSessionRead,
-      setIssueTucked: store.setIssueTucked,
-      // The signpost card's own filing action closes an unfinished task before
-      // it can be tucked (POD-1212) — the fold is for finished work.
-      closeIssue: store.closeIssue,
-      updateIssue: store.updateIssue,
-    }),
-    shallowEqual,
-  )
+  } = {
+    paneA: useUiValue('paneA'),
+    paneB: useUiValue('paneB'),
+    split: useUiValue('split'),
+    focusedPane: useUiValue('focusedPane'),
+    setSelectedWorktree: useUiValue('setSelectedWorktree'),
+    setSelectedIssueId: useUiValue('setSelectedIssueId'),
+    openSessionTab: useUiValue('openSessionTab'),
+    focusIssueSession: useUiValue('focusIssueSession'),
+    startIssueSession: useRuntimeSelector((store) => store.startIssueSession),
+    preferPanelMode: useUiValue('preferPanelMode'),
+    setView: useUiValue('setView'),
+    markIssueRead: useRuntimeSelector((store) => store.markIssueRead),
+    markSessionRead: useRuntimeSelector((store) => store.markSessionRead),
+    setIssueTucked: useRuntimeSelector((store) => store.setIssueTucked),
+    closeIssue: useRuntimeSelector((store) => store.closeIssue),
+    updateIssue: useRuntimeSelector((store) => store.updateIssue),
+  }
   const { setFocusedIssueId } = useOperatorFocus()
   const { show: showInDock } = useDockIssue()
   const headerIntent = useClickIntent()

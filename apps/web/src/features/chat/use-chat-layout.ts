@@ -156,7 +156,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     setRenderCount: presentation.setRenderCount,
     loadOlder: scroll.loadOlder,
     scrollToBlock: scroll.scrollToBlock,
-    clear: clearTranscriptReveal,
+    clear: view.clearTranscriptReveal,
   })
   // Unknown presence does not count as a reconnect. Losing the selected
   // machine or hiding the pane also does not fabricate an online transition.

@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useStoreHandle, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FlightDeckMode } from '@podium/client-core/values'
@@ -42,7 +42,7 @@ const IssueContextMenu = lazy(() =>
  * for the mission pane: it resolves which mission the selection opens, and
  * each opening gets its own view model. */
 export default observer(function PoolFlightDeck(props: FlightDeckProps): JSX.Element {
-  const selectedIssueId = useRuntimeSelector((store) => store.selectedIssueId)
+  const selectedIssueId = useUiValue('selectedIssueId')
   const pool = useWorklistPool()
   const owner = useStoreHandle()
   const readRoot = useCallback(

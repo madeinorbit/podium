@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { issueRepoName } from '@podium/client-core/values'
 /**
  * Navigation and mutation ports for the issue page. Record facts are read by
@@ -11,11 +12,11 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { issueNeighbors } from './issue-page'
 import { tellIssueActionEnding } from './issue-action-ending'
+import { issueNeighbors } from './issue-page'
 import type { RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
@@ -44,23 +45,20 @@ export interface IssuePageModel {
 /** Navigation and command ports only. History/editor/roster state belongs to
  * the section that uses it, so typing and clock ticks never rebuild the page. */
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const ports = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-      setPinned: s.setPinned,
-      deleteIssue: s.deleteIssue,
-      closeIssue: s.closeIssue,
-      deferIssue: s.deferIssue,
-      undeferIssue: s.undeferIssue,
-      setIssueLabels: s.setIssueLabels,
-      restoreIssue: s.restoreIssue,
-      startIssueSession: s.startIssueSession,
-      issueAction: s.issueAction,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const ports = {
+    trpc: useRuntimeSelector((s) => s.trpc),
+    updateIssue: useRuntimeSelector((s) => s.updateIssue),
+    setPinned: useRuntimeSelector((s) => s.setPinned),
+    deleteIssue: useRuntimeSelector((s) => s.deleteIssue),
+    closeIssue: useRuntimeSelector((s) => s.closeIssue),
+    deferIssue: useRuntimeSelector((s) => s.deferIssue),
+    undeferIssue: useRuntimeSelector((s) => s.undeferIssue),
+    setIssueLabels: useRuntimeSelector((s) => s.setIssueLabels),
+    restoreIssue: useRuntimeSelector((s) => s.restoreIssue),
+    startIssueSession: useRuntimeSelector((s) => s.startIssueSession),
+    issueAction: useRuntimeSelector((s) => s.issueAction),
+    navigateToSession: useUiValue('navigateToSession'),
+  }
   const pool = useWorklistPool()
   const [busy, setBusy] = useState(false)
   const run: RunMutation = async (fn) => {

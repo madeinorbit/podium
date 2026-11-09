@@ -1,6 +1,5 @@
-import { defineSource } from './source-registry'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { outboxChatSends } from '@podium/client-core/chat-values'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model'
 import {
   compareStructural,
@@ -11,9 +10,10 @@ import {
   observe,
   runInAction,
 } from 'mobx'
-import { CHAT_ORDER_KINDS, type ChatContextRows } from './chat-context-schema'
 import { createChatContextReader } from './chat-context'
+import { CHAT_ORDER_KINDS, type ChatContextRows } from './chat-context-schema'
 import type { MobxPool } from './pool'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 interface ChatOrder {
@@ -39,16 +39,15 @@ export class ChatContextSource {
     refresh: this.refresh.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   private readonly stops: (() => void)[]
   private readonly reader: ChatContextRows['chatContextReader']
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0, orderIds: 0 }
 
   constructor(
-    private readonly owner: Pick<
-      ClientRuntime,
-      'readLocal' | 'onLocals' | 'drafts' | 'outbox' | 'replica'
-    >,
+    private readonly owner: Pick<ClientRuntime, 'ui' | 'drafts' | 'outbox' | 'replica'>,
     pool: MobxPool,
   ) {
     pool.bindSessionDrafts(owner.drafts)
@@ -62,7 +61,6 @@ export class ChatContextSource {
     }
     this.stops = [
       observe(owner.drafts.values, (change) => wake(`chatDraft:${change.name}`)),
-      owner.onLocals(['attachedSessionId', 'transcriptReveal'], () => wake('chatWindow:window')),
       owner.outbox.subscribe(() => {
         this.outboxDirty = true
         if (this.demanded.size) this.schedule()
@@ -93,7 +91,18 @@ export class ChatContextSource {
     return this.source.read(entity, id) as Loaded<ChatContextRows[keyof ChatContextRows]>
   }
 
-  private readById(entity: keyof ChatContextRows, id: string): Loaded<ChatContextRows[keyof ChatContextRows]> {
+  private readById(
+    entity: keyof ChatContextRows,
+    id: string,
+  ): Loaded<ChatContextRows[keyof ChatContextRows]> {
+    if (entity === 'chatWindow') {
+      const ui = this.owner.ui
+      return {
+        get attachedSessionId() {
+          return ui.attachedSessionId
+        },
+      }
+    }
     if (entity === 'chatContextReader') return this.reader
     const key = `${entity}:${id}`
     this.demanded.add(key)
@@ -163,12 +172,6 @@ export class ChatContextSource {
         const fresh = !this.loaded.has(key) || this.dirty.has(key)
         if (key.startsWith('chatDraft:')) {
           if (fresh) this.set(key, { text: this.owner.drafts.get(asSessionId(key.slice(10))) })
-        } else if (key === 'chatWindow:window') {
-          if (fresh)
-            this.set(key, {
-              attachedSessionId: this.owner.readLocal('attachedSessionId') ?? null,
-              transcriptReveal: this.owner.readLocal('transcriptReveal') ?? null,
-            })
         } else if (key.startsWith('chatHeld:') && pending && parked)
           this.set(key, {
             sends: outboxChatSends(

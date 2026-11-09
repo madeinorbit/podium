@@ -28,6 +28,7 @@ import {
   asUserId,
   INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
+  layoutRowId,
   normalizeOriginUrl,
   parseIssueUserStateRowId,
   parseSessionUserStateRowId,
@@ -137,6 +138,7 @@ export type RepaintKind =
   | 'issue'
   | 'effect'
   | 'subscription'
+  | 'userLayout'
   | 'pin'
   | 'tabOrder'
   | 'userPreferences'
@@ -184,6 +186,7 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'repos',
   // POD-6673's per-user records, and the read positions.
   'pins',
+  'userLayouts',
   'tabOrders',
   'userPreferences',
   'userReadPositions',
@@ -206,6 +209,7 @@ const OVERLAID: readonly OverlayTarget[] = [
   'issueUserStates',
   'issueProjections',
   'pins',
+  'userLayouts',
   'tabOrders',
   'userPreferences',
   // A human gate's decision, painted on its effect record (POD-6674).
@@ -260,6 +264,7 @@ function recordFeedIdOf(kind: RecordCompanion, row: AnyRow): string | undefined 
  */
 const PER_USER_KINDS = {
   pin: { replica: 'pins', target: 'pins' },
+  userLayout: { replica: 'userLayouts', target: 'userLayouts' },
   tabOrder: { replica: 'tabOrders', target: 'tabOrders' },
   userPreferences: { replica: 'userPreferences', target: 'userPreferences' },
   userReadPosition: { replica: 'userReadPositions', target: 'userReadPositions' },
@@ -302,6 +307,7 @@ function perUserIdOf(kind: string, row: AnyRow): string | undefined {
   if (user === undefined) return undefined
   try {
     if (kind === 'pin') return pinRowId(user, row.kind as PinKind, String(row.entityId))
+    if (kind === 'userLayout') return layoutRowId(user, String(row.key))
     if (kind === 'tabOrder') return tabOrderRowId(user, String(row.entityId))
     if (kind === 'userPreferences') return userPreferencesRowId(user)
     if (kind === 'userReadPosition') return readPositionRowId(user, String(row.streamId))
@@ -525,6 +531,7 @@ export function createRowSource(
       issueUserStates: pooled.byRow('issueUserStates'),
       issueProjections: pooled.byRow('issueProjections'),
       pins: pooled.byRow('pins'),
+      userLayouts: pooled.byRow('userLayouts'),
       tabOrders: pooled.byRow('tabOrders'),
       userPreferences: pooled.byRow('userPreferences'),
       userReadPositions: pooled.byRow('userReadPositions'),
@@ -1392,6 +1399,7 @@ export function createRowSource(
       }
       // A standalone per-user record is its replica row, by its own id.
       case 'pins':
+      case 'userLayouts':
       case 'tabOrders':
       case 'userPreferences':
       case 'superagentThreads':

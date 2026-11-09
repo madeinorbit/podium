@@ -1,17 +1,13 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
-import type { IssueProjection } from '@podium/model'
-import { issueActivityAt } from '../../../../tests/worklist/diagnostics/reference-state'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import {
-  type EngineState,
   knownTabIdsForWorkspace,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
+  type RuntimeState,
   resolvedWorkspaceKey,
   workspaceKeyForState,
 } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import {
   allTabIds,
@@ -24,17 +20,20 @@ import {
 } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { preparePoolScreens, screenOptions } from '@podium/client-graph/host'
+import { omitGone } from '@podium/client-graph/lookup'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { computed } from '@podium/client-graph/react'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import type { IssueProjection } from '@podium/model'
 import { asIssueId } from '@podium/model/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
 import { Reactions } from '../../../../packages/client-core/src/engine/reactions'
 import {
-  startScenarioEngine,
-  upsert,
-} from '../../../../tests/worklist/shared/src/scenarios'
+  issueActivityAt,
+  referenceState,
+} from '../../../../tests/worklist/diagnostics/reference-state'
+import { startScenarioEngine, upsert } from '../../../../tests/worklist/shared/src/scenarios'
 import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { attachWorklistPool } from './store-worklist-pool'
@@ -70,14 +69,27 @@ const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) =>
 describe('web pool navigation', () => {
   it('wakes topology for unscanned rehomes and hidden sessions without loading row facets', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-    const session = { sessionId: 'seat', cwd: '/unscanned/old', headless: true, status: 'live', lastActiveAt: stamp }
+    const session = {
+      sessionId: 'seat',
+      cwd: '/unscanned/old',
+      headless: true,
+      status: 'live',
+      lastActiveAt: stamp,
+    }
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: session }] })
-    const row = vi.spyOn(pool, 'row'), changed = vi.fn()
+    const row = vi.spyOn(pool, 'row'),
+      changed = vi.fn()
     const stop = createPoolNavigationProvider(pool).onTopology!(changed)
     try {
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, title: 'Rename' } }] })
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'seat', value: { ...session, title: 'Rename' } }],
+      })
       expect(changed).not.toHaveBeenCalled()
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, cwd: '/unscanned/new' } }] })
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'seat', value: { ...session, cwd: '/unscanned/new' } }],
+      })
       expect(changed).toHaveBeenCalledTimes(1)
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: undefined }] })
       expect(changed).toHaveBeenCalledTimes(2)
@@ -85,9 +97,16 @@ describe('web pool navigation', () => {
       expect(changed).toHaveBeenCalledTimes(3)
       // Ingestion maintains the changed seat's addressed scalar facts. The
       // topology observer never asks for an unrelated identity or full facet.
-      expect(row.mock.calls.every(([kind, id, mode]) => kind === 'session' && id === 'seat' &&
-        (mode === 'mark' || mode === 'summary-fields'))).toBe(true)
-    } finally { stop(); pool.dispose() }
+      expect(
+        row.mock.calls.every(
+          ([kind, id, mode]) =>
+            kind === 'session' && id === 'seat' && (mode === 'mark' || mode === 'summary-fields'),
+        ),
+      ).toBe(true)
+    } finally {
+      stop()
+      pool.dispose()
+    }
   })
 
   it('counts legacy membership entries even on memo hits and direct session indexing', () => {
@@ -139,9 +158,22 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(['spawn']),
       fileTabs,
-    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+    } as unknown as RuntimeState & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    } & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    }
     const keys: WorkspaceKey[] = ['mission:root', 'mission:other', 'mission:absent']
-    legacy.navigation = fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => sessions })
+    legacy.navigation = fixtureNavigation({
+      issues: () => rows as unknown as IssueProjection[],
+      sessions: () => sessions,
+    })
     const expected = keys.map((key) => [...knownTabIdsForWorkspace(legacy, key)].sort())
     const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
@@ -169,7 +201,7 @@ describe('web pool navigation', () => {
         ),
       ]),
     )
-    const prune = (st: EngineState) => {
+    const prune = (st: RuntimeState) => {
       const reactions = new Reactions({
         state: () => st,
         publish: (patch) => Object.assign(st, patch),
@@ -244,7 +276,17 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(),
       fileTabs: [],
-    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+    } as unknown as RuntimeState & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    } & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    }
     missionLegacyStats.enable()
     missionLegacyStats.reset()
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual([
@@ -276,11 +318,13 @@ describe('web pool navigation', () => {
       const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
       try {
         if (handle) {
-
           runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         }
         const before = referenceState(runtime)
-        before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
+        before.navigation = fixtureNavigation({
+          issues: () => before.issueProjections,
+          sessions: () => before.sessions,
+        })
         const seats = before.sessions.filter(
           (row) =>
             !row.archived &&
@@ -306,7 +350,9 @@ describe('web pool navigation', () => {
         const st = referenceState(runtime)
         expect(st.selectedIssueId).toBe(next.issueId)
         expect(st.paneA).toBe(next.sessionId)
-        expect(st.workspaceKey()).toBe(workspaceKeyForState({ ...before, selectedIssueId: next.issueId! }))
+        expect(st.workspaceKey()).toBe(
+          workspaceKeyForState({ ...before, selectedIssueId: next.issueId! }),
+        )
       } finally {
         missionLegacyStats.disable()
         runtime.setNavigationProvider(loadingNavigationProvider)
@@ -337,11 +383,24 @@ describe('web pool navigation', () => {
     try {
       for (const id of [...rows.map((row) => row.id), 'absent', null]) {
         const st = {
-          navigation: fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => [] }),
+          navigation: fixtureNavigation({
+            issues: () => rows as unknown as IssueProjection[],
+            sessions: () => [],
+          }),
           issueProjections: rows,
           selectedIssueId: id,
           selectedWorktree: '/repo',
-        } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+        } as unknown as RuntimeState & {
+          issueProjections: SliceIssue[]
+          sessions: SessionView[]
+          issueUserStates: object[]
+          pendingSpawnIds: ReadonlySet<string>
+        } & {
+          issueProjections: SliceIssue[]
+          sessions: SessionView[]
+          issueUserStates: object[]
+          pendingSpawnIds: ReadonlySet<string>
+        }
         expect(
           tracked(() => workspaceKeyForState({ ...st, navigation: provider })),
           String(id),
@@ -352,7 +411,17 @@ describe('web pool navigation', () => {
         selectedIssueId: 'child',
         selectedWorktree: '/repo',
         navigation: provider,
-      } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+      } as unknown as RuntimeState & {
+        issueProjections: SliceIssue[]
+        sessions: SessionView[]
+        issueUserStates: object[]
+        pendingSpawnIds: ReadonlySet<string>
+      } & {
+        issueProjections: SliceIssue[]
+        sessions: SessionView[]
+        issueUserStates: object[]
+        pendingSpawnIds: ReadonlySet<string>
+      }
       expect(tracked(() => workspaceKeyForState(selected))).toBe('mission:root')
       pool.apply({
         type: 'update',
@@ -540,7 +609,10 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const before = referenceState(runtime)
-    before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
+    before.navigation = fixtureNavigation({
+      issues: () => before.issueProjections,
+      sessions: () => before.sessions,
+    })
     const seat = before.sessions.find(
       (session) =>
         !session.archived &&
@@ -688,7 +760,13 @@ describe('web pool navigation', () => {
     const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     const target = asIssueId(ctx.targets.visibleRootId)
     const initial = referenceState(runtime)
-    runtime.setNavigationProvider(fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates }))
+    runtime.setNavigationProvider(
+      fixtureNavigation({
+        issues: () => initial.issueProjections,
+        sessions: () => initial.sessions,
+        markers: () => initial.issueUserStates,
+      }),
+    )
     referenceState(runtime).setView('workspace')
     referenceState(runtime).setSelectedIssueId(target)
     expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
@@ -803,7 +881,11 @@ describe('web pool navigation', () => {
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st = referenceState(runtime)
-      st.navigation = fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions, markers: () => st.issueUserStates })
+      st.navigation = fixtureNavigation({
+        issues: () => st.issueProjections,
+        sessions: () => st.sessions,
+        markers: () => st.issueUserStates,
+      })
       const check = (id: string) =>
         tracked(() =>
           planNavigation(

@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
+
+import { DraftStore } from '@podium/client-core/conversation'
 import {
   createKeyedInputs,
-  type EngineState,
   type KeyedInputsChannel,
+  type RuntimeState,
 } from '@podium/client-core/engine'
-import { DraftStore } from '@podium/client-core/conversation'
 import { MobxPool } from '@podium/client-graph'
-import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { asMachineId, asSessionId } from '@podium/model/browser'
@@ -15,11 +15,8 @@ import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
-import {
-  usePendingSpawnPrompt,
-  useDraftValue,
-  useRuntimeList,
-} from './keyed-runtime'
+import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
+import { useDraftValue, usePendingSpawnPrompt, useRuntimeList } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => f.owner }))
@@ -29,7 +26,7 @@ vi.mock('./store-worklist-pool', () => ({
     return useSyncExternalStore(view.subscribe, view.getSnapshot)
   },
 }))
-let state: EngineState
+let state: RuntimeState
 let drafts: DraftStore
 let inputs: KeyedInputsChannel
 let transactions: ReturnType<typeof createPoolTransactions>
@@ -43,7 +40,7 @@ beforeEach(() => {
     fileTabs: [],
     repos: [],
     machines: [],
-  } as unknown as EngineState
+  } as unknown as RuntimeState
   transactions = createPoolTransactions({
     userId: 'operator',
     outbox: {
@@ -61,7 +58,14 @@ beforeEach(() => {
   prompt(sid, 'First prompt')
   f.pool = pool
   inputs = createKeyedInputs(() => state)
-  drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   drafts.values.set(sid, 'Saved draft')
   f.owner = {
     drafts,
@@ -133,7 +137,7 @@ it('wakes the native draft bridge only for its own document, including clears', 
 it('preserves discovery list order and responds to changed, added and removed ids', () => {
   const a = { id: 'a', name: 'A' },
     b = { id: 'b', name: 'B' }
-  state.machines = [a, b] as EngineState['machines']
+  state.machines = [a, b] as RuntimeState['machines']
   inputs.emit(new Set(['machines']))
   let renders = 0
   function Machines() {
@@ -156,12 +160,12 @@ it('preserves discovery list order and responds to changed, added and removed id
       b,
       { ...a, name: 'Renamed' },
       { id: 'c', name: 'C' },
-    ] as EngineState['machines']
+    ] as RuntimeState['machines']
     inputs.emit(new Set(['machines']))
   })
   expect(screen.getByTestId('machines').textContent).toBe('B|Renamed|C')
   act(() => {
-    state.machines = [b] as EngineState['machines']
+    state.machines = [b] as RuntimeState['machines']
     inputs.emit(new Set(['machines']))
   })
   expect(screen.getByTestId('machines').textContent).toBe('B')
@@ -184,7 +188,7 @@ it('preserves harness availability and discovery changes without legacy list rea
       agents: [{ kind: 'cursor' as const, installed: false, login: { state: 'in' as const } }],
       tools: [],
     },
-  } satisfies EngineState['machines'][number]
+  } satisfies RuntimeState['machines'][number]
   state.machines = [machine]
   inputs.emit(new Set(['repos', 'machines']))
   function Fleet() {
@@ -249,7 +253,14 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   state.split = true
   state.focusedPane = 'A'
   inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']))
-  drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   drafts.values.set(sid, 'Saved draft')
   f.owner = {
     drafts,

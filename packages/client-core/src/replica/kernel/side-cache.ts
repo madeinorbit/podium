@@ -42,6 +42,7 @@ import {
 const log = createLogger('client-core:side-cache')
 
 export interface SideCacheInit {
+  flush?: () => void | Promise<void>
   storage: StorageApi
   storageEventApi?: StorageEventApi
   enumerateKeys?: () => string[]
@@ -69,7 +70,7 @@ export interface SideCacheInit {
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
 export interface SideCache {
-  uiState(): UiState
+  deviceStorage(): import('../../ui/device-storage').DeviceStorage
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
   outboxDeadLetterStorage(): OutboxStorage
@@ -286,7 +287,6 @@ function readDurableIds(storage: StorageApi, key: string): Set<string> {
 
 export function createSideCache(init: SideCacheInit): SideCache {
   const prefix = init.keyPrefix ?? 'podium.kernel-replica'
-  const uiKey = `${prefix}.uistate.v1`
   const outboxKey = `${prefix}.outbox.v1`
   const awaitingKey = `${prefix}.outbox-awaiting.v1`
   // POD-316: parked entries. A THIRD key old builds never read, for the same
@@ -294,96 +294,6 @@ export function createSideCache(init: SideCacheInit): SideCache {
   // re-drain a definitively-refused mutation as live work.
   const deadLetterKey = `${prefix}.outbox-dead-letter.v1`
   const { storage } = init
-
-  // ---- ui-state ----------------------------------------------------------
-  let ui = readJson<Record<string, string>>(storage, uiKey, {})
-  const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
-  migrateLegacyUiKeys()
-
-  function migrateLegacyUiKeys(): void {
-    if (storage.getItem(`${uiKey}.migrated`) !== null) return
-    const retire = new Set<string>()
-    const enumerate =
-      init.enumerateKeys ??
-      (() => {
-        try {
-          return Object.keys(storage as unknown as Record<string, unknown>)
-        } catch {
-          return []
-        }
-      })
-    const mirrored = new Set<string>(MIRRORED_UI_KEYS)
-    const take = (key: string, target = key): void => {
-      const value = storage.getItem(key)
-      if (value === null) return
-      ui[target] = value
-      if (!mirrored.has(key)) retire.add(key)
-    }
-    for (const key of LEGACY_UI_KEYS) take(key)
-    for (const key of MIRRORED_UI_KEYS) take(key)
-    let enumerated: string[] = []
-    try {
-      enumerated = enumerate()
-    } catch {
-      enumerated = []
-    }
-    for (const key of enumerated) {
-      if (LEGACY_UI_PREFIXES.some((p) => key.startsWith(p))) take(key)
-      for (const [prefixKey, target] of Object.entries(LEGACY_UI_MAP_PREFIXES)) {
-        if (!key.startsWith(prefixKey)) continue
-        const value = storage.getItem(key)
-        if (value === null) continue
-        const map = JSON.parse(ui[target] ?? '{}') as Record<string, string>
-        map[key.slice(prefixKey.length)] = value
-        ui[target] = JSON.stringify(map)
-        retire.add(key)
-      }
-    }
-    try {
-      // Persist the acting principal's copy and marker before retiring raw
-      // inputs. A crash can replay an idempotent fold; it cannot make a second
-      // principal inherit inputs already consumed by the first.
-      storage.setItem(uiKey, JSON.stringify(ui))
-      storage.setItem(`${uiKey}.migrated`, '1')
-      for (const key of retire) storage.removeItem(key)
-    } catch {
-      // A storage that cannot complete the fold leaves raw inputs for retry.
-    }
-  }
-
-  // Cross-tab: another tab's write to our key re-reads and notifies, matching
-  // the legacy collection's `storage` event behaviour.
-  // Exact namespaced-key equality is the principal isolation boundary.
-  const onStorage = (event: StorageEvent): void => {
-    if (event.key !== uiKey) return
-    const next = readJson<Record<string, string>>(storage, uiKey, {})
-    const changed = new Set(
-      [...Object.keys(ui), ...Object.keys(next)].filter((key) => ui[key] !== next[key]),
-    )
-    ui = next
-    for (const cb of uiListeners) cb(changed)
-  }
-  init.storageEventApi?.addEventListener('storage', onStorage)
-  const uiState: UiState = {
-    get: (key) => ui[key] ?? null,
-    flush: () => storage.setItem(uiKey, JSON.stringify(ui)),
-    set: (key, value) => {
-      if (value === null) {
-        if (!(key in ui)) return
-        delete ui[key]
-      } else {
-        if (ui[key] === value) return
-        ui[key] = value
-      }
-      writeJson(storage, uiKey, ui)
-      const changed = new Set([key])
-      for (const cb of uiListeners) cb(changed)
-    },
-    subscribe: (cb) => {
-      uiListeners.add(cb)
-      return () => uiListeners.delete(cb)
-    },
-  }
 
   // ---- outbox storage ----------------------------------------------------
   //
@@ -440,12 +350,14 @@ export function createSideCache(init: SideCacheInit): SideCache {
   })
 
   return {
-    uiState: () => uiState,
+    deviceStorage: () => ({
+      storage,
+      keyPrefix: prefix,
+      flush: init.flush,
+    }),
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
     outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
-    dispose: () => {
-      init.storageEventApi?.removeEventListener('storage', onStorage)
-    },
+    dispose: () => {},
   }
 }

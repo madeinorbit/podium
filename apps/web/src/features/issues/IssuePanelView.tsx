@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename, operationalState } from '@podium/client-core/values'
 import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
@@ -501,14 +502,11 @@ const ArtifactsPart = observer(function ArtifactsPart({
   machineId?: MachineId
   onViewAll?: () => void
 }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      openFileInWorktree: s.openFileInWorktree,
-      openArtifact: s.openArtifact,
-    }),
-    shallowEqual,
-  )
+  const { httpOrigin, openFileInWorktree, openArtifact } = {
+    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    openFileInWorktree: useUiValue('openFileInWorktree'),
+    openArtifact: useUiValue('openArtifact'),
+  }
   const panel = issue.panel
   const all = panel?.artifacts ?? []
   // Files people attached in the issue's chats (POD-2148) are kept for the
@@ -818,18 +816,15 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     setOpenIssueId,
     markIssueRead,
     markSessionRead,
-  } = useRuntimeSelector(
-    (s) => ({
-      updateIssue: s.updateIssue,
-      setPane: s.setPane,
-      setView: s.setView,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setOpenIssueId: s.setOpenIssueId,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
-    }),
-    shallowEqual,
-  )
+  } = {
+    updateIssue: useRuntimeSelector((s) => s.updateIssue),
+    setPane: useUiValue('setPane'),
+    setView: useUiValue('setView'),
+    setSelectedIssueId: useUiValue('setSelectedIssueId'),
+    setOpenIssueId: useUiValue('setOpenIssueId'),
+    markIssueRead: useRuntimeSelector((s) => s.markIssueRead),
+    markSessionRead: useRuntimeSelector((s) => s.markSessionRead),
+  }
   const resolve = useIssueEdgeResolver()
   const openArtifactsTab = useOpenArtifactsTab()
   // Every task row in this column carries its own status door (POD-1271); the

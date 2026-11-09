@@ -1,13 +1,13 @@
 import type {
-  EngineState,
   KeyedInputs,
   KeyedListName,
   KeyedListRow,
   LocalKey,
+  RuntimeState,
 } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
-import { reaction } from 'mobx'
 import type { SessionId } from '@podium/model/browser'
+import { reaction } from 'mobx'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import type { Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
@@ -18,7 +18,7 @@ function useInputs(): KeyedInputs {
   return useStoreHandle<Trpc>() as unknown as KeyedInputs
 }
 
-export function useRuntimeLocal<K extends LocalKey>(key: K): EngineState[K] {
+export function useRuntimeLocal<K extends LocalKey>(key: K): RuntimeState[K] {
   const inputs = useInputs()
   const subscribe = useCallback(
     (notify: () => void) => inputs.onLocals([key], notify),
@@ -54,7 +54,16 @@ export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pi
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {
     const state = owner.access
-    return Object.fromEntries(keys.map((key) => [key, state[key]])) as Pick<Store, K>
+    return Object.fromEntries(
+      keys.map((key) => [
+        key,
+        key === 'uiState'
+          ? owner.deviceState
+          : key in owner.ui
+            ? Reflect.get(owner.ui, key)
+            : state[key],
+      ]),
+    ) as Pick<Store, K>
   }, [owner, keys])
 }
 
@@ -68,7 +77,7 @@ export function usePendingSpawnPrompt(id: SessionId): string | undefined {
 /** A non-observer leaf can subscribe to its addressed MobX document. */
 export function useDraftValue(id: SessionId | undefined): string {
   const { drafts } = useStoreHandle<Trpc>()
-  const read = useCallback(() => id === undefined ? '' : drafts.get(id), [drafts, id])
+  const read = useCallback(() => (id === undefined ? '' : drafts.get(id)), [drafts, id])
   const subscribe = useCallback((notify: () => void) => reaction(read, notify), [read])
   return useSyncExternalStore(subscribe, read)
 }

@@ -13,11 +13,11 @@
  */
 
 import type { PodiumClientApi } from '../api'
-import type { EngineState } from './state'
+import type { RuntimeState } from './state'
 
 export interface BootFetchPorts<TApi extends PodiumClientApi> {
   readonly api: TApi
-  readonly publish: (patch: Partial<EngineState>) => void
+  readonly publish: (patch: Partial<RuntimeState>) => void
 }
 
 export class BootFetches<TApi extends PodiumClientApi> {

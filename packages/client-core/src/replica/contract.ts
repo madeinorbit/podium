@@ -22,8 +22,8 @@ import type {
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
-  SuperagentThreadWire,
   SubscriptionWire,
+  SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
   WorkflowBindingWire,
@@ -338,7 +338,7 @@ export interface Replica {
   outboxDeadLetterStorage(): OutboxStorage
   /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
    *  store replacing the ad-hoc localStorage keys. */
-  uiState(): UiState
+  deviceStorage(): import('../ui/device-storage').DeviceStorage
   /** Resolves when every write issued so far has persisted (including a
    *  fenced cursor write). */
   flush(): Promise<void>

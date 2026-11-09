@@ -1,6 +1,7 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { observer } from '@podium/client-graph/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { observer } from '@podium/client-graph/react'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
 import { submitNow } from '@podium/protocol'
@@ -49,15 +50,12 @@ export const DockShellPanel = observer(function DockShellPanel({
   cwd: string
   machineId?: MachineId
 }): JSX.Element {
-  const { hub, trpc, setDockShell, setDockVisibleSession } = useRuntimeSelector(
-    (s) => ({
-      hub: s.hub,
-      trpc: s.trpc,
-      setDockShell: s.setDockShell,
-      setDockVisibleSession: s.setDockVisibleSession,
-    }),
-    shallowEqual,
-  )
+  const { hub, trpc, setDockShell, setDockVisibleSession } = {
+    hub: useRuntimeSelector((s) => s.hub),
+    trpc: useRuntimeSelector((s) => s.trpc),
+    setDockShell: useUiValue('setDockShell'),
+    setDockVisibleSession: useUiValue('setDockVisibleSession'),
+  }
   const pendingId = useRef<string | null>(null)
   const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(
     cwd,

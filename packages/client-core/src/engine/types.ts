@@ -1,4 +1,4 @@
-import type { NavigationIntent } from './navigation'
+import type { NavigationIntent } from '../ui/navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
  * user-focus, and runtime access seams the non-React engine and the thin React

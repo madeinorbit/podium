@@ -142,4 +142,4 @@ export function useRuntimeSelector<T>(
 ): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
 }
-export { useLive } from '@podium/client-core/react'
+export { useDeviceState, useLive, useUi, useUiValue } from '@podium/client-core/react'

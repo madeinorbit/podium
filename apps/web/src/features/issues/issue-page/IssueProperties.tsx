@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -111,7 +112,7 @@ export const IssueProperties = observer(function IssueProperties({
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const page = useIssuePageContext()!
-  const navigateToSession = useRuntimeSelector((s) => s.navigateToSession)
+  const navigateToSession = useUiValue('navigateToSession')
   const machines = usePoolMachines()
   // The shared half (POD-6295): the server says what this reader may do, and
   // the rail draws only those controls. Until it has said, the controls stay

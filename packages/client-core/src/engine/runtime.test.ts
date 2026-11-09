@@ -60,7 +60,7 @@ import {
 } from './navigation-provider'
 import { Reactions } from './reactions'
 import { createClientRuntime } from './runtime'
-import type { EngineState } from './state'
+import type { RuntimeState } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

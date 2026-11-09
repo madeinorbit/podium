@@ -1,10 +1,7 @@
 import './requested-models'
-import { commandLaunchViews } from './command-launch-views'
-import { headerEntities } from './header-entities'
-import { omitGone } from './lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { discoveryRepoId } from '@podium/client-core/engine'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import { discoveryRepoId } from '@podium/client-core/engine'
 import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
@@ -15,7 +12,10 @@ import {
   type CommandEntity,
   type CommandLaunchRows,
 } from './command-launch-schema'
+import { commandLaunchViews } from './command-launch-views'
 import { allResidentSessions } from './enumerate'
+import { headerEntities } from './header-entities'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
@@ -25,6 +25,26 @@ import type { Loaded } from './worklist/rollup'
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
  * acquired from the runtime, and only resident session rows enter the indexes. */
 export class CommandLaunchSource implements PoolSource<CommandEntity> {
+  @observable private accessor windowVersion = 0
+  private readonly window = Object.defineProperties(
+    {},
+    {
+      ...Object.fromEntries(
+        ['selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles'].map(
+          (key) => [key, { enumerable: true, get: () => Reflect.get(this.runtime.ui, key) }],
+        ),
+      ),
+      paletteOpen: { enumerable: true, get: () => this.runtime.palette.open },
+      reposLoaded: {
+        enumerable: true,
+        get: () => {
+          void this.windowVersion
+          return this.runtime.readLocal('reposLoaded')
+        },
+      },
+    },
+  ) as CommandLaunchRows['commandWindow']
+
   private readonly tables = Object.fromEntries(
     COMMAND_ENTITIES.map((entity) => [
       entity,
@@ -46,7 +66,9 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     readById: this.readById.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   readonly counts = {
     publications: 0,
     windowChanges: 0,
@@ -58,7 +80,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
 
   constructor(
     private readonly pool: MobxPool,
-    runtime: ClientRuntime<PodiumClientApi>,
+    private readonly runtime: ClientRuntime<PodiumClientApi>,
   ) {
     // The optional source owns its reader registration. Startup consumers use
     // the registry without pulling launcher derivations into the eager bundle.
@@ -77,25 +99,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     // Keyed (POD-5433): the window wakes on its own locals; machines and
     // repos arrive by id, and a repo change re-links only the sessions under
     // a path whose targets moved.
-    const windowKeys = COMMAND_LAUNCH_SCHEMA.commandWindow.fields
-    const inputs = createFieldInputs<CommandLaunchRows['commandWindow']>(
-      windowKeys,
-      {},
-      'commandWindow',
-    )
-    const locals = (changed?: ReadonlySet<string>) => {
-      if (this.disposed) return
-      this.counts.publications++
+    const locals = () =>
       runInAction(() => {
-        let moved = false
-        for (const key of windowKeys)
-          if (!changed || changed.has(key)) moved = inputs.set(key, runtime.readLocal(key)) || moved
-        if (moved) this.counts.windowChanges++
-        if (!this.tables.commandWindow.has('window'))
-          this.replace('commandWindow', [['window', inputs.row]])
-        else if (moved) this.change('commandWindow', 'window', inputs.row)
+        this.windowVersion++
       })
-    }
     const repos = () => {
       if (this.disposed) return
       runInAction(() => {
@@ -107,7 +114,9 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     }
     const machines = () => {
       if (this.disposed) return
-      this.pool.ingestLiveMachines(runtime.listIds('machines').map(id => ({ id, value: runtime.listRow('machines', id) })))
+      this.pool.ingestLiveMachines(
+        runtime.listIds('machines').map((id) => ({ id, value: runtime.listRow('machines', id) })),
+      )
       runInAction(() =>
         this.replace(
           'commandMachine',
@@ -127,7 +136,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row)
     })
     this.stops.push(
-      runtime.onLocals(windowKeys, locals),
+      runtime.onLocals(['reposLoaded'], locals),
       runtime.onList('repos', repos),
       runtime.onList('machines', machines),
       observe(pool.tables.session, (change) => {
@@ -178,7 +187,9 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
    *  moved row is written). Sessions are re-linked only under the paths whose
    *  worktree or repository targets moved. */
   private repositories(repos: readonly Store['repos'][number][]): void {
-    const linked = new Set(repos.flatMap((repo) => repo.worktrees.map((tree) => machinePathKey(tree.path))))
+    const linked = new Set(
+      repos.flatMap((repo) => repo.worktrees.map((tree) => machinePathKey(tree.path))),
+    )
     const scans: [string, object][] = [],
       groups: [string, object][] = [],
       trees: [string, object][] = []
@@ -194,7 +205,15 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
         discovery.repoId ??
         (origin || `local:${discovery.machineId ?? ''}:${machinePathKey(discovery.path)}`)
       headerEntities(this.pool).apply([{ kind: 'repository', id, value: discovery }])
-      scans.push([id, { path: discovery.path, machineId: discovery.machineId, groupId, linked: linked.has(machinePathKey(discovery.path)) }])
+      scans.push([
+        id,
+        {
+          path: discovery.path,
+          machineId: discovery.machineId,
+          groupId,
+          linked: linked.has(machinePathKey(discovery.path)),
+        },
+      ])
       for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])
         add(repositoriesByRoot, root, id)
       if (linked.has(machinePathKey(discovery.path))) continue
@@ -231,7 +250,9 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     this.repositoriesByRoot = repositoriesByRoot
     const scanIds = scans.map(([id]) => id)
     const currentIds = new Set(scanIds)
-    for (const id of this.orders.get('commandRepository') ?? []) if (!currentIds.has(id)) headerEntities(this.pool).apply([{ kind: 'repository', id, value: undefined }])
+    for (const id of this.orders.get('commandRepository') ?? [])
+      if (!currentIds.has(id))
+        headerEntities(this.pool).apply([{ kind: 'repository', id, value: undefined }])
     headerEntities(this.pool).order('repository', scanIds)
     this.replace('commandRepository', scans)
     this.replace('commandRepo', groups)
@@ -297,7 +318,12 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       if (relation.from !== entity) continue
       const address = `${entity}:${id}:${relation.to}:${relation.name}`
       const next = this.targets(row as Record<string, unknown> | undefined, relation)
-      this.relations.move(address, id, next, target => `${relation.to}:${target}:${relation.name}`)
+      this.relations.move(
+        address,
+        id,
+        next,
+        (target) => `${relation.to}:${target}:${relation.name}`,
+      )
     }
   }
 
@@ -306,6 +332,8 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   private readById<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
+    if (entity === 'commandWindow') return this.window as Loaded<PoolSourceRows[K]>
+
     if (entity === 'commandIssue')
       return omitGone(this.pool.row('issue', id, 'summary')) as Loaded<PoolSourceRows[K]>
     return (

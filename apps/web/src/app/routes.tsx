@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -51,7 +52,7 @@ export function MainViewOutlet({
    *  (POD-365) instead of blinking out of existence. */
   view?: MainView
 }): JSX.Element {
-  const storeView = useRuntimeSelector((s) => s.view)
+  const storeView = useUiValue('view')
   const view = viewOverride ?? storeView
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')

@@ -1,17 +1,17 @@
+import { companion, lazy } from '@podium/mobx-helpers'
+import { action, compareShallow, observable, observableRef } from 'mobx'
 import { here, omitGone } from '../lookup'
-import { observable, observableRef, action, compareShallow } from 'mobx'
-import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, ModelHost, SessionModel } from '../models'
 import type { MobxPool } from '../pool'
 import type { MemberModel } from '../requested-models'
 import type { LocalsKey, SliceLocals } from '../shared/slice-types'
 import { worklistGroups } from './groups'
 import { WorklistIssue } from './issue'
-import { WorklistSession } from './session'
-import { SidebarIndex, type SidebarState } from './sidebar'
 import { MobileSectionsView } from './mobile'
 import { PhoneWorklist } from './phone'
 import { LOADING, type RollupInputs, type RollupParts } from './rollup'
+import { WorklistSession } from './session'
+import { SidebarIndex, type SidebarState } from './sidebar'
 
 /**
  * THE ROSTER FACTS THE ALWAYS-ON WORKLIST READS (POD-6294; startup split in
@@ -29,14 +29,16 @@ export class RosterFacts {
 
   /** The active members, in the directory's order (earliest first). */
   @lazy({ equals: compareShallow }) get members(): MemberModel[] {
-    return this.memberIds.flatMap(id => {
+    return this.memberIds.flatMap((id) => {
       const member = here(this.pool.model('member', id))
       return member && !member.disabledAt ? [member] : []
     })
   }
 
   /** Two or more active members: the multi-user task rules apply. */
-  @lazy get shared(): boolean { return this.members.length > 1 }
+  @lazy get shared(): boolean {
+    return this.members.length > 1
+  }
 
   /** Display names two or more active members share (POD-6295). */
   @lazy({ equals: compareShallow }) get sharedNames(): string[] {
@@ -45,7 +47,10 @@ export class RosterFacts {
       const name = member.displayName?.trim()
       if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
     }
-    return [...counts].filter(([, count]) => count > 1).map(([name]) => name).sort()
+    return [...counts]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name)
+      .sort()
   }
 
   /**
@@ -67,7 +72,9 @@ export class RosterFacts {
 }
 
 /** The short, stable tag that tells two same-named members apart. */
-export function memberTag(id: string): string { return id.replace(/^mem_/, '').slice(-4) }
+export function memberTag(id: string): string {
+  return id.replace(/^mem_/, '').slice(-4)
+}
 
 /** The pool's one set of roster facts. */
 export function rosterFacts(pool: MobxPool): RosterFacts {
@@ -76,15 +83,30 @@ export function rosterFacts(pool: MobxPool): RosterFacts {
 
 /** One view of the worklist, drawn by the desktop sidebar and phone Work tab. */
 export class Worklist {
-  readonly row: (issue: IssueModel) => WorklistIssue = companion(issue => new WorklistIssue(issue, this))
-  readonly session: (session: SessionModel) => WorklistSession = companion(session => new WorklistSession(session))
-  @observable accessor selectedId: string | null = null
+  readonly row: (issue: IssueModel) => WorklistIssue = companion(
+    (issue) => new WorklistIssue(issue, this),
+  )
+  readonly session: (session: SessionModel) => WorklistSession = companion(
+    (session) => new WorklistSession(session),
+  )
+  @observable private accessor fixtureSelection: string | null = null
+  @lazy get selectedId(): string | null {
+    return this.pool.ui?.selectedIssueId ?? this.fixtureSelection
+  }
+  set selectedId(id: string | null) {
+    if (this.pool.ui) this.pool.ui.setSelectedIssueId(id as import('@podium/model').IssueId | null)
+    else this.fixtureSelection = id
+  }
   @observable accessor selectedWasFolded = false
 
   @lazy get selectionGone(): boolean {
     if (this.selectedId === null) return false
-    try { return this.pool.issueObject(this.selectedId).exitKind !== undefined }
-    catch (error) { if (error === LOADING) return false; throw error }
+    try {
+      return this.pool.issueObject(this.selectedId).exitKind !== undefined
+    } catch (error) {
+      if (error === LOADING) return false
+      throw error
+    }
   }
   @observableRef accessor layout: SidebarState = {}
 
@@ -107,15 +129,15 @@ export class Worklist {
   readonly host: ModelHost
   readonly desktop: SidebarIndex
   readonly rowInputs: RollupInputs = {
-    reached: at => this.pool.rollupInputs.reached!(at),
-    loadedIssue: id => this.pool.rollupInputs.loadedIssue(id),
-    spinOffCount: id => this.pool.rollupInputs.spinOffCount(id),
-    nested: id => this.row(this.pool.issueObject(id)).visibleDescendantIds,
-    formalChildren: id => this.pool.rollupInputs.formalChildren(id),
+    reached: (at) => this.pool.rollupInputs.reached!(at),
+    loadedIssue: (id) => this.pool.rollupInputs.loadedIssue(id),
+    spinOffCount: (id) => this.pool.rollupInputs.spinOffCount(id),
+    nested: (id) => this.row(this.pool.issueObject(id)).visibleDescendantIds,
+    formalChildren: (id) => this.pool.rollupInputs.formalChildren(id),
     rollupNode: (id): RollupParts | undefined => this.knownRow(id)?.visibleParts,
-    seat: id => this.pool.rollupInputs.seat(id),
-    seatActivity: id => this.pool.rollupInputs.seatActivity(id),
-    spinOffIds: id => this.pool.rollupInputs.spinOffIds(id),
+    seat: (id) => this.pool.rollupInputs.seat(id),
+    seatActivity: (id) => this.pool.rollupInputs.seatActivity(id),
+    spinOffIds: (id) => this.pool.rollupInputs.spinOffIds(id),
   }
   readonly mobileSectionsView: MobileSectionsView
   readonly phone: PhoneWorklist
@@ -131,8 +153,9 @@ export class Worklist {
     if (id === this.selectedId) return
     let folded = false
     if (id !== null) {
-      try { folded = worklistGroups(this.pool).placementOf(id)?.closed === true }
-      catch (error) {
+      try {
+        folded = worklistGroups(this.pool).placementOf(id)?.closed === true
+      } catch (error) {
         // A cold command summary may not license every placement field.
         // Its addressed load is queued; selection must still move immediately.
         if (error !== LOADING) throw error
@@ -142,28 +165,41 @@ export class Worklist {
     this.selectedId = id
   }
 
-  @action setLayout(layout: SidebarState): void { this.layout = layout }
-  @action setFolded(folded: boolean): void { this.selectedWasFolded = folded }
+  @action setLayout(layout: SidebarState): void {
+    this.layout = layout
+  }
+  @action setFolded(folded: boolean): void {
+    this.selectedWasFolded = folded
+  }
 
   /** Standalone replay sources can supply selection. Runtime selection is
    * adopted by the worklist instead, and that source carries only the clock. */
   @action applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
     if (changed.has('selectedIssueId')) this.select(locals.selectedIssueId)
-    if (changed.has('selectedIssueWasFolded')) this.setFolded(locals.selectedIssueWasFolded === true)
+    if (changed.has('selectedIssueWasFolded'))
+      this.setFolded(locals.selectedIssueWasFolded === true)
   }
-  sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
-  mobileSections() { return this.mobileSectionsView }
-  desktopRow(id: string) { return this.desktop.row(id) }
+  sections(state: SidebarState = this.layout) {
+    return this.desktop.sections(state)
+  }
+  mobileSections() {
+    return this.mobileSectionsView
+  }
+  desktopRow(id: string) {
+    return this.desktop.row(id)
+  }
   mobileRow(id: string): WorklistIssue | typeof LOADING | undefined {
     const issue = here(this.pool.issue(id))
     if (!issue) return omitGone(this.pool.row('issue', id)) === LOADING ? LOADING : undefined
-    const row = this.row(issue), ready = row.ready
+    const row = this.row(issue),
+      ready = row.ready
     return ready === 'ready' ? row : ready
   }
 
   knownRow(id: string): WorklistIssue | undefined {
     return this.pool.tables.issue.has(id) || this.pool.residency?.known('issue', id) === true
-      ? this.row(this.pool.issueObject(id)) : undefined
+      ? this.row(this.pool.issueObject(id))
+      : undefined
   }
 }
 

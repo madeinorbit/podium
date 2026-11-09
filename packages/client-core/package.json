@@ -254,6 +254,11 @@
       "@podium/source": "./src/agent-models.ts",
       "types": "./src/agent-models.ts",
       "import": "./src/agent-models.ts"
+    },
+    "./ui": {
+      "@podium/source": "./src/ui/index.ts",
+      "types": "./src/ui/index.ts",
+      "import": "./src/ui/index.ts"
     }
   },
   "scripts": {

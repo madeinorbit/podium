@@ -1,7 +1,6 @@
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { type RuntimeState, workspaceKeyForState } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -14,18 +13,22 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 
 const binding = vi.hoisted(() => ({
-  state: {} as EngineState,
+  state: {} as RuntimeState,
   pool: null as MobxPool | null,
   missionReady: false,
 }))
-const workspaceOwner = withKeyedInputs({ getSnapshot: () => binding.state, subscribe: () => () => {} })
+const workspaceOwner = withKeyedInputs({
+  getSnapshot: () => binding.state,
+  subscribe: () => () => {},
+})
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (state: EngineState) => unknown) => select(binding.state),
+  useRuntimeSelector: (select: (state: RuntimeState) => unknown) => select(binding.state),
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => binding.pool,
@@ -92,7 +95,11 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   const provider = createPoolNavigationProvider(handle.pool)
   try {
     const initial = referenceState(runtime)
-    initial.navigation = fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates })
+    initial.navigation = fixtureNavigation({
+      issues: () => initial.issueProjections,
+      sessions: () => initial.sessions,
+      markers: () => initial.issueUserStates,
+    })
     const target = asIssueId(ctx.targets.visibleRootId)
     const child = initial.issueProjections.find(
       (row) => row.parentId === target && !row.archived && !row.deletedAt,
@@ -104,11 +111,11 @@ it('renders identical workspace labels, tab order and layout after pool navigati
     const key = workspaceKeyForState({ ...initial, selectedIssueId: child.id })
     let layout = emptyWorkspace(key)
     for (const seat of seats) layout = openTab(layout, seat.sessionId, { permanent: true })
-    let legacy: EngineState = { ...initial, workspaces: { [key]: layout } }
-    let pool: EngineState = { ...legacy, navigation: provider }
+    let legacy: RuntimeState = { ...initial, workspaces: { [key]: layout } }
+    let pool: RuntimeState = { ...legacy, navigation: provider }
     let route = routeDefaults('issues')
-    const screen = async (state: EngineState) => {
-      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as EngineState
+    const screen = async (state: RuntimeState) => {
+      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as RuntimeState
       binding.missionReady = false
       const view = render(<Workspace />)
       await waitFor(() => {

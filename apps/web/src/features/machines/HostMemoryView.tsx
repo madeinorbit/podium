@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -153,13 +154,10 @@ function MemoryPanel({
   machineId?: MachineId
 }): JSX.Element {
   const panelMetric = usePoolPanelMetric(machineId)
-  const { setView, setSettingsTab } = useRuntimeSelector(
-    (s) => ({
-      setView: s.setView,
-      setSettingsTab: s.setSettingsTab,
-    }),
-    shallowEqual,
-  )
+  const { setView, setSettingsTab } = {
+    setView: useUiValue('setView'),
+    setSettingsTab: useUiValue('setSettingsTab'),
+  }
   const hibernation = useHibernationSetting()
   const { data, error } = useMachineProcesses(machineId)
 

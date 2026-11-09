@@ -48,9 +48,7 @@ export function discoveryRepoId(repo: {
 const LIST_KEYS = {
   machines: (row: { id: string }) => row.id,
   repos: discoveryRepoId,
-  fileTabs: (row: { id: string }) => row.id,
   /** A record: its keys are the ids, in insertion order. */
-  workspaces: null,
 } as const
 
 export type KeyedListName = keyof typeof LIST_KEYS
@@ -100,7 +98,11 @@ function entriesOf(name: KeyedListName, value: unknown): [string, unknown][] {
  *  only at `emit`, so a reader never sees a local it was not told about.
  *  `live` reads `read()` directly instead (fixtures that mutate a store in
  *  place and may never publish). */
-export function createKeyedInputs(read: () => EngineState, live = false, directKeys: readonly LocalKey[] = []): KeyedInputsChannel {
+export function createKeyedInputs(
+  read: () => EngineState,
+  live = false,
+  directKeys: readonly LocalKey[] = [],
+): KeyedInputsChannel {
   const snapshot: Partial<EngineState> = live ? {} : { ...read() }
   const direct = new Set(directKeys)
   for (const key of direct) delete snapshot[key]
@@ -181,7 +183,8 @@ export function createKeyedInputs(read: () => EngineState, live = false, directK
     emit(changed) {
       if (disposed) return
       const state = read()
-      for (const key of changed) if (!direct.has(key)) (snapshot as Record<string, unknown>)[key] = state[key]
+      for (const key of changed)
+        if (!direct.has(key)) (snapshot as Record<string, unknown>)[key] = state[key]
       const published = current()
       const woken = new Map<LocalsListener, Set<LocalKey>>()
       for (const key of changed) {

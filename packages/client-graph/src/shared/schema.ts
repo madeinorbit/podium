@@ -94,6 +94,7 @@ export type ModelSchemaName =
   | 'EffectRecordWire'
   | 'EffectGroup'
   | 'EffectTarget'
+  | 'LayoutWire'
   | 'PinWire'
   | 'TabOrderWire'
   | 'PersonalPreferences'
@@ -137,6 +138,7 @@ export type RowArrival =
   | 'replica:messageRecords'
   | 'replica:pendingInteractions'
   | 'replica:effects'
+  | 'replica:userLayouts'
   | 'replica:pins'
   | 'replica:tabOrders'
   | 'replica:userPreferences'
@@ -207,7 +209,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -1164,6 +1166,11 @@ const DECLARED = defineSchema({
     kind: { type: 'enum', note: '`panel` (a session), `issue`, `worktree` or `repo`.' },
     entityId: { type: 'string', note: 'The pinned thing: a session or issue id, or a path.' },
     pinnedAt: { type: 'isoDate', note: 'When; pinned things list in this order.' },
+  }),
+  userLayout: perUser('LayoutWire', 'replica:userLayouts', 'One synced personal layout choice.', {
+    userId: { type: 'id', note: 'Owner.' },
+    key: { type: 'string', note: 'Layout key.' },
+    value: { type: 'object', note: 'The user’s chosen value.' },
   }),
   tabOrder: perUser('TabOrderWire', 'replica:tabOrders', 'My manual session order of one worktree.', {
     userId: { type: 'id', note: 'Its owner: always the principal.' },

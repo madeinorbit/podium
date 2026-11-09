@@ -1,5 +1,7 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
+import { action, observableRef } from 'mobx'
 import { ReadAcknowledgements } from './read-acknowledgements'
+import type { IssueVisitBaseline } from './types'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -33,7 +35,6 @@ import {
 } from '../values'
 import type { NavigationTopologySession } from './navigation-provider'
 import {
-  type EngineState,
   focusedPaneSession,
   foregroundIssue,
   knownTabIds,
@@ -46,6 +47,7 @@ import {
   type PruningState,
   referencedTabIds,
   resolvedWorkspaceKey,
+  type ScreenState,
   visibleTabIds,
   workspacesPatch,
   workspaceWritePatch,
@@ -54,7 +56,7 @@ import type { StoreNotices } from './types'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
-function pruningState(state: EngineState): PruningState {
+function pruningState(state: ScreenState): PruningState {
   const ids = referencedTabIds(state)
   for (const id of visibleTabIds(state)) ids.add(id)
   for (const tab of state.fileTabs) {
@@ -103,8 +105,8 @@ export const MARK_READ_ON_VIEW_MS = 1200
 export const WORKSPACE_PRUNE_GRACE_MS = 20_000
 
 export interface ReactionPorts {
-  readonly state: () => EngineState
-  readonly publish: (patch: Partial<EngineState>) => void
+  readonly state: () => ScreenState
+  readonly publish: (patch: Partial<ScreenState>) => void
   readonly hub: SocketHub
   readonly notices: StoreNotices
   /** Resolved lazily: the action surface is built after this object exists. */
@@ -126,6 +128,10 @@ export interface ReactionPorts {
 }
 
 export class Reactions {
+  @observableRef accessor issueVisitBaseline: IssueVisitBaseline | null = null
+  @action.bound setIssueVisitBaseline(value: IssueVisitBaseline | null): void {
+    this.issueVisitBaseline = value
+  }
   private readonly ports: ReactionPorts
   private prevCwds: Record<string, string> = {}
   private prevIssueIds: Record<string, string> = {}
@@ -324,7 +330,8 @@ export class Reactions {
       const moves = changes
         .filter((change) => change.before && change.after && change.before.cwd !== change.after.cwd)
         .sort((a, b) => {
-          const left = a.after?.order ?? '', right = b.after?.order ?? ''
+          const left = a.after?.order ?? '',
+            right = b.after?.order ?? ''
           return left < right ? -1 : left > right ? 1 : a.id.localeCompare(b.id)
         })
       for (const change of moves) {
@@ -332,13 +339,21 @@ export class Reactions {
         const to = st.navigation.worktreeForCwd(change.after!.cwd)
         if (from === NAVIGATION_LOADING || to === NAVIGATION_LOADING) return false
         if (from === to) continue
-        if (follow === null && to != null && from != null && from === st.selectedWorktree && visible.has(change.id)) {
+        if (
+          follow === null &&
+          to != null &&
+          from != null &&
+          from === st.selectedWorktree &&
+          visible.has(change.id)
+        ) {
           follow = to
         } else {
           const row = st.navigation.worktreeSession?.(change.id)
           if (row === NAVIGATION_LOADING) return false
-          notices.push({ title: `${row?.name || row?.title || 'A session'} moved worktree`,
-            destination: to ?? change.after?.cwd })
+          notices.push({
+            title: `${row?.name || row?.title || 'A session'} moved worktree`,
+            destination: to ?? change.after?.cwd,
+          })
         }
       }
       // Resolve the complete changed neighbourhood before producing effects,
@@ -384,7 +399,11 @@ export class Reactions {
   worktreeFallback(): boolean {
     const st = this.ports.state()
     if (!st.reposLoaded) return true
-    if (st.navigation.registeredWorktree && st.navigation.hasWorktreeSession && st.navigation.firstWorktree) {
+    if (
+      st.navigation.registeredWorktree &&
+      st.navigation.hasWorktreeSession &&
+      st.navigation.firstWorktree
+    ) {
       if (st.selectedWorktree) {
         const known = st.navigation.registeredWorktree(st.selectedWorktree)
         if (known === NAVIGATION_LOADING) return false
@@ -408,8 +427,8 @@ export class Reactions {
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
-    const hasSession = (sessions ?? []).some(
-      (s) => isMachinePathWithinRoot(selectedWorktree, s.cwd),
+    const hasSession = (sessions ?? []).some((s) =>
+      isMachinePathWithinRoot(selectedWorktree, s.cwd),
     )
     if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
@@ -467,16 +486,14 @@ export class Reactions {
     const state = this.ports.state()
     const issue = this.isVisible() ? foregroundIssue(state) : undefined
     if (!issue) {
-      if (state.issueVisitBaseline !== null) this.ports.publish({ issueVisitBaseline: null })
+      if (this.issueVisitBaseline !== null) this.setIssueVisitBaseline(null)
       return
     }
-    if (state.issueVisitBaseline?.issueId === issue.id) return
-    this.ports.publish({
-      issueVisitBaseline: {
-        issueId: issue.id,
-        readAt: navigationIssueReadAt(state, issue.id),
-        openedAt: new Date().toISOString(),
-      },
+    if (this.issueVisitBaseline?.issueId === issue.id) return
+    this.setIssueVisitBaseline({
+      issueId: issue.id,
+      readAt: navigationIssueReadAt(state, issue.id),
+      openedAt: new Date().toISOString(),
     })
   }
 

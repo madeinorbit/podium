@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { type IssuePanelArtifact, resolveMachinePath } from '@podium/model/browser'
@@ -52,14 +53,11 @@ const EMPTY: readonly IssuePanelArtifact[] = []
  */
 export function ArtifactsTab({ issueId }: { issueId: string }): JSX.Element {
   const issue = usePageIssue(issueId)
-  const { httpOrigin, openArtifact, openFileInWorktree } = useRuntimeSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      openArtifact: s.openArtifact,
-      openFileInWorktree: s.openFileInWorktree,
-    }),
-    shallowEqual,
-  )
+  const { httpOrigin, openArtifact, openFileInWorktree } = {
+    httpOrigin: useRuntimeSelector((s) => s.httpOrigin),
+    openArtifact: useUiValue('openArtifact'),
+    openFileInWorktree: useUiValue('openFileInWorktree'),
+  }
   const artifacts = issue?.panel?.artifacts ?? EMPTY
   const root = issue ? (issue.worktreePath ?? issue.repoPath) : undefined
 

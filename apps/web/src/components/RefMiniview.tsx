@@ -1,7 +1,8 @@
-import { issueWrites } from '@podium/commands/issues-synced'
+import { useUiValue } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
+import { issueWrites } from '@podium/commands/issues-synced'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
@@ -82,14 +83,11 @@ export function RefMiniviewHost(): JSX.Element | null {
 function PoolRefMiniviewHost(): JSX.Element {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   const pool = useWorklistPool()
-  const { setOpenIssueId, setView, navigateToSession } = useRuntimeSelector(
-    (s) => ({
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const { setOpenIssueId, setView, navigateToSession } = {
+    setOpenIssueId: useUiValue('setOpenIssueId'),
+    setView: useUiValue('setView'),
+    navigateToSession: useUiValue('navigateToSession'),
+  }
   // The activator stays registered while the card is closed. Session browsing
   // is needed only for a card or an explicit direct session activation.
   useEffect(() => {
@@ -168,14 +166,11 @@ function RefMiniviewContents({
   loading?: boolean
 }): JSX.Element | null {
   const machines = useChatReferenceMachines()
-  const { trpc, navigateToSession, startIssueSession } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      navigateToSession: s.navigateToSession,
-      startIssueSession: s.startIssueSession,
-    }),
-    shallowEqual,
-  )
+  const { trpc, navigateToSession, startIssueSession } = {
+    trpc: useRuntimeSelector((s) => s.trpc),
+    navigateToSession: useUiValue('navigateToSession'),
+    startIssueSession: useRuntimeSelector((s) => s.startIssueSession),
+  }
   const { show } = useDockIssue()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 

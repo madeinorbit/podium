@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
@@ -32,23 +33,16 @@ export function useMissionEndings(screen: MissionScreen): {
     markSessionRead,
     setIssueTucked,
     closeIssue,
-  } = useRuntimeSelector(
-    (store) => ({
-      setSelectedWorktree: store.setSelectedWorktree,
-      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
-      // member of this mission any more, so focusing it would resolve to nothing.
-      setSelectedIssueId: store.setSelectedIssueId,
-      openSessionTab: store.openSessionTab,
-      setView: store.setView,
-      markIssueRead: store.markIssueRead,
-      markSessionRead: store.markSessionRead,
-      setIssueTucked: store.setIssueTucked,
-      // The signpost's filing action closes an unfinished task before it can be
-      // tucked (POD-1212) — the fold is for finished work.
-      closeIssue: store.closeIssue,
-    }),
-    shallowEqual,
-  )
+  } = {
+    setSelectedWorktree: useUiValue('setSelectedWorktree'),
+    setSelectedIssueId: useUiValue('setSelectedIssueId'),
+    openSessionTab: useUiValue('openSessionTab'),
+    setView: useUiValue('setView'),
+    markIssueRead: useRuntimeSelector((store) => store.markIssueRead),
+    markSessionRead: useRuntimeSelector((store) => store.markSessionRead),
+    setIssueTucked: useRuntimeSelector((store) => store.setIssueTucked),
+    closeIssue: useRuntimeSelector((store) => store.closeIssue),
+  }
   const { setFocusedIssueId } = useOperatorFocus()
   const rootId = screen.rootId
   /**

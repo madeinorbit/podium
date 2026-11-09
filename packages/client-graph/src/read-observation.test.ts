@@ -6,7 +6,7 @@ import {
   READ_CHECKPOINT_MS,
   READ_SETTLE_MS,
 } from '../../client-core/src/engine/read-acknowledgements'
-import type { EngineState } from '../../client-core/src/engine/state'
+import type { RuntimeState } from '../../client-core/src/engine/state'
 import { createPoolNavigationProvider } from './navigation-provider'
 import { MobxPool } from './pool'
 import { worklistView } from './worklist/view-model'
@@ -78,7 +78,7 @@ function fixture() {
     fileTabs: [],
     panelMode: {},
     issueVisitBaseline: null,
-  } as unknown as EngineState
+  } as unknown as RuntimeState
   let visible = true
   const markIssueRead = vi.fn((_id: string, at: string) => {
     issueReadAt = at

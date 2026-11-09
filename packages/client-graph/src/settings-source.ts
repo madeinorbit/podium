@@ -1,15 +1,20 @@
 import './synced-models'
-import type { MobxPool } from './pool'
-import { defineSource } from './source-registry'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
-import { isSettingsEntity, SETTINGS_SCHEMA, type SettingsEntity, type SettingsRows } from './settings-schema'
+import type { MobxPool } from './pool'
+import {
+  isSettingsEntity,
+  SETTINGS_SCHEMA,
+  type SettingsEntity,
+  type SettingsRows,
+} from './settings-schema'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type SettingsOwner = Pick<
   ClientRuntime,
-  'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'
+  'ui' | 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'
 >
 
 type Discovery = 'machines' | 'repos'
@@ -31,7 +36,12 @@ export class SettingsSource {
   private readonly atoms = createDemandAtoms<string>((key) => `settingsSource.${key}`, {
     onObserved: (key) => {
       const at = key.indexOf(':')
-      const entry: Entry = { entity: key.slice(0, at) as SettingsEntity, id: key.slice(at + 1), value: LOADING, release: () => {} }
+      const entry: Entry = {
+        entity: key.slice(0, at) as SettingsEntity,
+        id: key.slice(at + 1),
+        value: LOADING,
+        release: () => {},
+      }
       this.rows.set(key, entry)
       entry.release = this.follow(entry)
       this.pending.add(key)
@@ -51,9 +61,14 @@ export class SettingsSource {
     refresh: this.refresh.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
 
-  constructor(private readonly owner: SettingsOwner, private readonly followMachines = true) {}
+  constructor(
+    private readonly owner: SettingsOwner,
+    private readonly followMachines = true,
+  ) {}
 
   /** A settings-only host has no header attachment to supply live machine
    * detail. Feed it through the same applying path and generic table. */
@@ -61,7 +76,7 @@ export class SettingsSource {
     if (!this.followMachines || this.stopMachines) return
     const install = (change?: KeyedListChange) => {
       const ids = change === undefined ? this.owner.listIds('machines') : [...change.ids]
-      pool.ingestLiveMachines(ids.map(id => ({ id, value: this.owner.listRow('machines', id) })))
+      pool.ingestLiveMachines(ids.map((id) => ({ id, value: this.owner.listRow('machines', id) })))
     }
     install()
     this.stopMachines = this.owner.onList('machines', install)
@@ -72,6 +87,7 @@ export class SettingsSource {
   }
 
   private readById(entity: SettingsEntity, id: string): Reading {
+    if (entity === 'settingsWindow') return id === 'window' ? this.owner.ui : undefined
     // Imperative questions read the runtime's existing keyed inputs directly;
     // only an observed question needs a stored source row and subscription.
     const key = `${entity}:${id}`
@@ -94,23 +110,8 @@ export class SettingsSource {
           repo()
         }
       }
-      case 'settingsWindow': {
-        if (entry.id !== 'window') return () => {}
-        this.window ??= {
-          readers: 0,
-          stop: this.owner.onLocals(['settingsTab'], () => {
-            this.pending.add('settingsWindow:window')
-            this.schedule()
-          }),
-        }
-        this.window.readers++
-        return () => {
-          if (this.window && --this.window.readers === 0) {
-            this.window.stop()
-            this.window = undefined
-          }
-        }
-      }
+      case 'settingsWindow':
+        return () => {}
     }
   }
 
@@ -151,7 +152,7 @@ export class SettingsSource {
           ? { machines: this.owner.listIds('machines'), repositories: this.owner.listIds('repos') }
           : undefined
       case 'settingsWindow':
-        return id === 'window' ? { settingsTab: this.owner.readLocal('settingsTab') } : undefined
+        return id === 'window' ? this.owner.ui : undefined
     }
   }
 
@@ -203,6 +204,13 @@ export class SettingsSource {
 }
 
 /** Settings owns its source declaration and factory; the pool only registers it. */
-export function attachSettingsSource(pool: MobxPool, owner: SettingsOwner, followMachines = true): void {
-  pool.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner, followMachines))
+export function attachSettingsSource(
+  pool: MobxPool,
+  owner: SettingsOwner,
+  followMachines = true,
+): void {
+  pool.sources.register(
+    Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity),
+    new SettingsSource(owner, followMachines),
+  )
 }
