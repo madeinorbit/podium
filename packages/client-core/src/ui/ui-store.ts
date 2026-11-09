@@ -287,9 +287,10 @@ export class UiStore {
   @actionBound setNavigation(navigation: NavigationProvider): void {
     this.patch({ navigation })
   }
-  @actionBound workspaceKey() {
+  @lazy get workspaceKeyValue() {
     return workspaceKeyForState(this.screen)
   }
+  readonly workspaceKey = () => this.workspaceKeyValue
   @actionBound getUserFocus(): UserFocus {
     return userFocus(this.screen)
   }

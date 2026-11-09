@@ -85,17 +85,9 @@ export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingI
   const workspaces = useUiValue('workspaces')
   const fileTabs = useUiValue('fileTabList')
   const repos = useRuntimeList('repos')
-  // Use the engine's resolver, including its pool navigation provider.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
-  const keyRead = useCallback(
-    () => actions.workspaceKey(),
-    [actions, selectedIssueId, selectedWorktree],
-  )
-  const workspaceKey = useWorklistPoolProjection(
-    keyRead,
-    'none' as ReturnType<typeof actions.workspaceKey>,
-  )
-  const layout = workspaces[workspaceKey]
+  const workspaceKey = useUiValue('workspaceKeyValue')
+  const workspaceLoading = useUiValue('workspaceLoading')
+  const layout = workspaceLoading ? undefined : workspaces[workspaceKey]
   const read = useCallback(
     (pool: MobxPool) => ({
       sessions: workspaceSessions(

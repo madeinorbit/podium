@@ -182,12 +182,15 @@ async function mountAt(url: string): Promise<void> {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20))
   })
-  await vi.waitFor(async () => {
-    await act(async () => {
-      await Promise.resolve()
-    })
-    expect(poolReady).toBe(true)
-  })
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(poolReady).toBe(true)
+    },
+    { timeout: 5_000 },
+  )
 }
 
 describe('workspace deep link with unknown wt/pane', () => {

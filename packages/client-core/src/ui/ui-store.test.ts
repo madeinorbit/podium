@@ -1,5 +1,5 @@
 import { asIssueId, asSessionId } from '@podium/model'
-import { autorun } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { VisibilitySource } from '../engine/visibility'
@@ -107,6 +107,21 @@ function savedScreen() {
 }
 
 describe('device UiStore', () => {
+  it('tracks the resolved workspace key when a selected issue changes mission root', () => {
+    const { ui } = setup(),
+      root = observable.box('root-1')
+    ui.setNavigation({
+      ...ui.navigation,
+      issue: () => ({ id: asIssueId('child'), archived: false }) as never,
+      missionRoot: () => asIssueId(root.get()),
+    })
+    ui.setSelectedIssueId(asIssueId('child'))
+    const keys: string[] = []
+    const stop = autorun(() => keys.push(ui.workspaceKey()))
+    runInAction(() => root.set('root-2'))
+    expect(keys).toEqual(['mission:root-1', 'mission:root-2'])
+    stop()
+  })
   it('keeps panes empty while the selected issue is unresolved, without borrowing the none workspace', () => {
     const { ui } = setup()
     ui.patch({
