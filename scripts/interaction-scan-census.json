@@ -8495,28 +8495,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/tips/TipHost.tsx",
-      "holder": "SourceHost/log",
-      "rule": "reader-summary",
-      "tokens": "6844d116e05d3374330c6256622309683c1b6407dd7703032c3a16ebae121aa1",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "19d2210aaf658105cf5b9828b27ae70f750ff0c056f91a2d51fb56f1542bfc69",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2187",
-      "trigger": "The app shell mounts the First Flights tip host once per signed-in session.",
-      "bound": "Exactly eight fixed per-user preference keys: tips.enabled and seven tips.seen.<id> rows. No catalogue or collection is read.",
-      "reason": "The tip log reads only its own named preference rows from the pool; the reader summary is the TipLog object built over those eight keys.",
-      "guard": "account-tip-log.test.ts covers hydration, record() and skip-all over the fixed key set."
-    },
-    {
       "file": "apps/web/src/features/usage/UsageTasks.tsx",
       "holder": "UsageTasks/map:callback",
       "rule": "reader-summary",
@@ -33611,28 +33589,6 @@
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
       "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
-    },
-    {
-      "file": "apps/web/src/features/tips/tip-log-source.ts",
-      "holder": "useTipLogSource",
-      "rule": "reader-summary",
-      "tokens": "0c708b3586c3449c96e6dd01c5303328b6038fb5310a96034750955a1603b975",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "33794f3a5465aa620effe17ad6a26e1107c8f2c2629e491ad3fce5790d7b89ac",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2187",
-      "trigger": "The app shell mounts the First Flights tip host once per signed-in session.",
-      "bound": "Exactly eight fixed per-user preference keys: tips.enabled and seven tips.seen.<id> rows. No catalogue or collection is read.",
-      "reason": "The tip log reads only its own named preference rows from the pool; the reader summary is the TipLog object built over those eight keys.",
-      "guard": "account-tip-log.test.ts covers hydration, record() and skip-all over the fixed key set."
     },
     {
       "file": "apps/web/src/features/usage/UsageView.tsx",

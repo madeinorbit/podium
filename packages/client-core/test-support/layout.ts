@@ -1,8 +1,8 @@
 /** Assemble the real layout read path over a seeded model pool. No shadow layout. */
 
-import { here } from '@podium/client-graph/lookup'
-import { MobxPool } from '@podium/client-graph/pool'
 import { layoutRowId, type UserId } from '@podium/model'
+import { here } from '../../client-graph/src/lookup'
+import { MobxPool } from '../../client-graph/src/pool'
 import { createRecordsApi } from '../src/records'
 import { LayoutAccess } from '../src/ui/layout-access'
 
