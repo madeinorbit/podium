@@ -106,8 +106,8 @@ export class SettingsSource {
     bindCheckoutRecords(pool, this.owner.replica)
   }
 
-  read(entity: SettingsEntity, id: string): Reading {
-    return this.source.read(entity, id) as Reading
+  read<E extends SettingsEntity>(entity: E, id: string): Loaded<SettingsRows[E]> {
+    return this.source.read(entity, id) as Loaded<SettingsRows[E]>
   }
 
   private readById(entity: SettingsEntity, id: string): Reading {

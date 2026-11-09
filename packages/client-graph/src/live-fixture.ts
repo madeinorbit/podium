@@ -17,6 +17,7 @@ import type {
   MachineConditionPayload,
 } from '@podium/protocol'
 import { runInAction } from 'mobx'
+import type { HeaderRecord } from './header-schema'
 import type { MobxPool } from './pool'
 
 export interface LiveFixture {
@@ -94,7 +95,7 @@ export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()
 export function seedFixtureMachines(
   pool: MobxPool,
   machines: readonly MachineFacts[],
-): { kind: 'machine'; id: string; value: Record<string, unknown> }[] {
+): HeaderRecord<'machine'>[] {
   const live = liveFixture(pool)
   return machines.map((machine) => {
     const {
@@ -105,7 +106,7 @@ export function seedFixtureMachines(
       daemonReadiness,
       serverMoveEligibility: _eligibility,
       ...record
-    } = machine as MachineFacts & Record<string, unknown>
+    } = machine
     live.condition(String(machine.id), {
       online,
       since: null,
@@ -117,7 +118,7 @@ export function seedFixtureMachines(
     return {
       kind: 'machine' as const,
       id: String(machine.id),
-      value: { loggedOutHarnesses: [], use: 'granted', ...record },
+      value: { loggedOutHarnesses: [], use: 'granted' as const, ...record },
     }
   })
 }

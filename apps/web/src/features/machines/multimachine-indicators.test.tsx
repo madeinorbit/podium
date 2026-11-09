@@ -33,7 +33,7 @@ const reclaimInventory = vi.fn(async () => ({
   candidates: [],
   orphans: [],
   diagnostics: [],
-  estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+  estimate: { status: 'unknown' as const, recoverableBytes: null, measuredAt: null },
 }))
 const quotaSummary = vi.fn()
 // The current producer pushes one addressed processes reading. These fixture
@@ -305,7 +305,7 @@ describe('memory chip is machine-aware', () => {
         value: {
           breakdown: {
             ...breakdownFor('vmi'),
-            agents: [{ sessionId: 'pushed-session', bytes: 1e9, processCount: 3 }],
+            agents: [{ sessionId: asSessionId('pushed-session'), bytes: 1e9, processCount: 3 }],
           },
           reclaim: {
             candidates: [],

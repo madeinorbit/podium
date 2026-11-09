@@ -50,7 +50,14 @@ import {
 } from '@podium/model'
 import { sessionWorkingFact } from '@podium/model/browser'
 import { computed, observable, reaction, runInAction } from 'mobx'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { afterEach, vi } from 'vitest'
 import * as storeInputs from '@/app/store'
 

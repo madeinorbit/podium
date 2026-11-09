@@ -171,7 +171,10 @@ export function watchReference(owner: ClientRuntime, changed: () => void): () =>
     ),
     owner.replica.subscribeRowBatch!(changed),
   ]
-  return () => stops.forEach((stop) => { stop() })
+  return () =>
+    stops.forEach((stop) => {
+      stop()
+    })
 }
 
 export function issueActivityAt(

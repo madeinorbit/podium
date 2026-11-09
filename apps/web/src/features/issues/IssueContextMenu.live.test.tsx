@@ -26,7 +26,7 @@ import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
 const preferences = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-function publishHarness(harness: string) {
+function publishHarness(harness: Parameters<typeof nativeAccountId>[0]) {
   const userId = asUserId('menu-operator')
   preferences.apply({
     type: 'update',
