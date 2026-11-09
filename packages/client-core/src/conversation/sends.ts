@@ -1,11 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import type {
-  MessageRecordWire,
-  SessionId,
-  SessionOffer,
-  TranscriptItem,
-  TranscriptTag,
-} from '@podium/model'
+import type { MessageRecordWire, SessionId, SessionOffer } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {

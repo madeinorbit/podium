@@ -100,10 +100,13 @@ vi.mock('@/app/store-worklist-pool', () => ({
     return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
   },
 }))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => ({ access: store, hub: processTopic.hub, replica: noAccessRows })),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({ access: store, hub: processTopic.hub, replica: noAccessRows })),
+  }
+})
 vi.mock('@/app/store', () => ({
   useStore: () => store,
   useRuntimeSelector: (read: (current: typeof store) => unknown) => read(store),
@@ -163,7 +166,13 @@ function fixture(scale: 1 | 4) {
   // is its record with my access row, online its condition (POD-6644).
   headerEntities(pool).apply(
     seedFixtureMachines(pool, [
-      { id: MACHINE, name: 'fixture-host', hostname: 'fixture-host', online: true, lastSeenAt: stamp(NOW) },
+      {
+        id: MACHINE,
+        name: 'fixture-host',
+        hostname: 'fixture-host',
+        online: true,
+        lastSeenAt: stamp(NOW),
+      },
     ] as never) as never,
   )
   headerEntities(pool).order('machine', [MACHINE])

@@ -67,7 +67,7 @@ const handle = {
     return snapshot()
   },
   subscribe: (_listener: () => void) => () => {},
-  readLocal: (key: import('@podium/client-core/engine').LocalKey) =>
+  readLocal: (key: import('@podium/client-core/test-support/keyed-channel').LocalKey) =>
     f.fixture!.owner.readLocal(key),
   get drafts() {
     return f.fixture!.owner.drafts
@@ -81,12 +81,15 @@ vi.mock('@/app/store', () => ({
     return f.fixture!.owner.root.replica.exitKind?.('session', id)
   },
 }))
-vi.mock('@podium/client-core/react', async () => ({
-  ...fixtureRuntimeHooks(() => handle),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
-    () => f.fixture!.owner,
-  ),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => handle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => f.fixture!.owner,
+    ),
+  }
+})
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () =>
     useSyncExternalStore(

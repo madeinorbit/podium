@@ -14,7 +14,7 @@ import {
   type SessionMeta,
   serverMoveEligibilityOf,
 } from '@podium/model'
-import { runInAction } from 'mobx'
+import { compareShallow, reaction, runInAction } from 'mobx'
 
 export type ReferenceState<
   T extends
@@ -180,12 +180,7 @@ export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {
 
 export function watchReference(owner: ClientRuntime, changed: () => void): () => void {
   const stops = [
-    owner.onLocals(
-      Object.keys(owner.access).filter(
-        (key) => !Object.hasOwn(owner.services, key),
-      ) as import('@podium/client-core/engine').LocalKey[],
-      changed,
-    ),
+    reaction(() => Object.values(owner.ui.screen), changed, { equals: compareShallow }),
     owner.root.replica.subscribeRowBatch!(changed),
   ]
   return () =>

@@ -7,7 +7,12 @@ import { createSubscriptionStore } from '@podium/client-core/test-support/local-
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { asUserId, type CheckoutRepository, type GitRepositoryWire, type MachineWire } from '@podium/model'
+import {
+  asUserId,
+  type CheckoutRepository,
+  type GitRepositoryWire,
+  type MachineWire,
+} from '@podium/model'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { useMemo, useSyncExternalStore } from 'react'
@@ -224,7 +229,12 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
 })
 
 const repo = (path: string) =>
-  ({ path, kind: 'repository', machineId: 'synthetic-machine', worktrees: [] }) as unknown as CheckoutRepository
+  ({
+    path,
+    kind: 'repository',
+    machineId: 'synthetic-machine',
+    worktrees: [],
+  }) as unknown as CheckoutRepository
 
 it('isolates NewIssueScreen from unrelated publishes while still painting repository updates', async () => {
   const results = []

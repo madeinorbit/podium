@@ -1,19 +1,14 @@
-import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
+import type { IssueProjection, LayoutSnapshot, SessionId } from '@podium/model'
 import {
   asIssueId,
   asMutationId,
   asSessionId,
   asUserId,
   issueUserStateRowId,
-  layoutRowId,
-  pinRowId,
   sessionUserStateRowId,
-  superagentThreadRowId,
-  tabOrderRowId,
-  userPreferencesRowId,
 } from '@podium/model'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { COMMAND_ACTIONS, fixtureCommands, UI_LOCAL_ACTIONS } from '../../test-support/commands'
+import { afterEach, beforeAll, vi } from 'vitest'
+import { fixtureCommands } from '../../test-support/commands'
 import { layoutFixture } from '../../test-support/layout'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
@@ -29,7 +24,6 @@ import { UiStore } from '../ui/ui-store'
 import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
 import { createRoutedUiState } from '../ui-state'
-import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
 import type { FixtureCommandDeps as CommandDeps } from '../../test-support/commands'
 
 beforeAll(loadRecordDeclarations)
@@ -249,4 +243,3 @@ export function harness(
     },
   }
 }
-

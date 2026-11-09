@@ -10,7 +10,7 @@ import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { headerEntities } from '@podium/client-graph/header-entities'
+
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 
@@ -48,27 +48,7 @@ import {
   SESSION_EXIT_SOURCE_KEY,
 } from '@podium/client-graph/session-exit-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
-import {
-  createSessionExitSource,
-  SESSION_EXIT_SOURCE_KEY,
-} from '@podium/client-graph/session-exit-source'
-import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
-import {
-  asThreadId,
-  asUserId,
-  dedupeSessionsByResume,
-  type SuperagentThreadWire,
-  superagentThreadRowId,
-} from '@podium/model'
-import {
-  asIssueId,
-  asMachineId,
-  asMutationId,
-  asRepoId,
-  asSessionId,
-  DEFAULT_HARNESS_AGENT,
-  type SessionId,
-} from '@podium/model/browser'
+
 import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
 
@@ -328,7 +308,10 @@ export async function createChatContextFixture(resumeTwins = false) {
   headerEntities(pool).order('machine', ['chat-machine'])
   headerEntities(pool).order('repository', ['/synthetic/project'])
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(owner)))
-  pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(superagentSourcePorts(owner)))
+  pool.sources.register(
+    SUPERAGENT_ENTITIES,
+    await createSuperagentSource(superagentSourcePorts(owner)),
+  )
   const exitSource = await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
     createSessionExitSource(replicaSourcePorts(owner)),
   )

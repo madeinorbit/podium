@@ -1,7 +1,11 @@
 // Machines are read as machine models (POD-6644): their classes load with the fixture.
 import '@podium/client-graph/synced-models'
 import { machineRecords } from '@podium/client-core/test-support/machine-records'
-import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
+import {
+  ConversationCache,
+  DraftStore,
+  type ConversationCacheOptions,
+} from '@podium/client-core/conversation'
 import {
   noticeSourcePorts,
   chatSourcePorts,
@@ -150,9 +154,21 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     replica.applySnapshot('issueUserStates', normalized.issueUserStates)
     replica.applySnapshot('issueGitStates', normalized.issueGitStates)
     // Each machine's record and my access row (POD-6644).
-    const machineRows = machines.flatMap(machine => machineRecords('fixture-user', { ...machine, loggedOutHarnesses: (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [] }))
-    replica.applySnapshot('machines', machineRows.filter(row => row.entity === 'machine').map(row => row.value) as never)
-    replica.applySnapshot('machineAccess', machineRows.filter(row => row.entity === 'machineAccess').map(row => row.value) as never)
+    const machineRows = machines.flatMap((machine) =>
+      machineRecords('fixture-user', {
+        ...machine,
+        loggedOutHarnesses:
+          (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [],
+      }),
+    )
+    replica.applySnapshot(
+      'machines',
+      machineRows.filter((row) => row.entity === 'machine').map((row) => row.value) as never,
+    )
+    replica.applySnapshot(
+      'machineAccess',
+      machineRows.filter((row) => row.entity === 'machineAccess').map((row) => row.value) as never,
+    )
     replica.applySnapshot('sessions', sessions)
     for (const listener of listeners) listener()
     if (!pool) {

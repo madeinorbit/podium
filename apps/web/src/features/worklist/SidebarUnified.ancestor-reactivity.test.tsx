@@ -8,7 +8,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarUnified } from './SidebarUnified'
 

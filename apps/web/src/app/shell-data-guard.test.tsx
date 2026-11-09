@@ -13,10 +13,13 @@ const source = vi.hoisted(() => ({
   read: () => undefined as unknown,
 }))
 let uiOwner: ReturnType<typeof withKeyedInputs>
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => uiOwner,
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => uiOwner),
+  }
+})
 vi.mock('./store-worklist-pool', () => ({ useWorklistPool: () => source.pool }))
 vi.mock('@podium/client-graph/shell-views', () => ({
   shellViews: () => {

@@ -1,5 +1,5 @@
 import { fixtureRoot } from './command-hooks'
-import { createKeyedInputs, type KeyedInputs, type LocalKey } from '../src/engine/keyed-inputs'
+import { createKeyedInputs, type KeyedInputs, type LocalKey } from './keyed-channel'
 import type { RuntimeState } from '../src/engine/state'
 import type { UiStore } from '../src/ui/ui-store'
 import { addFixtureUi } from './ui'

@@ -440,9 +440,9 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'newWorktree': {
-        const repo = (ctx.corpus.repos as { repoId?: string; path: string; machineId?: string }[]).find(
-          (r) => r.repoId === c.repoId,
-        )
+        const repo = (
+          ctx.corpus.repos as { repoId?: string; path: string; machineId?: string }[]
+        ).find((r) => r.repoId === c.repoId)
         if (!repo) return `repo ${c.repoId} not discovered`
         // The server writes the new worktree's checkout record (POD-6644).
         const machineId = asMachineId(repo.machineId ?? FIXTURE_MACHINE_ID)

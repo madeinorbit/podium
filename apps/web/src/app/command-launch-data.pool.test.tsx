@@ -109,12 +109,25 @@ it('mounts the actual closed palette without issue/session demand at 1x/4x, then
     const fixture = createHeaderFixture(12 * scale, 8 * scale),
       fatal = vi.fn()
     function Wrapper({ children }: { children: ReactNode }) {
-      return <StoreProvider principal={asClientPrincipal(asUserId(`closed-palette-${scale}`))}
-        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-        createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-        attachRuntime={runtime => { fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live); return attachWorklistPool(runtime, fatal) }}>
-        <ConfirmProvider><CommandPalette />{children}</ConfirmProvider>
-      </StoreProvider>
+      return (
+        <StoreProvider
+          principal={asClientPrincipal(asUserId(`closed-palette-${scale}`))}
+          config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+          api={fixture.api}
+          createReplicaFn={() => fixture.newReplica()}
+          networkEnabled={false}
+          onFatalError={fatal}
+          attachRuntime={(runtime) => {
+            fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+            return attachWorklistPool(runtime, fatal)
+          }}
+        >
+          <ConfirmProvider>
+            <CommandPalette />
+            {children}
+          </ConfirmProvider>
+        </StoreProvider>
+      )
     }
     const hook = renderHook(
       () => ({ pool: useWorklistPool(), actions: useCommandLaunchActions() }),

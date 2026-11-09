@@ -1,5 +1,4 @@
 export * from '../command-reducers'
-export * from './keyed-inputs'
 export * from './navigation-provider'
 export * from './reactions'
 export * from './runtime'

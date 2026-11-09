@@ -1,28 +1,9 @@
-import { useClientRuntime } from '@podium/client-core/react'
+import { useDeviceState, useDrafts } from '@podium/client-core/react'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { SessionId } from '@podium/model/browser'
 import { reaction } from 'mobx'
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { useWorklistPoolProjection } from './store-worklist-pool'
-import type { Trpc } from './trpc'
-
-/** Identity-stable actions/services acquired from their runtime owner. */
-export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pick<Store, K> {
-  const owner = useClientRuntime<Trpc>()
-  return useMemo(() => {
-    const state = owner.access
-    return Object.fromEntries(
-      keys.map((key) => [
-        key,
-        key === 'uiState'
-          ? owner.deviceState
-          : key in owner.ui
-            ? Reflect.get(owner.ui, key)
-            : state[key],
-      ]),
-    ) as Pick<Store, K>
-  }, [owner, keys])
-}
 
 export function usePendingSpawnPrompt(id: SessionId): string | undefined {
   return useWorklistPoolProjection(
@@ -33,7 +14,7 @@ export function usePendingSpawnPrompt(id: SessionId): string | undefined {
 
 /** A non-observer leaf can subscribe to its addressed MobX document. */
 export function useDraftValue(id: SessionId | undefined): string {
-  const { drafts } = useClientRuntime<Trpc>()
+  const drafts = useDrafts()
   const read = useCallback(() => (id === undefined ? '' : drafts.get(id)), [drafts, id])
   const subscribe = useCallback((notify: () => void) => reaction(read, notify), [read])
   return useSyncExternalStore(subscribe, read)

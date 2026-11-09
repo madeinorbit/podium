@@ -1,28 +1,13 @@
-import type { EngineState } from './state'
+type FixtureState = Record<string, unknown>
 
-/**
- * Keyed inputs (POD-5426 spec §4.10, plan steps 7-9): what the pool's
- * adapters consume from the runtime, keyed, so each one wakes only for its
- * own keys instead of re-reading the whole published snapshot.
- *
- * `onLocals(keys, listener)` runs after a batch that changed one of `keys`,
- * with the changed subset; `readLocal(key)` reads the value that batch
- * published. A batch that touches none of a listener's keys costs it nothing
- * (the index is by key).
- *
- * Screen state lives in UiStore and machines, their access and the registered
- * repositories are synced records (POD-6644), so the engine publishes no
- * locals of its own today; the seam stays for the store-shaped test owners
- * that wrap a plain state object with it.
- *
- * The runtime is the only writer: it calls `emit` once per completed batch.
- */
-export type LocalKey = keyof EngineState
+/** Test-only keyed publication for historical snapshot fixtures. Product screen
+ * readers subscribe to UiStore; the engine has no local keys. */
+export type LocalKey = keyof FixtureState
 export type LocalsListener = (changed: ReadonlySet<LocalKey>) => void
 
 export interface KeyedInputs {
   onLocals(keys: readonly LocalKey[], listener: LocalsListener): () => void
-  readLocal<K extends LocalKey>(key: K): EngineState[K]
+  readLocal<K extends LocalKey>(key: K): FixtureState[K]
 }
 
 /** Counted for the adapter wake meters (plan steps 7-9). */
@@ -43,14 +28,14 @@ export interface KeyedInputsChannel extends KeyedInputs {
  *  `live` reads `read()` directly instead (fixtures that mutate a store in
  *  place and may never publish). */
 export function createKeyedInputs(
-  read: () => EngineState,
+  read: () => FixtureState,
   live = false,
   directKeys: readonly LocalKey[] = [],
 ): KeyedInputsChannel {
-  const snapshot: Partial<EngineState> = live ? {} : { ...read() }
+  const snapshot: Partial<FixtureState> = live ? {} : { ...read() }
   const direct = new Set(directKeys)
   for (const key of direct) delete snapshot[key]
-  const current = (): Partial<EngineState> => (live ? read() : snapshot)
+  const current = (): Partial<FixtureState> => (live ? read() : snapshot)
   const byKey = new Map<LocalKey, Set<{ keys: ReadonlySet<LocalKey>; listener: LocalsListener }>>()
   const stats: KeyedInputStats = { wakes: 0 }
   let disposed = false
@@ -77,7 +62,7 @@ export function createKeyedInputs(
         for (const key of entry.keys) byKey.get(key)?.delete(entry)
       }
     },
-    readLocal: (key) => (direct.has(key) ? read() : current())[key] as EngineState[typeof key],
+    readLocal: (key) => (direct.has(key) ? read() : current())[key] as FixtureState[typeof key],
     emit(changed) {
       if (disposed) return
       const state = read()

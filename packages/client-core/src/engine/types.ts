@@ -7,14 +7,7 @@ import type { NavigationIntent } from '../ui/navigation'
  * client).
  */
 
-import type {
-  ArtifactId,
-  IssueId,
-  MachineId,
-  MutationId,
-  SessionId,
-  ThreadId,
-} from '@podium/model'
+import type { ArtifactId, IssueId, MachineId, SessionId, ThreadId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { ReadPositionPort } from '../read-position'
 import type { MainView, RoutedUiState } from '../ui-state'

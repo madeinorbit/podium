@@ -7,13 +7,7 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
-import {
-  isStoppedSend,
-  isUnaddressableSend,
-  type MutationId,
-  type SessionId,
-  type WorkState,
-} from '@podium/model'
+import { isStoppedSend, isUnaddressableSend, type MutationId, type SessionId } from '@podium/model'
 import {
   isMissingSyncSubmit,
   SyncSubmitRefusedError,

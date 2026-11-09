@@ -1,4 +1,3 @@
-
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
@@ -273,7 +272,11 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
   // Machines (records and my access rows) and repositories (checkout records), POD-6644.
-  for (const record of machineAndRepoRecords({ userId: 'u-bench', machines: corpus.machines as never, repos: corpus.repos as never }))
+  for (const record of machineAndRepoRecords({
+    userId: 'u-bench',
+    machines: corpus.machines as never,
+    repos: corpus.repos as never,
+  }))
     records.set(key(record.entity, record.entityId), { ...record, provenance: { seq } })
   const replica = createKernelReplica({
     cache: {

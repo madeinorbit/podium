@@ -86,7 +86,11 @@ export function useCommandLaunchOrigin(path: string, machineId?: string) {
   )
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
-export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineFacts[], kinds: readonly string[]) {
+export function useCommandTargetMachines(
+  repo: RepoView | undefined,
+  machines: MachineFacts[],
+  kinds: readonly string[],
+) {
   const pool = useWorklistPool()
   const kindsKey = JSON.stringify(kinds)
   const path = repo?.path

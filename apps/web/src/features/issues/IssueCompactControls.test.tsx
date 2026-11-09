@@ -24,11 +24,14 @@ const owner = withKeyedInputs({
   getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot((state) => state)),
   subscribe: () => () => {},
 })
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => owner),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+  }
+})
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 // The launch box's model/effort segments read the live catalog through this

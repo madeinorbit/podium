@@ -60,10 +60,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
 
   constructor(
-    private readonly runtime: Pick<
-      ClientRuntime,
-      'ui' | 'palette' | 'autoContinueDialog' | 'root'
-    >,
+    private readonly runtime: Pick<ClientRuntime, 'ui' | 'palette' | 'autoContinueDialog' | 'root'>,
   ) {
     const lanes = () => {
       this.counts.laneCollections++

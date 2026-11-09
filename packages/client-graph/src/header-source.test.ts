@@ -84,8 +84,13 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       replicaRow.mockClear()
       repositoryWrites.mockClear()
       const repository = await measure('one header repository', () => {
-        checkouts = checkouts.map((row, index) => (index === 0 ? { ...row, branch: 'changed' } : row))
-        batch({ type: 'update', rows: [{ kind: 'checkouts', id: checkoutRowId(asMachineId('m0'), '/repo/0') }] })
+        checkouts = checkouts.map((row, index) =>
+          index === 0 ? { ...row, branch: 'changed' } : row,
+        )
+        batch({
+          type: 'update',
+          rows: [{ kind: 'checkouts', id: checkoutRowId(asMachineId('m0'), '/repo/0') }],
+        })
       })
       // One checkout moved: one repository row is written, the rest are kept.
       expect(repositoryWrites.mock.calls).toEqual([[JSON.stringify(['m0', '/repo/0'])]])
@@ -129,8 +134,13 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       })
       // A removed checkout leaves the header, and a replacement re-reads everything.
       checkouts = checkouts.slice(1)
-      batch({ type: 'update', rows: [{ kind: 'checkouts', id: checkoutRowId(asMachineId('m0'), '/repo/0') }] })
-      expect(headerEntities(pool).get('repository', JSON.stringify(['m0', '/repo/0']))).toBeUndefined()
+      batch({
+        type: 'update',
+        rows: [{ kind: 'checkouts', id: checkoutRowId(asMachineId('m0'), '/repo/0') }],
+      })
+      expect(
+        headerEntities(pool).get('repository', JSON.stringify(['m0', '/repo/0'])),
+      ).toBeUndefined()
       orders.clear()
       batch({ type: 'replace', reason: 'rescope' })
       expect(headerEntities(pool).tables.shipOrder.size).toBe(0)

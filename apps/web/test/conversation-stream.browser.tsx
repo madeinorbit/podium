@@ -14,23 +14,29 @@ const { fixture, id, errors, listeners } = source
 const root = createRoot(document.getElementById('root')!)
 document.documentElement.classList.add('dark')
 document.body.style.margin = '0'
-root.render(<StoreProvider
-  principal={asClientPrincipal(asUserId('operator'))}
-  config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-  api={fixture.api} networkEnabled={false}
-  createReplicaFn={() => source.replica()}
-  onFatalError={error => errors.push(error)}
-  attachRuntime={runtime => {
-    fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
-    fixture.publishMachines()
-    runtime.root.services.connection.hub.subscribeTranscript = (_id, _since, listener) => {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    }
-    return attachWorklistPool(runtime, error => errors.push(error.message))
-  }}>
-  <main style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
-    <ChatView sessionId={id} />
-  </main>
-</StoreProvider>)
+root.render(
+  <StoreProvider
+    principal={asClientPrincipal(asUserId('operator'))}
+    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+    api={fixture.api}
+    networkEnabled={false}
+    createReplicaFn={() => source.replica()}
+    onFatalError={(error) => errors.push(error)}
+    attachRuntime={(runtime) => {
+      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      fixture.publishMachines()
+      runtime.root.services.connection.hub.subscribeTranscript = (_id, _since, listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      }
+      return attachWorklistPool(runtime, (error) => errors.push(error.message))
+    }}
+  >
+    <main style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <ChatView sessionId={id} />
+    </main>
+  </StoreProvider>,
+)
 installStreamDriver(source, () => root.unmount())

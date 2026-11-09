@@ -1,13 +1,5 @@
-import type {
-  MessageRecordWire,
-  SessionId,
-  SessionOffer,
-  TranscriptItem,
-  TranscriptTag,
-} from '@podium/model'
+import type { MessageRecordWire, SessionOffer } from '@podium/model'
 import { formatAgentError } from '@podium/model'
-import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { OutboxChatSend } from '../conversation/sends'
 import {
   type ConversationBubble,
   type ConversationPendingTurn,
@@ -116,7 +108,8 @@ export class Sends {
   private catchUpAgain = false
 
   constructor(private readonly options: SendsOptions) {
-    if (options.lookupRecords && !options.messageRecords) throw new Error('Message lookup requires the shared record pool')
+    if (options.lookupRecords && !options.messageRecords)
+      throw new Error('Message lookup requires the shared record pool')
     this.clock = options.clock ?? defaultClock
     const pending = [...(options.initialPending ?? [])]
     runInAction(() => {
@@ -667,11 +660,12 @@ export class Sends {
   private currentRecords(
     pending: readonly ConversationPendingTurn[] = this.pending,
   ): readonly ConversationMessage[] {
-    const shown = new Set(pending.map(turn => turn.deliveryId))
+    const shown = new Set(pending.map((turn) => turn.deliveryId))
     const ids = new Set(this.feedIds)
     for (const id of this.looked) if (shown.has(id)) ids.add(id)
     const shared = this.options.messageRecords
-    if (!shared) return (this.options.records?.getSnapshot() ?? []).filter(record => ids.has(record.id))
+    if (!shared)
+      return (this.options.records?.getSnapshot() ?? []).filter((record) => ids.has(record.id))
     const records: ConversationMessage[] = []
     for (const id of ids) {
       const record = shared.read(id)
@@ -782,7 +776,7 @@ export class Sends {
    */
   private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
-    this.feedIds = records.map(record => record.id)
+    this.feedIds = records.map((record) => record.id)
     const present = new Map<string, ConversationMessage>()
     for (const record of records) {
       present.set(record.id, record)

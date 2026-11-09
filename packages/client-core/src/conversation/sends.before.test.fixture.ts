@@ -1,13 +1,6 @@
 import type { ConversationMessage as MessageRecordWire } from './contracts'
-import type {
-  SessionId,
-  SessionOffer,
-  TranscriptItem,
-  TranscriptTag,
-} from '@podium/model'
+import type { SessionOffer } from '@podium/model'
 import { formatAgentError } from '@podium/model'
-import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { OutboxChatSend } from '../conversation/sends'
 import {
   type ConversationBubble,
   type ConversationPendingTurn,

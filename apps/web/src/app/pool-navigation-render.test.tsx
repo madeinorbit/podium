@@ -55,12 +55,17 @@ vi.mock('./NewPanelMenu', () => ({
 vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => workspaceOwner),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => workspaceOwner),
-  useHarnessDescriptors: () => ({ served: [] }),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => workspaceOwner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => workspaceOwner,
+    ),
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
+})
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 const { Workspace } = await import('./Workspace')
 afterEach(cleanup)

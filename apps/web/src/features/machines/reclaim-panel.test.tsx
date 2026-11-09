@@ -87,7 +87,10 @@ let processTopic = processesTopicFixture(async () => ({
 }))
 // My access rows (POD-6644): none here, so no machine hosts the server.
 const noAccessRows = { rows: () => [], subscribeAddressedBatch: () => () => {} }
-vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => ({ hub: processTopic.hub, replica: noAccessRows })) }))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return { ...fixtureRuntimeHooks(() => ({ hub: processTopic.hub, replica: noAccessRows })) }
+})
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({

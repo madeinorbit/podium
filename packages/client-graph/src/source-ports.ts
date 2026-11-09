@@ -13,6 +13,8 @@ export function chatSourcePorts(runtime: Pick<ClientRuntime, 'root' | 'ui' | 'dr
   return { ...noticeSourcePorts(runtime), ui: runtime.ui, drafts: runtime.drafts }
 }
 
-export function superagentSourcePorts(runtime: Pick<ClientRuntime, 'root' | 'ui' | 'readPosition'>) {
+export function superagentSourcePorts(
+  runtime: Pick<ClientRuntime, 'root' | 'ui' | 'readPosition'>,
+) {
   return { ...replicaSourcePorts(runtime), ui: runtime.ui, readPosition: runtime.readPosition }
 }

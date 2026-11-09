@@ -235,6 +235,11 @@
       "types": "./test-support/keyed-inputs.ts",
       "import": "./test-support/keyed-inputs.ts"
     },
+    "./test-support/keyed-channel": {
+      "@podium/source": "./test-support/keyed-channel.ts",
+      "types": "./test-support/keyed-channel.ts",
+      "import": "./test-support/keyed-channel.ts"
+    },
     "./navigation-provider": {
       "@podium/source": "./src/navigation-provider.ts",
       "types": "./src/navigation-provider.ts",

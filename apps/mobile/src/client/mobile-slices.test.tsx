@@ -2,8 +2,6 @@ import { useCommands } from '@podium/client-core/react'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { headerView } from '@podium/client-graph/header-views'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 
 /** Pool-only regressions for the final green mobile slice controls.
  * The literal counts, titles, paths, shared clock and machine refusals are

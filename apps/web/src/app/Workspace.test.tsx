@@ -49,12 +49,17 @@ vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useHarnessDescriptors: () => ({ served: [] }),
-  ...fixtureRuntimeHooks(() => fixtureOwner()),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => fixtureOwner()),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    useHarnessDescriptors: () => ({ served: [] }),
+    ...fixtureRuntimeHooks(() => fixtureOwner()),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() =>
+      fixtureOwner(),
+    ),
+  }
+})
 
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => false,

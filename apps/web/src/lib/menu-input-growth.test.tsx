@@ -1,11 +1,10 @@
 import '@podium/client-graph/synced-models'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
-import { omitGone, requireHere } from '@podium/client-graph/lookup'
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
+import { requireHere } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING, MobxPool, type MobxPool as Pool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { requireHere } from '@podium/client-graph/lookup'
+
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
@@ -139,12 +138,34 @@ function fixture(scale: number) {
     ],
   })
   headerEntities(pool).apply([
-    { kind: 'repository', id: 'source-repo', value: { kind: 'repository', path: '/repo',
-      machineId: sourceId, repoId: asRepoId('registered'), originUrl: 'https://example.test/repo.git',
-      worktrees: [{ path: subject.cwd, branch: 'issue/opened' },
-        ...Array.from({ length: 32 * scale }, (_, i) => ({ path: `/repo/.worktrees/hidden-${i}`, branch: `hidden-${i}` }))] } },
-    ...Array.from({ length: 32 * scale }, (_, i) => ({ kind: 'repository' as const, id: `other-repo-${i}`,
-      value: { kind: 'repository' as const, path: `/other-${i}`, machineId: sourceId, worktrees: [] } })),
+    {
+      kind: 'repository',
+      id: 'source-repo',
+      value: {
+        kind: 'repository',
+        path: '/repo',
+        machineId: sourceId,
+        repoId: asRepoId('registered'),
+        originUrl: 'https://example.test/repo.git',
+        worktrees: [
+          { path: subject.cwd, branch: 'issue/opened' },
+          ...Array.from({ length: 32 * scale }, (_, i) => ({
+            path: `/repo/.worktrees/hidden-${i}`,
+            branch: `hidden-${i}`,
+          })),
+        ],
+      },
+    },
+    ...Array.from({ length: 32 * scale }, (_, i) => ({
+      kind: 'repository' as const,
+      id: `other-repo-${i}`,
+      value: {
+        kind: 'repository' as const,
+        path: `/other-${i}`,
+        machineId: sourceId,
+        worktrees: [],
+      },
+    })),
     // Machine records with my access row; online is their live condition (POD-6644).
     ...seedFixtureMachines(pool, ['source', 'target', 'other-target'].map(machine) as never),
   ] as never)
@@ -276,12 +297,30 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       })
       await probe('targets-open', () => fireEvent.click(handoff))
       const targetMenu = screen.getByRole('menu', { name: 'Handoff targets' })
-      expect(within(targetMenu).getAllByRole('menuitem').map(row => row.textContent)).toEqual(['target', 'other-target'])
-      await probe('candidate-update', () => liveFixture(pool).condition(targetId,
-        { online: false, since: null, lastSeenAt: stamp, availability: machine(targetId).availability } as never))
-      expect(within(targetMenu).getByRole('menuitem', { name: /target offline/ }).textContent).toContain('offline')
-      await probe('heartbeat', () => liveFixture(pool).condition(targetId,
-        { online: false, since: null, lastSeenAt: '2026-10-06T12:01:00Z', availability: machine(targetId).availability } as never))
+      expect(
+        within(targetMenu)
+          .getAllByRole('menuitem')
+          .map((row) => row.textContent),
+      ).toEqual(['target', 'other-target'])
+      await probe('candidate-update', () =>
+        liveFixture(pool).condition(targetId, {
+          online: false,
+          since: null,
+          lastSeenAt: stamp,
+          availability: machine(targetId).availability,
+        } as never),
+      )
+      expect(
+        within(targetMenu).getByRole('menuitem', { name: /target offline/ }).textContent,
+      ).toContain('offline')
+      await probe('heartbeat', () =>
+        liveFixture(pool).condition(targetId, {
+          online: false,
+          since: null,
+          lastSeenAt: '2026-10-06T12:01:00Z',
+          availability: machine(targetId).availability,
+        } as never),
+      )
       const before = requireHere(pool.row('session', sessionId)) as unknown as SessionView
       await probe('sender-heartbeat', () =>
         pool.apply({

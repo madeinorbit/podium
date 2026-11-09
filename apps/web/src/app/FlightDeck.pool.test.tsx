@@ -75,32 +75,35 @@ vi.mock('./store', () => ({
   useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state),
   useSessionDraft: () => '',
 }))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => owner),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
-  // This fixture's transcript endpoint returns an empty page. Keep a real
-  // retained log behind the conversation seam, as the handoff hook now reads
-  // that log rather than fetching the endpoint itself (POD-5652).
-  useConversation: (
-    sessionId: SessionId | undefined,
-    _factory: unknown,
-    options?: { enabled?: boolean },
-  ) => {
-    if (sessionId === undefined || options?.enabled === false) return undefined
-    let transcript = handoffLogs.get(sessionId)
-    if (!transcript) {
-      transcript = new TranscriptLog({
-        sessionId,
-        source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
-        retainHistory: () => true,
-      })
-      handoffLogs.set(sessionId, transcript)
-      void transcript.start()
-    }
-    return { transcript }
-  },
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    // This fixture's transcript endpoint returns an empty page. Keep a real
+    // retained log behind the conversation seam, as the handoff hook now reads
+    // that log rather than fetching the endpoint itself (POD-5652).
+    useConversation: (
+      sessionId: SessionId | undefined,
+      _factory: unknown,
+      options?: { enabled?: boolean },
+    ) => {
+      if (sessionId === undefined || options?.enabled === false) return undefined
+      let transcript = handoffLogs.get(sessionId)
+      if (!transcript) {
+        transcript = new TranscriptLog({
+          sessionId,
+          source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
+          retainHistory: () => true,
+        })
+        handoffLogs.set(sessionId, transcript)
+        void transcript.start()
+      }
+      return { transcript }
+    },
+  }
+})
 vi.mock('./store-worklist-pool', () => {
   const usePool = () => state.pool as MobxPool | null
   return {

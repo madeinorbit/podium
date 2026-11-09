@@ -6,7 +6,7 @@ import type { RoutedUiState } from '../src/ui-state'
 import { refreshFixtureUi } from './ui'
 
 /** Provider-free suites bind UI hooks to the same real owner as their actions.
- * Replacing an exported useStoreHandle does not replace the provider module's
+ * Replacing an exported useClientRuntime does not replace the provider module's
  * internal context reads. Keep the observable subscription used in production. */
 export function fixtureUiHooks(
   owner: () => { readonly ui: UiStore; readonly deviceState: RoutedUiState },

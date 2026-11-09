@@ -6,8 +6,7 @@ import {
 import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-import { headerEntities } from './header-entities'
-import { omitGone } from './lookup'
+
 // @vitest-environment happy-dom
 
 import type { GitRepositoryWire } from '@podium/model'

@@ -3,14 +3,14 @@ import { omitGone } from './lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import type { IssueEventWire } from '@podium/model'
 import { issueEventRowId, type SuperagentThreadWire, superagentThreadRowId } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { checkSuperagent } from '../../../tests/worklist/diagnostics/superagent-check'
-import { omitGone } from './lookup'
+
 import { NOTICE_ENTITIES } from './notice-schema'
 import { NOTICE_SOURCE_KEY, NoticeSource } from './notice-source'
 import { MobxPool } from './pool'
@@ -163,7 +163,11 @@ async function fixture() {
   })
   const source = await createSuperagentSource(superagentSourcePorts(owner))
   await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => source)
-  await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(noticeSourcePorts(owner)))
+  await pool.sources.ensure(
+    NOTICE_SOURCE_KEY,
+    NOTICE_ENTITIES,
+    () => new NoticeSource(noticeSourcePorts(owner)),
+  )
   pool.sources.view('test.superagentFixture.ui', () => ({ dispose: () => disposeFixtureUi(owner) }))
   dispose.push(() => pool.dispose())
   return {

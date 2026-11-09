@@ -59,13 +59,7 @@ import {
  */
 
 import { createLogger } from '@podium/logger'
-import type {
-  IssueId,
-  MutationId,
-  ReadPositionSnapshot,
-  ReadPositionWire,
-  SessionId,
-} from '@podium/model'
+import type { IssueId, ReadPositionSnapshot, ReadPositionWire, SessionId } from '@podium/model'
 import {
   type CheckoutRepository,
   readPositionRowId,
@@ -106,13 +100,6 @@ import {
   type RouteState,
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
-import {
-  createKeyedInputs,
-  type KeyedInputStats,
-  type KeyedInputsChannel,
-  type LocalKey,
-  type LocalsListener,
-} from './keyed-inputs'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
   asIssueIdOrNull,
@@ -273,9 +260,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private applyingHydratedUi = false
   /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
   private batchDepth = 0
-  private pendingChanges = new Set<keyof (EngineState & ScreenState)>()
-  /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
-  private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof (EngineState & ScreenState)>()
   readonly drafts: DraftStore
   private readonly networkEnabled: boolean
@@ -409,7 +393,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // The checkouts are known once the replica holds a feed position (a saved
       // copy or a first bootstrap) or holds checkout records at all.
       checkoutsKnown: () =>
-        this.replica.getCursor() !== null || (this.replica.rowCount?.('checkouts') ?? 0) > 0,
+        this.root.replica.getCursor() !== null ||
+        (this.root.replica.rowCount?.('checkouts') ?? 0) > 0,
     })
     this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
     this.workspaceKey = workspaceKeyForState(this.state)
@@ -426,7 +411,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.inputs = createKeyedInputs(() => this.state, false, [])
     this.root.installCommands(
       this.createCommands(),
       createChatSends({
@@ -439,12 +423,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.access = Object.defineProperties(
       { ...this.services },
       {
-        ...Object.fromEntries(
-          Object.keys(this.state).map((key) => [
-            key,
-            { enumerable: true, get: () => this.readLocal(key as LocalKey) },
-          ]),
-        ),
         ...Object.getOwnPropertyDescriptors(this.ui.screen),
         paletteOpen: { enumerable: true, get: () => this.palette.open },
         autoContinuePromptSessionId: {
@@ -465,16 +443,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ------------------------------------------------------------------ read seam
 
-  /** Keyed locals (POD-5426 §4.10): `listener` runs after a batch that changed
-   *  one of `keys`, with that subset. Bound so it can be passed bare. */
-  readonly onLocals = (keys: readonly LocalKey[], listener: LocalsListener): (() => void) =>
-    this.inputs.onLocals(keys, listener)
-  /** The value of one local as the last batch published it. */
-  readonly readLocal = <K extends LocalKey>(key: K): EngineState[K] => this.inputs.readLocal(key)
-  /** Wake and diff counters of the keyed inputs (adapter meters). */
-  get keyedInputStats(): KeyedInputStats {
-    return this.inputs.stats
-  }
   // ----------------------------------------------------------------- write seam
 
   /** The pool's transaction log while it owns optimism for pool screens
@@ -654,7 +622,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.destroyed = true
     this.poolWriter?.dispose?.()
     this.poolWriter = null
-    this.inputs.dispose()
     // The root's sign-out: services, the frame queue and every reading.
     this.root.disposeNow()
     this.ui.dispose()
@@ -897,7 +864,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (!Object.is(this.state[k], next)) {
           ;(this.state as unknown as Record<string, unknown>)[k as string] = next
           changed.add(k)
-          this.pendingChanges.add(k)
         }
       }
       if (changed.size === 0) return
@@ -936,18 +902,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       } finally {
         this.batchDepth--
-        if (this.batchDepth === 0) {
-          const changed = this.pendingChanges
-          this.pendingChanges = new Set()
-          // Clear bookkeeping before notifying: listeners may write again.
-          if (changed.size > 0 && !this.destroyed) {
-            this.inputs.emit(
-              new Set(
-                [...changed].filter((key): key is LocalKey => Object.hasOwn(this.state, key)),
-              ),
-            )
-          }
-        }
       }
     }
   }
@@ -1153,7 +1107,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       route.worktree !== prev?.worktree &&
       route.worktree !== st.selectedWorktree
     ) {
-      let canShow = this.replica.getCursor() === null
+      let canShow = this.root.replica.getCursor() === null
       if (!canShow && st.navigation.registeredWorktree && st.navigation.hasWorktreeSession) {
         const known = st.navigation.registeredWorktree(route.worktree)
         const anchored = known === true ? false : st.navigation.hasWorktreeSession(route.worktree)
@@ -1282,7 +1236,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private repositories(): readonly CheckoutRepository[] {
     // Held between checkout changes (dropped by the batch that moves one), so
     // navigation and session switches read no replica list.
-    this.heldRepositories ??= repositoriesFromCheckouts(this.replica.rows('checkouts'))
+    this.heldRepositories ??= repositoriesFromCheckouts(this.root.replica.rows('checkouts'))
     return this.heldRepositories
   }
   private heldRepositories: readonly CheckoutRepository[] | undefined

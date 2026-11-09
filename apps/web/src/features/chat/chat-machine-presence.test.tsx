@@ -2,11 +2,9 @@ import '@podium/client-graph/synced-models'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerView } from '@podium/client-graph/header-views'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import type { SessionView } from '@podium/client-core/session-values'
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { headerView } from '@podium/client-graph/header-views'
+
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { MachineWire } from '@podium/model/browser'
@@ -89,7 +87,11 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
     headerEntities(pool).apply(records as never)
     const rename = (id: string, name: string) =>
       headerEntities(pool).apply([
-        { kind: 'machine', id, value: { ...records.find((record) => record.id === id)!.value, name } },
+        {
+          kind: 'machine',
+          id,
+          value: { ...records.find((record) => record.id === id)!.value, name },
+        },
       ] as never)
     // Direct applies bypass the keyed delivery that sets the fleet order in
     // production; publish it so the section under test sees the live fleet.
@@ -144,7 +146,9 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       view!.unmount()
       const detached = await measure(() => {
         headerEntities(pool).apply(
-          seedFixtureMachines(pool, [{ ...machines[0]!, id: asMachineId('missing'), online: false }] as never) as never,
+          seedFixtureMachines(pool, [
+            { ...machines[0]!, id: asMachineId('missing'), online: false },
+          ] as never) as never,
         )
       })
       expect(detached.work.rows).toBe(0)

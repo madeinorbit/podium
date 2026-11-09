@@ -7,7 +7,6 @@ import { asIssueId, asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import {
   attachWorklistPool,

@@ -165,13 +165,21 @@ async function mount() {
   function Surface() {
     runtime = useClientRuntime() as ClientRuntime
     if (!configured.has(runtime)) {
-      const subscribeHealth = runtime.root.services.connection.hub.onConnectionHealth.bind(runtime.root.services.connection.hub)
+      const subscribeHealth = runtime.root.services.connection.hub.onConnectionHealth.bind(
+        runtime.root.services.connection.hub,
+      )
       fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
       runtime.root.services.connection.hub.onConnectionHealth = subscribeHealth
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.
-      Object.defineProperty(runtime.root.services.connection.hub, 'connected', { configurable: true, get: () => connected })
-      runtime.root.live.setConnection({ state: connected ? 'online' : 'offline', since: Date.now() })
+      Object.defineProperty(runtime.root.services.connection.hub, 'connected', {
+        configurable: true,
+        get: () => connected,
+      })
+      runtime.root.live.setConnection({
+        state: connected ? 'online' : 'offline',
+        since: Date.now(),
+      })
       configured.add(runtime)
     }
 
@@ -257,7 +265,9 @@ async function mount() {
       // This fixture disables the network feed, so publish its condition at
       // the same LiveStore boundary the feed owns in the running client.
       runtime.root.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
-      const hub = runtime.root.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
+      const hub = runtime.root.services.connection.hub as unknown as {
+        emit(kind: string, value: unknown): void
+      }
       hub.emit('connectionHealth', runtime.root.services.connection.hub.connectionHealth())
     },
   }

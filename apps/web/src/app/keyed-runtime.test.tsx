@@ -6,8 +6,8 @@ import { DraftStore } from '@podium/client-core/conversation'
 import {
   createKeyedInputs,
   type KeyedInputsChannel,
-  type RuntimeState,
-} from '@podium/client-core/engine'
+} from '@podium/client-core/test-support/keyed-channel'
+import type { RuntimeState } from '@podium/client-core/engine'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'

@@ -1,5 +1,4 @@
 import '@podium/client-graph/synced-models'
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import {
   ConversationCache,
   type ConversationCacheOptions,
@@ -105,20 +104,30 @@ vi.mock('@/app/store-worklist-pool', () => ({
     )
   },
 }))
-vi.mock('../../../../../packages/client-core/src/react/provider', async (original) => ({
-  ...(await original<typeof import('../../../../../packages/client-core/src/react/provider')>()),
-  ...fixtureRuntimeHooks(() => paneStoreHandle),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => paneStoreHandle),
-}))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => paneStoreHandle),
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => paneStoreHandle),
-  usePresenceRoom: () => ({ status: 'unknown' as const }),
-  useCurrentPrincipal: () => null,
-  useModelCatalog: () => ({}),
-  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
-}))
+vi.mock('../../../../../packages/client-core/src/react/provider', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('../../../../../packages/client-core/src/react/provider')>()),
+    ...fixtureRuntimeHooks(() => paneStoreHandle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => paneStoreHandle,
+    ),
+  }
+})
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => paneStoreHandle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => paneStoreHandle,
+    ),
+    usePresenceRoom: () => ({ status: 'unknown' as const }),
+    useCurrentPrincipal: () => null,
+    useModelCatalog: () => ({}),
+    useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+  }
+})
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/terminal-client-react', () => ({
   useTerminalSession: () => ({

@@ -105,7 +105,8 @@ export function usePoolPanelMetric(machineId: MachineId | undefined) {
 }
 /** My fleet as plain values for React code: a new array when any machine's
  *  facts move (POD-6644). Observer screens read the models directly. */
-const readMachines = (pool: MobxPool): MachineFacts[] => headerView(pool).machines().map(machineFacts)
+const readMachines = (pool: MobxPool): MachineFacts[] =>
+  headerView(pool).machines().map(machineFacts)
 const EMPTY_MACHINES: MachineFacts[] = []
 export function usePoolMachines(): MachineFacts[] {
   return useWorklistPoolProjection(readMachines, EMPTY_MACHINES)
@@ -114,10 +115,11 @@ export function usePoolMachines(): MachineFacts[] {
  *  that changes when one of them does (POD-6644). */
 export function usePoolMachine(id: string | undefined) {
   const read = useMemo(
-    () => (pool: MobxPool): MachineFacts | undefined => {
-      const model = id ? here(pool.model('machine', id)) : undefined
-      return model ? machineFacts(model as MachineModel) : undefined
-    },
+    () =>
+      (pool: MobxPool): MachineFacts | undefined => {
+        const model = id ? here(pool.model('machine', id)) : undefined
+        return model ? machineFacts(model as MachineModel) : undefined
+      },
     [id],
   )
   return useWorklistPoolProjection(read, undefined)
