@@ -46,7 +46,7 @@ import type {
   WorkspaceKey,
   WorkspaceMap,
 } from '../values'
-import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from './chat-send'
+import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from '../conversation/sends'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {

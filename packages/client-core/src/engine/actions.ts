@@ -65,7 +65,7 @@ import {
   type OutboxSettlements,
   outboxChatSends,
   sendChatThroughOutbox,
-} from './chat-send'
+} from '../conversation/sends'
 import { NAVIGATION_LOADING, resolvedWorkspaceKey } from './state'
 import type { Store, StoreNotices } from './types'
 

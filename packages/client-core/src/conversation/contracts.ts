@@ -1,7 +1,7 @@
 import type { MessageRecordWire, SessionId, SessionOffer, TranscriptTag } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { OutboxChatSend } from '../engine/chat-send'
+import type { OutboxChatSend } from '../conversation/sends'
 import { type ConversationPendingTurn } from './projection'
 
 /** Facts used by send projection; ledger-only messages need no chat identity. */

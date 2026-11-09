@@ -7,7 +7,7 @@ import type {
 } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { OutboxChatSend } from '../engine/chat-send'
+import type { OutboxChatSend } from '../conversation/sends'
 import {
   type ConversationBubble,
   type ConversationPendingTurn,

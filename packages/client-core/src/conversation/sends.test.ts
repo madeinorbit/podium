@@ -5,7 +5,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { OutboxChatSend } from '../engine/chat-send'
+import type { OutboxChatSend } from '../conversation/sends'
 import { createSendsFixture } from './model-test-support'
 import type { ConversationPendingTurn } from './projection'
 

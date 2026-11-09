@@ -8,34 +8,32 @@ import type {
 } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { OutboxChatSend } from '../engine/chat-send'
+import {
+  action,
+  actionBound,
+  compareShallow,
+  compareStructural,
+  observable,
+  observableRef,
+  reaction,
+  runInAction,
+} from 'mobx'
+import type {
+  ConversationClock,
+  ConversationContext,
+  ConversationMessage,
+  ConversationSendInput,
+  ConversationSendOptions,
+} from './contracts'
+import { CATCH_UP_BATCH, NOT_STORED } from './contracts'
+import type { DraftStore } from './draft-store'
+import { freezePlain } from './frozen'
 import {
   type ConversationBubble,
   type ConversationPendingTurn,
   projectConversation,
 } from './projection'
-
-import {
-  action,
-  actionBound,
-  observable,
-  observableRef,
-  reaction,
-  compareStructural,
-  compareShallow,
-  runInAction,
-} from 'mobx'
-import type {
-  ConversationSendOptions,
-  ConversationMessage,
-  ConversationContext,
-  ConversationClock,
-  ConversationSendInput,
-} from './contracts'
-import { CATCH_UP_BATCH, NOT_STORED } from './contracts'
-import type { DraftStore } from './draft-store'
 import type { TranscriptChange, TranscriptLog } from './transcript-log'
-import { freezePlain } from './frozen'
 
 export interface SendsOptions extends ConversationSendOptions {
   transcript: TranscriptLog
@@ -114,7 +112,8 @@ export class Sends {
   private catchUpAgain = false
 
   constructor(private readonly options: SendsOptions) {
-    if (options.lookupRecords && !options.messageRecords) throw new Error('Message lookup requires the shared record pool')
+    if (options.lookupRecords && !options.messageRecords)
+      throw new Error('Message lookup requires the shared record pool')
     this.clock = options.clock ?? defaultClock
     const pending = [...(options.initialPending ?? [])]
     runInAction(() => {
@@ -165,8 +164,13 @@ export class Sends {
     this.reconcile({ changed: this.options.transcript.items, added: [], rebuild: true }, true)
     this.unsubscribes.push(
       reaction(
-        () => [this.context.agentSince, this.context.agentPhase, this.context.agentError,
-          this.context.offer, this.context.canInterrupt],
+        () => [
+          this.context.agentSince,
+          this.context.agentPhase,
+          this.context.agentError,
+          this.context.offer,
+          this.context.canInterrupt,
+        ],
         () => this.observeContext(this.context),
         { fireImmediately: true, equals: compareStructural },
       ),
@@ -200,7 +204,8 @@ export class Sends {
   }
 
   @actionBound private observeContext(context: ConversationContext): void {
-    if (!context.offer || context.offer.createdAt !== this.dismissedOfferAt) this.dismissedOfferAt = null
+    if (!context.offer || context.offer.createdAt !== this.dismissedOfferAt)
+      this.dismissedOfferAt = null
     this.applyTerminalAgentError(context)
     this.reconcileOpenSend()
   }
@@ -252,7 +257,10 @@ export class Sends {
     return turn
   }
 
-  @action async sendOffer(prompt: string, offerCreatedAt: string): Promise<ConversationPendingTurn | null> {
+  @action async sendOffer(
+    prompt: string,
+    offerCreatedAt: string,
+  ): Promise<ConversationPendingTurn | null> {
     const turn = this.createTurn({ text: prompt, wire: prompt }, 'offer')
     if (!turn) return null
     this.dismissedOfferAt = offerCreatedAt
@@ -631,11 +639,12 @@ export class Sends {
   private currentRecords(
     pending: readonly ConversationPendingTurn[] = this.pending,
   ): readonly ConversationMessage[] {
-    const shown = new Set(pending.map(turn => turn.deliveryId))
+    const shown = new Set(pending.map((turn) => turn.deliveryId))
     const ids = new Set(this.feedIds)
     for (const id of this.looked) if (shown.has(id)) ids.add(id)
     const shared = this.options.messageRecords
-    if (!shared) return (this.options.records?.getSnapshot() ?? []).filter(record => ids.has(record.id))
+    if (!shared)
+      return (this.options.records?.getSnapshot() ?? []).filter((record) => ids.has(record.id))
     const records: ConversationMessage[] = []
     for (const id of ids) {
       const record = shared.read(id)
@@ -746,8 +755,8 @@ export class Sends {
    */
   @actionBound private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
-    const seed = this.pending.find(turn => turn.reconcile === 'initial-prompt')
-    this.feedIds = records.map(record => record.id)
+    const seed = this.pending.find((turn) => turn.reconcile === 'initial-prompt')
+    this.feedIds = records.map((record) => record.id)
     const present = new Map<string, ConversationMessage>()
     for (const record of records) {
       present.set(record.id, record)
@@ -756,9 +765,13 @@ export class Sends {
       if (seed && record.initialPrompt) {
         this.seenOpen.delete(seed.deliveryId)
         this.seenOpen.add(record.id)
-        this.pending.replace(this.pending.map(turn => turn === seed
-          ? freezePlain({ ...turn, deliveryId: record.id, reconcile: 'record' as const })
-          : turn))
+        this.pending.replace(
+          this.pending.map((turn) =>
+            turn === seed
+              ? freezePlain({ ...turn, deliveryId: record.id, reconcile: 'record' as const })
+              : turn,
+          ),
+        )
       }
     }
     for (const [id, status] of this.hidden) {
@@ -877,7 +890,8 @@ export class Sends {
     const pending = retained.filter((turn) => {
       if (
         (turn.reconcile !== 'next-user-item' && turn.reconcile !== 'initial-prompt') ||
-        turn.state === 'interrupted' || arrivals === 0
+        turn.state === 'interrupted' ||
+        arrivals === 0
       )
         return true
       arrivals--
@@ -991,8 +1005,256 @@ export class Sends {
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
     )
     this.interruptMessageId =
-      !latest || latest.reconcile === 'initial-prompt' || latest.state === 'interrupted' || latest.state === 'retracted'
+      !latest ||
+      latest.reconcile === 'initial-prompt' ||
+      latest.state === 'interrupted' ||
+      latest.state === 'retracted'
         ? null
         : latest.deliveryId
+  }
+}
+
+/**
+ * EVERY CHAT SEND GOES THROUGH THE OUTBOX (POD-4762).
+ *
+ * There used to be two ways a message left the app. A live session got one
+ * direct `sessions.sendText` request held only in memory: a reload lost it, a
+ * dropped answer was never retried, and the web's "Retry" minted a new id — a
+ * second message. A parked session went through the durable outbox. Now both go
+ * through the outbox, keyed by the message id the composer minted, so ONE
+ * mechanism keeps the send on the device, retries it with growing pauses under
+ * the same id (the server answers a repeat with its first answer), and gives up
+ * after `CHAT_SEND_MAX_AGE_MS` with "not sent". The user's retry re-issues that
+ * same entry — the same id — rather than sending anything new.
+ *
+ * `sendChatThroughOutbox` is idempotent BY ID, which is what lets a reloaded
+ * conversation simply call it again for every message the queue still holds:
+ * an entry already on its way is waited on, a parked one is re-issued, and one
+ * that already landed is sent again under its id and answered from the server's
+ * record of the first time.
+ */
+
+import type { MutationId } from '@podium/model'
+import { asMutationId } from '@podium/model'
+import { ChatNotSentError, chatNotSent, type OutboxChatSend, outboxChatSends } from '../chat-values'
+import { randomUUID } from '../id'
+
+export { ChatNotSentError, type OutboxChatSend, outboxChatSends } from '../chat-values'
+
+import type { OutboxSettlement } from '../outbox'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
+
+export interface ChatSendInput {
+  readonly sessionId: SessionId
+  readonly text: string
+  readonly attachments?: readonly RuntimeAttachmentRef[]
+  /** The session is parked: the send wakes it first (`sessions.resumeAndSend`). */
+  readonly wake: boolean
+}
+
+/** What the server said it did with the message. */
+export interface ChatSendOutcome {
+  /** `queued` — waiting behind a turn or for a wake; `sent` — handed to the agent. */
+  readonly state: 'queued' | 'sent'
+  /** The server's 1-based FIFO position, when it returned one. */
+  readonly position?: number
+}
+
+/**
+ * Waiters keyed by entry id, released by the queue's settlement callback.
+ * Registered BEFORE the enqueue or re-issue that causes the settlement: the
+ * drain may resolve an entry before the call that queued it returns.
+ */
+export class OutboxSettlements {
+  private readonly waiters = new Map<string, Set<(settlement: OutboxSettlement) => void>>()
+
+  /** Wait for the next settlement of `mutationId`. `cancel` withdraws the wait
+   *  when the call that was to cause it never happened. */
+  next(mutationId: MutationId): { settled: Promise<OutboxSettlement>; cancel(): void } {
+    let waiter!: (settlement: OutboxSettlement) => void
+    const settled = new Promise<OutboxSettlement>((resolve) => {
+      waiter = resolve
+    })
+    const waiting = this.waiters.get(mutationId) ?? new Set()
+    waiting.add(waiter)
+    this.waiters.set(mutationId, waiting)
+    return {
+      settled,
+      cancel: () => {
+        waiting.delete(waiter)
+        if (waiting.size === 0 && this.waiters.get(mutationId) === waiting) {
+          this.waiters.delete(mutationId)
+        }
+      },
+    }
+  }
+
+  settle(mutationId: MutationId, settlement: OutboxSettlement): void {
+    const waiting = this.waiters.get(mutationId)
+    if (waiting === undefined) return
+    this.waiters.delete(mutationId)
+    for (const resolve of waiting) resolve(settlement)
+  }
+}
+
+function outcomeOf(reply: unknown, wake: boolean): ChatSendOutcome {
+  // The two refusals the queue settles as DONE rather than parking them (a Stop
+  // that got there first, a session that is gone): the entry is finished, and
+  // the message still did not go out.
+  if (typeof reply === 'object' && reply !== null && (reply as { ok?: unknown }).ok === false) {
+    const reason = (reply as { reason?: unknown }).reason
+    throw new ChatNotSentError(
+      typeof reason === 'string' && reason !== '' ? `not sent — ${reason}` : 'not sent',
+      false,
+    )
+  }
+  // A wake always waits: the text is typed once the process it starts is ready.
+  if (wake) return { state: 'queued' }
+  if (typeof reply !== 'object' || reply === null) return { state: 'sent' }
+  if ((reply as { disposition?: unknown }).disposition !== 'queued') return { state: 'sent' }
+  const position = (reply as { position?: unknown }).position
+  return { state: 'queued', ...(typeof position === 'number' ? { position } : {}) }
+}
+
+function payloadOf(input: ChatSendInput): {
+  kind: 'sendText' | 'resumeAndSend'
+  payload: OutboxKinds['sendText'] | OutboxKinds['resumeAndSend']
+} {
+  if (input.wake) {
+    // A parked agent takes files too (POD-2148): the server holds them and
+    // stages them on its machine once the woken agent is handed the message.
+    return {
+      kind: 'resumeAndSend',
+      payload: {
+        sessionId: input.sessionId,
+        text: input.text,
+        ...(input.attachments?.length ? { attachments: [...input.attachments] } : {}),
+      },
+    }
+  }
+  return {
+    kind: 'sendText',
+    payload: {
+      sessionId: input.sessionId,
+      text: input.text,
+      ...(input.attachments?.length ? { attachments: [...input.attachments] } : {}),
+    },
+  }
+}
+
+/**
+ * Send one chat message by id and wait for the server's answer or the outbox's
+ * give-up. Throws `ChatNotSentError` when the entry parks.
+ */
+export async function sendChatThroughOutbox(
+  deps: { readonly outbox: EngineOutbox; readonly settlements: OutboxSettlements },
+  input: ChatSendInput,
+  mutationId: MutationId,
+): Promise<ChatSendOutcome> {
+  const { outbox, settlements } = deps
+  if (outbox.awaiting().some((entry) => entry.mutationId === mutationId)) {
+    // Landed already; the answer went to whoever was waiting then.
+    return outcomeOf(undefined, input.wake)
+  }
+  // Registered BEFORE the call that causes the settlement: the drain can
+  // resolve the entry before that call returns.
+  const wait = settlements.next(mutationId)
+  try {
+    if (outbox.deadLetters().some((parked) => parked.entry.mutationId === mutationId)) {
+      // The user's retry of a message that gave up: the SAME entry goes out
+      // again. The queue keeps its id (see `CHAT_SEND_MAX_AGE_MS`).
+      await outbox.retry(mutationId, { reissue: true })
+    } else if (!outbox.pending().some((entry) => entry.mutationId === mutationId)) {
+      const { kind, payload } = payloadOf(input)
+      // Chat delivery is non-optimistic for pool rows: the runtime/composer
+      // owns its bubble and settlement. The same durable outbox owns retries
+      // and message identity; PoolTransactions never paints a chat send.
+      await outbox.enqueue(kind, payload, { mutationId })
+    }
+    // Otherwise it is already on its way (a reloaded conversation asking
+    // again): wait on it.
+  } catch (error) {
+    wait.cancel()
+    throw error
+  }
+  const settlement = await wait.settled
+  if (settlement.kind === 'not-sent') throw chatNotSent(settlement)
+  return outcomeOf(settlement.reply, input.wake)
+}
+
+/** Let a message the outbox still holds go — parked or not yet sent — so
+ *  nothing sends it later. A message the queue no longer holds is past
+ *  discarding: it reached the server. */
+export async function discardChatThroughOutbox(
+  outbox: EngineOutbox,
+  mutationId: MutationId,
+): Promise<void> {
+  const held =
+    outbox.deadLetters().some((parked) => parked.entry.mutationId === mutationId) ||
+    outbox.pending().some((entry) => entry.mutationId === mutationId)
+  if (held) await outbox.discard(mutationId)
+}
+
+/** A fresh message id, in the form the server's message ledger uses. */
+export function newChatMessageId(): MutationId {
+  return asMutationId(`msg_${randomUUID()}`)
+}
+
+/**
+ * Authority send replies that resolve HTTP 200 with `{ ok: false, … }`.
+ *
+ * The substrate deliberately returns a result rather than throwing for
+ * unaddressable / refused chat (POD-379). The client outbox used to treat any
+ * non-throwing mutate as `applied`, so a dead-lettered first prompt was
+ * permanently "done" while the agent never saw it (POD-546). Offer-button and
+ * chat callers that ignored `ok:false` dismissed the UI while the agent never
+ * saw the prompt (POD-552).
+ *
+ * Call this after every `sessions.resumeAndSend` / `sessions.sendText` mutate
+ * that runs through the outbox (or a best-effort first-prompt path) so `ok:
+ * false` becomes a definitive BAD_REQUEST refusal and parks in dead-letter
+ * recovery instead of vanishing. Live chat/offer callers use the same helper so
+ * the UI can surface and retry.
+ */
+
+export function assertSendAccepted(result: unknown): void {
+  if (
+    result === null ||
+    typeof result !== 'object' ||
+    !('ok' in result) ||
+    (result as { ok: unknown }).ok !== false
+  ) {
+    return
+  }
+  const reason =
+    'reason' in result && typeof (result as { reason: unknown }).reason === 'string'
+      ? (result as { reason: string }).reason
+      : 'send refused'
+  throw Object.assign(new Error(reason), { data: { code: 'BAD_REQUEST' as const } })
+}
+
+/** The unchanged outbox commands used by a conversation's sends. */
+export interface ChatCommands {
+  sendChat(input: ChatSendInput, mutationId?: MutationId): Promise<ChatSendOutcome>
+  chatSendsFor(sessionId: SessionId): OutboxChatSend[]
+  discardChat(mutationId: MutationId): Promise<void>
+}
+
+export function createChatSends(rt: {
+  outbox: EngineOutbox
+  outboxSettlements: OutboxSettlements
+  waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
+}): ChatCommands {
+  return {
+    sendChat: async (input, mutationId) => {
+      await rt.waitForSpawnConfirmed(input.sessionId)
+      return await sendChatThroughOutbox(
+        { outbox: rt.outbox, settlements: rt.outboxSettlements },
+        input,
+        mutationId ?? newChatMessageId(),
+      )
+    },
+    chatSendsFor: (sessionId) => outboxChatSends(rt.outbox, sessionId),
+    discardChat: (mutationId) => discardChatThroughOutbox(rt.outbox, mutationId),
   }
 }

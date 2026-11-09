@@ -29,7 +29,7 @@ import {
   type RetrySatisfaction,
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../../api'
-import { assertSendAccepted } from '../../engine/send-outcome'
+import { assertSendAccepted } from '../../conversation/sends'
 import type { StoreNotices } from '../../engine/types'
 import {
   classifyRefusal,

@@ -7,7 +7,7 @@ import type {
   UserId,
 } from '@podium/model'
 import type { PodiumClientApi } from '../api'
-import type { OutboxSettlements } from '../engine/chat-send'
+import type { OutboxSettlements } from '../conversation/sends'
 import type { StoreNotices } from '../engine/types'
 import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 import type { SocketHub } from '../socket-transport'

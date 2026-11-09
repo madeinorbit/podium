@@ -19,6 +19,7 @@ import { asMutationId, asSessionId, type MutationId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import type { StoreNotices } from '../engine/types'
 import type { Replica } from '../replica/contract'
 import { openKernelEngineOutbox } from '../runtime-root/outbox/kernel-outbox'
 import { CHAT_SEND_MAX_AGE_MS, type EngineOutbox } from '../runtime-root/outbox/wiring'
@@ -28,8 +29,7 @@ import {
   OutboxSettlements,
   outboxChatSends,
   sendChatThroughOutbox,
-} from './chat-send'
-import type { StoreNotices } from './types'
+} from './sends'
 
 const SESSION = asSessionId('s-chat')
 
