@@ -75,8 +75,6 @@ export function settingsOwnerFixture(input: {
   ui.patch({ settingsTab: String(input.settingsTab?.() ?? 'sessions') })
   const owner = {
     ui,
-    readLocal: () => input.settingsTab?.() ?? 'sessions',
-    onLocals: () => () => {},
     replica: {
       rows: (kind: string) =>
         kind === 'checkouts'

@@ -313,7 +313,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       isVisible: () => this.visibility.isVisible(),
       revealTranscript: (sessionId, itemKey) => this.transcriptReveals.reveal(sessionId, itemKey),
       changed: (changed) => {
-        if (this.inputs)
+        if (this.reactions)
           this.runReactions(changed as ReadonlySet<keyof (EngineState & ScreenState)>)
       },
       watch: (keys, listener) => {

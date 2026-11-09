@@ -1,6 +1,10 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import type { ConversationMessage, ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
-import type { OutboxChatSend } from '@podium/client-core/engine'
+import type {
+  ConversationMessage,
+  ConversationOutbox,
+  ConversationRecords,
+} from '@podium/client-core/conversation'
+import type { OutboxChatSend } from '@podium/client-core/conversation'
 import type { SessionId } from '@podium/model'
 import type { MobxPool } from '@podium/client-graph'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
@@ -21,16 +25,16 @@ const EMPTY_INPUT = {
   ready: false,
   draft: '',
 }
-export function useChatConversationPorts(
-  id: SessionId,
-): Ports {
+export function useChatConversationPorts(id: SessionId): Ports {
   const initial = useRef<{ id: string; draft: string } | undefined>(undefined)
   const read = useCallback(
     (pool: MobxPool) => {
       const reader = omitGone(pool.row('chatContextReader', 'reader')),
         held = omitGone(pool.row('chatHeld', id))
       const draft =
-        initial.current?.id === id ? { text: initial.current.draft } : omitGone(pool.row('chatDraft', id))
+        initial.current?.id === id
+          ? { text: initial.current.draft }
+          : omitGone(pool.row('chatDraft', id))
       if (!reader || pending(reader) || !held || pending(held) || !draft || pending(draft))
         return EMPTY_INPUT
       const records = reader.records(id)

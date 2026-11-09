@@ -21,7 +21,9 @@ import {
 import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export type SettingsOwner = Pick<ClientRuntime, 'ui' | 'replica'>
+export type SettingsOwner = Pick<ClientRuntime, 'ui'> & {
+  readonly replica: ClientRuntime['root']['replica']
+}
 
 /** Machines are feed records; repositories are derived from the `checkout`
  *  records (POD-6644). Both follow the replica's addressed batches. */

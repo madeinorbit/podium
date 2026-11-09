@@ -102,7 +102,7 @@ export function checkChatContext(
     const serialSends = (
       sends:
         | ReturnType<import('@podium/client-core/conversation').ChatCommands['chatSendsFor']>
-        | readonly import('@podium/client-core/engine').OutboxChatSend[],
+        | readonly import('@podium/client-core/conversation').OutboxChatSend[],
     ) =>
       sends.map((send) => ({
         ...send,

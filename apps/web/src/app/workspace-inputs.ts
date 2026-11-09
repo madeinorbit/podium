@@ -1,3 +1,4 @@
+import type { Trpc } from './trpc'
 import { useCommands, useUi, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allTabIds } from '@podium/client-core/values'

@@ -28,7 +28,7 @@ export function keyedInputsOverStore(store: {
     const next = state()
     const changed = new Set<LocalKey>()
     for (const key of followed.keys()) {
-      const value = next[key]
+      const value = Reflect.get(next, key)
       if (previous.has(key) && Object.is(previous.get(key), value)) continue
       previous.set(key, value)
       changed.add(key)

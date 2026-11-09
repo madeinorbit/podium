@@ -654,7 +654,7 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     await settle()
     expect([...hub.topicHolds.keys()]).toEqual(['account.quota:operator'])
     // The live feed follows the machine records (POD-6644).
-    engine.replica.applySnapshot('machines', [
+    engine.root.replica.applySnapshot('machines', [
       { id: 'm1', name: 'm1', loggedOutHarnesses: [] },
       { id: 'm2', name: 'm2', loggedOutHarnesses: [] },
     ] as never)

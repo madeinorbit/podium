@@ -1,6 +1,6 @@
 import { omitGone } from '@podium/client-graph/lookup'
 import type { ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
-import type { OutboxChatSend } from '@podium/client-core/engine'
+import type { OutboxChatSend } from '@podium/client-core/conversation'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
@@ -233,7 +233,10 @@ export function mobileConversationPorts(
   return {
     records: {
       getSnapshot: () => read().records,
-      subscribe: (listener) => reaction(() => read().records.map(record => record.row), listener, { equals: compareShallow }),
+      subscribe: (listener) =>
+        reaction(() => read().records.map((record) => record.row), listener, {
+          equals: compareShallow,
+        }),
     },
     outbox: {
       held: () => read().sends,

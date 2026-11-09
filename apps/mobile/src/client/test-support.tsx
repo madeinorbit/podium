@@ -313,7 +313,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     /** Machine samples arrive as per-machine LiveStore readings. */
     setHostMetrics(samples: readonly HostMetricsWire[]) {
       runInAction(() => {
-        const live = runtimeHandle!.live
+        const live = runtimeHandle!.root.live
         const incoming = new Set(
           samples.map((sample) => String(sample.machineId ?? sample.hostname)),
         )
@@ -382,7 +382,7 @@ function applyMachineConditions(
     for (const machine of machines) {
       const { online, lastSeenAt, availability, presenceSource, daemonReadiness } =
         machine as MachineWire & Record<string, unknown>
-      runtime.live.applyTopic(
+      runtime.root.live.applyTopic(
         'machine.condition',
         String(machine.id),
         knownReading(

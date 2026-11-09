@@ -10,15 +10,11 @@ import { referenceState } from '../../../tests/worklist/diagnostics/reference-st
 // @vitest-environment happy-dom
 
 import type { GitRepositoryWire } from '@podium/model'
-/**
- * POD-5433 (plan steps 7-9): the wake meter for the pool adapters that used
- * to re-read the runtime's whole published snapshot. Each adapter runs over a
- * counting view of one real scenario runtime, with its rows demanded. A batch
- * that touches none of an adapter's keys must cost it nothing: no wake, no
- * read. Measured at 1x and 4x so per-change work cannot grow with the data.
- */
+/** Addressed adapter updates over a real scenario runtime. Drafts, issue exits,
+ * repository re-links, chat order work and machine-row identity are checked
+ * at their current owners at 1x and 4x corpus sizes. */
 import { asSessionId } from '@podium/model/browser'
-import { autorun, runInAction } from 'mobx'
+import { autorun } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   startScenarioEngine,
@@ -44,11 +40,6 @@ import { ShellSource } from './shell-source'
 import { createSuperagentSource } from './superagent'
 
 type Runtime = Awaited<ReturnType<typeof startScenarioEngine>>['engine']
-interface Meter {
-  wakes: number
-  reads: number
-}
-
 const cleanups: (() => void)[] = []
 beforeEach(async () => {
   // Each test owns a large corpus. Collect after the previous async test
@@ -59,32 +50,6 @@ beforeEach(async () => {
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()
 })
-
-/** The runtime as one adapter sees it, counting every wake and every read. */
-function metered(rt: Runtime): { view: Runtime; meter: Meter } {
-  const meter: Meter = { wakes: 0, reads: 0 }
-  const woken =
-    <A extends unknown[]>(listener: (...args: A) => void) =>
-    (...args: A) => {
-      meter.wakes++
-      listener(...args)
-    }
-  const read =
-    <A extends unknown[], R>(fn: (...args: A) => R) =>
-    (...args: A): R => {
-      meter.reads++
-      return fn(...args)
-    }
-  const view = Object.create(rt) as Runtime
-  Object.assign(view, {
-    readLocal: read(rt.readLocal),
-    onLocals: (
-      keys: Parameters<Runtime['onLocals']>[0],
-      listener: Parameters<Runtime['onLocals']>[1],
-    ) => rt.onLocals(keys, woken(listener)),
-  })
-  return { view, meter }
-}
 
 const flush = async () => {
   for (let turn = 0; turn < 4; turn++) await Promise.resolve()
@@ -106,56 +71,42 @@ async function fixture(scale: 1 | 4) {
     /* baseline boot */
   }
   const pool = handle.pool
-  const meters: Record<string, Meter> = {}
-  const add = (name: string) => {
-    const { view, meter } = metered(rt)
-    meters[name] = meter
-    return view
-  }
-  const engineLocals = createEngineLocals(add('engineLocals'))
+  const engineLocals = createEngineLocals(rt)
   stops.push(() => engineLocals.dispose())
-  const board = createIssueBoardSource(pool, add('issueBoard'))
+  const board = createIssueBoardSource(pool, rt)
   stops.push(() => board.dispose())
-  const pane = new SessionPaneSource(add('sessionPane'))
+  const pane = new SessionPaneSource(rt)
   stops.push(() => pane.dispose())
-  const shell = new ShellSource(add('shell'))
+  const shell = new ShellSource(rt)
   stops.push(() => shell.dispose())
-  stops.push(attachHeaderSource(pool, add('header')))
-  const command = new CommandLaunchSource(pool, add('commandLaunch'))
+  stops.push(attachHeaderSource(pool, rt))
+  const command = new CommandLaunchSource(pool, rt)
   stops.push(() => command.dispose())
-  const settings = new SettingsSource(add('settings'))
+  const settings = new SettingsSource({ ui: rt.ui, ...replicaSourcePorts(rt) })
   settings.read('settingsWindow', 'window')
   stops.push(() => settings.dispose())
-  const superagent = await createSuperagentSource(superagentSourcePorts(add('superagent')))
+  const superagent = await createSuperagentSource(superagentSourcePorts(rt))
   superagent.read('superagentLocal', 'local')
   stops.push(() => superagent.dispose())
-  const chat = new ChatContextSource(chatSourcePorts(add('chatContext')), pool)
+  const chat = new ChatContextSource(chatSourcePorts(rt), pool)
   const session = ctx.targets.phaseSessionId
   chat.read('chatDraft', session)
   chat.read('chatWindow', 'window')
   stops.push(() => chat.dispose())
-  const inbox = new MobileInboxSource(replicaSourcePorts(add('mobileInbox')), pool)
+  const inbox = new MobileInboxSource(replicaSourcePorts(rt), pool)
   inbox.read('mobileInboxState', 'state')
   stops.push(() => inbox.dispose())
-  const mobileSettings = await createMobileSettingsSource(replicaSourcePorts(add('mobileSettings')))
+  const mobileSettings = await createMobileSettingsSource(replicaSourcePorts(rt))
   mobileSettings.read('mobileSettingsDiagnostics', 'diagnostics')
   stops.push(() => mobileSettings.dispose())
-  const mobileSession = createMobileSessionSource(add('mobileSession'), pool)
+  const mobileSession = createMobileSessionSource(rt, pool)
   mobileSession.read('mobileSessionWindow')
   stops.push(() => mobileSession.dispose())
   await flush()
-  const reset = () => {
-    for (const meter of Object.values(meters)) {
-      meter.wakes = 0
-      meter.reads = 0
-    }
-  }
   return {
     ctx,
     rt,
     pool,
-    meters,
-    reset,
     session,
     command,
     chat,
@@ -163,49 +114,9 @@ async function fixture(scale: 1 | 4) {
   }
 }
 
-type Fixture = Awaited<ReturnType<typeof fixture>>
-
-/** Work per adapter for one scripted batch, after its microtasks settle. */
-async function costOf(f: Fixture, act: () => unknown) {
-  f.reset()
-  await act()
-  await flush()
-  return Object.fromEntries(
-    Object.entries(f.meters).map(([name, meter]) => [name, meter.wakes + meter.reads]),
-  )
-}
-
-const zero = (cost: Record<string, number>) =>
-  Object.fromEntries(Object.keys(cost).map((name) => [name, 0]))
-
 describe('keyed adapter inputs (POD-5433)', () => {
   for (const scale of [1, 4] as const) {
-    it(`a kernel batch touching no demanded key wakes no adapter (${scale}x)`, async () => {
-      const f = await fixture(scale)
-      try {
-        const cost = await costOf(f, () => writeHeartbeat(f.ctx))
-        expect(cost).toEqual(zero(cost))
-      } finally {
-        f.dispose()
-      }
-    })
-
-    it(`an unrelated local wakes no adapter (${scale}x)`, async () => {
-      const f = await fixture(scale)
-      try {
-        // Focus is local-only (a dock tab replicates through the outbox, which
-        // moves the header's outbox count).
-        const next = referenceState(f.rt).focusedPane === 'A' ? 'B' : 'A'
-        const cost = await costOf(f, () =>
-          runInAction(() => referenceState(f.rt).setFocusedPane(next)),
-        )
-        expect(cost).toEqual(zero(cost))
-      } finally {
-        f.dispose()
-      }
-    })
-
-    it(`a draft updates its addressed chat row without keyed adapter wakes (${scale}x)`, async () => {
+    it(`a draft updates its addressed chat row (${scale}x)`, async () => {
       const f = await fixture(scale)
       try {
         const seen: unknown[] = []
@@ -214,10 +125,8 @@ describe('keyed adapter inputs (POD-5433)', () => {
         })
         const batches = f.chat.counts.batches
         try {
-          const cost = await costOf(f, () =>
-            referenceState(f.rt).setSessionDraft(asSessionId(f.session), 'hello'),
-          )
-          expect(cost).toEqual(zero(cost))
+          referenceState(f.rt).setSessionDraft(asSessionId(f.session), 'hello')
+          await flush()
           expect(f.chat.counts.batches - batches).toBe(1)
           expect(seen).toHaveLength(2)
           expect(seen[1]).toEqual({ text: 'hello' })

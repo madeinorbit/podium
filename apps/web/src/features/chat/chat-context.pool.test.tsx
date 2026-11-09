@@ -67,8 +67,6 @@ const handle = {
     return snapshot()
   },
   subscribe: (_listener: () => void) => () => {},
-  readLocal: (key: import('@podium/client-core/test-support/keyed-channel').LocalKey) =>
-    f.fixture!.owner.readLocal(key),
   get drafts() {
     return f.fixture!.owner.drafts
   },

@@ -826,8 +826,8 @@ describe('real pool row mutations and receipts', () => {
     const sort = await request('issues.update', movedId)
     // The compatibility outbox sends one promise at a time. Both optimistic
     // records are present before either deferred transport is answered.
-    expect(runtime.outbox.pending()).toHaveLength(2)
-    expect(runtime.outbox.pending()).toContainEqual(
+    expect(runtime.root.services.outbox.queue.pending()).toHaveLength(2)
+    expect(runtime.root.services.outbox.queue.pending()).toContainEqual(
       expect.objectContaining({
         kind: pinned ? 'recordCreate' : 'recordRemove',
         input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),

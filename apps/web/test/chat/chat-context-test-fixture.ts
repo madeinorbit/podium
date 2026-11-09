@@ -16,7 +16,7 @@ import type { ReferenceState } from '../../../../tests/worklist/diagnostics/refe
 
 type Store = ReferenceState & { drafts: Record<string, string> }
 
-import { outboxChatSends } from '@podium/client-core/engine'
+import { outboxChatSends } from '@podium/client-core/conversation'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
 import {
   asIssueId,

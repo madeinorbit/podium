@@ -1,4 +1,5 @@
-import type { OutboxChatSend, Store } from '@podium/client-core/engine'
+import type { Store } from '@podium/client-core/engine'
+import type { OutboxChatSend } from '@podium/client-core/conversation'
 
 /** Conversation payloads use NoticeSource. These rows borrow the existing
  * draft/window/outbox owners; they own neither mutations nor a transcript. */

@@ -17,7 +17,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
 ): () => void {
-  bindCheckoutRecords(pool, runtime.replica)
+  bindCheckoutRecords(pool, runtime.root.replica)
   let disposed = false
   const known = new Map<HeaderEntity, Set<string>>()
   function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
@@ -42,7 +42,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   let repositoriesFrom: unknown
   const written = new Map<string, string>()
   function repositories(): void {
-    const rows = runtime.replica.rows('checkouts')
+    const rows = runtime.root.replica.rows('checkouts')
     if (rows === repositoriesFrom) return
     repositoriesFrom = rows
     pool.checkoutRecordsChanged()

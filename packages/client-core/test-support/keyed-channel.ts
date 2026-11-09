@@ -28,14 +28,14 @@ export interface KeyedInputsChannel extends KeyedInputs {
  *  `live` reads `read()` directly instead (fixtures that mutate a store in
  *  place and may never publish). */
 export function createKeyedInputs(
-  read: () => FixtureState,
+  read: () => object,
   live = false,
   directKeys: readonly LocalKey[] = [],
 ): KeyedInputsChannel {
   const snapshot: Partial<FixtureState> = live ? {} : { ...read() }
   const direct = new Set(directKeys)
   for (const key of direct) delete snapshot[key]
-  const current = (): Partial<FixtureState> => (live ? read() : snapshot)
+  const current = (): Partial<FixtureState> => (live ? (read() as FixtureState) : snapshot)
   const byKey = new Map<LocalKey, Set<{ keys: ReadonlySet<LocalKey>; listener: LocalsListener }>>()
   const stats: KeyedInputStats = { wakes: 0 }
   let disposed = false
@@ -62,12 +62,13 @@ export function createKeyedInputs(
         for (const key of entry.keys) byKey.get(key)?.delete(entry)
       }
     },
-    readLocal: (key) => (direct.has(key) ? read() : current())[key] as FixtureState[typeof key],
+    readLocal: (key) =>
+      Reflect.get(direct.has(key) ? read() : current(), key) as FixtureState[typeof key],
     emit(changed) {
       if (disposed) return
       const state = read()
       for (const key of changed)
-        if (!direct.has(key)) (snapshot as Record<string, unknown>)[key] = state[key]
+        if (!direct.has(key)) (snapshot as Record<string, unknown>)[key] = Reflect.get(state, key)
       const woken = new Map<LocalsListener, Set<LocalKey>>()
       for (const key of changed)
         for (const entry of byKey.get(key) ?? []) {

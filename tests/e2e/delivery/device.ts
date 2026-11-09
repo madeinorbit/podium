@@ -32,7 +32,12 @@ import {
   type Sends,
   type TranscriptLog,
 } from '@podium/client-core/conversation'
-import { discardChatThroughOutbox, OutboxSettlements, outboxChatSends, sendChatThroughOutbox } from '@podium/client-core/engine'
+import {
+  discardChatThroughOutbox,
+  OutboxSettlements,
+  outboxChatSends,
+  sendChatThroughOutbox,
+} from '@podium/client-core/conversation'
 import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import {
   asMutationId,

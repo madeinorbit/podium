@@ -24,7 +24,7 @@ import {
   OutboxSettlements,
   outboxChatSends,
   sendChatThroughOutbox,
-} from '@podium/client-core/engine'
+} from '@podium/client-core/conversation'
 import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MutationId, SessionId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'

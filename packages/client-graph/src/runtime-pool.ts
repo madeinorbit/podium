@@ -11,7 +11,6 @@ import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { sessionPaneView } from './session-pane-view'
-import type { SettingsOwner } from './settings-source'
 import { attachSettingsSource } from './settings-source'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceRuntime } from './shared/row-source'
@@ -429,13 +428,13 @@ export function createRuntimeWorklistPool(
       attachPreferenceSource(handle.pool, runtime.deviceState)
     }
     if (options.settings) {
-      const owner = runtime as unknown as Partial<SettingsOwner>
+      const owner = { ui: runtime.ui, replica: runtime.root.replica }
       if (owner.replica === undefined || owner.ui === undefined) {
         throw new Error('Settings require the existing runtime replica and window owner')
       }
       // Machines and repositories come from the replica's records (POD-6644);
       // the provider runtime owns the window field checked above.
-      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner)
+      attachSettingsSource(handle.pool, { ui: owner.ui, replica: owner.replica })
     }
     if (options.header)
       stopHeader = attachHeaderSource(
