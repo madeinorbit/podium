@@ -1,17 +1,24 @@
-import type { ReferenceState as Store } from './reference-state'
-import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
-import type { WorkflowRunWire } from '@podium/protocol'
-import { MachineProjection, MachineWire } from '@podium/model'
-import { getObserverTree, Reaction, runInAction } from 'mobx'
-import type { MobxPool } from '@podium/client-graph/pool'
+import {
+  machineViewsFromWire,
+  placementOptions,
+  profilePlacement,
+  runSubjectReference,
+} from '@podium/client-core/values'
 import type { MachineModel } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
+import { MachineProjection, MachineWire } from '@podium/model'
+import type { WorkflowRunWire } from '@podium/protocol'
+import { getObserverTree, Reaction, runInAction } from 'mobx'
 import { modelFields } from './model-fields'
+import type { ReferenceState as Store } from './reference-state'
+import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 // Preserve every legacy field and include the current shared record fields.
-const machineFields = [...new Set([...Object.keys(MachineWire.shape), ...Object.keys(MachineProjection.shape)])]
+const machineFields = [
+  ...new Set([...Object.keys(MachineWire.shape), ...Object.keys(MachineProjection.shape)]),
+]
 
 /** RPC rows are borrowed from the caller's sole service. No query, subscription
  * or retained RPC replica is installed by this on-demand comparison. */
@@ -22,59 +29,135 @@ export interface WorkflowCheckInputs {
 }
 export type WorkflowCheckStore = Pick<Store, 'machines' | 'issueProjections' | 'sessions'>
 
-export function legacyWorkflowSnapshot(state: WorkflowCheckStore, inputs: WorkflowCheckInputs): SidebarSnapshot {
+export function legacyWorkflowSnapshot(
+  state: WorkflowCheckStore,
+  inputs: WorkflowCheckInputs,
+): SidebarSnapshot {
   const views = machineViewsFromWire(state.machines)
-  return { pending: 0, sections: [
-    { key: 'placement', fields: { ...placementOptions(views) }, rows: [] },
-    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, fields: { ...profilePlacement(profile, views) } })) },
-    { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
-      const subject = runSubjectReference<object>(run, id => run.subjectKind === 'issue'
-        ? state.issueProjections.find(issue => issue.id === id)
-        : state.sessions.find(session => session.sessionId === id))
-      return { id: run.id, fields: { id: subject.id, state: subject.state } }
-    }) },
-  ] }
+  return {
+    pending: 0,
+    sections: [
+      { key: 'placement', fields: { ...placementOptions(views) }, rows: [] },
+      {
+        key: 'profiles',
+        fields: {},
+        rows: inputs.profiles.map((profile) => ({
+          id: profile.id,
+          fields: { ...profilePlacement(profile, views) },
+        })),
+      },
+      {
+        key: 'subjects',
+        fields: {},
+        rows: inputs.runs.map((run) => {
+          const subject = runSubjectReference<object>(run, (id) =>
+            run.subjectKind === 'issue'
+              ? state.issueProjections.find((issue) => issue.id === id)
+              : state.sessions.find((session) => session.sessionId === id),
+          )
+          return { id: run.id, fields: { id: subject.id, state: subject.state } }
+        }),
+      },
+    ],
+  }
 }
 
 export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs): SidebarSnapshot {
   const { views, pending: machinesPending } = workflowMachines(pool)
   if (process.env.PODIUM_WORKFLOW_NEGATIVE_CONTROL && views[0])
-    Object.defineProperty(views[0].machine, 'name', { value: 'Wrong machine name', configurable: true })
+    Object.defineProperty(views[0].machine, 'name', {
+      value: 'Wrong machine name',
+      configurable: true,
+    })
   let pending = machinesPending
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
-    { key: 'placement', fields: Object.fromEntries(Object.entries(options).map(([key, machines]) => [key,
-      machines.map((machine: MachineModel) => modelFields('machine', machine, machineFields)),
-    ])), pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
-    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
-    { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
-      const subject = workflowSubject(pool, run)
-      if (subject === LOADING) pending++
-      return { id: run.id, pending: subject === LOADING,
-        fields: subject === LOADING ? {} : { id: subject.id, state: subject.state } }
-    }) },
+    {
+      key: 'placement',
+      fields: Object.fromEntries(
+        Object.entries(options).map(([key, machines]) => [
+          key,
+          machines.map((machine: MachineModel) => modelFields('machine', machine, machineFields)),
+        ]),
+      ),
+      pendingFields: machinesPending ? Object.keys(options) : [],
+      rows: [],
+    },
+    {
+      key: 'profiles',
+      fields: {},
+      rows: inputs.profiles.map((profile) => ({
+        id: profile.id,
+        pending: machinesPending > 0,
+        fields: { ...profilePlacement(profile, views) },
+      })),
+    },
+    {
+      key: 'subjects',
+      fields: {},
+      rows: inputs.runs.map((run) => {
+        const subject = workflowSubject(pool, run)
+        if (subject === LOADING) pending++
+        return {
+          id: run.id,
+          pending: subject === LOADING,
+          fields: subject === LOADING ? {} : { id: subject.id, state: subject.state },
+        }
+      }),
+    },
   ]
   return { sections, pending }
 }
 
-export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs) {
+export function checkWorkflows(
+  pool: MobxPool,
+  state: WorkflowCheckStore,
+  inputs: WorkflowCheckInputs,
+) {
   // A synchronous observed scope shares the session-summary computation across
   // this snapshot's run targets. Disposing immediately releases every observer;
   // the diagnostic keeps no source, computed cache or second row collection.
   let actual!: SidebarSnapshot
   let failure: unknown
-  const scope = new Reaction('workflow-check', () => {}, error => { failure = error })
-  try { scope.track(() => { actual = poolWorkflowSnapshot(pool, inputs) }) }
-  finally { scope.dispose() }
+  const scope = new Reaction(
+    'workflow-check',
+    () => {},
+    (error) => {
+      failure = error
+    },
+  )
+  try {
+    scope.track(() => {
+      actual = poolWorkflowSnapshot(pool, inputs)
+    })
+  } finally {
+    scope.dispose()
+  }
   if (failure) throw failure
   const result = compareSidebarSnapshots(legacyWorkflowSnapshot(state, inputs), actual)
   // The machine option payload may contain hostnames: report positions only.
-  return { differences: result.differences, pending: result.pending, sections: result.sections, positions: result.rows,
-    first: result.first ? { section: result.first.sectionIndex, row: result.first.rowIndex, field: result.first.field } : null }
+  return {
+    differences: result.differences,
+    pending: result.pending,
+    sections: result.sections,
+    positions: result.rows,
+    first: result.first
+      ? {
+          section: result.first.sectionIndex,
+          row: result.first.rowIndex,
+          field: result.first.field,
+        }
+      : null,
+  }
 }
 
 /** Probe the synchronous check and observer lifetime at the graph's MobX boundary. */
-export function probeWorkflowCheckScope(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs, sessionId: string) {
+export function probeWorkflowCheckScope(
+  pool: MobxPool,
+  state: WorkflowCheckStore,
+  inputs: WorkflowCheckInputs,
+  sessionId: string,
+) {
   const before = getObserverTree(pool.tables.session, sessionId)
   const result = runInAction(() => checkWorkflows(pool, state, inputs))
   return { result, before, after: getObserverTree(pool.tables.session, sessionId) }

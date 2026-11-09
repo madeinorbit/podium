@@ -1,15 +1,9 @@
-import { machineFacts } from './machine-facts'
-import type { MachineModel } from './models'
-import { leafTasks } from '@podium/model/browser'
-import { here, omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
-
-import { displayRefOf } from './views'
 import {
   type DeckIssueState,
   deckIssueState,
-  deckSessions,
   deckSessionOrder,
+  deckSessions,
   type FlightDeckFoldMap,
   type FlightDeckMode,
   type FlightDeckRow,
@@ -21,24 +15,39 @@ import {
   issueOwnContentUnread,
   type MissionDeparture,
   type MissionProgress,
-  tallyMissionBuckets,
   type PresenceNote,
   panelLabel,
   subtreeUnread,
+  tallyMissionBuckets,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
-import { compareShallow, compareStructural } from 'mobx'
-import { coordinatorLive, machinePathsEqual, type SeatRole, type TaskWord, type TaskWords } from '@podium/model'
+import {
+  coordinatorLive,
+  machinePathsEqual,
+  type SeatRole,
+  type TaskWord,
+  type TaskWords,
+} from '@podium/model'
 import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
-import { asIssueId, type asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
+import {
+  asIssueId,
+  type asSessionId,
+  DRAFT_ISSUE_TITLE,
+  HANDOFF_HARNESS_KINDS,
+  leafTasks,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import type { IssueModel, ModelOf, SessionModel } from './models'
+import { compareShallow, compareStructural } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
+import { here, omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
 import { missions } from './mission'
+import type { IssueModel, MachineModel, ModelOf, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
 import { createRowOverlay } from './shared/overlay-row'
+import { displayRefOf } from './views'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
@@ -49,7 +58,12 @@ const issueNavigationOverlay = createRowOverlay()
 const menuIssueOverlay = createRowOverlay()
 const menuSessionOverlay = createRowOverlay()
 const MENU_SESSION_OVERRIDES = Object.freeze({})
-const MENU_SESSION_OMISSIONS = new Set<PropertyKey>(['machineName', 'condition', 'handoffTarget', 'displayRef'])
+const MENU_SESSION_OMISSIONS = new Set<PropertyKey>([
+  'machineName',
+  'condition',
+  'handoffTarget',
+  'displayRef',
+])
 const MENU_OMISSIONS = new Set<PropertyKey>(['memberSessionIds', 'childIds', 'dependents'])
 
 export interface MissionRowPresentation {
@@ -71,16 +85,37 @@ export interface MissionHistory {
 }
 
 type SessionFacts = SessionModel
-const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined })
+const NO_HISTORY: MissionHistory = Object.freeze({
+  count: 0,
+  roster: 0,
+  newest: undefined,
+  moved: undefined,
+})
 interface IssueMemberFacts {
   readonly ids: ReturnType<typeof asSessionId>[]
   readonly latest: number
   readonly summary: { total: number; byPhase: Record<string, number> }
 }
-type MissionIssue = ModelOf['issue'] & Pick<IssueNavigationModel, 'stage' | 'coordinatorSessionId' | 'startedBySession' | 'closedReason' | 'blocked' | 'needsHuman' | 'parentId' | 'updatedAt'>
+type MissionIssue = ModelOf['issue'] &
+  Pick<
+    IssueNavigationModel,
+    | 'stage'
+    | 'coordinatorSessionId'
+    | 'startedBySession'
+    | 'closedReason'
+    | 'blocked'
+    | 'needsHuman'
+    | 'parentId'
+    | 'updatedAt'
+  >
 
 export function settled<T>(read: () => T): T | typeof LOADING {
-  try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error }
+  try {
+    return read()
+  } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
 }
 export function requireLoaded<T>(value: T | typeof LOADING): T {
   if (value === LOADING) throw LOADING
@@ -90,7 +125,10 @@ export function requireLoaded<T>(value: T | typeof LOADING): T {
  * pending input never keeps its siblings out of the same load window. A list
  * reader that stops at its first cold entry asks for one row per window, and a
  * deep mission then settles in one round per row (POD-6134). */
-export function settledAll<T, R>(items: Iterable<T>, read: (item: T) => R | typeof LOADING): Exclude<R, typeof LOADING>[] | typeof LOADING {
+export function settledAll<T, R>(
+  items: Iterable<T>,
+  read: (item: T) => R | typeof LOADING,
+): Exclude<R, typeof LOADING>[] | typeof LOADING {
   const values: Exclude<R, typeof LOADING>[] = []
   let pending = false
   for (const item of items) {
@@ -108,183 +146,279 @@ interface DeckTopology {
   readonly overlap: boolean
   readonly depths: ReadonlyMap<string, number>
 }
-const topology = ((deck: MissionDeckModel): DeckTopology | typeof LOADING => settled(() => {
-  const { view } = deck, members = requireLoaded(deck.members)
-  const scope = new Set<string>(), children = new Map<string, string[]>()
-  let pending = false
-  const visible = (id: string) => {
-    const value = settled(() => view.facts(id).visible)
-    if (value === LOADING) { pending = true; return undefined }
-    return value
-  }
-  const stack = [...members]
-  while (stack.length) {
-    const id = stack.pop()!
-    if (scope.has(id)) continue
-    scope.add(id)
-    if (visible(id) === false) continue
-    const kids = [...view.pool.graph.many('issue', id, 'children')]
-    stack.push(...kids)
-    children.set(id, kids.filter(child => visible(child) === true))
-  }
-  // A pending child must not prevent its siblings from being requested in
-  // this same loader batch. No topology is published until every input settles.
-  if (pending) return LOADING
-  for (const id of members) {
-    const issue = view.facts(id)
-    if (!issue.visible || id === deck.id || (issue.parentId && members.has(issue.parentId))) continue
-    const owner = issue.startedBySession ? view.pool.graph.one('session', issue.startedBySession, 'missionIssue') : null
-    const parent = owner && members.has(owner) && owner !== id ? owner : deck.id
-    const siblings = children.get(parent) ?? []
-    if (!siblings.includes(id)) siblings.push(id)
-    children.set(parent, siblings)
-  }
-  for (const siblings of children.values()) siblings.sort((left, right) => {
-    const a = view.facts(left), b = view.facts(right)
-    return a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) :
-      a.seq - b.seq || (left < right ? -1 : left > right ? 1 : 0)
+const topology = (deck: MissionDeckModel): DeckTopology | typeof LOADING =>
+  settled(() => {
+    const { view } = deck,
+      members = requireLoaded(deck.members)
+    const scope = new Set<string>(),
+      children = new Map<string, string[]>()
+    let pending = false
+    const visible = (id: string) => {
+      const value = settled(() => view.facts(id).visible)
+      if (value === LOADING) {
+        pending = true
+        return undefined
+      }
+      return value
+    }
+    const stack = [...members]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (scope.has(id)) continue
+      scope.add(id)
+      if (visible(id) === false) continue
+      const kids = [...view.pool.graph.many('issue', id, 'children')]
+      stack.push(...kids)
+      children.set(
+        id,
+        kids.filter((child) => visible(child) === true),
+      )
+    }
+    // A pending child must not prevent its siblings from being requested in
+    // this same loader batch. No topology is published until every input settles.
+    if (pending) return LOADING
+    for (const id of members) {
+      const issue = view.facts(id)
+      if (!issue.visible || id === deck.id || (issue.parentId && members.has(issue.parentId)))
+        continue
+      const owner = issue.startedBySession
+        ? view.pool.graph.one('session', issue.startedBySession, 'missionIssue')
+        : null
+      const parent = owner && members.has(owner) && owner !== id ? owner : deck.id
+      const siblings = children.get(parent) ?? []
+      if (!siblings.includes(id)) siblings.push(id)
+      children.set(parent, siblings)
+    }
+    for (const siblings of children.values())
+      siblings.sort((left, right) => {
+        const a = view.facts(left),
+          b = view.facts(right)
+        return a.sortKey && b.sortKey && a.sortKey !== b.sortKey
+          ? a.sortKey.localeCompare(b.sortKey)
+          : a.seq - b.seq || (left < right ? -1 : left > right ? 1 : 0)
+      })
+    const parent = new Map<string, string>(),
+      parents = new Map<string, string[]>(),
+      seen = new Set<string>()
+    let overlap = false
+    const firstChild = (id: string) => view.node(id).earliestChild
+    for (const [id, kids] of children)
+      for (const child of kids) {
+        const origins = parents.get(child) ?? []
+        origins.push(id)
+        parents.set(child, origins)
+        if (seen.has(child)) overlap = true
+        seen.add(child)
+        const previous = parent.get(child) ?? view.facts(child).parentId
+        const first = firstChild(id),
+          prior = previous ? firstChild(previous) : undefined
+        parent.set(
+          child,
+          !previous || (first !== undefined && (prior === undefined || first < prior))
+            ? id
+            : previous,
+        )
+      }
+    // Malformed cycles use the same finite, unique closure as the old rows.
+    const visiting = new Set<string>(),
+      visited = new Set<string>()
+    const visit = (id: string) => {
+      if (visiting.has(id)) {
+        overlap = true
+        return
+      }
+      if (visited.has(id)) return
+      visiting.add(id)
+      for (const child of children.get(id) ?? []) visit(child)
+      visiting.delete(id)
+      visited.add(id)
+    }
+    for (const id of scope) visit(id)
+    const depths = new Map<string, number>()
+    const depthOf = (id: string, depth: number) => {
+      if (depths.has(id)) return
+      depths.set(id, depth)
+      for (const child of children.get(id) ?? []) depthOf(child, depth + 1)
+    }
+    depthOf(deck.id, 0)
+    return { scope, children, parent, parents, overlap, depths }
   })
-  const parent = new Map<string, string>(), parents = new Map<string, string[]>(), seen = new Set<string>()
-  let overlap = false
-  const firstChild = (id: string) => view.node(id).earliestChild
-  for (const [id, kids] of children) for (const child of kids) {
-    const origins = parents.get(child) ?? []
-    origins.push(id); parents.set(child, origins)
-    if (seen.has(child)) overlap = true
-    seen.add(child)
-    const previous = parent.get(child) ?? view.facts(child).parentId
-    const first = firstChild(id), prior = previous ? firstChild(previous) : undefined
-    parent.set(child, !previous || (first !== undefined && (prior === undefined || first < prior)) ? id : previous)
-  }
-  // Malformed cycles use the same finite, unique closure as the old rows.
-  const visiting = new Set<string>(), visited = new Set<string>()
-  const visit = (id: string) => {
-    if (visiting.has(id)) { overlap = true; return }
-    if (visited.has(id)) return
-    visiting.add(id)
-    for (const child of children.get(id) ?? []) visit(child)
-    visiting.delete(id); visited.add(id)
-  }
-  for (const id of scope) visit(id)
-  const depths = new Map<string, number>()
-  const depthOf = (id: string, depth: number) => {
-    if (depths.has(id)) return
-    depths.set(id, depth)
-    for (const child of children.get(id) ?? []) depthOf(child, depth + 1)
-  }
-  depthOf(deck.id, 0)
-  return { scope, children, parent, parents, overlap, depths }
-}))
 
-type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting' | 'workingDelegated' | 'needsYouDelegated' | 'waitingDelegated'
-const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting', 'workingDelegated', 'needsYouDelegated', 'waitingDelegated']
+type Count =
+  | 'tasks'
+  | 'done'
+  | 'run'
+  | 'live'
+  | 'working'
+  | 'needsYou'
+  | 'waiting'
+  | 'workingDelegated'
+  | 'needsYouDelegated'
+  | 'waitingDelegated'
+const COUNTS: readonly Count[] = [
+  'tasks',
+  'done',
+  'run',
+  'live',
+  'working',
+  'needsYou',
+  'waiting',
+  'workingDelegated',
+  'needsYouDelegated',
+  'waitingDelegated',
+]
 /** POD-2171: what a row counts of a sub-row. Under a live coordinator every
  * session below is a delegate, so a sub-row adds its delegated counts. */
 const childCount = (row: MissionDeckIssueModel, name: Count): Count =>
-  row.coordinated && (name === 'working' || name === 'needsYou' || name === 'waiting') ? `${name}Delegated` : name
-const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
+  row.coordinated && (name === 'working' || name === 'needsYou' || name === 'waiting')
+    ? `${name}Delegated`
+    : name
+const ownCount = (name: Count) => (row: MissionDeckIssueModel) => {
   const facts = row.facts
   if (!facts.visible) return 0
   if (name === 'tasks') return 1
   if (name === 'done') return Number(facts.finished && !issueAbandoned(facts))
-  if (name === 'run') return Number(!facts.finished && (underway(facts.stage) || facts.stage === 'review'))
+  if (name === 'run')
+    return Number(!facts.finished && (underway(facts.stage) || facts.stage === 'review'))
   row.view.stats.onRollup?.(row.id)
   // Counts do not need the presentation roster's coordinator-first ordering.
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
-  if (name === 'live') return crew.filter(session => row.view.pool.sessionObject(session.sessionId).open).length
-  if (name === 'working') return crew.filter(session => row.works(session.sessionId)).length
-  if (name === 'waiting') return crew.filter(session => row.asks(session)).length
+  if (name === 'live')
+    return crew.filter((session) => row.view.pool.sessionObject(session.sessionId).open).length
+  if (name === 'working') return crew.filter((session) => row.works(session.sessionId)).length
+  if (name === 'waiting') return crew.filter((session) => row.asks(session)).length
   // As a delegate to a coordinated ancestor: its work and exceptions, none of the row's own requests.
-  if (name === 'workingDelegated') return crew.filter(session => row.works(session.sessionId, 'delegate')).length
-  if (name === 'waitingDelegated') return crew.filter(session => row.asks(session, 'delegate')).length
-  if (name === 'needsYouDelegated') return Number(crew.some(session => row.asks(session, 'delegate')))
-  return Number(row.coordinated
-    ? issueNeedsHuman(row.rulesIssue!, crew, undefined, session => row.asks(session))
-    : issueNeedsHuman(row.rulesIssue!, crew))
-})
-const own = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.ownCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number>
-const deriveSum = Object.fromEntries(COUNTS.map(name => [name, ((row: MissionDeckIssueModel) => settled(() => {
-  row.view.stats.onRollup?.(row.id)
-  const shape = requireLoaded(row.deck.topology)
-  let total = 0, pending = false
-  const add = (value: number | typeof LOADING) => {
-    if (value === LOADING) pending = true
-    else total += value
-  }
-  if (shape.overlap) {
-    add(settled(() => own[name](row)))
-    for (const id of row.descendantIds) add(settled(() => own[childCount(row, name)](row.deck.model(id))))
-  } else {
-    add(settled(() => own[name](row)))
-    for (const id of requireLoaded(row.deckChildren)) add(sum[childCount(row, name)](row.deck.model(id)))
-  }
-  return pending ? LOADING : total
-}))])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
-const sum = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.totalCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
-const descendants = ((row: MissionDeckIssueModel) => {
-  const shape = requireLoaded(row.deck.topology), seen = new Set<string>([row.id]), ids: string[] = []
+  if (name === 'workingDelegated')
+    return crew.filter((session) => row.works(session.sessionId, 'delegate')).length
+  if (name === 'waitingDelegated')
+    return crew.filter((session) => row.asks(session, 'delegate')).length
+  if (name === 'needsYouDelegated')
+    return Number(crew.some((session) => row.asks(session, 'delegate')))
+  return Number(
+    row.coordinated
+      ? issueNeedsHuman(row.rulesIssue!, crew, undefined, (session) => row.asks(session))
+      : issueNeedsHuman(row.rulesIssue!, crew),
+  )
+}
+const own = Object.fromEntries(
+  COUNTS.map((name) => [name, (row: MissionDeckIssueModel) => row.ownCount(name)]),
+) as Record<Count, (row: MissionDeckIssueModel) => number>
+const deriveSum = Object.fromEntries(
+  COUNTS.map((name) => [
+    name,
+    (row: MissionDeckIssueModel) =>
+      settled(() => {
+        row.view.stats.onRollup?.(row.id)
+        const shape = requireLoaded(row.deck.topology)
+        let total = 0,
+          pending = false
+        const add = (value: number | typeof LOADING) => {
+          if (value === LOADING) pending = true
+          else total += value
+        }
+        if (shape.overlap) {
+          add(settled(() => own[name](row)))
+          for (const id of row.descendantIds)
+            add(settled(() => own[childCount(row, name)](row.deck.model(id))))
+        } else {
+          add(settled(() => own[name](row)))
+          for (const id of requireLoaded(row.deckChildren))
+            add(sum[childCount(row, name)](row.deck.model(id)))
+        }
+        return pending ? LOADING : total
+      }),
+  ]),
+) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
+const sum = Object.fromEntries(
+  COUNTS.map((name) => [name, (row: MissionDeckIssueModel) => row.totalCount(name)]),
+) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
+const descendants = (row: MissionDeckIssueModel) => {
+  const shape = requireLoaded(row.deck.topology),
+    seen = new Set<string>([row.id]),
+    ids: string[] = []
   const stack = [...(shape.children.get(row.id) ?? [])].reverse()
   while (stack.length) {
     const id = stack.pop()!
     if (seen.has(id)) continue
-    seen.add(id); ids.push(id); stack.push(...[...(shape.children.get(id) ?? [])].reverse())
+    seen.add(id)
+    ids.push(id)
+    stack.push(...[...(shape.children.get(id) ?? [])].reverse())
   }
   return ids
-})
-const childrenOf = ((row: MissionDeckIssueModel) => {
+}
+const childrenOf = (row: MissionDeckIssueModel) => {
   const shape = row.deck.topology
-  return shape === LOADING ? LOADING : shape.children.get(row.id) ?? []
-})
-const crewIds = ((row: MissionDeckIssueModel) => {
+  return shape === LOADING ? LOADING : (shape.children.get(row.id) ?? [])
+}
+const crewIds = (row: MissionDeckIssueModel) => {
   const { view, facts } = row
-  return [...view.pool.graph.many('issue', row.id, 'missionSessions')].filter(id => view.pool.sessionObject(id).onRoster).sort((a, b) =>
-    Number(b === facts.coordinatorSessionId) - Number(a === facts.coordinatorSessionId) ||
-    view.pool.sessionObject(a).createdAt.localeCompare(view.pool.sessionObject(b).createdAt) || a.localeCompare(b))
-})
-const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0)
+  return [...view.pool.graph.many('issue', row.id, 'missionSessions')]
+    .filter((id) => view.pool.sessionObject(id).onRoster)
+    .sort(
+      (a, b) =>
+        Number(b === facts.coordinatorSessionId) - Number(a === facts.coordinatorSessionId) ||
+        view.pool.sessionObject(a).createdAt.localeCompare(view.pool.sessionObject(b).createdAt) ||
+        a.localeCompare(b),
+    )
+}
+const hasPayload = (row: MissionDeckIssueModel) =>
+  requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0
 // A parent shows its most urgent descendant (D6): each child's word is that
 // child row's own lazy state, so a change re-derives one path upward and never
 // reads a child's note or presence.
-const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
+const rowState = (row: MissionDeckIssueModel): DeckIssueState => {
   const words = settledAll(requireLoaded(row.deckChildren), (id): TaskWords => {
     const state = row.deck.model(id).state
     return { word: state.state, delegated: state.delegated }
   })
-  const issue = settled(() => row.issue), crew = settled(() => row.sessions)
+  const issue = settled(() => row.issue),
+    crew = settled(() => row.sessions)
   if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
   return row.view.deckState(issue, crew, words)
-})
-const presentation = ((row: MissionDeckIssueModel): MissionRowPresentation => row.view.presentation(row.issue, row.sessions, row.state))
-const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
-  requireLoaded(row.view.roster(row.id))))
-const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.works(session.sessionId, row.roleOf(session.sessionId), 'atWork')))
-const matchedNeedsYou = ((row: MissionDeckIssueModel) => own.needsYou(row) > 0)
-const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: MissionDeckIssueModel): SessionView[] => {
-  const seen = new Set<string>(), candidates: SessionView[] = []
+}
+const presentation = (row: MissionDeckIssueModel): MissionRowPresentation =>
+  row.view.presentation(row.issue, row.sessions, row.state)
+const crewOf = (row: MissionDeckIssueModel) =>
+  deckSessionOrder(row.facts, requireLoaded(row.view.roster(row.id)))
+const matchedWorking = (row: MissionDeckIssueModel) =>
+  row.sessions.some((session) =>
+    row.works(session.sessionId, row.roleOf(session.sessionId), 'atWork'),
+  )
+const matchedNeedsYou = (row: MissionDeckIssueModel) => own.needsYou(row) > 0
+const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = (
+  row: MissionDeckIssueModel,
+): SessionView[] => {
+  const seen = new Set<string>(),
+    candidates: SessionView[] = []
   const rank = (session: SessionView) => {
     const facts = row.view.pool.sessionObject(session.sessionId)
     return facts.open && facts.workingMotion ? 0 : facts.settled ? 2 : 1
   }
   const shape = requireLoaded(row.deck.topology)
-  const below = shape.overlap ? settledAll(row.descendantIds, id => row.deck.model(id).sessions) :
-    settledAll(requireLoaded(row.deckChildren), id => row.deck.model(id).collapsedCrew)
+  const below = shape.overlap
+    ? settledAll(row.descendantIds, (id) => row.deck.model(id).sessions)
+    : settledAll(requireLoaded(row.deckChildren), (id) => row.deck.model(id).collapsedCrew)
   const own = settled(() => row.sessions)
   if (below === LOADING || own === LOADING) throw LOADING
   const groups = [own, ...below]
   for (const crew of groups) {
     for (const session of crew) {
       if (seen.has(session.sessionId)) continue
-      seen.add(session.sessionId); candidates.push(session)
+      seen.add(session.sessionId)
+      candidates.push(session)
     }
-    candidates.sort((a, b) => rank(a) - rank(b)); candidates.length = Math.min(12, candidates.length)
+    candidates.sort((a, b) => rank(a) - rank(b))
+    candidates.length = Math.min(12, candidates.length)
   }
   return candidates
-})
-const kindCodes: (row: MissionDeckIssueModel) => string = ((row: MissionDeckIssueModel): string => {
+}
+const kindCodes: (row: MissionDeckIssueModel) => string = (row: MissionDeckIssueModel): string => {
   const kinds = new Set<SessionView['agentKind']>()
   const shape = requireLoaded(row.deck.topology)
-  const ownCrew = shape.overlap ? [row.id, ...row.descendantIds].flatMap(id => row.deck.model(id).sessions) : row.sessions
+  const ownCrew = shape.overlap
+    ? [row.id, ...row.descendantIds].flatMap((id) => row.deck.model(id).sessions)
+    : row.sessions
   for (const session of ownCrew) {
     if (row.view.pool.sessionObject(session.sessionId).open) kinds.add(session.agentKind)
     if (kinds.size === 2) return JSON.stringify([...kinds])
@@ -292,25 +426,37 @@ const kindCodes: (row: MissionDeckIssueModel) => string = ((row: MissionDeckIssu
   // A pending child cannot stop the walk early: its kinds come first, and
   // the siblings after it are asked for in the same window.
   let pending = false
-  if (!shape.overlap) for (const id of requireLoaded(row.deckChildren)) {
-    const codes = settled(() => row.deck.model(id).kindCodes)
-    if (codes === LOADING) { pending = true; continue }
-    for (const kind of JSON.parse(codes) as SessionView['agentKind'][]) {
-      kinds.add(kind)
-      if (kinds.size === 2 && !pending) return JSON.stringify([...kinds])
+  if (!shape.overlap)
+    for (const id of requireLoaded(row.deckChildren)) {
+      const codes = settled(() => row.deck.model(id).kindCodes)
+      if (codes === LOADING) {
+        pending = true
+        continue
+      }
+      for (const kind of JSON.parse(codes) as SessionView['agentKind'][]) {
+        kinds.add(kind)
+        if (kinds.size === 2 && !pending) return JSON.stringify([...kinds])
+      }
     }
-  }
   if (pending) throw LOADING
   return JSON.stringify([...kinds])
-})
-const kindsOf = ((row: MissionDeckIssueModel) => JSON.parse(row.kindCodes) as SessionView['agentKind'][])
-const latestBelow = ((row: MissionDeckIssueModel): string => {
+}
+const kindsOf = (row: MissionDeckIssueModel) =>
+  JSON.parse(row.kindCodes) as SessionView['agentKind'][]
+const latestBelow = (row: MissionDeckIssueModel): string => {
   const shape = requireLoaded(row.deck.topology)
-  if (shape.overlap) return [row.id, ...row.descendantIds].reduce((at, id) => row.view.facts(id).updatedAt > at ? row.view.facts(id).updatedAt : at, '')
+  if (shape.overlap)
+    return [row.id, ...row.descendantIds].reduce(
+      (at, id) => (row.view.facts(id).updatedAt > at ? row.view.facts(id).updatedAt : at),
+      '',
+    )
   let at = row.facts.updatedAt
-  for (const id of requireLoaded(row.deckChildren)) { const next = row.deck.model(id).updatedBelow; if (next > at) at = next }
+  for (const id of requireLoaded(row.deckChildren)) {
+    const next = row.deck.model(id).updatedBelow
+    if (next > at) at = next
+  }
   return at
-})
+}
 
 /** The strip's unread mark: open strips read the issue's own content, folded
  * strips roll up the hidden subtree and crew against this issue's cursor. */
@@ -318,97 +464,218 @@ const deckRowUnread = (row: MissionDeckIssueModel, collapsed: boolean): boolean 
   if (row.workingAgentCount > 0) return false
   const issue = row.issue
   if (!collapsed) return issueOwnContentUnread(issue)
-  return subtreeUnread({ readAt: issue.readAt, updatedAt: issue.updatedAt, descendantUpdatedAts: [row.updatedBelow], sessions: row.collapsedSummary.crew })
+  return subtreeUnread({
+    readAt: issue.readAt,
+    updatedAt: issue.updatedAt,
+    descendantUpdatedAts: [row.updatedBelow],
+    sessions: row.collapsedSummary.crew,
+  })
 }
 
-const rollupValue = ((row: MissionDeckIssueModel) => settled(() => ({
-  tasks: requireLoaded(sum.tasks(row)), done: requireLoaded(sum.done(row)), run: requireLoaded(sum.run(row)),
-  live: requireLoaded(sum.live(row)), working: requireLoaded(sum.working(row)), needsYou: requireLoaded(sum.needsYou(row)), waiting: requireLoaded(sum.waiting(row)),
-})))
+const rollupValue = (row: MissionDeckIssueModel) =>
+  settled(() => ({
+    tasks: requireLoaded(sum.tasks(row)),
+    done: requireLoaded(sum.done(row)),
+    run: requireLoaded(sum.run(row)),
+    live: requireLoaded(sum.live(row)),
+    working: requireLoaded(sum.working(row)),
+    needsYou: requireLoaded(sum.needsYou(row)),
+    waiting: requireLoaded(sum.waiting(row)),
+  }))
 /** A mission-scoped handle on the pool's issue, with lazy computed getters.
  * Scope matters: a graft may have different children and paths in two roots.
  * The handle holds no row, geometry, retained computed or presentation map. */
 export class MissionDeckIssueModel implements FlightDeckRow {
-  constructor(readonly entity: IssueModel, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
-  get id() { return this.entity.id }
-  @lazy private get ownTasks() { return ownCount('tasks')(this) }
-  @lazy private get totalTasks(): number | typeof LOADING { return deriveSum.tasks(this) }
-  @lazy private get ownDone() { return ownCount('done')(this) }
-  @lazy private get totalDone(): number | typeof LOADING { return deriveSum.done(this) }
-  @lazy private get ownRun() { return ownCount('run')(this) }
-  @lazy private get totalRun(): number | typeof LOADING { return deriveSum.run(this) }
-  @lazy private get ownLive() { return ownCount('live')(this) }
-  @lazy private get totalLive(): number | typeof LOADING { return deriveSum.live(this) }
-  @lazy private get ownWorking() { return ownCount('working')(this) }
-  @lazy private get totalWorking(): number | typeof LOADING { return deriveSum.working(this) }
-  @lazy private get ownNeedsYou() { return ownCount('needsYou')(this) }
-  @lazy private get totalNeedsYou(): number | typeof LOADING { return deriveSum.needsYou(this) }
-  @lazy private get ownWaiting() { return ownCount('waiting')(this) }
-  @lazy private get totalWaiting(): number | typeof LOADING { return deriveSum.waiting(this) }
-  @lazy private get ownNeedsYouDelegated() { return ownCount('needsYouDelegated')(this) }
-  @lazy private get totalNeedsYouDelegated(): number | typeof LOADING { return deriveSum.needsYouDelegated(this) }
-  @lazy private get ownWaitingDelegated() { return ownCount('waitingDelegated')(this) }
-  @lazy private get ownWorkingDelegated() { return ownCount('workingDelegated')(this) }
-  @lazy private get totalWorkingDelegated(): number | typeof LOADING { return deriveSum.workingDelegated(this) }
-  @lazy private get totalWaitingDelegated(): number | typeof LOADING { return deriveSum.waitingDelegated(this) }
+  constructor(
+    readonly entity: IssueModel,
+    readonly deck: MissionDeckModel,
+    private readonly path?: readonly string[],
+  ) {}
+  get id() {
+    return this.entity.id
+  }
+  @lazy private get ownTasks() {
+    return ownCount('tasks')(this)
+  }
+  @lazy private get totalTasks(): number | typeof LOADING {
+    return deriveSum.tasks(this)
+  }
+  @lazy private get ownDone() {
+    return ownCount('done')(this)
+  }
+  @lazy private get totalDone(): number | typeof LOADING {
+    return deriveSum.done(this)
+  }
+  @lazy private get ownRun() {
+    return ownCount('run')(this)
+  }
+  @lazy private get totalRun(): number | typeof LOADING {
+    return deriveSum.run(this)
+  }
+  @lazy private get ownLive() {
+    return ownCount('live')(this)
+  }
+  @lazy private get totalLive(): number | typeof LOADING {
+    return deriveSum.live(this)
+  }
+  @lazy private get ownWorking() {
+    return ownCount('working')(this)
+  }
+  @lazy private get totalWorking(): number | typeof LOADING {
+    return deriveSum.working(this)
+  }
+  @lazy private get ownNeedsYou() {
+    return ownCount('needsYou')(this)
+  }
+  @lazy private get totalNeedsYou(): number | typeof LOADING {
+    return deriveSum.needsYou(this)
+  }
+  @lazy private get ownWaiting() {
+    return ownCount('waiting')(this)
+  }
+  @lazy private get totalWaiting(): number | typeof LOADING {
+    return deriveSum.waiting(this)
+  }
+  @lazy private get ownNeedsYouDelegated() {
+    return ownCount('needsYouDelegated')(this)
+  }
+  @lazy private get totalNeedsYouDelegated(): number | typeof LOADING {
+    return deriveSum.needsYouDelegated(this)
+  }
+  @lazy private get ownWaitingDelegated() {
+    return ownCount('waitingDelegated')(this)
+  }
+  @lazy private get ownWorkingDelegated() {
+    return ownCount('workingDelegated')(this)
+  }
+  @lazy private get totalWorkingDelegated(): number | typeof LOADING {
+    return deriveSum.workingDelegated(this)
+  }
+  @lazy private get totalWaitingDelegated(): number | typeof LOADING {
+    return deriveSum.waitingDelegated(this)
+  }
   ownCount(name: Count): number {
     switch (name) {
-      case 'tasks': return this.ownTasks
-      case 'done': return this.ownDone
-      case 'run': return this.ownRun
-      case 'live': return this.ownLive
-      case 'working': return this.ownWorking
-      case 'needsYou': return this.ownNeedsYou
-      case 'waiting': return this.ownWaiting
-      case 'needsYouDelegated': return this.ownNeedsYouDelegated
-      case 'waitingDelegated': return this.ownWaitingDelegated
-      case 'workingDelegated': return this.ownWorkingDelegated
+      case 'tasks':
+        return this.ownTasks
+      case 'done':
+        return this.ownDone
+      case 'run':
+        return this.ownRun
+      case 'live':
+        return this.ownLive
+      case 'working':
+        return this.ownWorking
+      case 'needsYou':
+        return this.ownNeedsYou
+      case 'waiting':
+        return this.ownWaiting
+      case 'needsYouDelegated':
+        return this.ownNeedsYouDelegated
+      case 'waitingDelegated':
+        return this.ownWaitingDelegated
+      case 'workingDelegated':
+        return this.ownWorkingDelegated
     }
   }
   totalCount(name: Count): number | typeof LOADING {
     switch (name) {
-      case 'tasks': return this.totalTasks
-      case 'done': return this.totalDone
-      case 'run': return this.totalRun
-      case 'live': return this.totalLive
-      case 'working': return this.totalWorking
-      case 'needsYou': return this.totalNeedsYou
-      case 'waiting': return this.totalWaiting
-      case 'needsYouDelegated': return this.totalNeedsYouDelegated
-      case 'waitingDelegated': return this.totalWaitingDelegated
-      case 'workingDelegated': return this.totalWorkingDelegated
+      case 'tasks':
+        return this.totalTasks
+      case 'done':
+        return this.totalDone
+      case 'run':
+        return this.totalRun
+      case 'live':
+        return this.totalLive
+      case 'working':
+        return this.totalWorking
+      case 'needsYou':
+        return this.totalNeedsYou
+      case 'waiting':
+        return this.totalWaiting
+      case 'needsYouDelegated':
+        return this.totalNeedsYouDelegated
+      case 'waitingDelegated':
+        return this.totalWaitingDelegated
+      case 'workingDelegated':
+        return this.totalWorkingDelegated
     }
   }
-  @lazy({ equals: compareShallow }) get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
-  @lazy get kindCodes(): string { return kindCodes(this) }
-  @lazy({ equals: compareShallow }) get kinds() { return kindsOf(this) }
+  @lazy({ equals: compareShallow }) get collapsedCrew(): SessionView[] {
+    return collapsedCrew(this)
+  }
+  @lazy get kindCodes(): string {
+    return kindCodes(this)
+  }
+  @lazy({ equals: compareShallow }) get kinds() {
+    return kindsOf(this)
+  }
   /** A graft can draw the same issue under two mission paths. */
-  get key() { return this.path ? JSON.stringify(this.path) : this.id }
-  private get canonical(): MissionDeckIssueModel { return this.path ? this.deck.model(this.id) : this }
-  get view() { return this.deck.view }
-  get facts() { return this.view.facts(this.id) }
-  get issue() { return requireLoaded(this.view.issue(this.id))! }
-  get rulesIssue() { return this.view.rulesIssue(this.id) }
+  get key() {
+    return this.path ? JSON.stringify(this.path) : this.id
+  }
+  private get canonical(): MissionDeckIssueModel {
+    return this.path ? this.deck.model(this.id) : this
+  }
+  get view() {
+    return this.deck.view
+  }
+  get facts() {
+    return this.view.facts(this.id)
+  }
+  get issue() {
+    return requireLoaded(this.view.issue(this.id))!
+  }
+  get rulesIssue() {
+    return this.view.rulesIssue(this.id)
+  }
   // Displayed fields: each is one value, so a change elsewhere in the
   // issue's row stops here instead of redrawing the strip that shows it.
-  @lazy get stage() { return this.facts.stage }
-  @lazy private get ownTitle() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
-  get title() { return this.canonical.ownTitle }
-  @lazy private get ownDisplayRef() { return issueDisplayRef(requireLoaded(this.view.catalogIssue(this.id))!) }
-  get displayRef() { return this.canonical.ownDisplayRef }
+  @lazy get stage() {
+    return this.facts.stage
+  }
+  @lazy private get ownTitle() {
+    return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!))
+  }
+  get title() {
+    return this.canonical.ownTitle
+  }
+  @lazy private get ownDisplayRef() {
+    return issueDisplayRef(requireLoaded(this.view.catalogIssue(this.id))!)
+  }
+  get displayRef() {
+    return this.canonical.ownDisplayRef
+  }
   /** What the status glyph reads. */
-  @lazy({ equals: compareShallow }) private get ownStatus(): { stage: IssueNavigationModel['stage']; closedReason: IssueNavigationModel['closedReason'] } {
+  @lazy({ equals: compareShallow }) private get ownStatus(): {
+    stage: IssueNavigationModel['stage']
+    closedReason: IssueNavigationModel['closedReason']
+  } {
     const issue = requireLoaded(this.view.catalogIssue(this.id))!
     return { stage: issue.stage, closedReason: issue.closedReason }
   }
-  get status() { return this.canonical.ownStatus }
+  get status() {
+    return this.canonical.ownStatus
+  }
   /** Unread marks of the strip, open and folded. */
-  @lazy private get ownContentUnread() { return deckRowUnread(this, false) }
-  @lazy private get foldedUnread() { return deckRowUnread(this, true) }
-  unread(collapsed: boolean) { return collapsed ? this.canonical.foldedUnread : this.canonical.ownContentUnread }
+  @lazy private get ownContentUnread() {
+    return deckRowUnread(this, false)
+  }
+  @lazy private get foldedUnread() {
+    return deckRowUnread(this, true)
+  }
+  unread(collapsed: boolean) {
+    return collapsed ? this.canonical.foldedUnread : this.canonical.ownContentUnread
+  }
   /** The issue's rich row has settled, so its strip can draw. */
-  @lazy private get ownDrawable() { const issue = this.view.issue(this.id); return Boolean(issue) && issue !== LOADING }
-  get drawable() { return this.canonical.ownDrawable }
+  @lazy private get ownDrawable() {
+    const issue = this.view.issue(this.id)
+    return Boolean(issue) && issue !== LOADING
+  }
+  get drawable() {
+    return this.canonical.ownDrawable
+  }
   /** The reference of the session that filed this issue, when it can be named. */
   @lazy private get ownAuthorRef(): string | null {
     // Naming the author needs no roster, activity or inbound dependency payloads.
@@ -416,32 +683,68 @@ export class MissionDeckIssueModel implements FlightDeckRow {
     const author = authorId ? this.view.session(authorId) : undefined
     return author && author !== LOADING ? author.displayRef?.trim() || null : null
   }
-  get authorRef() { return this.canonical.ownAuthorRef }
+  get authorRef() {
+    return this.canonical.ownAuthorRef
+  }
   /** What a crew member's role reads of its task. */
-  @lazy({ equals: compareShallow }) private get ownRoleIssue() { return { id: this.id, coordinatorSessionId: this.facts.coordinatorSessionId } }
-  get roleIssue() { return this.canonical.ownRoleIssue as unknown as IssueNavigationModel }
+  @lazy({ equals: compareShallow }) private get ownRoleIssue() {
+    return { id: this.id, coordinatorSessionId: this.facts.coordinatorSessionId }
+  }
+  get roleIssue() {
+    return this.canonical.ownRoleIssue as unknown as IssueNavigationModel
+  }
   /** Whether the strip draws any crew in a view. */
-  @lazy private get drawsFull() { return deckSessions(this.canonical, 'full').length > 0 }
-  @lazy private get drawsWorking() { return deckSessions(this.canonical, 'working').length > 0 }
-  @lazy private get drawsAsking() { return deckSessions(this.canonical, 'needs-you').length > 0 }
+  @lazy private get drawsFull() {
+    return deckSessions(this.canonical, 'full').length > 0
+  }
+  @lazy private get drawsWorking() {
+    return deckSessions(this.canonical, 'working').length > 0
+  }
+  @lazy private get drawsAsking() {
+    return deckSessions(this.canonical, 'needs-you').length > 0
+  }
   drawsSessions(mode: FlightDeckMode) {
     const row = this.canonical
     return mode === 'full' ? row.drawsFull : mode === 'working' ? row.drawsWorking : row.drawsAsking
   }
-  @lazy({ equals: compareShallow }) private get ownDeckChildren() { return childrenOf(this) }
-  get deckChildren() { return this.canonical.ownDeckChildren }
-  @lazy({ equals: compareShallow }) private get ownDescendantIds() { return descendants(this) }
-  get descendantIds() { return this.canonical.ownDescendantIds }
-  @lazy({ equals: compareShallow }) private get ownSessions() { return crewOf(this) }
-  get sessions() { return this.canonical.ownSessions }
-  @lazy({ equals: compareShallow }) private get ownCrewIds() { return crewIds(this) }
-  get crewIds() { return this.canonical.ownCrewIds }
-  get hasLead() { return this.entity.hasLead }
+  @lazy({ equals: compareShallow }) private get ownDeckChildren() {
+    return childrenOf(this)
+  }
+  get deckChildren() {
+    return this.canonical.ownDeckChildren
+  }
+  @lazy({ equals: compareShallow }) private get ownDescendantIds() {
+    return descendants(this)
+  }
+  get descendantIds() {
+    return this.canonical.ownDescendantIds
+  }
+  @lazy({ equals: compareShallow }) private get ownSessions() {
+    return crewOf(this)
+  }
+  get sessions() {
+    return this.canonical.ownSessions
+  }
+  @lazy({ equals: compareShallow }) private get ownCrewIds() {
+    return crewIds(this)
+  }
+  get crewIds() {
+    return this.canonical.ownCrewIds
+  }
+  get hasLead() {
+    return this.entity.hasLead
+  }
   /** POD-2171: the row's coordinator is live (it may sit on an ancestor). */
-  @lazy get coordinated() { return this.view.coordinated(this.facts) }
+  @lazy get coordinated() {
+    return this.view.coordinated(this.facts)
+  }
   /** The session's role on this row, or null on an uncoordinated row. */
   roleOf(sessionId: string): SeatRole | null {
-    return !this.coordinated ? null : sessionId === this.facts.coordinatorSessionId ? 'coordinator' : 'delegate'
+    return !this.coordinated
+      ? null
+      : sessionId === this.facts.coordinatorSessionId
+        ? 'coordinator'
+        : 'delegate'
   }
   /** The session wants the human on this row: in its role, its `coordinatedSeat` verdict; else its word. */
   asks(session: Pick<SessionView, 'sessionId'>, role = this.roleOf(session.sessionId)) {
@@ -453,144 +756,260 @@ export class MissionDeckIssueModel implements FlightDeckRow {
    * else the count's motion or the filter's `atWork`, as before. */
   works(sessionId: string, role = this.roleOf(sessionId), legacy: 'motion' | 'atWork' = 'motion') {
     const model = this.view.pool.sessionObject(sessionId)
-    if (role !== null) return model.open && (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).working
+    if (role !== null)
+      return (
+        model.open && (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).working
+      )
     return legacy === 'atWork' ? model.atWork : model.open && model.workingMotion
   }
-  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.works(id, this.roleOf(id), 'atWork')) }
-  @lazy({ equals: compareShallow }) get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
+  @lazy({ equals: compareShallow }) get workingSessionIds() {
+    return this.crewIds.filter((id) => this.works(id, this.roleOf(id), 'atWork'))
+  }
+  @lazy({ equals: compareShallow }) get askingSessionIds() {
+    return this.matches('needs-you')
+      ? this.crewIds.filter((id) => this.asks(this.view.pool.sessionObject(id)))
+      : []
+  }
   sessionIds(mode: FlightDeckMode): readonly string[] {
     const row = this.canonical
-    return mode === 'full' ? row.crewIds : mode === 'working' ? row.workingSessionIds : row.askingSessionIds
+    return mode === 'full'
+      ? row.crewIds
+      : mode === 'working'
+        ? row.workingSessionIds
+        : row.askingSessionIds
   }
   // A placement's path is immutable; canonical depth reads tracked topology.
-  get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
+  get depth() {
+    return this.path ? this.path.length - 1 : this.deck.depth(this.id)
+  }
   // Full mode is a plain value; filtered modes read their lazy predicates.
-  get matched() { return this.matches(this.deck.mode) }
-  @lazy get matchesWorking() { return matchedWorking(this) }
-  @lazy get matchesNeedsYou() { return matchedNeedsYou(this) }
-  matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? this.canonical.matchesWorking : this.canonical.matchesNeedsYou) }
-  get rollup() { return rollupValue(this.canonical) }
-  @lazy get tasks() { return sum.tasks(this.canonical) }
-  @lazy get done() { return sum.done(this.canonical) }
-  @lazy get run() { return sum.run(this.canonical) }
-  @lazy get actionableCount() { return requireLoaded(sum.needsYou(this.canonical)) }
-  @lazy get liveAgentCount() { return requireLoaded(sum.live(this.canonical)) }
-  @lazy get workingAgentCount() { return requireLoaded(sum.working(this.canonical)) }
-  @lazy get waitingAgentCount() { return requireLoaded(sum.waiting(this.canonical)) }
+  get matched() {
+    return this.matches(this.deck.mode)
+  }
+  @lazy get matchesWorking() {
+    return matchedWorking(this)
+  }
+  @lazy get matchesNeedsYou() {
+    return matchedNeedsYou(this)
+  }
+  matches(mode: FlightDeckMode) {
+    return (
+      mode === 'full' ||
+      (mode === 'working' ? this.canonical.matchesWorking : this.canonical.matchesNeedsYou)
+    )
+  }
+  get rollup() {
+    return rollupValue(this.canonical)
+  }
+  @lazy get tasks() {
+    return sum.tasks(this.canonical)
+  }
+  @lazy get done() {
+    return sum.done(this.canonical)
+  }
+  @lazy get run() {
+    return sum.run(this.canonical)
+  }
+  @lazy get actionableCount() {
+    return requireLoaded(sum.needsYou(this.canonical))
+  }
+  @lazy get liveAgentCount() {
+    return requireLoaded(sum.live(this.canonical))
+  }
+  @lazy get workingAgentCount() {
+    return requireLoaded(sum.working(this.canonical))
+  }
+  @lazy get waitingAgentCount() {
+    return requireLoaded(sum.waiting(this.canonical))
+  }
   get collapsedSummary() {
     const row = this.canonical
     // A searchable placeholder asks only for the task count. Reading it must
     // not observe the hidden row's crew, kinds and other presentation rollups.
     return {
-      get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
-      get done() { return requireLoaded(row.done) - own.done(row) },
-      get run() { return requireLoaded(row.run) - own.run(row) },
-      get kinds() { return row.kinds },
-      get crew() { return row.collapsedCrew },
-      get needsYou() { return row.actionableCount > 0 },
+      get tasks() {
+        return requireLoaded(row.tasks) - own.tasks(row)
+      },
+      get done() {
+        return requireLoaded(row.done) - own.done(row)
+      },
+      get run() {
+        return requireLoaded(row.run) - own.run(row)
+      },
+      get kinds() {
+        return row.kinds
+      },
+      get crew() {
+        return row.collapsedCrew
+      },
+      get needsYou() {
+        return row.actionableCount > 0
+      },
     }
   }
-  @lazy({ equals: compareStructural }) private get ownState(): DeckIssueState { return rowState(this) }
-  get state(): DeckIssueState { return this.canonical.ownState }
+  @lazy({ equals: compareStructural }) private get ownState(): DeckIssueState {
+    return rowState(this)
+  }
+  get state(): DeckIssueState {
+    return this.canonical.ownState
+  }
   /** The row's task word (D6), rolled up from its crew and its sub-issues. */
-  get word(): TaskWord { return this.state.state }
-  @lazy({ equals: compareStructural }) private get ownPresentation() { return presentation(this) }
-  get presentation() { return this.canonical.ownPresentation }
-  @lazy private get ownUpdatedBelow() { return latestBelow(this) }
-  get updatedBelow() { return this.canonical.ownUpdatedBelow }
-  @lazy private get ownHasPayload() { return hasPayload(this) }
-  get hasPayload() { return this.canonical.ownHasPayload }
+  get word(): TaskWord {
+    return this.state.state
+  }
+  @lazy({ equals: compareStructural }) private get ownPresentation() {
+    return presentation(this)
+  }
+  get presentation() {
+    return this.canonical.ownPresentation
+  }
+  @lazy private get ownUpdatedBelow() {
+    return latestBelow(this)
+  }
+  get updatedBelow() {
+    return this.canonical.ownUpdatedBelow
+  }
+  @lazy private get ownHasPayload() {
+    return hasPayload(this)
+  }
+  get hasPayload() {
+    return this.canonical.ownHasPayload
+  }
   folded(folds: FlightDeckFoldMap) {
     const explicit = folds.get(this.id)
-    return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1 : explicit === 'closed'
+    return explicit === undefined
+      ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1
+      : explicit === 'closed'
   }
 }
 
-const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
-  const { view } = deck, members = requireLoaded(deck.members)
-  let pending = false
-  // Progress is also read without the pane's topology. Request every member's
-  // visibility together so cold siblings do not load one per scalar read.
-  for (const id of members) {
-    const visible = settled(() => view.facts(id).visible)
-    if (visible === LOADING) pending = true
-  }
-  if (pending) return LOADING
-  const leaves = leafTasks(deck.id, {
-    task: (id) => view.facts(id),
-    children: (id) => [...view.pool.graph.many('issue', id, 'children')].filter((child) =>
-      view.facts(child).visible && view.facts(child).stage !== 'proposed'),
+const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
+  settled(() => {
+    const { view } = deck,
+      members = requireLoaded(deck.members)
+    let pending = false
+    // Progress is also read without the pane's topology. Request every member's
+    // visibility together so cold siblings do not load one per scalar read.
+    for (const id of members) {
+      const visible = settled(() => view.facts(id).visible)
+      if (visible === LOADING) pending = true
+    }
+    if (pending) return LOADING
+    const leaves = leafTasks(deck.id, {
+      task: (id) => view.facts(id),
+      children: (id) =>
+        [...view.pool.graph.many('issue', id, 'children')].filter(
+          (child) => view.facts(child).visible && view.facts(child).stage !== 'proposed',
+        ),
+    })
+    // Settle every leaf's session demand before propagating LOADING, so cold
+    // history hydrates as one batch rather than restarting the leaf walk per seat.
+    for (const id of leaves) {
+      if (settled(() => view.facts(id).live) === LOADING) pending = true
+    }
+    if (pending) return LOADING
+    const units = leaves.filter((id) => {
+      const facts = view.facts(id)
+      return (
+        facts.visible &&
+        (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
+      )
+    })
+    return tallyMissionBuckets(units, (id) => view.facts(id).missionBucket)
   })
-  // Settle every leaf's session demand before propagating LOADING, so cold
-  // history hydrates as one batch rather than restarting the leaf walk per seat.
-  for (const id of leaves) {
-    if (settled(() => view.facts(id).live) === LOADING) pending = true
-  }
-  if (pending) return LOADING
-  const units = leaves.filter((id) => {
-    const facts = view.facts(id)
-    return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
-  })
-  return tallyMissionBuckets(units, (id) => view.facts(id).missionBucket)
-}))
 
 // The header is mounted only after its own references and scalar rollups have
 // settled. Observing this boolean keeps LOADING in the data boundary; ordinary
 // header value changes are read by its observer, without republishing the pane.
-const headerReady = ((deck: MissionDeckModel) => settled(() => {
-  const row = deck.model(deck.id)
-  const reads: readonly (() => unknown)[] = [
-    () => row.liveAgentCount, () => row.workingAgentCount,
-    () => row.actionableCount, () => row.waitingAgentCount,
-    () => deck.continuation, () => deck.note,
-    () => deck.presence, () => deck.departures,
-  ]
-  let pending = false
-  for (const read of reads) if (settled(read) === LOADING) pending = true
-  return pending ? LOADING : true
-}))
-const rootContinuation = ((deck: MissionDeckModel) => {
+const headerReady = (deck: MissionDeckModel) =>
+  settled(() => {
+    const row = deck.model(deck.id)
+    const reads: readonly (() => unknown)[] = [
+      () => row.liveAgentCount,
+      () => row.workingAgentCount,
+      () => row.actionableCount,
+      () => row.waitingAgentCount,
+      () => deck.continuation,
+      () => deck.note,
+      () => deck.presence,
+      () => deck.departures,
+    ]
+    let pending = false
+    for (const read of reads) if (settled(read) === LOADING) pending = true
+    return pending ? LOADING : true
+  })
+const rootContinuation = (deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.continuation(root) : null
-})
-const rootNote = ((deck: MissionDeckModel) => {
+}
+const rootNote = (deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.note(root) : null
-})
-const rootPresence = ((deck: MissionDeckModel) => {
+}
+const rootPresence = (deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.presence(root, deck.model(deck.id).sessions) : null
-})
-const rootDepartures = ((deck: MissionDeckModel) => deck.view.departures(deck))
+}
+const rootDepartures = (deck: MissionDeckModel) => deck.view.departures(deck)
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
  * lifetime; unobserved row/model questions keep no computed allocations. */
 export class MissionDeckModel {
   readonly card = companion((issue: IssueModel) => new MissionDeckIssueModel(issue, this))
-  constructor(readonly entity: IssueModel, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
-  get id() { return this.entity.id }
-  @lazy get archivedCount() { return this.view.readArchiveCount(this) }
-  @lazy get members() { return missions(this.view.pool).members(this.id) }
-  @lazy get topology() { return topology(this) }
-  @lazy get progress() { return progress(this) }
-  @lazy get headerReady() { return headerReady(this) }
-  @lazy get continuation() { return rootContinuation(this) }
-  @lazy get note() { return rootNote(this) }
-  @lazy get presence() { return rootPresence(this) }
-  @lazy get departures() { return rootDepartures(this) }
+  constructor(
+    readonly entity: IssueModel,
+    readonly view: MissionViewReader,
+    readonly mode: FlightDeckMode,
+  ) {}
+  get id() {
+    return this.entity.id
+  }
+  @lazy get archivedCount() {
+    return this.view.readArchiveCount(this)
+  }
+  @lazy get members() {
+    return missions(this.view.pool).members(this.id)
+  }
+  @lazy get topology() {
+    return topology(this)
+  }
+  @lazy get progress() {
+    return progress(this)
+  }
+  @lazy get headerReady() {
+    return headerReady(this)
+  }
+  @lazy get continuation() {
+    return rootContinuation(this)
+  }
+  @lazy get note() {
+    return rootNote(this)
+  }
+  @lazy get presence() {
+    return rootPresence(this)
+  }
+  @lazy get departures() {
+    return rootDepartures(this)
+  }
   // Topology recomputes on any member's row change; equal paths keep the
   // drawn placements (and their companions) instead of rebuilding every row.
-  @lazy({ equals: compareStructural }) private get paths() { return settled(() => this.readPaths()) }
-  @lazy({ equals: compareShallow }) private get placements() { return settled(() => requireLoaded(this.paths).map(path => path[path.length - 1]!)) }
+  @lazy({ equals: compareStructural }) private get paths() {
+    return settled(() => this.readPaths())
+  }
+  @lazy({ equals: compareShallow }) private get placements() {
+    return settled(() => requireLoaded(this.paths).map((path) => path[path.length - 1]!))
+  }
   private readPaths() {
-    const shape = requireLoaded(this.topology), members = requireLoaded(this.members)
+    const shape = requireLoaded(this.topology),
+      members = requireLoaded(this.members)
     const included = new Set<string>([this.id])
     for (const id of members) {
       if (!this.view.facts(id).visible || !this.model(id).matches(this.mode)) continue
       let current: string | undefined = id
       const seen = new Set<string>()
       while (current && !seen.has(current)) {
-        seen.add(current); included.add(current)
+        seen.add(current)
+        included.add(current)
         if (current === this.id) break
         current = shape.parent.get(current)
       }
@@ -605,118 +1024,211 @@ export class MissionDeckModel {
     walk(this.id, [])
     return paths
   }
-  rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null): readonly string[] | typeof LOADING {
+  rowIds(
+    mode: FlightDeckMode = this.mode,
+    collapsed: FlightDeckFoldMap | null = null,
+  ): readonly string[] | typeof LOADING {
     if (mode !== this.mode) return this.view.deck(this.id, mode).rowIds(mode, collapsed)
     if (collapsed === null) return this.placements
-    return settled(() => requireLoaded(this.paths)
-      .filter(path => path.slice(1, -1).every(id => !this.model(id).folded(collapsed)))
-      .map(path => path[path.length - 1]!))
+    return settled(() =>
+      requireLoaded(this.paths)
+        .filter((path) => path.slice(1, -1).every((id) => !this.model(id).folded(collapsed)))
+        .map((path) => path[path.length - 1]!),
+    )
   }
   @lazy private get rowPlacements() {
-    return requireLoaded(this.paths).map(path => new MissionDeckIssueModel(this.view.facts(path[path.length - 1]!), this, path))
+    return requireLoaded(this.paths).map(
+      (path) => new MissionDeckIssueModel(this.view.facts(path[path.length - 1]!), this, path),
+    )
   }
-  rows() { return this.rowPlacements }
-  model(id: string) { return this.card(this.view.facts(id)) }
+  rows() {
+    return this.rowPlacements
+  }
+  model(id: string) {
+    return this.card(this.view.facts(id))
+  }
   depth(id: string) {
     return requireLoaded(this.topology).depths.get(id) ?? 0
   }
   ancestorPath(id: string) {
-    const shape = requireLoaded(this.topology), ids: string[] = [], seen = new Set<string>()
+    const shape = requireLoaded(this.topology),
+      ids: string[] = [],
+      seen = new Set<string>()
     let current: string | undefined = id
-    while (current && !seen.has(current)) { seen.add(current); ids.push(current); if (current === this.id) break; current = shape.parent.get(current) }
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      ids.push(current)
+      if (current === this.id) break
+      current = shape.parent.get(current)
+    }
     return ids.reverse()
   }
   ancestorIds(id: string) {
-    const shape = requireLoaded(this.topology), ids = new Set<string>(), stack = [id]
+    const shape = requireLoaded(this.topology),
+      ids = new Set<string>(),
+      stack = [id]
     while (stack.length) {
       const current = stack.pop()!
       if (ids.has(current)) continue
       ids.add(current)
-      if (current !== this.id) stack.push(...shape.parents.get(current) ?? [])
+      if (current !== this.id) stack.push(...(shape.parents.get(current) ?? []))
     }
     return ids
   }
-
 }
 
 /** Mission rules and rich read projections belong to this screen companion. */
 class MissionIssueReader {
-  constructor(readonly entity: IssueModel, readonly view: MissionViewReader) {}
-  get id() { return this.entity.id }
+  constructor(
+    readonly entity: IssueModel,
+    readonly view: MissionViewReader,
+  ) {}
+  get id() {
+    return this.entity.id
+  }
   @lazy get earliestChild() {
     let first: string | undefined
-    for (const id of this.view.pool.graph.many('issue', this.id, 'children')) if (first === undefined || id < first) first = id
+    for (const id of this.view.pool.graph.many('issue', this.id, 'children'))
+      if (first === undefined || id < first) first = id
     return first
   }
-  @lazy get issue() { return this.view.readIssue(this.id) }
-  @lazy get menuIssue() { return this.view.readMenuIssue(this.id) }
-  @lazy get catalog() { return this.view.readCatalogIssue(this.id) }
-  @lazy get rules() { return this.view.readRulesIssue(this.id) }
-  @lazy get localTips() { return this.view.readTips(this.id, true) }
-  @lazy get liveTips() { return this.view.readTips(this.id, false) }
-  @lazy get attached() { return this.view.readAttached(this.id) }
-  @lazy get present() { return this.view.readPresent(this.id) }
-  @lazy get history() { return this.view.readHistory(this.id) }
-  @lazy get historyRosterCount() { return this.view.readHistoryRosterCount(this.id) }
+  @lazy get issue() {
+    return this.view.readIssue(this.id)
+  }
+  @lazy get menuIssue() {
+    return this.view.readMenuIssue(this.id)
+  }
+  @lazy get catalog() {
+    return this.view.readCatalogIssue(this.id)
+  }
+  @lazy get rules() {
+    return this.view.readRulesIssue(this.id)
+  }
+  @lazy get localTips() {
+    return this.view.readTips(this.id, true)
+  }
+  @lazy get liveTips() {
+    return this.view.readTips(this.id, false)
+  }
+  @lazy get attached() {
+    return this.view.readAttached(this.id)
+  }
+  @lazy get present() {
+    return this.view.readPresent(this.id)
+  }
+  @lazy get history() {
+    return this.view.readHistory(this.id)
+  }
+  @lazy get historyRosterCount() {
+    return this.view.readHistoryRosterCount(this.id)
+  }
   @lazy get menuHandoff(): MissionMenuHandoff | typeof LOADING {
     const count = this.view.pool.graph.size('issue', this.id, 'handoffSessions')
     if (count === 0) return { blocker: 'no-agent-session' }
     if (count > 1) return { blocker: 'multiple-sessions' }
-    const sessionId = this.view.pool.graph.many('issue', this.id, 'handoffSessions')[Symbol.iterator]().next().value!
+    const sessionId = this.view.pool.graph
+      .many('issue', this.id, 'handoffSessions')
+      [Symbol.iterator]()
+      .next().value!
     const session = this.view.menuSession(sessionId)
     return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
   }
 }
-const underway = (stage: string) => stage === 'planning' || stage === 'in_progress' || stage === 'shipping'
-const leftMission = (issue: IssueNavigationModel) => !['proposed', 'backlog'].includes(issue.stage) && Boolean(issue.deps.find(dep => dep.type === 'discovered-from'))
-const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? null
+const underway = (stage: string) =>
+  stage === 'planning' || stage === 'in_progress' || stage === 'shipping'
+const leftMission = (issue: IssueNavigationModel) =>
+  !['proposed', 'backlog'].includes(issue.stage) &&
+  Boolean(issue.deps.find((dep) => dep.type === 'discovered-from'))
+const originId = (issue: IssueNavigationModel) =>
+  issue.deps.find((dep) => dep.type === 'discovered-from')?.id ?? null
 
 /** One read service on the existing principal's pool. There is no source,
  * replica, runtime, outbox or independently maintained relation index here. */
 export class MissionViewReader {
   private card = companion((issue: IssueModel) => new MissionIssueReader(issue, this))
   private fullDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'full'))
-  private workingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'working'))
-  private askingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'needs-you'))
-  readonly stats: { issueReads: number; sessionReads: number; attachmentEdges: number; onRollup?: (id: string) => void } = { issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
-  facts(id: string): MissionIssue { return this.pool.issueObject(id) as MissionIssue }
+  private workingDeck = companion(
+    (issue: IssueModel) => new MissionDeckModel(issue, this, 'working'),
+  )
+  private askingDeck = companion(
+    (issue: IssueModel) => new MissionDeckModel(issue, this, 'needs-you'),
+  )
+  readonly stats: {
+    issueReads: number
+    sessionReads: number
+    attachmentEdges: number
+    onRollup?: (id: string) => void
+  } = { issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
+  facts(id: string): MissionIssue {
+    return this.pool.issueObject(id) as MissionIssue
+  }
   deck(id: string, mode: FlightDeckMode = 'full') {
     const issue = this.facts(id)
-    return mode === 'full' ? this.fullDeck(issue) : mode === 'working' ? this.workingDeck(issue) : this.askingDeck(issue)
+    return mode === 'full'
+      ? this.fullDeck(issue)
+      : mode === 'working'
+        ? this.workingDeck(issue)
+        : this.askingDeck(issue)
   }
-  node(id: string) { return this.card(this.facts(id)) }
+  node(id: string) {
+    return this.card(this.facts(id))
+  }
   constructor(readonly pool: MobxPool) {}
-  issue(id: string): Loaded<IssueNavigationModel> { return this.node(id).issue }
+  issue(id: string): Loaded<IssueNavigationModel> {
+    return this.node(id).issue
+  }
   /** An open menu shows authored issue fields, unread and cascade counts;
    * it does not show the history roster or its phase summary. */
-  menuIssue(id: string): Loaded<IssueNavigationModel> { return this.node(id).menuIssue }
+  menuIssue(id: string): Loaded<IssueNavigationModel> {
+    return this.node(id).menuIssue
+  }
   readMenuIssue(id: string): Loaded<IssueNavigationModel> {
     const row = this.menuCatalogIssue(id)
     if (!row || row === LOADING) return row
-    const readAt = this.pool.readCursor(id) ?? null, readTime = Date.parse(readAt ?? '')
-    return menuIssueOverlay(row, {
-      readAt,
-      pinned: this.facts(id).pinned,
-      unread: !row.deletedAt && (!Number.isFinite(readTime) || Date.parse(row.updatedAt) > readTime || (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
-      ...this.pool.queries.issueChildCounts(id),
-      sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
-    }, MENU_OMISSIONS) as IssueNavigationModel
+    const readAt = this.pool.readCursor(id) ?? null,
+      readTime = Date.parse(readAt ?? '')
+    return menuIssueOverlay(
+      row,
+      {
+        readAt,
+        pinned: this.facts(id).pinned,
+        unread:
+          !row.deletedAt &&
+          (!Number.isFinite(readTime) ||
+            Date.parse(row.updatedAt) > readTime ||
+            (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
+        ...this.pool.queries.issueChildCounts(id),
+        sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
+      },
+      MENU_OMISSIONS,
+    ) as IssueNavigationModel
   }
   /** Count the declared capability set, and load a sender only when it is
    * the unique handoff subject. MobX retains this answer only while observed. */
-  menuHandoff(id: string) { return this.node(id).menuHandoff }
+  menuHandoff(id: string) {
+    return this.node(id).menuHandoff
+  }
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = omitGone(this.pool.row('issue', id, 'summary-fields')) as Loaded<IssueNavigationModel>
+    const row = omitGone(
+      this.pool.row('issue', id, 'summary-fields'),
+    ) as Loaded<IssueNavigationModel>
     if (!row || row === LOADING) return row
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
-    return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
+    const repo = repoId
+      ? (omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined)
+      : undefined
+    return issueRefOverlay(row, {
+      prefix: repo?.prefix,
+      displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
+    }) as IssueNavigationModel
   }
   /** Shared raw-member facts: read cursors and machine display changes do not
    * rebuild the archived contribution or the ordered membership IDs. */
-  issueMembers(id: string): IssueMemberFacts | typeof LOADING { return this.readIssueMembers(id) }
+  issueMembers(id: string): IssueMemberFacts | typeof LOADING {
+    return this.readIssueMembers(id)
+  }
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
     return this.node(id).catalog
@@ -726,16 +1238,25 @@ export class MissionViewReader {
     if (!raw || raw === LOADING) return raw
     const row = raw as IssueNavigationModel
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
-    return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
+    const repo = repoId
+      ? (omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined)
+      : undefined
+    return issueRefOverlay(row, {
+      prefix: repo?.prefix,
+      displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
+    }) as IssueNavigationModel
   }
   /** Every explicit mission sender, archived history included, in session
    * order. Explicit whole-roster readers ask for it; mission derivations
    * compose {@link present} and {@link history} so a seated heartbeat never
    * re-reads history. */
-  attached(id: string): readonly SessionView[] | typeof LOADING { return this.node(id).attached }
+  attached(id: string): readonly SessionView[] | typeof LOADING {
+    return this.node(id).attached
+  }
   /** Non-archived mission senders, in session order. */
-  present(id: string): readonly SessionView[] | typeof LOADING { return this.node(id).present }
+  present(id: string): readonly SessionView[] | typeof LOADING {
+    return this.node(id).present
+  }
   /** What derivations need from the archived mission senders. */
   history(id: string): MissionHistory | typeof LOADING {
     // Most issues have no archived sender: answer without building a cache.
@@ -752,16 +1273,19 @@ export class MissionViewReader {
     return ids === LOADING ? LOADING : ids.length > 0
   }
   /** The archived list under a mission root's drawn rows, in row order. */
-  archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING { return deriveMissionArchive(this, this.deck(rootId, mode).rowIds(mode)) }
+  archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING {
+    return deriveMissionArchive(this, this.deck(rootId, mode).rowIds(mode))
+  }
   /** An archived session's facts: its shared seat when the whole row is in
    * hand (one cached value per session, shared with navigation and the
    * partitions), else its row, which this read loads. */
   private sessionFacts(sessionId: string): SessionFacts | typeof LOADING | undefined {
     const session = this.pool.sessionObject(sessionId)
-    return settled(() => session.exists ? session : undefined)
+    return settled(() => (session.exists ? session : undefined))
   }
   private idOrder = (a: string, b: string): number => {
-    const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
+    const left = this.pool.graph.orderKey('session', a),
+      right = this.pool.graph.orderKey('session', b)
     return (left < right ? -1 : left > right ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
   }
   /** Facts of the given sessions in session order; LOADING while any row loads. */
@@ -775,10 +1299,11 @@ export class MissionViewReader {
     }
     return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
   }
-  sessionOrder = (a: Pick<SessionView, 'sessionId'>, b: Pick<SessionView, 'sessionId'>): number => this.idOrder(a.sessionId, b.sessionId)
+  sessionOrder = (a: Pick<SessionView, 'sessionId'>, b: Pick<SessionView, 'sessionId'>): number =>
+    this.idOrder(a.sessionId, b.sessionId)
   rawSession(id: string): Loaded<SessionModel & SessionView> {
     const model = this.pool.sessionObject(id)
-    return settled(() => model.exists ? model as SessionModel & SessionView : undefined)
+    return settled(() => (model.exists ? (model as SessionModel & SessionView) : undefined))
   }
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
@@ -791,12 +1316,22 @@ export class MissionViewReader {
     // Menus borrow a row projection so omissions and serialization keep their
     // wire shape; session facts everywhere else come from the shared model.
     const row = omitGone(this.pool.row('session', id)) as Loaded<SessionView>
-    return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
+    return !row || row === LOADING
+      ? row
+      : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
-  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
+  private seatIds(
+    relation: SeatRelation,
+    id: string,
+    archived: boolean,
+  ): readonly string[] | typeof LOADING {
     return this.pool.sessionSeatIds(relation, id, archived)
   }
-  private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
+  private seatRows(
+    relation: SeatRelation,
+    id: string,
+    archived: boolean,
+  ): SessionView[] | typeof LOADING {
     const ids = this.seatIds(relation, id, archived)
     if (ids === LOADING) return LOADING
     const found: SessionView[] = []
@@ -837,14 +1372,20 @@ export class MissionViewReader {
     }
     if (pending) return LOADING
     let newest: SessionFacts | undefined
-    for (const session of facts) if (!newest || session.lastActivity > newest.lastActivity) newest = session
-    return { count: facts.length, roster: facts.filter(session => session.rosterEligible).length, newest: newest?.sessionId,
-      moved: facts.find(session => session.moved)?.sessionId }
+    for (const session of facts)
+      if (!newest || session.lastActivity > newest.lastActivity) newest = session
+    return {
+      count: facts.length,
+      roster: facts.filter((session) => session.rosterEligible).length,
+      newest: newest?.sessionId,
+      moved: facts.find((session) => session.moved)?.sessionId,
+    }
   }
   readHistoryRosterCount(id: string): number | typeof LOADING {
     const ids = this.seatIds('missionSessions', id, true)
     if (ids === LOADING) return LOADING
-    let count = 0, pending = false
+    let count = 0,
+      pending = false
     for (const sessionId of ids) {
       const roster = settled(() => this.pool.sessionObject(sessionId).rosterEligible)
       if (roster === LOADING) pending = true
@@ -853,36 +1394,58 @@ export class MissionViewReader {
     return pending ? LOADING : count
   }
   readAttached(id: string): readonly SessionView[] | typeof LOADING {
-    const present = this.present(id), archived = this.seatRows('missionSessions', id, true)
+    const present = this.present(id),
+      archived = this.seatRows('missionSessions', id, true)
     if (present === LOADING || archived === LOADING) return LOADING
     return [...present, ...archived].sort(this.sessionOrder)
   }
   readIssueMembers(id: string): IssueMemberFacts | typeof LOADING {
     const issue = this.facts(id)
-    return settled(() => ({ ids: issue.memberSessionIds, latest: issue.memberLatestActivity, summary: issue.memberSummary }))
+    return settled(() => ({
+      ids: issue.memberSessionIds,
+      latest: issue.memberLatestActivity,
+      summary: issue.memberSummary,
+    }))
   }
   /** The present and archived seats are both settled (history rows loaded). */
   settled(id: string): boolean {
-    const present = this.present(id), history = this.history(id)
+    const present = this.present(id),
+      history = this.history(id)
     return present !== LOADING && history !== LOADING
   }
   /** First session in session order among the present and archived candidates. */
-  earlier(present: SessionView | undefined, archived: SessionView | undefined): SessionView | undefined {
-    return !present ? archived : !archived ? present : this.sessionOrder(present, archived) <= 0 ? present : archived
+  earlier(
+    present: SessionView | undefined,
+    archived: SessionView | undefined,
+  ): SessionView | undefined {
+    return !present
+      ? archived
+      : !archived
+        ? present
+        : this.sessionOrder(present, archived) <= 0
+          ? present
+          : archived
   }
   /** `newestSession` over the whole roster: the latest activity, earlier session order on a tie. */
   newest(id: string): SessionView | undefined {
-    const present = this.present(id), history = this.history(id)
+    const present = this.present(id),
+      history = this.history(id)
     if (present === LOADING || history === LOADING) throw LOADING
-    const left = newestSession(present), right = this.resolve(history.newest)
-    if (!left || !right || left.lastActiveAt === right.lastActiveAt) return this.earlier(left, right)
+    const left = newestSession(present),
+      right = this.resolve(history.newest)
+    if (!left || !right || left.lastActiveAt === right.lastActiveAt)
+      return this.earlier(left, right)
     return left.lastActiveAt > right.lastActiveAt ? left : right
   }
   /** The first session, present or archived, that moved to another issue. */
   moved(id: string): SessionView | undefined {
-    const present = this.present(id), history = this.history(id)
+    const present = this.present(id),
+      history = this.history(id)
     if (present === LOADING || history === LOADING) throw LOADING
-    return this.earlier(present.find(session => session.handoffTarget), this.resolve(history.moved))
+    return this.earlier(
+      present.find((session) => session.handoffTarget),
+      this.resolve(history.moved),
+    )
   }
   /** One session's row by id, for an aggregate's chosen member. */
   resolve(sessionId: string | undefined): SessionView | undefined {
@@ -895,7 +1458,9 @@ export class MissionViewReader {
     this.stats.issueReads++
     const raw = omitGone(this.pool.row('issue', id))
     if (raw === LOADING || !raw) return raw
-    const row = raw as Omit<IssueNavigationModel, 'description'> & { description: string | { value: string } }
+    const row = raw as Omit<IssueNavigationModel, 'description'> & {
+      description: string | { value: string }
+    }
     if (!this.settled(id)) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
@@ -911,33 +1476,50 @@ export class MissionViewReader {
     for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
       const source = omitGone(this.pool.row('issue', sourceId)) as Loaded<IssueNavigationModel>
       if (source === LOADING) pending = true
-      else if (source) for (const dep of source.deps ?? []) {
-        if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
-      }
+      else if (source)
+        for (const dep of source.deps ?? []) {
+          if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+        }
     }
     if (pending || members === LOADING) return LOADING
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
+    const repo = repoId
+      ? (omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined)
+      : undefined
     const readAt = this.pool.readCursor(id) ?? null
-    let unread = !readAt || !Number.isFinite(Date.parse(readAt)) || Date.parse(row.updatedAt) > Date.parse(readAt)
+    let unread =
+      !readAt ||
+      !Number.isFinite(Date.parse(readAt)) ||
+      Date.parse(row.updatedAt) > Date.parse(readAt)
     unread ||= members.latest > Date.parse(readAt ?? '')
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return issueNavigationOverlay(row, {
-      description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
-      worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
-      prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
-      readAt, memberSessionIds: members.ids,
-      childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
-      deferred, ready: !row.blocked && !deferred && !this.facts(id).finished, dependents,
-      unread: row.deletedAt ? false : unread, sessionSummary: members.summary,
+      description:
+        typeof row.description === 'string' ? row.description : (row.description?.value ?? ''),
+      worktreePath: row.worktreePath ?? null,
+      branch: row.branch ?? null,
+      prefix: repo?.prefix,
+      displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
+      readAt,
+      memberSessionIds: members.ids,
+      childIds: [...childIds].sort().map(asIssueId),
+      childCount: childIds.length,
+      childDoneCount,
+      deferred,
+      ready: !row.blocked && !deferred && !this.facts(id).finished,
+      dependents,
+      unread: row.deletedAt ? false : unread,
+      sessionSummary: members.summary,
     }) as IssueNavigationModel
   }
   roster(id: string, archived = false): readonly SessionView[] | typeof LOADING {
     const seats = archived ? this.seatRows('missionSessions', id, true) : this.present(id)
     if (seats === LOADING) return LOADING
-    return (archived ? [...seats].sort(this.sessionOrder) : seats)
-      .filter(session => { const model = this.pool.sessionObject(session.sessionId); return archived ? model.archived && model.rosterEligible : model.onRoster })
+    return (archived ? [...seats].sort(this.sessionOrder) : seats).filter((session) => {
+      const model = this.pool.sessionObject(session.sessionId)
+      return archived ? model.archived && model.rosterEligible : model.onRoster
+    })
   }
   rootFor(selectedId: string | null): Loaded<string> {
     const root = missions(this.pool).rootFor(selectedId)
@@ -949,7 +1531,10 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const currentId = id
-      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{ archived?: boolean; deletedAt?: string }>
+      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{
+        archived?: boolean
+        deletedAt?: string
+      }>
       const visible = settled(() => this.facts(currentId).visible)
       if (facts === undefined || visible === false) break
       void omitGone(this.pool.row('issue', id))
@@ -964,7 +1549,8 @@ export class MissionViewReader {
   }
   private rootValue(rootId: string): Loaded<IssueNavigationModel> {
     const root = this.issue(rootId)
-    if (root === LOADING || !root || !this.facts(rootId).visible) return root === LOADING ? LOADING : undefined
+    if (root === LOADING || !root || !this.facts(rootId).visible)
+      return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {
       const sessions = this.present(rootId)
       if (sessions === LOADING || this.history(rootId) === LOADING) return LOADING
@@ -973,14 +1559,19 @@ export class MissionViewReader {
     return root
   }
   title(issue: IssueNavigationModel): string | typeof LOADING {
-    if (!issue.isDraftVessel || !['', DRAFT_ISSUE_TITLE].includes(issue.title.trim())) return issue.title
+    if (!issue.isDraftVessel || !['', DRAFT_ISSUE_TITLE].includes(issue.title.trim()))
+      return issue.title
     const crew = this.roster(issue.id)
     if (crew === LOADING) return LOADING
-    return crew[0]?.name?.trim() || (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
+    return (
+      crew[0]?.name?.trim() ||
+      (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
+    )
   }
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
-      let count = 0, pending = false
+      let count = 0,
+        pending = false
       for (const id of requireLoaded(deck.rowIds())) {
         const roster = this.historyRosterCount(id)
         if (roster === LOADING) pending = true
@@ -990,22 +1581,30 @@ export class MissionViewReader {
     })
   }
   departures(deck: MissionDeckModel): MissionDeparture[] {
-    const members = requireLoaded(deck.members), found: MissionDeparture[] = [], seen = new Set<string>()
+    const members = requireLoaded(deck.members),
+      found: MissionDeparture[] = [],
+      seen = new Set<string>()
     let pending = false
     for (const id of [...members].sort()) {
       if (!this.facts(id).visible) continue
       if (this.pool.graph.size('issue', id, 'spinOffs') === 0) continue
       const result = settled(() => {
-        const empty = !requireLoaded(this.roster(id)).some(session => this.pool.sessionObject(session.sessionId).open)
+        const empty = !requireLoaded(this.roster(id)).some(
+          (session) => this.pool.sessionObject(session.sessionId).open,
+        )
         for (const tip of this.tips(id)) {
-          if (members.has(tip.id) || seen.has(tip.id) || (!empty && this.facts(tip.id).finished)) continue
+          if (members.has(tip.id) || seen.has(tip.id) || (!empty && this.facts(tip.id).finished))
+            continue
           const value = settled(() => {
             const issue = requireLoaded(this.issue(tip.id))!
             const crew = requireLoaded(this.roster(tip.id))
             return { issue, originId: id, state: this.presentation(issue, crew).state }
           })
           if (value === LOADING) pending = true
-          else { seen.add(tip.id); found.push(value) }
+          else {
+            seen.add(tip.id)
+            found.push(value)
+          }
         }
       })
       if (result === LOADING) pending = true
@@ -1013,8 +1612,12 @@ export class MissionViewReader {
     if (pending) throw LOADING
     return found.sort((a, b) => a.issue.seq - b.issue.seq)
   }
-  private presentStrict(id: string) { return requireLoaded(this.present(id)) }
-  private rosterStrict(id: string, archived = false) { return [...requireLoaded(this.roster(id, archived))] }
+  private presentStrict(id: string) {
+    return requireLoaded(this.present(id))
+  }
+  private rosterStrict(id: string, archived = false) {
+    return [...requireLoaded(this.roster(id, archived))]
+  }
   rulesIssue(id: string): IssueNavigationModel | undefined {
     return this.node(id).rules
   }
@@ -1026,17 +1629,30 @@ export class MissionViewReader {
     for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
       const source = this.catalogIssue(sourceId)
       if (source === LOADING) pending = true
-      else if (source) for (const dep of source.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+      else if (source)
+        for (const dep of source.deps ?? [])
+          if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
     }
     if (pending || raw === LOADING) throw LOADING
     return issueNavigationOverlay(raw, { dependents }) as IssueNavigationModel
   }
-  hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
-  tipIds(id: string, local = false) { return this.tips(id, local).map(issue => issue.id as string) }
-  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWords[] = []): DeckIssueState {
-    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0,
+  hasSpinOffDependent(id: string) {
+    return this.rulesIssue(id)?.dependents.some((dep) => dep.type === 'discovered-from') ?? false
+  }
+  tipIds(id: string, local = false) {
+    return this.tips(id, local).map((issue) => issue.id as string)
+  }
+  deckState(
+    issue: IssueNavigationModel,
+    sessions: readonly SessionView[],
+    children: readonly TaskWords[] = [],
+  ): DeckIssueState {
+    return deckIssueState(issue, sessions, {
+      children,
+      unmetDependency: this.waiting(issue).length > 0,
       coordinated: this.coordinated(issue),
-      pendingInteractions: id => this.pool.sessionObject(id).openInteractions.count })
+      pendingInteractions: (id) => this.pool.sessionObject(id).openInteractions.count,
+    })
   }
   /** POD-2171: the issue's coordinator seat is held by a live session, which may sit on an ancestor. */
   coordinated(issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>): boolean {
@@ -1045,26 +1661,42 @@ export class MissionViewReader {
     const session = this.session(id)
     return session !== LOADING && coordinatorLive(session)
   }
-  presentation(issue: IssueNavigationModel, sessions: readonly SessionView[], state = this.deckState(issue, sessions)): MissionRowPresentation {
+  presentation(
+    issue: IssueNavigationModel,
+    sessions: readonly SessionView[],
+    state = this.deckState(issue, sessions),
+  ): MissionRowPresentation {
     return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }
   }
-  live(id: string) { return this.facts(id).live }
-  lastActive(issue: IssueNavigationModel, local: boolean) {
-    return local ? issue.updatedAt : this.presentStrict(issue.id).reduce((latest, session) =>
-      !session.archived && session.lastActiveAt > latest ? session.lastActiveAt : latest, issue.updatedAt)
+  live(id: string) {
+    return this.facts(id).live
   }
-  preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
-    const staffed = local ? [] : candidates.filter(issue => this.facts(issue.id).live)
-    const unfinished = candidates.filter(issue => !this.facts(issue.id).finished)
-    return [...(staffed.length ? staffed : unfinished.length ? unfinished : candidates)]
-      .sort((a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)))[0]
+  lastActive(issue: IssueNavigationModel, local: boolean) {
+    return local
+      ? issue.updatedAt
+      : this.presentStrict(issue.id).reduce(
+          (latest, session) =>
+            !session.archived && session.lastActiveAt > latest ? session.lastActiveAt : latest,
+          issue.updatedAt,
+        )
+  }
+  preferred(
+    candidates: readonly IssueNavigationModel[],
+    local = false,
+  ): IssueNavigationModel | undefined {
+    const staffed = local ? [] : candidates.filter((issue) => this.facts(issue.id).live)
+    const unfinished = candidates.filter((issue) => !this.facts(issue.id).finished)
+    return [...(staffed.length ? staffed : unfinished.length ? unfinished : candidates)].sort(
+      (a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)),
+    )[0]
   }
   tips(origin: string, local = false): IssueNavigationModel[] {
     if (this.pool.graph.size('issue', origin, 'spinOffs') === 0) return []
-    return (local ? this.node(origin).localTips : this.node(origin).liveTips)
+    return local ? this.node(origin).localTips : this.node(origin).liveTips
   }
   readTips(origin: string, local: boolean): IssueNavigationModel[] {
-    const seen = new Set<string>(), descendants: IssueNavigationModel[] = []
+    const seen = new Set<string>(),
+      descendants: IssueNavigationModel[] = []
     let pending = false
     const stack = [origin]
     while (stack.length) {
@@ -1082,116 +1714,224 @@ export class MissionViewReader {
         // inputs for this same candidate. Request them in the same window.
         const issue = settled(() => this.rulesIssue(id))
         const live = local ? false : settled(() => this.live(id))
-        if (visible === LOADING || issue === LOADING || live === LOADING) { pending = true; stack.push(id); continue }
+        if (visible === LOADING || issue === LOADING || live === LOADING) {
+          pending = true
+          stack.push(id)
+          continue
+        }
         if (!issue) continue
-        descendants.push(issue); stack.push(id)
+        descendants.push(issue)
+        stack.push(id)
       }
     }
-    if (!local) for (const issue of descendants) if (settled(() => this.facts(issue.id).live) === LOADING) pending = true
+    if (!local)
+      for (const issue of descendants)
+        if (settled(() => this.facts(issue.id).live) === LOADING) pending = true
     if (pending) throw LOADING
     const branches = new Map<string, IssueNavigationModel[]>()
     for (const issue of descendants) {
       if (!leftMission(issue) && (local || !this.facts(issue.id).live)) continue
-      let branchId: string = issue.id, parentId = this.pool.graph.one('issue', issue.id, 'discoveredFrom')
+      let branchId: string = issue.id,
+        parentId = this.pool.graph.one('issue', issue.id, 'discoveredFrom')
       const path = new Set<string>([issue.id])
       while (parentId && parentId !== origin) {
-        if (path.has(parentId)) { parentId = null; break }
+        if (path.has(parentId)) {
+          parentId = null
+          break
+        }
         path.add(parentId)
         branchId = parentId
         parentId = this.pool.graph.one('issue', parentId, 'discoveredFrom')
       }
       if (parentId !== origin) continue
       const candidates = branches.get(branchId) ?? []
-      candidates.push(issue); branches.set(branchId, candidates)
+      candidates.push(issue)
+      branches.set(branchId, candidates)
     }
-    return [...branches.values()].flatMap(candidates => {
+    return [...branches.values()].flatMap((candidates) => {
       const tip = this.preferred(candidates, local)
       return tip ? [tip] : []
     })
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
     const targetId = issue.supersededBy
-      ? this.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy
-      : this.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf
+      ? (this.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy)
+      : (this.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf)
     if (targetId) {
-      const target = requireLoaded(this.catalogIssue(targetId)), ref = target ? issueDisplayRef(target) : 'another task'
-      return issue.supersededBy ? { kind: 'superseded', ...(target ? { target } : {}), short: ref,
-        full: `Work continued in ${ref}`, line: `continued · ${ref}` } :
-        { kind: 'duplicate', ...(target ? { target } : {}), short: ref,
-          full: `The same work is tracked in ${ref}`, line: `duplicate · ${ref}` }
+      const target = requireLoaded(this.catalogIssue(targetId)),
+        ref = target ? issueDisplayRef(target) : 'another task'
+      return issue.supersededBy
+        ? {
+            kind: 'superseded',
+            ...(target ? { target } : {}),
+            short: ref,
+            full: `Work continued in ${ref}`,
+            line: `continued · ${ref}`,
+          }
+        : {
+            kind: 'duplicate',
+            ...(target ? { target } : {}),
+            short: ref,
+            full: `The same work is tracked in ${ref}`,
+            line: `duplicate · ${ref}`,
+          }
     }
-    if ((local ? this.rosterStrict(issue.id) : this.presentStrict(issue.id)).some(session => this.pool.sessionObject(session.sessionId).open)) return null
+    if (
+      (local ? this.rosterStrict(issue.id) : this.presentStrict(issue.id)).some(
+        (session) => this.pool.sessionObject(session.sessionId).open,
+      )
+    )
+      return null
     const tip = this.preferred(this.tips(issue.id, local), local)
     if (!tip) return null
     const ref = issueDisplayRef(tip)
-    return { kind: 'spinoff', target: tip, short: ref, full: `Work continued in ${ref}`, line: `continued · ${ref}` }
+    return {
+      kind: 'spinoff',
+      target: tip,
+      short: ref,
+      full: `Work continued in ${ref}`,
+      line: `continued · ${ref}`,
+    }
   }
   waiting(issue: IssueNavigationModel): string[] {
-    const targets = requireLoaded(settledAll(issue.deps.filter(dep => dep.type === 'blocked-by'), dep => this.catalogIssue(dep.id)))
-    return targets.flatMap(target => target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : [])
+    const targets = requireLoaded(
+      settledAll(
+        issue.deps.filter((dep) => dep.type === 'blocked-by'),
+        (dep) => this.catalogIssue(dep.id),
+      ),
+    )
+    return targets.flatMap((target) =>
+      target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : [],
+    )
   }
   blockLabel(issue: IssueNavigationModel) {
     const refs = this.waiting(issue)
-    return refs.length === 1 ? `Blocked by ${refs[0]}` : refs.length > 1 ? `Blocked by ${refs.length} tasks` :
-      issue.blockedByNotes?.map(line => line.trim()).find(Boolean) ?? 'Waiting on dependency'
+    return refs.length === 1
+      ? `Blocked by ${refs[0]}`
+      : refs.length > 1
+        ? `Blocked by ${refs.length} tasks`
+        : (issue.blockedByNotes?.map((line) => line.trim()).find(Boolean) ??
+          'Waiting on dependency')
   }
   waitingLabel(issue: IssueNavigationModel) {
     const refs = this.waiting(issue)
-    return refs.length === 1 ? `Waiting for ${refs[0]} to complete` : refs.length ? `Waiting for ${refs.length} tasks to complete` : null
+    return refs.length === 1
+      ? `Waiting for ${refs[0]} to complete`
+      : refs.length
+        ? `Waiting for ${refs.length} tasks to complete`
+        : null
   }
   note(issue: IssueNavigationModel, local = false): IssueNote | null {
     const continuation = this.continuation(issue, local)
-    if (continuation) return { kind: 'continued', label: 'continued in', short: continuation.short, full: continuation.full }
-    const refs = this.waiting(issue), short = refs.length === 1 ? refs[0]! : `${refs.length} tasks`
+    if (continuation)
+      return {
+        kind: 'continued',
+        label: 'continued in',
+        short: continuation.short,
+        full: continuation.full,
+      }
+    const refs = this.waiting(issue),
+      short = refs.length === 1 ? refs[0]! : `${refs.length} tasks`
     if (issue.blocked) {
       const full = this.blockLabel(issue)
-      return { kind: 'blocked', label: refs.length ? 'blocked by' : null, short: refs.length ? short : full, full }
-    }
-    if (refs.length) return { kind: 'waiting', label: 'waiting for', short, full: this.waitingLabel(issue)! }
-    if (issue.stage === 'proposed') {
-      const spin = originId(issue), sourceId = spin ?? issue.parentId
-      if (sourceId) {
-        const source = requireLoaded(this.catalogIssue(sourceId)), ref = source ? issueDisplayRef(source) : null
-        return spin ? { kind: 'shape-own', label: 'starts', short: 'on its own',
-          full: ref ? `Starts on its own — ${ref} can close without it` : 'Starts on its own — the task that found it can close without it' } :
-          { kind: 'shape-mission', label: 'starts', short: 'in this mission',
-            full: ref ? `Part of ${ref} — that task is not done until this is` : 'Part of the task that found it — that task is not done until this is' }
+      return {
+        kind: 'blocked',
+        label: refs.length ? 'blocked by' : null,
+        short: refs.length ? short : full,
+        full,
       }
     }
-    const verbs: Record<string, string> = { 'discovered-from': 'Discovered from', related: 'Related to', tracks: 'Tracks', supersedes: 'Supersedes', 'caused-by': 'Caused by', validates: 'Validates' }
+    if (refs.length)
+      return { kind: 'waiting', label: 'waiting for', short, full: this.waitingLabel(issue)! }
+    if (issue.stage === 'proposed') {
+      const spin = originId(issue),
+        sourceId = spin ?? issue.parentId
+      if (sourceId) {
+        const source = requireLoaded(this.catalogIssue(sourceId)),
+          ref = source ? issueDisplayRef(source) : null
+        return spin
+          ? {
+              kind: 'shape-own',
+              label: 'starts',
+              short: 'on its own',
+              full: ref
+                ? `Starts on its own — ${ref} can close without it`
+                : 'Starts on its own — the task that found it can close without it',
+            }
+          : {
+              kind: 'shape-mission',
+              label: 'starts',
+              short: 'in this mission',
+              full: ref
+                ? `Part of ${ref} — that task is not done until this is`
+                : 'Part of the task that found it — that task is not done until this is',
+            }
+      }
+    }
+    const verbs: Record<string, string> = {
+      'discovered-from': 'Discovered from',
+      related: 'Related to',
+      tracks: 'Tracks',
+      supersedes: 'Supersedes',
+      'caused-by': 'Caused by',
+      validates: 'Validates',
+    }
     for (const dep of issue.deps) {
       if (dep.type === 'blocked-by' || dep.type === 'parent-child') continue
       const target = requireLoaded(this.catalogIssue(dep.id))
       if (!target) continue
-      const label = verbs[dep.type] ?? dep.type, ref = issueDisplayRef(target)
+      const label = verbs[dep.type] ?? dep.type,
+        ref = issueDisplayRef(target)
       return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
     }
     return null
   }
   /** `sessions` is a drawn roster; `roster` names the issue whose whole
    * roster (archived included) answers which session moved. */
-  presence(issue: IssueNavigationModel, sessions: readonly SessionView[], local = false, roster?: string): PresenceNote | null {
-    if (sessions.some(session => this.pool.sessionObject(session.sessionId).open)) return null
-    const moved = roster === undefined ? sessions.find(session => session.handoffTarget) : this.moved(roster)
-    if (moved) return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
+  presence(
+    issue: IssueNavigationModel,
+    sessions: readonly SessionView[],
+    local = false,
+    roster?: string,
+  ): PresenceNote | null {
+    if (sessions.some((session) => this.pool.sessionObject(session.sessionId).open)) return null
+    const moved =
+      roster === undefined ? sessions.find((session) => session.handoffTarget) : this.moved(roster)
+    if (moved)
+      return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
     const continuation = this.continuation(issue, local)
     if (continuation) return { kind: 'moved', text: continuation.full, attention: false }
     if (issue.blocked) return { kind: 'blocked', text: this.blockLabel(issue), attention: false }
     const waiting = this.waitingLabel(issue)
     if (waiting) return { kind: 'waiting', text: waiting, attention: false }
-    if (this.facts(issue.id).finished) return { kind: 'done', text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
+    if (this.facts(issue.id).finished)
+      return {
+        kind: 'done',
+        text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired',
+        attention: false,
+      }
     // An issue another session moved to review never had an agent of its own to stop (POD-2313).
-    if (issue.stage === 'review') return { kind: 'review', text: sessions.length ? 'Waiting for your review · agent stopped' : 'Waiting for your review · no agent on it', attention: false }
-    if (issue.stage === 'shipping') return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
-    if (issue.stage === 'planning' || issue.stage === 'backlog') return { kind: 'ready', text: 'Ready to start', attention: false }
-    if (issue.stage === 'in_progress') return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
+    if (issue.stage === 'review')
+      return {
+        kind: 'review',
+        text: sessions.length
+          ? 'Waiting for your review · agent stopped'
+          : 'Waiting for your review · no agent on it',
+        attention: false,
+      }
+    if (issue.stage === 'shipping')
+      return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
+    if (issue.stage === 'planning' || issue.stage === 'backlog')
+      return { kind: 'ready', text: 'Ready to start', attention: false }
+    if (issue.stage === 'in_progress')
+      return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
     return { kind: 'ready', text: 'Proposed · not started', attention: false }
   }
   dispose = () => {
-    this.card = companion(issue => new MissionIssueReader(issue, this))
-    this.fullDeck = companion(issue => new MissionDeckModel(issue, this, 'full'))
-    this.workingDeck = companion(issue => new MissionDeckModel(issue, this, 'working'))
-    this.askingDeck = companion(issue => new MissionDeckModel(issue, this, 'needs-you'))
+    this.card = companion((issue) => new MissionIssueReader(issue, this))
+    this.fullDeck = companion((issue) => new MissionDeckModel(issue, this, 'full'))
+    this.workingDeck = companion((issue) => new MissionDeckModel(issue, this, 'working'))
+    this.askingDeck = companion((issue) => new MissionDeckModel(issue, this, 'needs-you'))
   }
 }
 
@@ -1199,13 +1939,21 @@ export function missionView(pool: MobxPool): MissionViewReader {
   return pool.sources.view('missionView', () => new MissionViewReader(pool))
 }
 
-function deriveMissionArchive(view: MissionViewReader, rowIds: readonly string[] | typeof LOADING): SessionView[] | typeof LOADING {
+function deriveMissionArchive(
+  view: MissionViewReader,
+  rowIds: readonly string[] | typeof LOADING,
+): SessionView[] | typeof LOADING {
   if (rowIds === LOADING) return LOADING
-  const seen = new Set<string>(), archived: SessionView[] = []
+  const seen = new Set<string>(),
+    archived: SessionView[] = []
   for (const id of rowIds) {
     const roster = view.roster(id, true)
     if (roster === LOADING) return LOADING
-    for (const session of roster) if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
+    for (const session of roster)
+      if (!seen.has(session.sessionId)) {
+        seen.add(session.sessionId)
+        archived.push(session)
+      }
   }
   return archived
 }
@@ -1218,7 +1966,9 @@ function newestSession(sessions: readonly SessionView[]): SessionView | undefine
   return newest
 }
 
-export type MissionMenuHandoff = { blocker: 'no-agent-session' | 'multiple-sessions' } | { session: SessionView }
+export type MissionMenuHandoff =
+  | { blocker: 'no-agent-session' | 'multiple-sessions' }
+  | { session: SessionView }
 export interface MissionActionInputs {
   issues: IssueNavigationModel[]
   allIssues: IssueNavigationModel[]
@@ -1231,57 +1981,115 @@ export interface MissionActionInputs {
 }
 /** Called by mounted menus. Global choices belong to the label/duplicate
  * flyout; a session menu never asks for its issue's other senders. */
-export function readMissionActionInputs(view: MissionViewReader, issueIds: readonly string[], sessionId?: string, handoffEnabled = true, targetsOpen = false): MissionActionInputs | typeof LOADING {
+export function readMissionActionInputs(
+  view: MissionViewReader,
+  issueIds: readonly string[],
+  sessionId?: string,
+  handoffEnabled = true,
+  targetsOpen = false,
+): MissionActionInputs | typeof LOADING {
   const selected: IssueNavigationModel[] = []
   const session = sessionId ? view.menuSession(sessionId) : undefined
   if (session === LOADING) return LOADING
-  const requested = sessionId ? (handoffEnabled && session?.issueId ? [session.issueId] : []) : issueIds
+  const requested = sessionId
+    ? handoffEnabled && session?.issueId
+      ? [session.issueId]
+      : []
+    : issueIds
   for (const id of requested) {
     const issue = sessionId ? view.menuCatalogIssue(id) : view.menuIssue(id)
     if (issue === LOADING) return LOADING
     if (issue) selected.push(issue)
   }
-  const handoff = handoffEnabled && !sessionId && selected.length === 1 ? view.menuHandoff(selected[0]!.id) : undefined
+  const handoff =
+    handoffEnabled && !sessionId && selected.length === 1
+      ? view.menuHandoff(selected[0]!.id)
+      : undefined
   if (handoff === LOADING) return LOADING
-  const subject = handoffEnabled ? session ?? (handoff && 'session' in handoff ? handoff.session : undefined) : undefined
+  const subject = handoffEnabled
+    ? (session ?? (handoff && 'session' in handoff ? handoff.session : undefined))
+    : undefined
   // Handoff needs its containing lane and the issue's drift fallback. Other
   // worktrees in the same repository are hidden and remain unread.
-  const source = subject ? headerEntities(view.pool).shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
-  const anchorPath = source && machinePathsEqual(source.worktreePath, source.repoPath) && selected[0]?.worktreePath
-  const anchorScope = anchorPath ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
-  const anchor = anchorScope && anchorPath && machinePathsEqual(anchorScope.worktreePath, anchorPath) && (!source || !machinePathsEqual(anchorScope.worktreePath, source.worktreePath)) ? anchorScope : undefined
+  const source = subject
+    ? headerEntities(view.pool).shippingScope(subject.cwd, subject.machineId)?.handoff
+    : undefined
+  const anchorPath =
+    source && machinePathsEqual(source.worktreePath, source.repoPath) && selected[0]?.worktreePath
+  const anchorScope = anchorPath
+    ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff
+    : undefined
+  const anchor =
+    anchorScope &&
+    anchorPath &&
+    machinePathsEqual(anchorScope.worktreePath, anchorPath) &&
+    (!source || !machinePathsEqual(anchorScope.worktreePath, source.worktreePath))
+      ? anchorScope
+      : undefined
   // The parent menu displays only source eligibility. Clone checkouts and
   // destination capabilities belong to the opened target submenu.
-  const group = source && targetsOpen ? headerEntities(view.pool).repositoryGroup(source.repoPath) : []
+  const group =
+    source && targetsOpen ? headerEntities(view.pool).repositoryGroup(source.repoPath) : []
   // A non-primary clone has its own source address, while group(path) names
   // the primary checkout. The opened picker can consult the existing root
   // catalog in that case; standalone history worktrees remain excluded.
-  const repositoryIds = source ? targetsOpen ? group.length ? group : headerEntities(view.pool).repositoryRootIds() : [source.repositoryId] : []
-  const repos = repositoryIds.flatMap(id => {
+  const repositoryIds = source
+    ? targetsOpen
+      ? group.length
+        ? group
+        : headerEntities(view.pool).repositoryRootIds()
+      : [source.repositoryId]
+    : []
+  const repos = repositoryIds.flatMap((id) => {
     const repo = headerView(view.pool).row('repository', id)
     if (!repo) return []
-    const worktrees = [source, anchor].flatMap(tree => tree && machinePathsEqual(tree.repoPath, repo.path) && !machinePathsEqual(tree.worktreePath, repo.path) &&
-      (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
+    const worktrees = [source, anchor].flatMap((tree) =>
+      tree &&
+      machinePathsEqual(tree.repoPath, repo.path) &&
+      !machinePathsEqual(tree.worktreePath, repo.path) &&
+      (subject?.machineId === undefined || repo.machineId === subject.machineId)
+        ? [{ path: tree.worktreePath }]
+        : [],
+    )
     return [{ ...repo, worktrees }]
   })
   // The full target picker stays inside the deferred menu component. Here
   // only source eligibility decides whether any machine choices are shown.
-  const needsTargets = subject && (HANDOFF_HARNESS_KINDS as readonly string[]).includes(subject.agentKind) &&
-    repos.some(repo => repo.repoId) && repos.some(repo => repo.worktrees.length > 0)
+  const needsTargets =
+    subject &&
+    (HANDOFF_HARNESS_KINDS as readonly string[]).includes(subject.agentKind) &&
+    repos.some((repo) => repo.repoId) &&
+    repos.some((repo) => repo.worktrees.length > 0)
   // The sender is never a target. Exclude its address before observing any
   // payload so its login/capability changes cannot wake this menu.
-  const machines = targetsOpen && needsTargets ? headerView(view.pool).ids('machine').flatMap(id => {
-    if (id === subject?.machineId) return []
-    // The machine's facts as a value (POD-6644): the menu is plain React, and
-    // a target going offline must give it a new one.
-    const machine = here(view.pool.model('machine', id))
-    return machine ? [machineFacts(machine as MachineModel)] : []
-  }) : []
-  return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
-    machines, session, issue: selected[0], handoff }
+  const machines =
+    targetsOpen && needsTargets
+      ? headerView(view.pool)
+          .ids('machine')
+          .flatMap((id) => {
+            if (id === subject?.machineId) return []
+            // The machine's facts as a value (POD-6644): the menu is plain React, and
+            // a target going offline must give it a new one.
+            const machine = here(view.pool.model('machine', id))
+            return machine ? [machineFacts(machine as MachineModel)] : []
+          })
+      : []
+  return {
+    issues: selected,
+    allIssues: selected,
+    sessions: handoff && 'session' in handoff ? [handoff.session] : [],
+    repos,
+    machines,
+    session,
+    issue: selected[0],
+    handoff,
+  }
 }
 /** Called only by a mounted Handoff target submenu. */
-export function readMissionHandoffTargets(view: MissionViewReader, sessionId: string): Pick<MissionActionInputs, 'repos' | 'machines'> | typeof LOADING {
+export function readMissionHandoffTargets(
+  view: MissionViewReader,
+  sessionId: string,
+): Pick<MissionActionInputs, 'repos' | 'machines'> | typeof LOADING {
   const inputs = readMissionActionInputs(view, [], sessionId, true, true)
   return inputs === LOADING ? LOADING : { repos: inputs.repos, machines: inputs.machines }
 }

@@ -821,10 +821,12 @@ describe('real pool row mutations and receipts', () => {
     // The compatibility outbox sends one promise at a time. Both optimistic
     // records are present before either deferred transport is answered.
     expect(runtime.outbox.pending()).toHaveLength(2)
-    expect(runtime.outbox.pending()).toContainEqual(expect.objectContaining({
-      kind: pinned ? 'recordCreate' : 'recordRemove',
-      input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),
-    }))
+    expect(runtime.outbox.pending()).toContainEqual(
+      expect.objectContaining({
+        kind: pinned ? 'recordCreate' : 'recordRemove',
+        input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),
+      }),
+    )
     expect(sort.input).toMatchObject({
       id: movedId,
       patch: { sortKey: expect.any(String) },

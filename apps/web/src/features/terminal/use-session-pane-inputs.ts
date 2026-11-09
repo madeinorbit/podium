@@ -6,7 +6,13 @@ import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { assertReactiveRead } from '@podium/mobx-helpers'
-import { asSessionId, type IssueId, type IssueStatus, type MachineFacts, type SessionId } from '@podium/model/browser'
+import {
+  asSessionId,
+  type IssueId,
+  type IssueStatus,
+  type MachineFacts,
+  type SessionId,
+} from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
@@ -29,13 +35,19 @@ export function usePaneSession(id: SessionId | undefined): SessionView | undefin
 /** The session is running and its machine is known offline right now: the
  *  derived condition (ADR 12 D1), read off the shared session model. */
 export function usePaneReconnecting(id: SessionId | undefined): boolean {
-  const read = useCallback((pool: MobxPool) => (id ? pool.sessionObject(id).reconnecting : false), [id])
+  const read = useCallback(
+    (pool: MobxPool) => (id ? pool.sessionObject(id).reconnecting : false),
+    [id],
+  )
   return useWorklistPoolProjection(read, false)
 }
 const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
 /** How the session's issue ended, when that is what stopped it (POD-2151). */
 export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {
-  const read = useCallback((pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null, [id])
+  const read = useCallback(
+    (pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null,
+    [id],
+  )
   return useWorklistPoolProjection(read, null)
 }
 export function usePaneMachines(): MachineFacts[] {
