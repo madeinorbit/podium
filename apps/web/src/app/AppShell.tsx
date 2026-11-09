@@ -476,9 +476,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   } = useShellChrome()
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
   // Repositories and worktrees are records (POD-6644): they are here once the
-  // replica holds a synced copy, saved or fresh. A warm launch has one at once;
-  // a cold one waits for the first bootstrap to install.
-  const reposLoaded = !sync.firstSync || sync.hasInstalled || sync.phase === 'ready'
+  // replica holds a synced copy, saved or fresh (`hasInstalled` is set for both a
+  // warm open and a cold install), AND the shell view has settled. Before that the
+  // chrome's counts are placeholder zeros, not answers; reading them as "no repos,
+  // no sessions" sent a populated instance into first-run setup.
+  const reposLoaded = sync.hasInstalled && chromeSettled
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the
   // sheet returns you to the one you actually came from rather than always
