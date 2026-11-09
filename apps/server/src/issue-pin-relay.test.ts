@@ -157,7 +157,8 @@ describe('issue pins from an agent, over the relay (POD-6692)', () => {
         fields: { userId: someoneElse, kind: 'issue', entityId: issueId },
       },
     })) as { outcome: string; refusal?: { kind: string } }
-    expect(reply).toMatchObject({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+    // The same answer as over tRPC: a row that is not mine has no target for me.
+    expect(reply).toMatchObject({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
     expect(await registry.sessionStore.sessions.pinnedAt(someoneElse, 'issue', issueId)).toBe(
       undefined,
     )
@@ -168,7 +169,7 @@ describe('issue pins from an agent, over the relay (POD-6692)', () => {
       version: 1,
       input: { id: pinRowId(someoneElse, 'issue', issueId) },
     })) as { outcome: string; refusal?: { kind: string } }
-    expect(remove).toMatchObject({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+    expect(remove).toMatchObject({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
   })
 
   it('the relay reaches only the pin record kind', async () => {
