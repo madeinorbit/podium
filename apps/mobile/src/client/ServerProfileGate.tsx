@@ -306,7 +306,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [incoming, setIncoming] = useState<MobilePairingEnvelope | null>(
     consumedInitialPairing.envelope,
   )
-  const [linkError, setLinkError] = useState<string | null>(consumedInitialPairing.error)
+  // An object, not the message: the same refusal twice must still re-show (POD-2364).
+  const [linkError, setLinkError] = useState<{ message: string } | null>(() =>
+    consumedInitialPairing.error ? { message: consumedInitialPairing.error } : null,
+  )
   const [activationFailure, setActivationFailure] = useState<ActivationFailure | null>(null)
   const [membershipRefusal, setMembershipRefusal] = useState<{
     reason: string
@@ -456,7 +459,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       const reason = error instanceof Error ? error.message : String(error)
       // The reason only: the link itself can carry the pairing secret.
       pairingLog.warn('pairing link rejected', { reason })
-      setLinkError(reason)
+      setLinkError({ message: reason })
       setSetupOpen(true)
     }
   }, [])
@@ -1712,7 +1715,7 @@ function PairingSetup({
   onPairingStart,
 }: {
   incoming: MobilePairingEnvelope | null
-  initialError: string | null
+  initialError: { message: string } | null
   canCancel: boolean
   onPairingStart(): void
   onCancel(): void
@@ -1736,7 +1739,7 @@ function PairingSetup({
   const [envelope, setEnvelope] = useState(incoming)
   const [preflight, setPreflight] = useState<Extract<ServerPreflight, { ok: true }> | null>(null)
   const [claim, setClaim] = useState<PairingClaim | null>(null)
-  const [error, setError] = useState<string | null>(initialError)
+  const [error, setError] = useState<string | null>(initialError?.message ?? null)
   const [offlineCandidate, setOfflineCandidate] = useState<string | null>(null)
   const connectInFlight = useRef(false)
 
@@ -1802,7 +1805,7 @@ function PairingSetup({
   }, [check, incoming])
 
   useEffect(() => {
-    if (initialError) setError(initialError)
+    if (initialError) setError(initialError.message)
   }, [initialError])
 
   useEffect(() => {

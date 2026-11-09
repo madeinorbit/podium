@@ -683,6 +683,17 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // read and the app does not paint until they resolve — a replica read mid-
   // migration would show a slice that is about to be retired.
   const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
+  // THE CLIENT THE REPLICA WAS OPENED FOR (POD-2364). Its outbox factory may be
+  // consumed once. When pairing or a credential change hands this provider a
+  // new bearer, `trpc` changes at once but the old replica stays in state until
+  // the restarted boot retires it; StoreProvider saw a new `api` beside the old
+  // replica, rebuilt its runtime, and consumed the spent factory again ("kernel
+  // engine Outbox factory may only be consumed once"). StoreProvider only ever
+  // gets the config and api its replica was opened with.
+  const [openedWith, setOpenedWith] = useState<{
+    config: typeof config
+    trpc: typeof trpc
+  } | null>(null)
   // THE BOOT'S FAILURE SURFACE (POD-712). Without these two, a boot that threw
   // and a boot that was merely slow both rendered `null`, which the launch
   // boundary above shows as the wordmark splash — forever, and identically.
@@ -806,6 +817,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           startupTiming.mark('replica.boot.end')
           replicaForCleanup = state.value
           setOpenedReplica(state.value)
+          setOpenedWith({ config, trpc })
           setBootFailure(null)
           setBootCause(null)
           setBootStalled(false)
@@ -872,7 +884,14 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }
   // LaunchBoundary stays mounted above auth + replica assembly. A null subtree
   // here leaves that one branded transition in place instead of remounting it.
-  if (!openedReplica) {
+  const replicaCurrent =
+    openedReplica !== null &&
+    openedWith !== null &&
+    openedWith.trpc === trpc &&
+    openedWith.config.httpOrigin === config.httpOrigin &&
+    openedWith.config.workspaceId === config.workspaceId &&
+    openedWith.config.workspaceSlug === config.workspaceSlug
+  if (!openedReplica || !openedWith || !replicaCurrent) {
     // The first attempt is covered by LaunchBoundary's one branded splash.
     // A retry starts only after that boundary has intentionally retired it to
     // show BootTroubleScreen, so it needs its own visible loading surface rather
@@ -885,8 +904,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }
   return (
     <StoreProvider
-      config={config}
-      api={trpc}
+      config={openedWith.config}
+      api={openedWith.trpc}
       onFatalError={reportError}
       notices={notices}
       // The principal the auth status named, and the store opened for exactly

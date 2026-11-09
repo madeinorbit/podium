@@ -1782,3 +1782,36 @@ describe('pairing links on a fresh install (POD-2364)', () => {
     expect(await screen.findByText(/Server unreachable/)).toBeTruthy()
   })
 })
+
+describe('repeated pairing link refusals', () => {
+  it('shows the same refusal again after the person moved on', async () => {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Enter server address')
+    seams.parsePairing.mockImplementation(() => {
+      throw new Error('This is not a valid Podium app link.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+    // A server check clears the error; the same bad link arriving later must
+    // show it again rather than being dropped as an unchanged value.
+    fireEvent.click(screen.getByLabelText('Enter server address'))
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: 'https://b.example' },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    await waitFor(() =>
+      expect(screen.queryByText('This is not a valid Podium app link.')).toBeNull(),
+    )
+    act(() => {
+      seams.linkListener?.({ url: `${PAIRING_LINK}&again=1` })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+  })
+})
