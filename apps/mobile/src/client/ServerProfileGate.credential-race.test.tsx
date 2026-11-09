@@ -1732,3 +1732,54 @@ describe('pairing links typed into the address field', () => {
     expect(seams.preflight).not.toHaveBeenCalled()
   })
 })
+
+describe('pairing links on a fresh install (POD-2364)', () => {
+  async function mountWelcome() {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Enter server address')
+  }
+
+  it('checks the server a warm pairing link names while the welcome screen is up', async () => {
+    await mountWelcome()
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    await waitFor(() =>
+      expect(seams.preflight.mock.calls.map(([origin]) => origin)).toContain(
+        'https://pair.example',
+      ),
+    )
+    expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
+  })
+
+  it('shows why a warm pairing link was refused', async () => {
+    await mountWelcome()
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('This is not a valid Podium app link.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+  })
+
+  it('shows why the linked server could not be reached', async () => {
+    await mountWelcome()
+    seams.preflight.mockResolvedValueOnce({
+      ok: false,
+      kind: 'unreachable',
+      transport: 'trusted-https',
+      title: 'Server unreachable',
+      detail: 'Check the address.',
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText(/Server unreachable/)).toBeTruthy()
+  })
+})

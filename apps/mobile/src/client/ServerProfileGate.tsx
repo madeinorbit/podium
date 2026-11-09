@@ -115,6 +115,7 @@ import {
 import { envServer, sameSiteBuildServer, setActiveServerRuntime } from './trpc'
 
 const followLog = createLogger('mobile:server-follow')
+const pairingLog = createLogger('mobile:pairing')
 
 /** The identity a pairing envelope named, carried on the checked server (POD-5921). */
 const pairedServerIdentity = (result: {
@@ -448,7 +449,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setSetupOpen(true)
       setLinkError(null)
     } catch (error) {
-      setLinkError(error instanceof Error ? error.message : String(error))
+      const reason = error instanceof Error ? error.message : String(error)
+      // The reason only: the link itself can carry the pairing secret.
+      pairingLog.warn('pairing link rejected', { reason })
+      setLinkError(reason)
       setSetupOpen(true)
     }
   }, [])
@@ -1745,6 +1749,7 @@ function PairingSetup({
     try {
       const result = await preflightServer(origin, nextEnvelope?.workspaceId)
       if (!result.ok) {
+        pairingLog.warn('pairing server check failed', { kind: result.kind, title: result.title })
         setError(`${result.title}\n${result.detail}`)
         if (
           !nextEnvelope &&
