@@ -1,9 +1,9 @@
 import type { IssueProjection, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId, layoutRowId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { COMMAND_ACTIONS, UI_LOCAL_ACTIONS } from '../../test-support/commands'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
-import { harness, sessionId, ME } from './commands.test.fixture'
+import { harness, ME, sessionId } from './commands.test.fixture'
+
 describe('engine action ownership boundary', () => {
   it('lets navigation suggest a panel mode without overwriting the operator’s pick', () => {
     // POD-1702. The native worker rows under a session focus it "in CLI", and
@@ -290,20 +290,5 @@ describe('focusIssueSession waits for the session a launch started', () => {
     expect(await h.actions.focusIssueSession(issueId, { timeoutMs: 1 })).toBeNull()
     expect(h.state().selectedIssueId).toBe(issueId)
     expect(h.navigated).toEqual([])
-  })
-})
-
-describe('S5 gesture batch', () => {
-  it('is device-local and runs navigation plus reads in one caller batch', () => {
-    const h = harness()
-    expect(UI_LOCAL_ACTIONS).toContain('batchGesture')
-    expect(COMMAND_ACTIONS).not.toContain('batchGesture')
-    const order: string[] = []
-    h.actions.batchGesture(() => {
-      order.push('inside')
-      h.actions.navigateWorkspace({ selectedIssueId: asIssueId('issue-1') })
-    })
-    expect(order).toEqual(['inside'])
-    expect(h.navigated).toHaveLength(1)
   })
 })

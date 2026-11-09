@@ -1,4 +1,4 @@
-import { observable, observe, runInAction } from 'mobx'
+import { observable, observe, reaction, runInAction } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView } from '../session-values'
 
@@ -801,21 +801,36 @@ describe('engine lifecycle', () => {
 })
 
 describe('session resurrection (POD-6399)', () => {
-  // Resume is an edit of the session record now; how it went shows on the
-  // session (`sessionTransition`), so the old call's refusal toasts are gone.
-  it('is an edit of the session record, never the old resurrect call', async () => {
-    const api = makeApi()
-    const resurrect = vi.fn(async () => ({ ok: true }))
-    api.sessions.resurrect = { mutate: resurrect }
-    const { engine, errors } = makeEngine({ api })
+  it('reports a refused resume through the runtime notice consumer', async () => {
+    const { engine, errors } = makeEngine()
 
     const result = await engine.root.commands.sessions.resume(asSessionId('sleeping'))
 
-    expect(resurrect).not.toHaveBeenCalled()
     // This fixture attaches no pool writer: the edit is refused, and says so.
     expect(result.ok).toBe(false)
     expect(errors).toHaveLength(1)
     expect(errors[0]).toMatch(/^Couldn't change the session — /)
+  })
+})
+
+describe('runtime gesture batches', () => {
+  it('publishes both UiStore changes once after the gesture', () => {
+    const { engine } = makeEngine()
+    const published: Array<readonly [string | null, string | null]> = []
+    const stop = reaction(
+      () => [engine.ui.selectedIssueId, engine.ui.selectedWorktree] as const,
+      (value) => published.push(value),
+    )
+    try {
+      engine.batch(() => {
+        engine.ui.setSelectedIssueId(asIssueId('issue-batch'))
+        engine.ui.setSelectedWorktree('/batch')
+      })
+      expect(published).toEqual([['issue-batch', '/batch']])
+    } finally {
+      stop()
+      engine.destroy()
+    }
   })
 })
 

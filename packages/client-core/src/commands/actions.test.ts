@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { COMMAND_ACTIONS, UI_LOCAL_ACTIONS } from '../../test-support/commands'
-import { harness, sessionId, nestedKeys, ATTRIBUTION_FIELDS } from './commands.test.fixture'
-describe('engine action ownership boundary', () => {
-  it('keeps command and device-local classifications disjoint', () => {
-    expect(new Set([...COMMAND_ACTIONS, ...UI_LOCAL_ACTIONS]).size).toBe(
-      COMMAND_ACTIONS.length + UI_LOCAL_ACTIONS.length,
-    )
-  })
-})
+import { ATTRIBUTION_FIELDS, harness, nestedKeys, sessionId } from './commands.test.fixture'
+
 describe('engine action ownership boundary', () => {
   it('never accepts client attribution fields in assembled command payloads', async () => {
     const h = harness()
