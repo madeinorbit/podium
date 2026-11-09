@@ -609,15 +609,23 @@ function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     authExpiryHandled.current = false
   }, [bearer, config.httpOrigin, config.workspaceId])
+  // The CURRENT owner's writer, read at call time (POD-2364). Every app link
+  // rebinds credential ownership in the gate, which hands down a new
+  // `updateCredential`; as a dependency it rebuilt this handler, then `trpc`,
+  // then the whole replica, for a link that changed no credential. The tRPC
+  // client is still rebuilt for a new bearer, the only thing it carries.
+  const updateCredentialRef = useRef(updateCredential)
+  updateCredentialRef.current = updateCredential
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new credential needs a fresh expiry handler
   const expireLiveCredential = useCallback(() => {
-    if (!updateCredential || authExpiryHandled.current) return
+    const update = updateCredentialRef.current
+    if (!update || authExpiryHandled.current) return
     authExpiryHandled.current = true
-    void updateCredential(null).catch((cause: unknown) => {
+    void update(null).catch((cause: unknown) => {
       authExpiryHandled.current = false
       reportError(cause instanceof Error ? cause.message : String(cause))
     })
-  }, [bearer, updateCredential, reportError])
+  }, [bearer, reportError])
   // biome-ignore lint/correctness/useExhaustiveDependencies: profile identity changes must replace the verification callback
   const verifyLiveCredential = useCallback(() => {
     if (activation === 'offline-cache') {

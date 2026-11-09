@@ -1816,3 +1816,16 @@ describe('repeated pairing link refusals', () => {
     expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
   })
 })
+
+describe('non-pairing app links (POD-2364)', () => {
+  it('never opens pairing setup for an ordinary app link', async () => {
+    await mountActiveProfileA()
+    act(() => {
+      seams.linkListener?.({ url: 'podium:///settings' })
+    })
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-a'))
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Enter server address')).toBeNull()
+    expect(screen.queryByLabelText('Scan pairing code')).toBeNull()
+  })
+})
