@@ -12,6 +12,8 @@ import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/refer
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
+import type { NavigationProvider } from '@podium/client-core/engine'
+import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 import { missionView } from '@podium/client-graph/mission-view'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { spy } from 'mobx'
@@ -39,6 +41,7 @@ const state = vi.hoisted(() => ({
   repos: [],
   machines: [],
   selectedIssueId: null as string | null,
+  navigation: undefined as NavigationProvider | undefined,
   paneA: null as string | null,
   paneB: null as string | null,
   split: false,
@@ -175,6 +178,7 @@ beforeEach(() => {
     ],
   })
   state.pool = pool
+  state.navigation = createPoolNavigationProvider(pool)
 }, 60_000)
 afterEach(() => {
   cleanup()

@@ -16,6 +16,9 @@ function dockFixture() {
   // Keep this input local: the legacy parity fixture is owned by POD-5667.
   f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'shell-repo',
     value: { id: 'shell-repo', prefix: 'SYN', repoPath: '/synthetic/project' } }] as never })
+  // Real mission navigation stores its root selection. Archiving a child does
+  // not switch the active file's workspace to the archived child's empty key.
+  f.change({ selectedIssueId: f.issues[0]!.id })
   return f
 }
 
