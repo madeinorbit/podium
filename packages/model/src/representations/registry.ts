@@ -1012,7 +1012,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'Every member is a MACHINE fact or a probe-local input, so its exposure is inherited from ' +
       'the machine (ADR 9 D3 rule 3) rather than classified as issue content. Two of its ' +
       'members are the trap type-identity cannot see: `IssueGitState.updatedAt` is a ' +
-      'LAST-PROBE timestamp and `branch` is the branch the checkout is ACTUALLY on — ' +
+      'git-facts LAST-CHANGED timestamp and `branch` is the branch the checkout is ACTUALLY on — ' +
       "type-identical to the issue's entity mtime and owned branch, and different facts.",
     composition: {
       state: 'composed',

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -397,6 +398,15 @@ export class IssueStore {
 
   /** Ephemeral observations, published only as issueGitState rows. */
   readonly gitStates = new Map<string, IssueGitState>()
+
+  /** Keep the last fact-change time, without publishing a clock-only update. */
+  setGitState(id: string, state: IssueGitState): boolean {
+    const previous = this.gitStates.get(id)
+    if (previous && isDeepStrictEqual(previous, { ...state, updatedAt: previous.updatedAt }))
+      return false
+    this.gitStates.set(id, state)
+    return true
+  }
 
   /**
    * DRAFTS, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].

@@ -251,7 +251,7 @@ export type IssuePanel = z.infer<typeof IssuePanel>
  *  counters on a shared checkout like main or a long-lived project branch).
  *  Tolerant so payloads from newer peers parse rather than failing the issue. */
 export const IssueGitState = z.object({
-  /** ISO time of the last completed probe. */
+  /** ISO time when the observed git facts last changed; unchanged checks keep it. */
   updatedAt: z.string(),
   /** A probe is in flight — clients render the stamp's loading shimmer. */
   computing: z.boolean().optional(),

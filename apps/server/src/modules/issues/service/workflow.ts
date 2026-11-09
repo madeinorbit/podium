@@ -963,7 +963,7 @@ export class IssueGitWorkflowModule {
     // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
     // freed worktree has none, and one close keeps is re-probed below.
     const cached = this.store.gitStates.get(id)
-    this.store.gitStates.set(id, {
+    this.store.setGitState(id, {
       branch: now.branch,
       ...cached,
       updatedAt: this.store.now(),
@@ -1997,6 +1997,8 @@ export class IssueGitWorkflowModule {
     string,
     { promise: Promise<void>; rerun: boolean; fallbackCwd?: string }
   >()
+  /** A failed publication must retry even if the next probe finds the same facts. */
+  private gitPublishPending = new Set<string>()
   private gitCommitsBySession = new Map<string, string[]>()
   private gitTouchedBySession = new Map<string, Set<string>>()
   /** Last observed tip of every parent branch under watch, keyed by
@@ -2160,10 +2162,12 @@ export class IssueGitWorkflowModule {
         refresh.rerun = false
         changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
       } while (refresh.rerun)
-      if (changed) {
+      if (changed) this.gitPublishPending.add(id)
+      if (this.gitPublishPending.has(id)) {
         const current = await this.store.row(id)
         if (current && !current.deletedAt)
           await this.store.broadcastIssue(this.store.serverWriter, current)
+        this.gitPublishPending.delete(id)
       }
     })().finally(() => {
       if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)
@@ -2332,8 +2336,7 @@ export class IssueGitWorkflowModule {
       )
       // Discard it rather than overwrite the state the merge action settled.
       if (((await this.store.row(id))?.landedAt ?? null) !== landedAt) return false
-      this.store.gitStates.set(id, state)
-      return true
+      return this.store.setGitState(id, state)
     } catch {
       // Probe failure leaves the last completed state intact.
       return false

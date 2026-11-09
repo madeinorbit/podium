@@ -17,7 +17,7 @@ async function harness(
   /** Read settings THROUGH THE STORE, as `relay.ts` wires them. The plain
    *  literal below never touches the executor, which is why the span hazard of
    *  POD-3806 was invisible to the git-state probe here. */
-  opts: { storeBackedSettings?: boolean } = {},
+  opts: { storeBackedSettings?: boolean; now?: () => string } = {},
 ) {
   const store = await openTestStore(':memory:')
   // Issues are placed under a machine that REPORTED their repo (2b803efb5).
@@ -55,7 +55,7 @@ async function harness(
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),
-    now: () => '2026-07-20T00:00:00.000Z',
+    now: opts.now ?? (() => '2026-07-20T00:00:00.000Z'),
   }
   // The plumbing wires a REAL Ledger; its `changeLog` lets tests read the log
   // back (cursor/changesSince).
@@ -322,6 +322,94 @@ describe('POD-98 git-state service wiring', () => {
     expect(appended.map((c) => [c.entity, c.id, c.op])).toEqual([
       ['issueGitState', probed, 'upsert'],
     ])
+  })
+
+  it('compares shared commit contents and notices when an upstream fact disappears', async () => {
+    let now = '2026-07-20T12:00:00.000Z'
+    const script: Record<string, string> = {
+      statusProbe: '## main',
+      logIssueCommits: 'owned-a\nowned-b',
+      'revListCount:@{u}..HEAD': '2',
+    }
+    const { svc, store, ledger, broadcast } = await harness([], script, { now: () => now })
+    try {
+      const { id } = await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'Shared git facts',
+        startNow: false,
+      })
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      const initial = (await svc.reports.get(id))?.gitState
+      expect(initial).toMatchObject({ commits: ['owned-a', 'owned-b'], unpushed: 2 })
+      let cursor = await ledger.cursor()
+      broadcast.mockClear()
+
+      // Every probe builds a fresh commits array; its contents are unchanged.
+      now = '2026-07-20T12:05:00.000Z'
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      expect((await svc.reports.get(id))?.gitState).toEqual(initial)
+      expect(await ledger.changesSince(cursor)).toEqual([])
+      expect(broadcast).not.toHaveBeenCalled()
+
+      // Same count, different commit: comparing only array length would lose it.
+      now = '2026-07-20T12:10:00.000Z'
+      script.logIssueCommits = 'owned-a\nowned-c'
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      expect(await ledger.changesSince(cursor)).toEqual([
+        expect.objectContaining({
+          entity: 'issueGitState',
+          id,
+          op: 'upsert',
+          value: expect.objectContaining({ updatedAt: now, commits: ['owned-a', 'owned-c'] }),
+        }),
+      ])
+      cursor = await ledger.cursor()
+
+      now = '2026-07-20T12:15:00.000Z'
+      delete script['revListCount:@{u}..HEAD']
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      expect(await ledger.changesSince(cursor)).toHaveLength(1)
+      const state = (await svc.reports.get(id))?.gitState
+      expect(state?.updatedAt).toBe(now)
+      expect(state).not.toHaveProperty('unpushed')
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('retries a failed publication without advancing the fact-change time', async () => {
+    let now = '2026-07-20T12:00:00.000Z'
+    const { svc, store, ledger } = await harness([], { statusProbe: '## main' }, { now: () => now })
+    try {
+      const { id } = await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'Retry git facts',
+        startNow: false,
+      })
+      const cursor = await ledger.cursor()
+      const publish = vi.spyOn(svc.reports.store, 'broadcastIssue')
+      publish.mockRejectedValueOnce(new Error('publication unavailable'))
+      await expect(svc.gitWorkflow.refreshGitState(id, '/repo')).rejects.toThrow(
+        'publication unavailable',
+      )
+      expect(await ledger.changesSince(cursor)).toEqual([])
+
+      now = '2026-07-20T12:05:00.000Z'
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      expect(await ledger.changesSince(cursor)).toEqual([
+        expect.objectContaining({
+          entity: 'issueGitState',
+          id,
+          op: 'upsert',
+          value: expect.objectContaining({ updatedAt: '2026-07-20T12:00:00.000Z' }),
+        }),
+      ])
+      now = '2026-07-20T12:10:00.000Z'
+      await svc.gitWorkflow.refreshGitState(id, '/repo')
+      expect(publish).toHaveBeenCalledTimes(2)
+    } finally {
+      await store.close()
+    }
   })
 
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {
