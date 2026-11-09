@@ -12,25 +12,46 @@ maps `latest/` to its `latest/download/` route. A manifest and any required comp
 read from one origin. Absolute artifact references must name that same origin; relative
 references start at the release root. Signatures and digest verification remain mandatory.
 
-## Publishing (off)
+## Publishing
 
-Both headless and desktop publication call `scripts/release-mirror.ts` after GitHub succeeds.
-The helper does nothing unless **`PODIUM_PUBLISH_RELEASE_MIRROR=1`**. No workflow enables it.
-Do not enable it until the bucket, custom domain, permissions and release inventory are ready.
-This issue never runs an upload.
+Both OSS publisher workflows map the bucket-scoped Actions secrets
+`PODIUM_RELEASE_R2_ACCESS_KEY_ID` and `PODIUM_RELEASE_R2_SECRET_ACCESS_KEY` to
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. The public repository variables are
+`PODIUM_RELEASE_R2_ENDPOINT`, `PODIUM_RELEASE_R2_BUCKET` and the explicit opt-in
+`PODIUM_PUBLISH_RELEASE_MIRROR=1`. The runner checks credentials and provides the AWS CLI
+with `scripts/setup-release-mirror.sh`. No credentials belong in source or synced data.
 
-CI will need an R2 S3 API token restricted to object read/write on the release bucket, supplied
-as secret `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, plus `PODIUM_RELEASE_R2_ENDPOINT`
-(`https://<account-id>.r2.cloudflarestorage.com`) and `PODIUM_RELEASE_R2_BUCKET`. Install the
-AWS CLI on the publishing runner before enabling the switch. These values belong in CI
-configuration/secrets, never repository files or Podium's synced records.
+After a headless candidate has passed its preparation/acceptance gates, GitHub and R2
+publication are attempted independently; failures remain visible in the job result. Desktop
+mirror publication likewise requires its validated inventory, and still runs if the GitHub
+upload step fails. Earlier candidate requirements (including the required desktop half)
+remain fail-closed; an unavailable inventory is never permission to omit files.
 
-Files are uploaded beneath the same tag paths, then stable files are copied to `latest/`.
-Only artifact URL fields in mirror manifests are rebound to the mirror; signed payload bytes,
-detached signatures, digests and notes are preserved. The mirror checksum inventory is
-regenerated for those manifest copies. Discovery documents are uploaded after payloads.
-The two publishers never delete each other's files. Retained desktop references must exist
-on the mirror too before publishing a headless manifest that carries them forward.
+Files use the same release paths, with stable copied to `latest/`. Only artifact URL fields
+are rebound; payload bytes, signatures, digests and notes are preserved. Mirror checksums
+are regenerated. Payloads precede discovery documents and installer aliases switch last.
+The publishers never delete the other publisher's files.
+
+### Initial inventory and recovery
+
+The existing `release.yml` workflow has a `mirror_backfill` dispatch input. Select `all`,
+`stable`, `edge` or `dev` to copy existing published releases without building or mutating a
+GitHub release; normal dispatches use `off`. This job explicitly opts into R2 publication,
+uses a read-only GitHub token, and leaves the global publishing switch unchanged.
+
+The backfill downloads the complete current inventory plus every older artifact referenced
+by a carried-forward manifest. GitHub asset size/digest checks, the baked headless Ed25519
+key, and the desktop minisign key all have to pass before the first R2 write. Legacy rolling
+headless names are frozen under digest names in the mirror documents, while fixed installer
+aliases remain available. The installer comes from the reviewed workflow checkout. All
+referenced tags receive their payloads before any manifest; historical objects cannot
+promote themselves to `latest/`, and the selected stable inventory is promoted last.
+
+The job then uses the real shared release fetcher and artifact delivery code with GitHub
+responses deliberately forced to fail. It checks public artifact availability, downloads a
+signed Linux payload through R2 and confirms that an invalid signature still fails closed.
+The copied-channel report is retained as the `release-mirror-backfill` workflow artifact.
+Only enable routine publication after this inventory and public verification succeed.
 
 ## Native and bootstrap adapters
 

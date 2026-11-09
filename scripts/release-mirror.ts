@@ -38,8 +38,15 @@ export function mirrorManifest(text: string): string {
   return JSON.stringify(manifest, null, 2) + '\n'
 }
 
-export function mirrorUploadPrefixes(channel: ReleaseChannel, tag: string): string[] {
-  return [releaseTagPath(tag), ...(channel === 'stable' ? [RELEASE_PATHS.latest] : [])]
+export function mirrorUploadPrefixes(
+  channel: ReleaseChannel,
+  tag: string,
+  promoteLatest = true,
+): string[] {
+  return [
+    releaseTagPath(tag),
+    ...(channel === 'stable' && promoteLatest ? [RELEASE_PATHS.latest] : []),
+  ]
 }
 
 export function publishReleaseMirror(
@@ -49,6 +56,10 @@ export function publishReleaseMirror(
     files: string[]
     /** Installer aliases must not replace the previous manifest's files early. */
     aliases?: string[]
+    /** Backfills upload referenced older objects without promoting them to latest. */
+    destination?: 'tag' | 'latest'
+    /** Stage all bytes for checksums, but publish one cross-release phase at a time. */
+    phase?: 'payloads' | 'discovery' | 'aliases'
   },
   env: NodeJS.ProcessEnv = process.env,
   exec: typeof execFileSync = execFileSync,
@@ -59,6 +70,8 @@ export function publishReleaseMirror(
   if (!endpoint || !bucket || !env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
     throw new Error('mirror publishing needs the R2 endpoint, bucket and CI-only AWS credentials')
   }
+  if (input.destination === 'latest' && input.channel !== 'stable')
+    throw new Error('only stable releases can populate latest')
   const staging = mkdtempSync(join(tmpdir(), 'podium-release-mirror-'))
   try {
     for (const file of input.files) {
@@ -87,11 +100,26 @@ export function publishReleaseMirror(
           .join(''),
       )
     }
-    for (const prefix of mirrorUploadPrefixes(input.channel, input.tag)) {
+    const prefixes =
+      input.destination === 'latest'
+        ? [RELEASE_PATHS.latest]
+        : mirrorUploadPrefixes(input.channel, input.tag, input.destination !== 'tag')
+    for (const prefix of prefixes) {
       // Payloads precede discovery documents. Never delete the other publisher's files.
       const aliases = new Set(input.aliases?.map((file) => basename(file)))
-      const rank = (name: string) => (aliases.has(name) ? 2 : name.endsWith('.json') ? 1 : 0)
-      const names = readdirSync(staging).sort((a, b) => rank(a) - rank(b))
+      const rank = (name: string) =>
+        aliases.has(name)
+          ? 2
+          : name.endsWith('.json') || name === 'SHA256SUMS' || name === 'VERSION'
+            ? 1
+            : 0
+      const phase =
+        input.phase === undefined
+          ? undefined
+          : ['payloads', 'discovery', 'aliases'].indexOf(input.phase)
+      const names = readdirSync(staging)
+        .filter((name) => phase === undefined || rank(name) === phase)
+        .sort((a, b) => rank(a) - rank(b))
       for (const name of names)
         exec(
           'aws',

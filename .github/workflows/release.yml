@@ -24,6 +24,12 @@ on:
         required: true
         type: boolean
         default: true
+      mirror_backfill:
+        description: Copy existing signed releases to R2 without building or changing GitHub releases
+        required: true
+        type: choice
+        default: 'off'
+        options: ['off', 'all', 'stable', 'edge', 'dev']
 permissions:
   contents: write
   # Read the desktop half's run of the same tag (scripts/wait-for-desktop-half.ts).
@@ -63,6 +69,7 @@ jobs:
   # and the binary still "signs"; what breaks is JIT, at runtime. Adding both Darwin
   # platforms costs one more compile each, not one more runner each.
   headless:
+    if: github.event_name != 'workflow_dispatch' || inputs.mirror_backfill == '' || inputs.mirror_backfill == 'off'
     name: cross-build all headless platforms
     runs-on: ubuntu-latest
     env:
@@ -200,6 +207,12 @@ jobs:
     needs: [headless]
     if: github.event_name != 'workflow_dispatch' || inputs.publish_release
     runs-on: ubuntu-latest
+    env:
+      PODIUM_PUBLISH_RELEASE_MIRROR: ${{ vars.PODIUM_PUBLISH_RELEASE_MIRROR }}
+      PODIUM_RELEASE_R2_ENDPOINT: ${{ vars.PODIUM_RELEASE_R2_ENDPOINT }}
+      PODIUM_RELEASE_R2_BUCKET: ${{ vars.PODIUM_RELEASE_R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.PODIUM_RELEASE_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.PODIUM_RELEASE_R2_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Bun (attempt 1 of 3)
@@ -342,6 +355,9 @@ jobs:
           path: ${{ runner.temp }}/stable-bridge-evidence
           if-no-files-found: error
           retention-days: 14
+      - name: Prepare mirror publishing client
+        if: vars.PODIUM_PUBLISH_RELEASE_MIRROR == '1'
+        run: bash scripts/setup-release-mirror.sh
       - name: Publish one multi-platform release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -423,3 +439,46 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash scripts/verify-published-headless-update.sh "$PODIUM_RELEASE_TAG"
+
+  mirror-backfill:
+    name: backfill existing signed releases to R2
+    if: github.event_name == 'workflow_dispatch' && inputs.mirror_backfill != '' && inputs.mirror_backfill != 'off'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: release-mirror-backfill
+      cancel-in-progress: false
+    env:
+      PODIUM_PUBLISH_RELEASE_MIRROR: '1'
+      PODIUM_RELEASE_R2_ENDPOINT: ${{ vars.PODIUM_RELEASE_R2_ENDPOINT }}
+      PODIUM_RELEASE_R2_BUCKET: ${{ vars.PODIUM_RELEASE_R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.PODIUM_RELEASE_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.PODIUM_RELEASE_R2_SECRET_ACCESS_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      BACKFILL_CHANNELS: ${{ inputs.mirror_backfill }}
+      MIRROR_REPORT: ${{ runner.temp }}/release-mirror-backfill.json
+      PODIUM_MIRROR_DESKTOP_VERIFIER: ${{ github.workspace }}/scripts/stable-candidate-minisign/target/release/podium-stable-candidate-minisign
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Prepare mirror publishing client
+        run: bash scripts/setup-release-mirror.sh
+      - name: Build the desktop signature verifier
+        run: cargo build --release --locked --manifest-path scripts/stable-candidate-minisign/Cargo.toml
+      - name: Verify and backfill the complete release inventory
+        run: bun scripts/release-mirror-backfill.ts --channels "$BACKFILL_CHANNELS" --report "$MIRROR_REPORT" --execute
+      - name: Prove public mirror delivery with the primary unavailable
+        run: bun scripts/verify-live-release-mirror.ts --report "$MIRROR_REPORT"
+      - name: Retain mirror publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-mirror-backfill
+          path: ${{ runner.temp }}/release-mirror-backfill.json
+          if-no-files-found: ignore
