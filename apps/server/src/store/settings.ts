@@ -34,19 +34,19 @@ import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import { asUserId, type MachineId, type UserId, type UserPreferencesWire } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import { TIER_DEFAULTS } from '@podium/telemetry'
-import { applyAfterCommit, spanOpen } from './executor'
-import { operationLoader } from './executor/operation-loader'
 import {
-  resolveSetting,
-  loadConfig,
   type LayeredKey,
   type LayeredSettings,
+  loadConfig,
   type PodiumConfig,
+  resolveSetting,
 } from '@podium/runtime/config'
+import { TIER_DEFAULTS } from '@podium/telemetry'
 import { eq, sql } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { applyAfterCommit, spanOpen } from './executor'
+import { operationLoader } from './executor/operation-loader'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
@@ -79,7 +79,11 @@ function needsTelemetryIdentity(
 
 /** One `meta` value by key: every read here, whichever key it names. */
 const metaValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: meta.value }).from(meta).where(eq(meta.key, param(meta.key, 'key'))).prepare(),
+  db
+    .select({ value: meta.value })
+    .from(meta)
+    .where(eq(meta.key, param(meta.key, 'key')))
+    .prepare(),
 )
 
 const upsertMeta = prepared((db: StoreDrizzle) =>
@@ -90,8 +94,23 @@ const upsertMeta = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Hands the blob a write is storing to the feed inside that write's transaction
+ * (POD-6677): the `instancePreferences` feed capture.
+ */
+export type InstancePreferencesFeedCapture = (settings: PodiumSettings) => Promise<void>
+
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
+  private instanceFeedCapture: InstancePreferencesFeedCapture | undefined
+
+  /** Install the instance preferences feed capture, run inside every blob write. */
+  setInstanceFeedCapture(capture: InstancePreferencesFeedCapture): () => void {
+    this.instanceFeedCapture = capture
+    return () => {
+      if (this.instanceFeedCapture === capture) this.instanceFeedCapture = undefined
+    }
+  }
 
   async initializeSnapshot(): Promise<void> {
     this.committed = await this.getSettings()
@@ -257,11 +276,20 @@ export class SettingsRepository {
     }
   }
 
+  /**
+   * THE ONE BLOB WRITE (POD-6677). `meta['settings']` is the home of the synced
+   * `instancePreferences` record: the write hands the blob to the feed capture
+   * in the same transaction, so the record reaches every member's devices from
+   * the write path, whoever wrote it, and the row and the change log commit or
+   * roll back together.
+   */
   async setSettings(settings: PodiumSettings): Promise<void> {
     const next = normalizeSettings(settings)
     await this.createOrJoinTransaction(async () => {
       await this.writeMeta('settings', JSON.stringify(next))
       this.settingsWritten()
+      const capture = this.instanceFeedCapture
+      if (capture !== undefined) await capture(next)
       applyAfterCommit(() => {
         this.committed = next
       }, 'settings-snapshot')
@@ -328,7 +356,8 @@ export class SettingsRepository {
   /** A settings blob or preference write: invalidated after it and, inside a span, after its commit. */
   private settingsWritten(): void {
     this.settingsOfOperation.invalidate()
-    if (spanOpen()) applyAfterCommit(() => this.settingsOfOperation.invalidate(), 'settings:resolved-for')
+    if (spanOpen())
+      applyAfterCommit(() => this.settingsOfOperation.invalidate(), 'settings:resolved-for')
   }
 
   /**
@@ -378,7 +407,8 @@ export class SettingsRepository {
 
   /**
    * Apply a path-addressed patch, each path routed by its own tier — the storage
-   * half of `settings.updatePersonal` / `settings.updateInstance`.
+   * half of the two preference records' edits (`records.userPreferences.edit`,
+   * `records.instancePreferences.edit`).
    *
    * The commands' input schemas have already refused every path outside their
    * tier, so this cannot be reached with a mixed patch from them; routing per

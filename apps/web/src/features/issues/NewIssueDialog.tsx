@@ -1,5 +1,5 @@
 import { issueWrites } from '@podium/commands/issues-synced'
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import { usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
 import { useMyCodingHarness } from '@/lib/my-preferences'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
@@ -20,7 +20,7 @@ import {
 } from '@podium/model/browser'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, GitBranch, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
@@ -291,10 +291,8 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const [priority, setPriority] = useState(2)
   // Default repo = the most recently used one (mount-time snapshot).
   const [repoPath, setRepoPath] = useState(() => data.initialRepoPath)
-  // Placeholder until settings load (line ~258 resolves the coding role):
-  // the named product default, never a literal (POD-4737).
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
+  // The Podium-wide parent branch, from the synced instance settings (POD-6677).
+  const podiumDefaultBranch = usePodiumDefaultParentBranch()
   const defaultAgent = useMyCodingHarness() ?? DEFAULT_HARNESS_AGENT
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
@@ -535,11 +533,8 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
             selectedValue={stage}
             onSelect={(v) => setStage(v as IssueStage)}
           />
-          {settingsRequest?.model && (
-            <BaseBranchNote
-              repoId={repoView?.repoId}
-              podiumDefault={settingsRequest.model.gitWorkflow?.defaultParentBranch}
-            />
+          {podiumDefaultBranch !== undefined && (
+            <BaseBranchNote repoId={repoView?.repoId} podiumDefault={podiumDefaultBranch} />
           )}
           <span className="ml-auto font-mono text-[10px] text-text-faint">esc</span>
           <Button type="button" variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>

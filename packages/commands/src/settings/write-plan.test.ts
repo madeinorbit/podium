@@ -93,7 +93,7 @@ describe('absent-default instance preference clears survive JSON', () => {
         const plan = planSettingsWrite(previous, next, options)
         expect(plan.refusals).toEqual([])
         expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
-          kind: 'preference', command: 'settings.updateInstance',
+          kind: 'preference', command: 'records.instancePreferences.edit',
           delivery: 'offline-eligible', values: { [path]: null },
         }])
       }
@@ -118,7 +118,7 @@ describe('absent-default instance preference clears survive JSON', () => {
       'deployment.futureNullableSetting', 'transcripts.futureNullableSetting',
     ])
     expect(plan.intents).toEqual([{
-      kind: 'preference', command: 'settings.updateInstance', delivery: 'offline-eligible',
+      kind: 'preference', command: 'records.instancePreferences.edit', delivery: 'offline-eligible',
       values: Object.fromEntries(Object.entries(values).filter(([path]) => path.startsWith('hibernation.'))),
     }])
   })
@@ -284,8 +284,8 @@ describe('tiers are separated, and an unclassified change is refused', () => {
       ONLINE,
     )
     expect(plan.intents.map((i) => i.command).sort()).toEqual([
+      'records.instancePreferences.edit',
       'records.userPreferences.edit',
-      'settings.updateInstance',
     ])
     const personal = plan.intents.find((i) => i.command === 'records.userPreferences.edit')
     expect(personal?.kind === 'preference' && personal.values).toEqual({
@@ -364,6 +364,6 @@ describe('the online-only set is derived and non-empty', () => {
     // Without this, a filter that returned every command would satisfy the
     // assertion above's "non-empty" purpose and its membership list.
     expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('records.userPreferences.edit')
-    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('settings.updateInstance')
+    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('records.instancePreferences.edit')
   })
 })

@@ -458,6 +458,7 @@ export {
 export {
   AGENT_PROFILE_RECORD,
   EFFECT_RECORD,
+  INSTANCE_PREFERENCES_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
   NOT_YET_GENERIC,
@@ -519,8 +520,6 @@ export {
   settingsTelegramSetupPollInput,
   settingsTelegramSetupStartContract,
   settingsTelegramSetupStartInput,
-  settingsUpdateInstanceContract,
-  settingsUpdateInstanceInput,
   TIER_COMMAND,
   WRITABLE_PREFERENCE_PATHS,
 } from './settings/contracts'

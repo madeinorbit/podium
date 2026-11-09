@@ -11,7 +11,9 @@
  */
 
 import { useStoreHandle } from '@podium/client-core/react'
+import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
 import {
   baseBranchChoices,
   podiumDefaultLabel,
@@ -22,8 +24,8 @@ import type { MachineId } from '@podium/model/browser'
 import { Check } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useCallback, useState } from 'react'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useState } from 'react'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import {
   DropdownMenuContent,
@@ -33,7 +35,6 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { useSettingsRecord } from './settings-record'
 
 const LIST_KEYS = new Set(['Escape', 'ArrowDown', 'ArrowUp'])
 
@@ -171,12 +172,13 @@ export function BaseBranchMenuContent({
   )
 }
 
-/** The Podium-wide default parent branch; `undefined` until settings load. */
+const defaultParentBranchOf = (pool: MobxPool): string | undefined =>
+  instancePreferences(pool)?.defaultParentBranch
+
+/** The Podium-wide default parent branch, from the synced instance settings
+ *  (POD-6677); `undefined` until the pool holds them. */
 export function usePodiumDefaultParentBranch(): string | undefined {
-  const trpc = useStoreHandle<Trpc>().access.trpc
-  const read = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settings = useSettingsRecord(read)?.model
-  return settings ? (settings.gitWorkflow?.defaultParentBranch ?? '') : undefined
+  return useWorklistPoolProjection(defaultParentBranchOf, undefined)
 }
 
 /**

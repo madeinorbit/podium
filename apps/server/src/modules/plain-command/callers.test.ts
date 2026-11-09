@@ -277,7 +277,9 @@ const CALLERS: readonly {
 
 describe('every current caller of the 27 non-sync commands', () => {
   it('covers the 27 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(27 + 2) // + settings.updatePersonal/updateInstance, not plain
+    // + two queued commands that are not plain. (The settings preference tiers
+    // are synced records since POD-6673 and POD-6677.)
+    expect(CONTRACTS.size).toBe(27 + 2)
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
     expect(plain).toHaveLength(27)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)

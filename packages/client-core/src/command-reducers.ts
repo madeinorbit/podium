@@ -66,19 +66,23 @@ export type OverlayTarget =
   // A trigger subscription's toggle or removal (POD-6676).
   | 'subscriptions'
 
-/** The per-user record kinds that are pool rows of their own (POD-6673). */
+/** The record kinds that are pool rows of their own, keyed by their feed id:
+ *  the per-user records (POD-6673) and the one instance settings record
+ *  (POD-6677). */
 export type PerUserRecordTarget =
   | 'pins'
   | 'tabOrders'
   | 'userPreferences'
   | 'userReadPositions'
   | 'superagentThreads'
+  | 'instancePreferences'
 export const PER_USER_RECORD_TARGETS: readonly PerUserRecordTarget[] = [
   'pins',
   'tabOrders',
   'userPreferences',
   'userReadPositions',
   'superagentThreads',
+  'instancePreferences',
 ]
 
 /** Fields folded over a base row. Loose on purpose — the projection functions

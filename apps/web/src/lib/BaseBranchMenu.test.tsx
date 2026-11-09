@@ -1,4 +1,5 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { asMachineId, asRepoId } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -15,9 +16,10 @@ const f = vi.hoisted(() => ({
   pool: null as unknown,
   setBase: vi.fn(async (_input: Record<string, unknown>) => []),
 }))
-vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => f.pool }))
-vi.mock('./settings-record', () => ({
-  useSettingsRecord: () => ({ model: { gitWorkflow: { defaultParentBranch: 'main' } } }),
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => f.pool,
+  useWorklistPoolProjection: (read: (pool: never) => unknown, empty: unknown) =>
+    f.pool ? read(f.pool as never) : empty,
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -25,7 +27,6 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
     access: {
       trpc: {
         repos: { setDefaultParentBranch: { mutate: f.setBase } },
-        settings: { get: { query: async () => ({}) } },
       },
     },
   }),
@@ -98,6 +99,8 @@ it("keeps the menu open and shows the setter's refusal under the field", async (
 
 it("reads and writes the band's own repository when unrelated repos share a path on two machines", async () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  // The Podium-wide default branch is the synced instance settings (POD-6677).
+  seedInstancePreferences(pool, { gitWorkflow: { defaultParentBranch: 'main' } })
   f.pool = pool
   const one = asMachineId('one'),
     two = asMachineId('two')

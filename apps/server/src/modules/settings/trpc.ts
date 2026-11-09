@@ -1,9 +1,10 @@
 import { familyState } from '../derived-family'
 /**
- * THE DERIVED SETTINGS WRITE SURFACE (POD-420) — `settings.updatePersonal`,
- * `settings.updateInstance`, `settings.setSecret` and `settings.clearSecret`,
- * produced from the joined table in `registry.ts` rather than written out in
- * `router.ts`.
+ * THE DERIVED SETTINGS SURFACE (POD-420) — `settings.setSecret`,
+ * `settings.clearSecret`, the presence read and the Telegram ceremony, produced
+ * from the joined table in `registry.ts` rather than written out in `router.ts`.
+ * (The preference tiers are synced records written by generic edits: POD-6673,
+ * POD-6677.)
  *
  * `router.ts` spreads the result into its `settings` router alongside the
  * procedures this issue does NOT migrate:
@@ -49,9 +50,7 @@ import {
 } from '../plain-command/entry'
 import { plainRefusalError } from '../plain-command/family'
 import { type PlainContractRegistration, trpcRequest } from '../plain-command/registry'
-import type { DetailedSubmit } from '../sync-write/entry'
 import { plainRoute } from '../write-routes/plain'
-import { syncRoute } from '../write-routes/sync'
 import { redactErrorMessage } from './audit'
 import {
   SECRET_SURFACE_ABSENT,
@@ -66,7 +65,6 @@ import {
   settingsCommandsOn,
   settingsProcKey,
 } from './registry'
-import { type SyncedSettingsWrite, settingsWriteRefusal } from './sync-write'
 
 /**
  * A READ is served as a QUERY, DERIVED from `policy.action` (POD-421).
@@ -242,8 +240,8 @@ export async function settingsCommandWith(
  * handler and trail inside the plain scope.
  *
  * Read off the contract rather than listed: a settings command a client may
- * queue (`offline-eligible`: `updatePersonal`, `updateInstance`) is not plain and
- * keeps the family's own path until it moves onto the sync write entry point.
+ * queue (`offline-eligible`) would not be plain. None is left: both preference
+ * tiers are synced records now.
  */
 export const isPlainSettingsCommand = (name: SettingsCommandName): boolean =>
   SETTINGS_COMMANDS_TRPC[name].contract.delivery.class !== 'offline-eligible'
@@ -354,54 +352,6 @@ export const SETTINGS_PLAIN_REGISTRATIONS: readonly PlainContractRegistration[] 
 /** The input is parsed by the plain entry, after the coarse check. */
 const unparsed = (raw: unknown): unknown => raw
 
-/** A refused or failed settings write as the client receives it: the message
- *  redacted by the same rule the trail uses (see `fail` above). */
-function asSettingsTrpcError(name: SettingsCommandName, input: unknown, e: unknown): TRPCError {
-  const raw = describeError(e)
-  const safe = redactErrorMessage(name, input, raw)
-  return e instanceof TRPCError && safe === raw
-    ? e
-    : new TRPCError({ code: 'BAD_REQUEST', message: safe })
-}
-
-/**
- * `settings.updateInstance` — A THIN ADAPTER ONTO `sync.submit` (POD-6412).
- * LEGACY(remove-after: 2027-03): the desktop app's bundled web sends
- * `updateInstance` on it; removing it breaks that client's settings saves.
- * (`settings.updatePersonal` went with POD-6673: personal leaves are fields of the
- * synced `userPreferences` record.)
- * The gate, the write and the trail are the registration's (`sync-write.ts`), so a
- * write through either door is checked, deduplicated and recorded once. The route
- * keeps its wire: the redacted message on a refusal, and the gate's own error when
- * the gate refused.
- */
-async function settingsWriteThroughEntry(
-  name: SyncedSettingsWrite,
-  ctx: Context,
-  input: unknown,
-  submit: () => Promise<DetailedSubmit>,
-): Promise<unknown> {
-  let detailed: DetailedSubmit
-  try {
-    detailed = await submit()
-  } catch (e) {
-    throw asSettingsTrpcError(name, input, e)
-  }
-  const { reply, cause } = detailed
-  if (reply.outcome === 'applied') return reply.result
-  if (cause !== undefined) throw asSettingsTrpcError(name, input, cause)
-  const refusal = await settingsWriteRefusal(
-    name,
-    { roleOf: async (user) => await ctx.registry.sessionStore.users.roleOf(user) },
-    ctx.principal,
-  )
-  if (refusal?.error instanceof TRPCError) throw refusal.error
-  throw new TRPCError({ code: 'FORBIDDEN', message: refusal?.message ?? `${name} was refused` })
-}
-
-const isSyncedSettingsWrite = (name: SettingsCommandName): name is SyncedSettingsWrite =>
-  name === 'settings.updateInstance'
-
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
   if (isPlainSettingsWrite(name)) {
@@ -410,16 +360,8 @@ function buildProcedure(name: SettingsCommandName): unknown {
         await settingsRefused(name, ctx.principal, settingsDepsOf(ctx), refusal),
     })
   }
-  if (isSyncedSettingsWrite(name)) {
-    return syncRoute({
-      command: contract,
-      input: contract.input,
-      run: async ({ ctx, input, submit }) =>
-        await settingsWriteThroughEntry(name, ctx, input, submit),
-    })
-  }
   if (contract.policy.action !== 'read') {
-    throw new Error(`settings: ${name} is a write on neither the plain nor the sync path`)
+    throw new Error(`settings: ${name} is a write off the plain path`)
   }
   // A read: the plain presence read on the front door, or the family's own.
   if (isPlainSettingsCommand(name)) {

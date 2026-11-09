@@ -3,7 +3,7 @@ import * as _podium_model from '@podium/model';
 import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
-import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
+import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
 declare const MachineFailureReason: z.ZodObject<{
@@ -1649,20 +1649,6 @@ interface SubstrateOutcome {
     };
 }
 
-/**
- * Server-side experimental feature flags [spec:SP-f4b9].
- *
- * Resolves the shared protocol registry against config.json overrides,
- * user settings, update channel, and the dev-mode version sentinel.
- */
-
-interface FeatureStateWire extends FeatureState {
-    id: string;
-    name: string;
-    description: string;
-    visibility: FeatureVisibility;
-}
-
 type Input_automations_create = {
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
     cron?: null | string | undefined;
@@ -2990,11 +2976,6 @@ type Output_discovery_scanMachine = {
     machineId: _podium_model.MachineId;
     repos: DiscoveredRepo[];
     startedAt: number;
-};
-type Output_features_state = {
-    channel: "edge" | "stable";
-    devMode: boolean;
-    flags: FeatureStateWire[];
 };
 type Output_files_read = {
     baseHash?: string | undefined;
@@ -5970,97 +5951,6 @@ type Output_sessions_uploadImage = ({
     error?: string;
     path: string;
 });
-type Output_settings_get = {
-    apiKeys: {
-        anthropic: string;
-        openai: string;
-        openrouter: string;
-    };
-    autoContinue: {
-        enabled: boolean;
-        promptDismissed: boolean;
-    };
-    deployment: {
-        authOpenMode?: boolean | undefined;
-        connectEnabled?: boolean | undefined;
-        telemetryCrash?: "off" | "on" | undefined;
-        telemetryInstallId?: string | undefined;
-        telemetrySince?: number | undefined;
-        telemetryUsage?: "off" | "on" | undefined;
-        updateChannel?: "dev" | "edge" | "stable" | undefined;
-    };
-    experimental: Record<string, boolean>;
-    gitWorkflow: {
-        autoRebaseBeforeMerge: boolean;
-        defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
-    };
-    hibernation: {
-        backstopMinutes: null | number;
-        enabled: boolean;
-        idleMinutes: number;
-        idleShellMinutes: null | number;
-        loadPerCore: null | number;
-        maxIdleSessions: null | number;
-        memoryPct: number;
-    };
-    integrations: {
-        linearApiKey: string;
-    };
-    issues: {
-        assistantEnabled: boolean;
-    };
-    notifications: {
-        ntfyTopic: string;
-        telegramBotToken: string;
-        telegramChatId: string;
-        web: boolean;
-    };
-    roles: {
-        background: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-        coding: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-            seedCliTheme: boolean;
-            startScreen: "auto" | "chat" | "native";
-            subagentModel: string;
-        };
-        shipwright: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-        superagent: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-    };
-    sidebar: {
-        groupByRepo: boolean;
-        repoOrder: string[];
-        repoSort: "alphabetical" | "custom" | "lastUsed";
-    };
-    steward: {
-        enabled: boolean;
-    };
-    transcripts: {
-        mirror?: boolean | undefined;
-    };
-    worktreeGc: {
-        afterDays: number;
-        mode: "auto" | "off" | "propose";
-    };
-};
 type Output_settings_telegramSetupPoll = ({
     chatId: string;
     chatLabel?: string;
@@ -6900,7 +6790,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: Output_features_state;
+            output: Protocol.FeatureStates;
             meta: unknown;
         }>;
     };
@@ -8457,13 +8347,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: _podium_model.SecretPresenceWire;
             meta: unknown;
         }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Output_settings_get;
-            meta: unknown;
-        }>;
         "secretPresence": TRPC.TRPCQueryProcedure<{
             input: {};
             output: Array<_podium_model.SecretPresenceWire>;
@@ -8484,13 +8367,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "telegramSetupStart": TRPC.TRPCMutationProcedure<{
             input: (undefined) | ({});
             output: TelegramSetupStartResult;
-            meta: unknown;
-        }>;
-        "updateInstance": TRPC.TRPCMutationProcedure<{
-            input: {
-                values: Record<string, unknown>;
-            };
-            output: Output_settings_get;
             meta: unknown;
         }>;
         "viewer": TRPC.TRPCQueryProcedure<{

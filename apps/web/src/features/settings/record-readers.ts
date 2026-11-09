@@ -7,7 +7,7 @@ import type { RequestedEntity } from '@podium/client-graph/requested-records'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 
-export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSettings'>>(
+export function useSettingsRecords<E extends RequestedEntity>(
   entity: E, read: () => Promise<readonly PoolRows[E][]>, key: (row: PoolRows[E]) => string, follow = true,
 ) {
   const pool = useWorklistPool()
@@ -29,7 +29,6 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   return { request, reload }
 }
 
-export { useSettingsRecord } from '@/lib/settings-record'
 export const accountKey = (row: PoolRows['account']) => row.id
 export const memberKey = (row: PoolRows['member']) => row.id
 export const deviceKey = (row: PoolRows['device']) => row.sessionId

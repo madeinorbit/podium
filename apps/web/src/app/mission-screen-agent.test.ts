@@ -1,11 +1,11 @@
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { MobxPool } from '@podium/client-graph/pool'
-import { ingestSettings } from '@podium/client-graph/requested-records'
-import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
+import { asUserId, resolveUserPreferences } from '@podium/model'
+import { nativeAccountId } from '@podium/runtime'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 
-it('resolves the root launch target from Settings and follows changes without using session history', () => {
+it('resolves the root launch target from my settings and follows changes without using session history', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const issue = {
     id: 'root',
@@ -26,13 +26,15 @@ it('resolves the root launch target from Settings and follows changes without us
   })
   try {
     for (const harness of ['codex', 'claude-code'] as const) {
-      ingestSettings(pool, {
-        ...DEFAULT_SETTINGS,
-        roles: {
-          ...DEFAULT_SETTINGS.roles,
-          coding: { ...DEFAULT_SETTINGS.roles.coding, accountId: nativeAccountId(harness) },
-        },
-      })
+      // My coding role is my synced `userPreferences` record (POD-6673).
+      const value = {
+        ...resolveUserPreferences(
+          { 'roles.coding.accountId': nativeAccountId(harness) },
+          asUserId('user_me'),
+        ),
+        id: 'user_me',
+      }
+      pool.apply({ type: 'update', rows: [{ kind: 'userPreferences', id: 'user_me', value }] })
       expect(screen.rootAgentTarget).toEqual({
         defaultAgent: harness,
         repoPath: '/repo',

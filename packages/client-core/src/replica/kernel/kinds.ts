@@ -18,6 +18,7 @@
  */
 
 import {
+  INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   layoutRowId,
   pinRowId,
@@ -84,6 +85,8 @@ const ENTITY_TO_KIND = {
   workflowBinding: 'workflowBindings',
   workflowRun: 'workflowRuns',
   subscription: 'subscriptions',
+  // POD-6677: the instance settings, one record.
+  instancePreferences: 'instancePreferences',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -161,5 +164,7 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
     return workflowBindingRowId(binding.targetKind, binding.targetId)
   }
   if (kind === 'subscriptions') return subscriptionRowIdOf(row as ReplicaRows['subscriptions'])
+  // POD-6677: one record per instance, whose id is a constant.
+  if (kind === 'instancePreferences') return INSTANCE_PREFERENCES_ROW_ID
   return (row as ReplicaRows['issueProjections']).id
 }

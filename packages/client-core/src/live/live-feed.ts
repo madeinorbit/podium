@@ -23,7 +23,7 @@
  */
 
 import type { MachineWire } from '@podium/model'
-import type { TopicKind, TopicPayload } from '@podium/protocol'
+import type { ServerFeatureFacts, TopicKind, TopicPayload } from '@podium/protocol'
 import { ConversationFrameScheduler } from '../conversation/frame-scheduler'
 import type { ConnectionHealth, ServerIdentity } from '../socket-transport/socket-hub'
 import type { TopicListener, TopicState } from '../socket-transport/subscriptions'
@@ -283,12 +283,13 @@ function sameConnection(a: ConnectionCondition, b: ConnectionCondition): boolean
     a.pingMs === b.pingMs &&
     a.skewMs === b.skewMs &&
     a.serverBuild === b.serverBuild &&
-    sameList(a.serverFeatures, b.serverFeatures)
+    sameFacts(a.serverFeatures, b.serverFeatures)
   )
 }
 
-function sameList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+/** The same facts: every welcome carries a fresh object, usually equal by value. */
+function sameFacts(a: ServerFeatureFacts | undefined, b: ServerFeatureFacts | undefined): boolean {
   if (a === b) return true
-  if (!a || !b || a.length !== b.length) return false
-  return a.every((value, index) => value === b[index])
+  if (!a || !b) return false
+  return JSON.stringify(a) === JSON.stringify(b)
 }

@@ -97,6 +97,7 @@ export type ModelSchemaName =
   | 'PinWire'
   | 'TabOrderWire'
   | 'PersonalPreferences'
+  | 'InstancePreferences'
   | 'ReadPositionWire'
   | 'SuperagentThreadWire'
   | 'AgentProfileWire'
@@ -108,7 +109,6 @@ export type ModelSchemaName =
   | 'AccountView'
   | 'MemberView'
   | 'MobileClientSession'
-  | 'PodiumSettings'
   | 'RequestRecordKey'
 
 /**
@@ -148,11 +148,11 @@ export type RowArrival =
   | 'replica:workflowBindings'
   | 'replica:workflowRuns'
   | 'replica:subscriptions'
+  | 'replica:instancePreferences'
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
-  | 'request:settings.get'
 
 /** Where one declared field's value comes from. */
 export interface FieldSource {
@@ -207,7 +207,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription'
+export type EntityName = 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -550,7 +550,6 @@ const DECLARED = defineSchema({
   member: syncedIdentity('MemberView', 'request:members.list'),
   device: { ...syncedIdentity('MobileClientSession', 'request:auth.mobileSessions'), key: 'sessionId',
     fields: { sessionId: { type: 'id', source: { schema: 'MobileClientSession', arrivesOn: 'request:auth.mobileSessions' } } } },
-  podiumSettings: syncedIdentity('RequestRecordKey', 'request:settings.get'),
   repository: syncedIdentity('RequestRecordKey', 'engine:repos'),
   /**
    * An issue: its normalized projection joined with personal markers, checkout
@@ -1211,6 +1210,26 @@ const DECLARED = defineSchema({
     createdAt: { type: 'isoDate', note: 'When it was made.' },
     updatedAt: { type: 'isoDate', note: 'Its last conversation write; threads list newest first.' },
   }),
+  /**
+   * THE INSTANCE SETTINGS (POD-6677): one synced record, every member's, keyed
+   * `INSTANCE_PREFERENCES_ROW_ID`. The row source resolves its flat leaf fields
+   * into the groups below, each whole with its defaults.
+   */
+  instancePreferences: perUser(
+    'InstancePreferences',
+    'replica:instancePreferences',
+    'The instance settings: one record for the whole instance, admin-written, resolved with defaults.',
+    {
+      hibernation: { type: 'object', note: 'When idle sessions are parked: memory, load and count ceilings.' },
+      gitWorkflow: { type: 'object', note: 'Default parent branch, merge style, rebase before merge.' },
+      issues: { type: 'object', note: 'Whether the issue assistant runs.' },
+      steward: { type: 'object', note: 'Whether the steward runs.' },
+      experimental: { type: 'object', note: 'The operator’s experimental feature toggles, by flag id.' },
+      worktreeGc: { type: 'object', note: 'Clean-up of closed issues’ worktrees.' },
+      transcripts: { type: 'object', note: 'Whether the server keeps a copy of agent transcripts.' },
+      deployment: { type: 'object', note: 'Deployment choices: update channel, open sign-up, telemetry.' },
+    },
+  ),
   messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
   pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),
   machine: syncedIdentity('MachineProjection', 'replica:machines'),

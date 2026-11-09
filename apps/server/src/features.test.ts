@@ -1,7 +1,8 @@
+import { OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { describe, expect, it } from 'vitest'
-import { getFeatureStates, isFeatureEnabled, offeredFeatures } from './features'
+import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
 
 function settings(experimental: Record<string, boolean> = {}): PodiumSettings {
   return { ...DEFAULT_SETTINGS, experimental }
@@ -173,19 +174,66 @@ describe('retired reader pilot', () => {
   })
 })
 
-describe('offeredFeatures (welcome, POD-5798)', () => {
-  it('is what this build lists, whatever the toggles say', () => {
-    const stable = offeredFeatures({}, { PODIUM_APP_VERSION: '1.2.3' })
-    expect(stable).not.toContain(HIDDEN)
-    // The listed set of getFeatureStates for the same build, with no toggles.
-    expect(stable).toEqual(
-      getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: '1.2.3' })
-        .flags.filter((flag) => flag.listed)
-        .map((flag) => flag.id),
-    )
-    // A toggle is an instance preference, never part of what the build offers.
-    expect(offeredFeatures({}, { PODIUM_APP_VERSION: '1.2.3' })).toEqual(stable)
-    expect(offeredFeatures({}, { PODIUM_APP_VERSION: 'dev' })).toContain(HIDDEN)
+describe('serverFeatureFacts (welcome, POD-5798, POD-6677)', () => {
+  it('names the build and the config overrides, never an instance toggle', () => {
+    const facts = serverFeatureFacts({ features: { 'git-panel': true } } as PodiumConfig, {
+      PODIUM_APP_VERSION: '1.2.3',
+    })
+    expect(facts.devMode).toBe(false)
+    expect(facts.developmentBuild).toBe(false)
+    // No layer above the instance preference sets the channel.
+    expect(facts.channel).toBeUndefined()
+    expect(facts.flags.find((flag) => flag.id === 'git-panel')?.config).toBe(true)
+    expect(facts.flags.find((flag) => flag.id === 'workflows')).not.toHaveProperty('config')
+    expect(serverFeatureFacts({}, { PODIUM_APP_VERSION: 'dev' }).devMode).toBe(true)
+    // config.json's channel is above the instance preference: it is a fact.
+    expect(
+      serverFeatureFacts({ updateChannel: 'edge' }, { PODIUM_APP_VERSION: '1.2.3' }).channel,
+    ).toBe('edge')
+  })
+
+  it('an app resolving the facts with the instance toggles agrees with the server, flag for flag', () => {
+    const cases: Array<[PodiumConfig, Record<string, string>, PodiumSettings]> = [
+      [
+        {},
+        { PODIUM_APP_VERSION: '1.2.3' },
+        settings({ 'git-panel': true, 'runtime-drivers': true }),
+      ],
+      [{}, { PODIUM_APP_VERSION: 'dev' }, settings({ [HIDDEN]: true })],
+      [
+        { features: { 'runtime-drivers': false } } as PodiumConfig,
+        { PODIUM_APP_VERSION: '1.2.3' },
+        settings({ 'runtime-drivers': true }),
+      ],
+      [
+        { updateChannel: 'dev' },
+        { PODIUM_APP_VERSION: '0.1.1-dev.233+721dd69' },
+        settings({ 'podium-development': true }),
+      ],
+      [
+        {},
+        { PODIUM_APP_VERSION: '1.2.3' },
+        {
+          ...settings({ 'git-panel': true }),
+          deployment: { ...DEFAULT_SETTINGS.deployment, updateChannel: 'edge' },
+        },
+      ],
+    ]
+    for (const [config, env, stored] of cases) {
+      const app = resolveFeatureStates(serverFeatureFacts(config, env), {
+        experimental: stored.experimental,
+        updateChannel: stored.deployment.updateChannel,
+      })
+      expect(app).toEqual(getFeatureStates(stored, config, env))
+    }
+  })
+
+  it('before the first welcome an app follows the saved toggles', () => {
+    const offline = resolveFeatureStates(OFFLINE_FEATURE_FACTS, {
+      experimental: { 'git-panel': true },
+    })
+    expect(offline.flags.find((flag) => flag.id === 'git-panel')?.enabled).toBe(true)
+    expect(offline.flags.find((flag) => flag.id === 'workflows')?.enabled).toBe(false)
   })
 })
 

@@ -9,6 +9,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 
 const seam = vi.hoisted(() => ({
@@ -29,7 +30,7 @@ vi.mock('./stable-access', () => ({
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: any) => unknown) => read(seam.owner),
 }))
-vi.mock('@/lib/use-feature', () => ({ useFeature: () => false, invalidateFeatures() {} }))
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () => ({}),
   useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
@@ -117,6 +118,8 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       type: 'update',
       rows: [{ kind: 'userPreferences', id: 'me', value: { ...resolveUserPreferences(undefined, asUserId('me')), id: 'me' } as never }],
     })
+    // The instance settings record, as the feed delivers it (POD-6677).
+    seedInstancePreferences(pool)
     // The logical repo records the replica carries beside those scans.
     pool.apply({
       type: 'update',

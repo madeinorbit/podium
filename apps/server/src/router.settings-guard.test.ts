@@ -59,7 +59,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  * the reason each is still hand-written. Named individually, because "the rest"
  * is how an unaccounted-for write hides.
  *
- *  - `get` is a READ. A `visibility` class describes what a command WRITES.
  *  - `set` is the legacy blob write, still called by the sidebar, the
  *    auto-continue dialog and the engine — and it now refuses a SECRET change,
  *    which is what makes the contracted pair the only way to write material.
@@ -71,7 +70,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  *    from the ROUTER, because `DERIVED` is read off the contract table.
  */
 const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
-  'settings.get': 'query',
   // POD-421. `viewer` answers WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT,
   // so a control can be disabled-with-reason instead of editable-then-refused.
   // Hand-written for the same reason `get` is: a `visibility` class names the
@@ -163,21 +161,20 @@ describe('this guard can say NO', () => {
    */
   it('the accessor reads a real dispatch table, not an empty object', () => {
     expect(Object.keys(procedures).length).toBeGreaterThan(50)
-    expect(typeOf('settings.updateInstance')).toBe('mutation')
+    expect(typeOf('settings.setSecret')).toBe('mutation')
     expect(typeOf('settings.nonexistent')).toBeUndefined()
   })
 
   it('the contract table is NOT empty — the derived half has content', () => {
     // Without this, "every contract declaring trpc is served" passes perfectly
     // against a table naming nothing, which is the emptiness POD-732 named.
-    expect(SETTINGS_COMMAND_NAMES.length).toBe(6)
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(5)
     expect(Object.keys(DERIVED).sort()).toEqual([
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
-      'settings.updateInstance',
     ])
   })
 

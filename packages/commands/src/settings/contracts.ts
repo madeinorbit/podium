@@ -1,6 +1,13 @@
 /**
- * THE SETTINGS WRITE FAMILY (POD-420, 3.7c) — `settings.updatePersonal ·
- * settings.updateInstance · settings.setSecret · settings.clearSecret`.
+ * THE SETTINGS WRITE FAMILY (POD-420, 3.7c) — `settings.setSecret ·
+ * settings.clearSecret`, the presence read and the Telegram ceremony.
+ *
+ * THE TWO PREFERENCE TIERS ARE SYNCED RECORDS NOW: personal leaves are fields of
+ * the `userPreferences` record (POD-6673) and instance leaves of the one
+ * `instancePreferences` record (POD-6677), both written by generic edits
+ * (`records.<kind>.edit`, `records/kinds.ts`). What follows explains the split
+ * the two preference commands were built on; the table below still holds, and
+ * the record declarations carry its preference rows.
  *
  * POD-418 split the settings MODEL into three tiers and classified all 39 leaves.
  * This file is the command half of that split: which authority a write answers
@@ -92,14 +99,12 @@
  */
 
 import {
-  classifySettingsPath,
   MutationIdField,
   OWNERSHIP_MATRIX_INDEX,
   SERVER_SECRET_KEYS,
   SETTINGS_CLASSIFICATION,
   ServerSecretKey,
   type SettingsTier,
-  settingsPathMayEnqueue,
   settingsPathsInTier,
   settingsTierRow,
 } from '@podium/model'
@@ -135,65 +140,6 @@ export function preferencePathsInTier(tier: SettingsTier): readonly string[] {
   return settingsPathsInTier(tier)
 }
 
-/**
- * A patch addressed by classified path, gated on the tier it belongs to.
- *
- * `z.record(z.string(), z.unknown())` and NOT a shape: the VALUE type of a leaf
- * belongs to the model's own schema and is validated where the blob is composed
- * (`normalizeSettings`), not restated per leaf here — restating 39 value types
- * in an L1 contract is exactly the drift ADR 4 reserves the model to prevent.
- * What this schema decides is the ADDRESS, which is the authorization question.
- *
- * Empty is refused. A write that names no path is not a write; admitting it
- * would make "the command succeeded" say nothing about whether anything was
- * classified, and an empty patch is the shape a broken client sends.
- */
-function preferencePatch(tier: SettingsTier) {
-  return z
-    .record(z.string(), z.unknown())
-    .superRefine((values: Record<string, unknown>, ctx: z.RefinementCtx) => {
-      const keys = Object.keys(values)
-      if (keys.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'a settings patch must name at least one path',
-        })
-      }
-      for (const path of keys) {
-        const classification = classifySettingsPath(path)
-        // FAILS CLOSED, and this is the branch POD-418 built `undefined` for: an
-        // unclassified path is refused rather than being handed whichever tier
-        // the reader assumed. "Deliberately personal" and "never classified"
-        // reach different arms here.
-        if (!classification) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [path],
-            message: `'${path}' is not a classified settings path`,
-          })
-          continue
-        }
-        if (classification.tier !== tier) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [path],
-            message: `'${path}' is ${classification.tier}, not ${tier} — it is written by a different command`,
-          })
-        }
-        // The SECOND, semantically independent gate (ADR 9 D4 point 2). A path
-        // whose classification says it may not be queued may not ride an
-        // offline-eligible command even if its tier somehow matched.
-        if (!settingsPathMayEnqueue(path)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [path],
-            message: `'${path}' may not be enqueued and cannot ride an offline-eligible command`,
-          })
-        }
-      }
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Shared cells — one rule, one object, so a repeat cannot drift
 // ---------------------------------------------------------------------------
@@ -209,53 +155,6 @@ function preferencePatch(tier: SettingsTier) {
  * and not `mcp`: there is no `podium settings` verb and no settings tool.
  */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
-
-/**
- * PREFERENCE WRITES ARE `offline-eligible`. Personal preferences are fields of
- * the synced `userPreferences` record since POD-6673 (`records.userPreferences.edit`,
- * queued through the outbox). Instance preferences remain tRPC-only until their
- * owning client action is migrated (POD-6677).
- */
-const PREFERENCE_REAUTHORIZATION =
-  'Re-authorized at every apply against the delegation resolved LIVE (ADR 9 D5 A1 / ADR 3 D8): the ' +
-  'role floor and, for the personal tier, the OWNING USER are re-checked at drain, never read from ' +
-  'a capability frozen at enqueue. A principal who lost the floor between enqueue and drain has the ' +
-  'entry refused and is told so — the entry is dead-lettered rather than retried, because a rights ' +
-  'change is not a transient failure (ADR 3 Amendment 1 D16).'
-
-/**
- * THE INSTANCE TIER'S offline-eligibility, which is the harder of the two and is
- * argued separately for that reason.
- *
- * Same inertness test, same answer — a merge style and a memory ceiling are rows
- * read at a decision point, not work placed on compute — but the CONFLICT story
- * differs and it is the reason this is not one shared cell. The instance row is
- * `field-LWW` and is *"THE ONLY SURVIVING field-LWW MEMBER"* (ADR 1 Amendment 1
- * D10), whose four D3 conditions the row re-checks explicitly: a defined clock
- * (the Authority-assigned event time at commit — client wall clocks never
- * arbitrate), an independent key group, low semantic risk, and reset-to-default
- * as a write on the same clock. A queued instance preference is exactly the case
- * that machinery was kept for, so `offline-eligible` here is not a copied class
- * but the one the conflict rule was designed around.
- *
- * The blast radius is real and is answered elsewhere: `hibernation.enabled` and
- * `gitWorkflow.mergeStyle` affect everybody on the deployment, which is why the
- * ROLE FLOOR is admin. A delivery class is not the gate for "should this person
- * be allowed to", and using one as such would be enforcing authorization through
- * a connectivity requirement.
- */
-const INSTANCE_PREFERENCE_DELIVERY: DeliveryPolicy = {
-  class: SETTINGS_WRITE_DELIVERY_CLASS['settings.updateInstance'],
-  outboxReconciliation:
-    'MAY be queued, and is not queued today. ARGUED per tier: an instance preference is inert in the ' +
-    'same way the personal ones are, and its conflict rule is the one case ADR 1 Amendment 1 D10 ' +
-    'KEPT field-LWW for — a defined Authority clock, an independent key group, low semantic risk, ' +
-    'and reset-to-default as a write on the same clock, which is precisely a queued-then-replayed ' +
-    'toggle. The instance-wide blast radius is answered by the ADMIN ROLE FLOOR, not by a ' +
-    'connectivity requirement: a delivery class is not an authorization gate. Exposure omits ' +
-    '`outbox` for the same reason the personal tier does — nothing dispatches it (POD-385).',
-  applyTimeReauthorization: PREFERENCE_REAUTHORIZATION,
-}
 
 /**
  * SECRETS: `online-sensitive`, which the lint already forces from
@@ -311,26 +210,6 @@ const SETTINGS_ATTRIBUTION: AttributionPolicy = {
 }
 
 /**
- * No settings command mints an entity.
- *
- * A preference write moves a member of a singleton that already exists — ADR 1
- * records `tombstone: 'never-delete'` with "reset-to-default is a write, not a
- * delete" — and the per-user tier's row is materialised by the store on first
- * write, which is a storage act rather than an ADR 9 D5 A4 creation with an
- * owner to assign. The secret arm's emptiness is a stronger claim; see
- * {@link SECRET_OWNERSHIP}.
- */
-const PREFERENCE_OWNERSHIP: CreationOwnership = {
-  creates: [],
-  note:
-    'Mints nothing. Writes a member of a settings singleton that already exists — ADR 1: ' +
-    '`tombstone: "never-delete"`, "reset-to-default is a write, not a delete". The personal tier’s ' +
-    'row is keyed `(userId)` and is materialised by the store on first write, which assigns no ' +
-    'ownership: the row IS the user’s by its key, and there is nothing for `inheritanceOnCreate` to ' +
-    'decide (ADR 9 D3 rule 4 — per-user state is non-grantable, so no grant can be inherited).',
-}
-
-/**
  * EMPTY, and the emptiness is the decision — `machines.pairingCode`'s exactly.
  *
  * ADR 1's `server-owned-secrets` row records `owner: { kind: 'none', reason:
@@ -349,30 +228,6 @@ const SECRET_OWNERSHIP: CreationOwnership = {
     'naming the stored row under `creates` would force an `owner: "on-behalf-of-human"` declaration ' +
     'for a row the matrix says has none — the well-typed lie POD-1075 refused. Replacing a secret is ' +
     'a REPLACE (`conflict: "cmd"`, "online replace only"), not a mint.',
-}
-
-/**
- * Reviewed, and the answer differs by tier — which is why this is not one shared
- * cell.
- *
- * Preferences: nothing redacted, with the candidate named. `notifications.
- * telegramChatId` and `notifications.ntfyTopic` are ROUTING addresses, and ADR 9
- * D8 S4 says in as many words that classifying the chat id as a secret would
- * break the per-user routing S3 depends on. They are `secret: 'preference'` on
- * the matrix.
- */
-const PREFERENCE_REDACTION: RedactionPolicy = {
-  reviewed: true,
-  inputPaths: [],
-  outputPaths: [],
-  note:
-    'Nothing redacted, and the candidates are named so the empty lists are a finding rather than a ' +
-    'default. `notifications.telegramChatId` and `notifications.ntfyTopic` are notification ROUTING ' +
-    'addresses, not credentials: ADR 9 D8 S4 moves the chat id to the personal-preference row ' +
-    'explicitly because classifying it as a secret would break the per-user routing S3 depends on, ' +
-    'and the matrix carries both as `secret: "preference"`. `roles.*.accountId` is a REFERENCE to a ' +
-    'managed account row, never the material (POD-418, §3.1.6 S1). No path this command can address ' +
-    'is `secret-value` — the schema refuses one — so there is no credential on this surface to redact.',
 }
 
 /**
@@ -428,62 +283,6 @@ const CLOSED_VOCABULARY_ERRORS: ErrorConsistency = {
     'design: a refusal must never differ by whether a secret is currently CONFIGURED, which is the ' +
     'presence bit and belongs to the projection, not to an error.',
 }
-
-// ---------------------------------------------------------------------------
-// settings.updateInstance
-// ---------------------------------------------------------------------------
-
-/** The 10 instance-preference leaves, addressed by path. */
-export const settingsUpdateInstanceInput = z.object({
-  values: preferencePatch('instance-preference'),
-})
-
-/**
- * A DEPLOYMENT-SUBSTRATE write: one answer for everybody on this instance.
- *
- * `deployment-substrate`, read off the row, whose owner is `{ kind: 'none',
- * reason: 'substrate' }` — *"a property of the DEPLOYMENT, not of a person"* —
- * and whose grants cell says "Write is admin-grade" in as many words. That is
- * the `roleFloor: 'admin'`, and it is the ONLY difference in policy from the
- * personal tier.
- *
- * POD-418 settled the two memberships this contract must not re-open, and both
- * are here rather than on the personal tier for reasons that are about
- * COHERENCE, not privacy: a per-user memory ceiling cannot be honoured
- * (`hibernation` — one machine, one RAM budget), and two merge styles on one
- * repo is one repo with two histories (`gitWorkflow`). `experimental` is an open
- * record of feature ids and is instance-wide by its own matrix note.
- */
-export const settingsUpdateInstanceContract = {
-  name: 'settings.updateInstance',
-  version: 1,
-  visibility: 'deployment-substrate',
-  input: settingsUpdateInstanceInput,
-  policy: {
-    action: 'write',
-    roleFloor: 'admin',
-    resource: 'settings-domain',
-    confirmation: 'none',
-    rationale:
-      'One answer for the whole deployment, so the floor is ADMIN — ADR 1’s row states it directly ' +
-      '(`grants: { kind: "none", reason: "substrate", note: "Write is admin-grade." }`, `writers: ' +
-      '["operator"]`). `resource: "settings-domain"` and not `global`: the gate is the settings ' +
-      'surface, not every instance-wide row there is. No confirmation — these are toggles, every one ' +
-      'reversible by writing it again — with the deliberate note that `hibernation.enabled` and ' +
-      '`gitWorkflow.mergeStyle` have instance-wide behavioural blast radius; the ADMIN FLOOR is the ' +
-      'gate that answers that, not a per-call confirmation prompt an agent would click through. ' +
-      'Nothing enforces the floor today (single operator principal); POD-1079 owns it, and this ' +
-      'contract is what it will read.',
-  },
-  exposure: SERVED_ON,
-  delivery: INSTANCE_PREFERENCE_DELIVERY,
-  redaction: PREFERENCE_REDACTION,
-  ownership: PREFERENCE_OWNERSHIP,
-  attribution: SETTINGS_ATTRIBUTION,
-  errorConsistency: CLOSED_VOCABULARY_ERRORS,
-  cli: { summary: 'Write instance preference leaves by classified path' },
-  conflict: 'field-LWW',
-} as const satisfies CommandContract<typeof settingsUpdateInstanceInput>
 
 // ---------------------------------------------------------------------------
 // settings.setSecret
@@ -984,7 +783,6 @@ export const settingsTelegramSetupPollContract = {
  * of growing a second spelling beside it.
  */
 export const SETTINGS_CONTRACTS = {
-  'settings.updateInstance': settingsUpdateInstanceContract,
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
   'settings.secretPresence': settingsSecretPresenceContract,
@@ -1023,7 +821,6 @@ export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsWriteCommandNam
  * — POD-305's rule, applied per contract rather than to arm 0.
  */
 export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, SettingsTier>>> = {
-  'settings.updateInstance': 'instance-preference',
   'settings.setSecret': 'server-secret',
   'settings.clearSecret': 'server-secret',
   // The READ answers for the same tier it reads — the `server-secrets` row —

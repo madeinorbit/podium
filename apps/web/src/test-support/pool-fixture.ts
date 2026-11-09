@@ -14,6 +14,7 @@ import { reposToViews } from '@podium/client-core/values'
 import type { RowSourceEvent } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -255,6 +256,19 @@ export function syncPoolFixture(
       usage?: { summary?: { query?: () => Promise<unknown> } }
     }
     const fixturePool = pool as MobxPool
+    // The instance settings are a synced record (POD-6677): a fixture's
+    // `settings.get` answer stands in for the record the feed would deliver.
+    const settingsApi = fixtureState.trpc as {
+      settings?: { get?: { query?: () => Promise<unknown> } }
+    }
+    if (settingsApi.settings?.get?.query)
+      void Promise.resolve(settingsApi.settings.get.query())
+        .then((groups) => {
+          if (groups && typeof groups === 'object') {
+            seedInstancePreferences(fixturePool, groups as Parameters<typeof seedInstancePreferences>[1])
+          }
+        })
+        .catch(() => undefined)
     if (api.quota?.summary?.query || api.usage?.summary?.query)
       void Promise.all([
         Promise.resolve(api.quota?.summary?.query?.()).catch(() => undefined),

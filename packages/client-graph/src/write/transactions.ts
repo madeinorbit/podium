@@ -54,6 +54,8 @@ const PER_USER_POOL_KIND = {
   userPreferences: 'userPreferences',
   userReadPositions: 'userReadPosition',
   superagentThreads: 'superagentThread',
+  // POD-6677: the one instance settings record.
+  instancePreferences: 'instancePreferences',
 } as const satisfies Record<PerUserRecordTarget, string>
 export type PerUserPoolKind = (typeof PER_USER_POOL_KIND)[PerUserRecordTarget]
 const isPerUserTarget = (entity: string): entity is PerUserRecordTarget =>
@@ -94,6 +96,7 @@ const TARGETS: readonly OverlayTarget[] = [
   'superagentThreads',
   // A trigger subscription's toggle or removal (POD-6676).
   'subscriptions',
+  'instancePreferences',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -221,6 +224,7 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
     case 'userPreferences':
     case 'userReadPositions':
     case 'superagentThreads':
+    case 'instancePreferences':
       return `${PER_USER_POOL_KIND[kind]}:${id}`
     case 'effects':
       return `effect:${id}`
@@ -259,6 +263,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     effects: new Map(),
     superagentThreads: new Map(),
     subscriptions: new Map(),
+    instancePreferences: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []
@@ -390,6 +395,9 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       }
     }
     if (entity === 'userPreferences' && ports.userId !== undefined) return { userId: ports.userId }
+    // The instance settings before their first publication: an edit paints over
+    // its leaves alone (POD-6677).
+    if (entity === 'instancePreferences') return {}
     // A stream I have never read: the edit paints my first position over it.
     if (entity === 'userReadPositions' && ports.userId !== undefined) {
       try {

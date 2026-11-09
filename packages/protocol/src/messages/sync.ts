@@ -7,6 +7,7 @@ import {
   ConversationSummaryWire,
   EffectRecordWire,
   GlobalChangeOpField,
+  InstancePreferencesWire,
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
@@ -288,6 +289,12 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('workflowBinding'), WorkflowBindingWire),
   metadataChangeArm(z.literal('workflowRun'), WorkflowRunRecord),
   metadataChangeArm(z.literal('subscription'), SubscriptionWire),
+  /** The instance preferences (POD-6677, ADR 12 D1): one record per instance,
+   *  keyed `INSTANCE_PREFERENCES_ROW_ID`, whose fields are the instance tier's
+   *  leaf paths. Visibility class `deployment-substrate`: every member reads it.
+   *  Never a secret. Additive: an older build parses these rows as
+   *  {@link UnknownMetadataChange} and advances. */
+  metadataChangeArm(z.literal('instancePreferences'), InstancePreferencesWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -320,6 +327,7 @@ export const MetadataEntityKind = z.enum([
   'workflowBinding',
   'workflowRun',
   'subscription',
+  'instancePreferences',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

@@ -1,11 +1,10 @@
 import { expect, it, vi } from 'vitest'
 import { autorun } from 'mobx'
-import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 import { MobxPool } from './pool'
 import { here, isGone } from './lookup'
-import { RecordRequest, SettingsRecordRequest } from './requested-records'
+import { RecordRequest } from './requested-records'
 import { MemberDirectory } from './member-directory'
 import { headerEntities } from './header-entities'
 import { SettingsRepositories } from './settings-repositories'
@@ -28,45 +27,40 @@ const pool = () => new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 function values(model: object, wire: object) {
   return Object.fromEntries(Object.keys(wire).map(key => [key, (model as Record<string, unknown>)[key]]))
 }
-it('matches every account/member/device/settings fact from the old section responses and updates the same models across requests', async () => {
+it('matches every account/member/device fact from the old section responses and updates the same models across requests', async () => {
   const p = pool()
   const accounts = new RecordRequest(p, 'account', row => row.id)
   const other = new RecordRequest(p, 'account', row => row.id)
   const directory = new MemberDirectory(p)
   const devices = new RecordRequest(p, 'device', row => row.sessionId)
-  const settings = new SettingsRecordRequest(p)
   try {
     await accounts.read(async () => [account])
     await directory.read(async () => ({ members: [member], invites: [], currentMemberId: 'owner', mailAvailable: true }))
     await devices.read(async () => [device])
-    await settings.read(async () => DEFAULT_SETTINGS)
     const accountAnswer = values(accounts.models[0]!, account)
     if (process.env.POD5870_PARITY_MUTANT === '1') accountAnswer.status = 'unknown'
     expect(accountAnswer).toEqual(account)
     expect(values(directory.members[0]!, member)).toEqual(member)
     expect(values(devices.models[0]!, device)).toEqual(device)
-    expect(values(settings.model!, DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS)
     // The old loaders returned exactly the payload. Poisoning one new answer
     // must fail this same comparison, not an assertion about the implementation.
     expect(() => expect({ ...values(accounts.models[0]!, account), status: 'unknown' }).toEqual(account)).toThrow()
-    const a = accounts.models[0], m = directory.members[0], d = devices.models[0], s = settings.model
+    const a = accounts.models[0], m = directory.members[0], d = devices.models[0]
     const seen: string[] = []
-    const stop = autorun(() => seen.push([a?.identity, m?.displayName, d?.deviceName, s?.sidebar.repoSort].join('|')))
+    const stop = autorun(() => seen.push([a?.identity, m?.displayName, d?.deviceName].join('|')))
     await other.read(async () => [{ ...account, identity: 'changed elsewhere' }])
     await directory.read(async () => ({ members: [{ ...member, displayName: 'Renamed' }], invites: [], currentMemberId: 'owner', mailAvailable: false }))
     await devices.read(async () => [{ ...device, deviceName: 'Renamed phone' }])
-    await settings.read(async () => ({ ...DEFAULT_SETTINGS, sidebar: { ...DEFAULT_SETTINGS.sidebar, repoSort: 'alphabetical' } }))
     expect(accounts.models[0]).toBe(a)
     expect(directory.members[0]).toBe(m)
     expect(devices.models[0]).toBe(d)
-    expect(settings.model).toBe(s)
-    expect(seen.at(-1)).toContain('changed elsewhere|Renamed|Renamed phone|alphabetical')
+    expect(seen.at(-1)).toContain('changed elsewhere|Renamed|Renamed phone')
     stop()
     await devices.read(async () => [])
     expect(devices.answer).toEqual([])
     expect(devices.models).toEqual([])
     expect(isGone(p.model('device', device.sessionId))).toBe(true)
-  } finally { accounts.dispose(); other.dispose(); directory.dispose(); devices.dispose(); settings.dispose(); p.dispose() }
+  } finally { accounts.dispose(); other.dispose(); directory.dispose(); devices.dispose(); p.dispose() }
 })
 it('rejects superseded and closed responses before they can change shared records', async () => {
   const p = pool(), request = new RecordRequest(p, 'account', row => row.id)

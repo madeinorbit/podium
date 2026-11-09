@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "c049b62305a7fb1c8dc9bdf640f1fa01f2d415b0f14275d35badd0f0829a1dd3",
+      "tokens": "e47d357a85030f81fe5673f464a2a8d5933be9a2d18f46e48df9d55b8e0edcf8",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "1169e9d17cad8187716716e6d27fcdd0742d15fe14d43b1530603249f5265a6d",
+      "fingerprint": "be7208f81d3983cbd639cfe762fcc0edc1bb33f20cc867ad94c9ce381dd9c2f1",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -52,14 +52,14 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "323ee0eefe388de0a37b9a6ebc8cc3cdcb5099dc2b8041d19abdcdd382263d4c",
+      "tokens": "4b0f34673549c9ee6d5858a521b53c8928f1ee8c8cf652f201ca33d888686198",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
       "origin": [
         "01ed545e82ce89ee20c4cf35e0f3ccb95db01ad9e0e7117571472ac7ed4938aa"
       ],
-      "fingerprint": "62b29e54bf824c07d8c692d276c7f2e4161431346997f0b27874a8fde71d54e9",
+      "fingerprint": "6f85aa0512e0250850a2f67da28686f22759104ee9b7fd73b7a1dcf7b5ccc961",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9406,14 +9406,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "0b59ec77de0f791cb895edab7f6718e5073e7f72425599e61d1abd26f7da8334",
+      "tokens": "d0d79131884f79607b0c08e8995a6ba219b8e8b8ded79b51bfa2a9460b60af66",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "2f12a7045630cfdd1e4ff091f117e22c8bf4d7e3f2e69c5aad5068d714db257c",
+      "fingerprint": "70aa1c8d8c7cd8c4060176ad02c1f4d5a7af924d49a7d4c7340f5faaa935330a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12847,12 +12847,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "0a951cfc7d75531502b2aa71fc2b44c8abac966f0c8adfe2e49c31c8c4df1669",
+      "tokens": "dfbab621d49589d909ef37f462273a4fd54b278403ec83ad76db5ec7c4507d19",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "d6481077fa8a9675106b7d19a806e13ec513a86357aed1e819608a2fe267ba77",
+      "fingerprint": "4ca6f2577e3e41b4f8dc727127fa64c1161904070d19dfe0517c352095ae0812",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -33702,7 +33702,7 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/feed",
       "rule": "reader-summary",
-      "tokens": "1046842da3044f168851e109012c59d8832fbf9550b5b100d19f8ca0c7614304",
+      "tokens": "b3f5278116922a040052f0b402172398f065fe69629d9ef6a1890b84a698fab2",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -33711,7 +33711,7 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "81522492cd2a0f158133bdff26541137b75d7da8072bf967204ad9e04094650c",
+      "fingerprint": "c1949a61c532298e8a4cfca28cfff30fbdadd25d7058fdc2ffeb2a49698ced32",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34480,14 +34480,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "f80980bc02a2b694d0661e61352825a8e226f01882991d054bb4225dd826608a",
+      "tokens": "3e9edb9287c450a4cf07953a78c62f773e38f3a6984f5ac985f6559cb706116e",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "8b8f5d1c5ba3016e7022e861385c76a7c02c3833c5756fdf8f79647119c41dd8",
+      "fingerprint": "d0a60d81abf772f6a687a77b33cfbcbc5d41192e8ac16b84d51c3392c6375982",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -34500,14 +34500,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "59fa5a2198b4e8fffb1cb19c8cd2d4265b794deb59977aff841940167afa9b21",
+      "tokens": "095c41d39f30e83ad73f5836f14d35a11fbbfbb0e183cfd2c24bf78f070ed6c9",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "c188f1a93846830ddeeb7088721bd7f50d06c6bcc023661d59143ae536587916",
+      "fingerprint": "bb3e9517660dd821d0da267d61834dd0309fd7b91751b4d5dae71bd484c27643",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",

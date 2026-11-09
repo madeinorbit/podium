@@ -192,8 +192,14 @@ describe('Machines and Audit', () => {
     ).toBe(409)
     await alice.trpc.settings.setSecret.mutate({ key: 'apiKeys.openrouter', value: SECRET_VALUE })
     // A preference write is audited too, with its value; it is not a security event.
-    await alice.trpc.settings.updateInstance.mutate({
-      values: { 'gitWorkflow.defaultParentBranch': PREFERENCE_VALUE },
+    // The instance settings are a synced record (POD-6677): a generic edit.
+    await (
+      alice.trpc as unknown as { sync: { submit: { mutate(input: unknown): Promise<unknown> } } }
+    ).sync.submit.mutate({
+      mutationId: 'alice-instance-branch',
+      command: 'records.instancePreferences.edit',
+      version: 1,
+      input: { id: 'instance', patch: { 'gitWorkflow.defaultParentBranch': PREFERENCE_VALUE } },
     })
     expect(JSON.stringify(await f.handle.registry.sessionStore.settingsAudit.list(500))).toContain(
       PREFERENCE_VALUE,

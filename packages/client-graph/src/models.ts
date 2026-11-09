@@ -1,11 +1,12 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { LiveStore } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
-import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
+import { type FeatureId, type FeatureStates, OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
+import type { AccountModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
@@ -1429,11 +1430,55 @@ export class SuperagentThreadModel extends EntityModel {
 }
 export interface SuperagentThreadModel extends Readonly<SuperagentThreadWire> {}
 
+/**
+ * THE INSTANCE SETTINGS (POD-6677): one synced record for the whole instance,
+ * every member's, resolved with defaults by the row source from its flat leaf
+ * fields. Screens read it here, never `settings.get`; an admin's change on any
+ * device arrives on its own, and an app started offline paints its saved copy.
+ */
+export class InstancePreferencesModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('instancePreferences', id, host)
+  }
+  /** The parent branch new issue worktrees start from; '' detects the repo's default. */
+  @lazy get defaultParentBranch(): string {
+    return this.gitWorkflow.defaultParentBranch
+  }
+  /** The host lifecycle policy the header and the machine views show. */
+  @lazy({ equals: compareStructural }) get lifecycle(): Pick<
+    InstancePreferences,
+    'hibernation' | 'worktreeGc'
+  > {
+    return { hibernation: this.hibernation, worktreeGc: this.worktreeGc }
+  }
+  /** The load ratio hibernation acts on, or null when load pressure is off. */
+  @lazy get loadPerCoreThreshold(): number | null {
+    return this.hibernation.enabled ? this.hibernation.loadPerCore : null
+  }
+  /**
+   * Every feature flag resolved: the connected server's facts (its build and
+   * config, from `welcome`, held by the LiveStore) joined with this record's
+   * experimental toggles and stored update channel. Before the first `welcome`
+   * (an app started offline) each flag follows its saved toggle.
+   */
+  @lazy({ equals: compareStructural }) get features(): FeatureStates {
+    return resolveFeatureStates(this.host.live?.connection.serverFeatures ?? OFFLINE_FEATURE_FACTS, {
+      experimental: this.experimental,
+      updateChannel: this.deployment.updateChannel,
+    })
+  }
+  /** Whether one feature is on for this install. */
+  featureEnabled(id: FeatureId): boolean {
+    return this.features.flags.find((flag) => flag.id === id)?.enabled ?? false
+  }
+}
+export interface InstancePreferencesModel extends Readonly<InstancePreferences> {}
+
 export type ModelOf = {
   account: AccountModel
   member: MemberModel
   device: DeviceModel
-  podiumSettings: PodiumSettingsModel
+  instancePreferences: InstancePreferencesModel
   repository: RepositoryModel
   messageRecord: MessageModel
   pendingInteraction: PendingInteractionModel
@@ -1472,6 +1517,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   pin: PinModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
+  instancePreferences: InstancePreferencesModel,
 }
 
 for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, ModelClass][]) {

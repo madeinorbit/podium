@@ -26,6 +26,7 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
+  INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   normalizeOriginUrl,
   parseIssueUserStateRowId,
@@ -37,6 +38,7 @@ import {
   type PinKind,
   pinRowId,
   readPositionRowId,
+  resolveInstancePreferences,
   resolveUserPreferences,
   sessionUserStateRowId,
   superagentThreadRowId,
@@ -140,6 +142,7 @@ export type RepaintKind =
   | 'userPreferences'
   | 'userReadPosition'
   | 'superagentThread'
+  | 'instancePreferences'
 
 /** What the pool's transaction log reaches through the feed (POD-5431). */
 export interface RowSourceRepaint {
@@ -193,6 +196,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'workflowBindings',
   'workflowRuns',
   'subscriptions',
+  // POD-6677: the instance settings.
+  'instancePreferences',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -208,6 +213,7 @@ const OVERLAID: readonly OverlayTarget[] = [
   'superagentThreads',
   // A trigger subscription's toggle or removal (POD-6676).
   'subscriptions',
+  'instancePreferences',
 ]
 
 /**
@@ -259,6 +265,9 @@ const PER_USER_KINDS = {
   userReadPosition: { replica: 'userReadPositions', target: 'userReadPositions' },
   // POD-6675: a superagent thread, keyed `superagentThreadRowId`.
   superagentThread: { replica: 'superagentThreads', target: 'superagentThreads' },
+  // POD-6677: the one instance settings record, every member's, keyed
+  // `INSTANCE_PREFERENCES_ROW_ID`.
+  instancePreferences: { replica: 'instancePreferences', target: 'instancePreferences' },
 } as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
 type PerUserKind = keyof typeof PER_USER_KINDS
 const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
@@ -283,6 +292,7 @@ function idOf(row: AnyRow): string | null {
 
 /** A per-user record's feed id, from its key fields (POD-6673). */
 function perUserIdOf(kind: string, row: AnyRow): string | undefined {
+  if (kind === 'instancePreferences') return INSTANCE_PREFERENCES_ROW_ID
   if (kind === 'superagentThread') {
     return typeof row.ownerUserId === 'string' && typeof row.threadId === 'string'
       ? superagentThreadRowId(asUserId(row.ownerUserId), row.threadId)
@@ -521,6 +531,7 @@ export function createRowSource(
       effects: pooled.byRow('effects'),
       superagentThreads: pooled.byRow('superagentThreads'),
       subscriptions: pooled.byRow('subscriptions'),
+      instancePreferences: pooled.byRow('instancePreferences'),
     }
   }
 
@@ -869,6 +880,12 @@ export function createRowSource(
       // every default (an absent leaf is "never chosen").
       if (value === undefined && id !== runtime.principal?.userId) return undefined
       return { ...resolveUserPreferences(value, asUserId(id)), id }
+    }
+    if (kind === 'instancePreferences') {
+      // Flat on the wire, one field per leaf path; resolved here, each group
+      // whole with its defaults (POD-6677). Absent until its first publication.
+      if (value === undefined) return undefined
+      return { ...resolveInstancePreferences(value), id }
     }
     if (value === undefined) return undefined
     return { ...value, id }
@@ -1378,6 +1395,7 @@ export function createRowSource(
       case 'tabOrders':
       case 'userPreferences':
       case 'superagentThreads':
+      case 'instancePreferences':
         return authority(entity, id)
       case 'effects':
         return authority('effects', id)

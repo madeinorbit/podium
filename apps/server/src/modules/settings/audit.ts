@@ -56,15 +56,19 @@ export const REDACTED_MESSAGE = `${REDACTED} (the error text named a redacted va
 /** The generic edit of my personal settings record (POD-6673). */
 export const USER_PREFERENCES_EDIT = 'records.userPreferences.edit'
 
+/** The generic edit of the instance settings record (POD-6677). */
+export const INSTANCE_PREFERENCES_EDIT = 'records.instancePreferences.edit'
+
 /**
  * The commands this trail records, each redacted by its own contract: the
- * settings family, and the generic edit that replaced `settings.updatePersonal`
- * (POD-6673). The change log records the record's new value; it does not
+ * settings family, and the generic edits that replaced `settings.updatePersonal`
+ * (POD-6673) and `settings.updateInstance` (POD-6677). The change log records the record's new value; it does not
  * replace this trail, which keeps who asked, for whom, and what was refused.
  */
 const AUDITED_CONTRACTS: Readonly<Record<string, AnyCommandContract | undefined>> = {
   ...SETTINGS_CONTRACTS,
   [USER_PREFERENCES_EDIT]: RECORD_CONTRACTS[USER_PREFERENCES_EDIT],
+  [INSTANCE_PREFERENCES_EDIT]: RECORD_CONTRACTS[INSTANCE_PREFERENCES_EDIT],
 }
 
 export interface SettingsAuditPort {

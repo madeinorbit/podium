@@ -22,10 +22,10 @@
 
 import {
   applySettingsPatch,
+  decodeSettingsPreferencePatch,
   planSettingsWrite,
   type SettingsWriteRefusal,
 } from '@podium/commands/settings-write-plan'
-import { submitNow } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { Trpc } from '@/app/trpc'
 
@@ -47,11 +47,10 @@ export function browserIsOnline(): boolean {
 /**
  * Issue the commands an edit requires, and report what was refused.
  *
- * PREFERENCES FIRST, then secrets: the instance command returns the whole
- * settings blob (my personal leaves are my synced record, and confirm locally), so running them first gives a server-confirmed baseline that
- * the applied secret values are then folded into. The other order would return
- * a baseline that predates the secret writes and leave the form permanently
- * dirty.
+ * PREFERENCES FIRST, then secrets: both preference tiers are synced records
+ * (my `userPreferences`, the instance's `instancePreferences`), queued and shown
+ * at once, so their leaves form the baseline the applied secret values are then
+ * folded into. The other order would leave the form permanently dirty.
  *
  * A PARTIAL SAVE IS A REAL OUTCOME and is not an error: when a secret is refused
  * offline, the preferences in the same save are still written, and the refused
@@ -68,6 +67,10 @@ export async function saveSettingsAsCommands(
      *  (POD-6673): queued, shown at once, on every device of mine. A leaf
      *  set to `undefined` resets it. */
     personal?: (values: Readonly<Record<string, unknown>>) => Promise<void>
+    /** The instance leaves, as an edit of the one `instancePreferences` record
+     *  (POD-6677): queued, shown at once, on every member's devices. A leaf set
+     *  to `undefined` resets it. Admins only; the server refuses anyone else. */
+    instance?: (values: Readonly<Record<string, unknown>>) => Promise<void>
   } = {},
 ): Promise<SaveSettingsResult> {
   const plan = planSettingsWrite(previous, next, { online: options.online ?? browserIsOnline() })
@@ -76,25 +79,19 @@ export async function saveSettingsAsCommands(
 
   for (const intent of plan.intents) {
     if (intent.kind !== 'preference') continue
-    if (intent.command === 'records.userPreferences.edit') {
-      // A cleared leaf (`null` on the plan's wire) is a reset of the record's leaf.
-      const values = Object.fromEntries(
-        Object.entries(intent.values).map(([path, value]) => [path, value ?? undefined]),
-      )
-      if (options.personal === undefined) {
-        throw new Error('saving personal settings needs the userPreferences writer')
-      }
-      await options.personal(values)
-      confirmed = applySettingsPatch(confirmed, values)
-      continue
-    }
-    // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03):
-    // an older server has no `sync.submit` and takes the command's own route.
-    const input = { values: intent.values }
-    confirmed = await submitNow<PodiumSettings>(trpc, intent.command, input, {
-      action: 'save these settings',
-      legacy: async () => await trpc.settings.updateInstance.mutate(input),
-    })
+    const personal = intent.command === 'records.userPreferences.edit'
+    // A cleared leaf (`null` on the plan's wire) is a reset of the record's leaf.
+    // On the instance tier a `null` is a real value on some leaves (load
+    // pressure off, no idle-session cap), so only the declared clear paths reset.
+    const values = personal
+      ? Object.fromEntries(
+          Object.entries(intent.values).map(([path, value]) => [path, value ?? undefined]),
+        )
+      : decodeSettingsPreferencePatch(intent.values)
+    const write = personal ? options.personal : options.instance
+    if (write === undefined) throw new Error(`saving settings needs the ${intent.command} writer`)
+    await write(values)
+    confirmed = applySettingsPatch(confirmed, values)
   }
 
   for (const intent of plan.intents) {

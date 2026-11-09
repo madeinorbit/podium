@@ -637,6 +637,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  `roles.coding.model`): an edit of my `userPreferences` record (POD-6673),
    *  shown at once and on every device of mine. `undefined` resets a leaf. */
   setPreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
+  /** Change the instance settings, by leaf path (`hibernation.memoryPct`,
+   *  `experimental`): an edit of the one `instancePreferences` record
+   *  (POD-6677), admins only, shown at once and on every member's devices.
+   *  `undefined` resets a leaf to its default. */
+  setInstancePreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
   /** ONE UI persistence mechanism: the replica's versioned ui-state collection
    *  (see replica.uiState()) — components persist prefs through this, never
    *  through ad-hoc localStorage keys. */

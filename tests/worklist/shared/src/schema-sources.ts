@@ -1,5 +1,4 @@
 import '@podium/client-graph/requested-models'
-import { PodiumSettings } from '@podium/runtime'
 import { MobileClientSession } from '@podium/protocol'
 import { AccountView, MemberView, RequestRecordKey } from '@podium/model'
 import '@podium/client-graph/message-models'
@@ -42,6 +41,7 @@ import {
   EffectRecordWire,
   EffectTarget,
   PersonalPreferences,
+  InstancePreferences,
   PinWire,
   ReadPositionWire,
   SuperagentThreadWire,
@@ -78,7 +78,7 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  AccountView, MemberView, MobileClientSession, PodiumSettings, RequestRecordKey,
+  AccountView, MemberView, MobileClientSession, RequestRecordKey,
   PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
   MessageRecordWire,
   MessageLedgerWire,
@@ -92,6 +92,7 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   PinWire,
   TabOrderWire,
   PersonalPreferences,
+  InstancePreferences,
   ReadPositionWire,
   SuperagentThreadWire,
   AgentProfileWire,

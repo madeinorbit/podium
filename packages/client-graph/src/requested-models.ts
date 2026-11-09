@@ -1,11 +1,7 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
+import { lazy } from '@podium/mobx-helpers'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { MobileClientSession } from '@podium/protocol'
-
-type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
-
-import { lazy } from '@podium/mobx-helpers'
 import { EntityModel, type ModelHost, registerModels } from './models'
 import type { EntitySpec, FieldSpec, ModelSchemaName, RowArrival } from './shared/schema'
 
@@ -27,14 +23,6 @@ export class DeviceModel extends EntityModel {
   }
 }
 export interface DeviceModel extends Readonly<MobileClientSession> {}
-/** The INSTANCE settings `settings.get` answers. My personal leaves are not
- *  here: they are my synced `userPreferences` record (POD-6673). */
-export class PodiumSettingsModel extends EntityModel {
-  constructor(id: string, host: ModelHost) {
-    super('podiumSettings', id, host)
-  }
-}
-export interface PodiumSettingsModel extends Readonly<PodiumSettings> {}
 /** Existing per-machine scan storage, now read through the pool's model identity. */
 export class RepositoryModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
@@ -75,33 +63,6 @@ function record(
       ]),
     ),
   }
-}
-const settingsFields = {
-  // Role and personal preferences
-  roles: 'object',
-  sidebar: 'object',
-  notifications: 'object',
-  autoContinue: 'object',
-  // Instance policy; requests keep the existing settings classification/transport
-  hibernation: 'object',
-  gitWorkflow: 'object',
-  issues: 'object',
-  steward: 'object',
-  experimental: 'object',
-  worktreeGc: 'object',
-  transcripts: 'object',
-  deployment: 'object',
-  // Legacy public redaction returned by settings.get (never persisted by this pool)
-  apiKeys: 'object',
-  integrations: 'object',
-} as const
-const settingsBase = record('PodiumSettings', 'request:settings.get', 'id', settingsFields)
-const settings: EntitySpec = {
-  ...settingsBase,
-  fields: {
-    ...settingsBase.fields,
-    id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'request:settings.get' } },
-  },
 }
 registerModels(
   {
@@ -191,7 +152,6 @@ registerModels(
       [],
       ['lastSeenAt'],
     ),
-    podiumSettings: settings,
     repository: (() => {
       const scan = record(
         'GitRepositoryWire',
@@ -222,7 +182,6 @@ registerModels(
     account: AccountModel,
     member: MemberModel,
     device: DeviceModel,
-    podiumSettings: PodiumSettingsModel,
     repository: RepositoryModel,
   },
 )

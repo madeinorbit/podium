@@ -6,6 +6,7 @@ import type {
   AutomationWire,
   ConversationSummaryWire,
   EffectRecordWire,
+  InstancePreferencesWire,
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
@@ -135,6 +136,10 @@ export interface ReplicaRows {
   workflowBindings: WorkflowBindingWire
   workflowRuns: WorkflowRunRecord
   subscriptions: SubscriptionWire
+  /** The instance settings (POD-6677): one record, every member's, keyed
+   *  `INSTANCE_PREFERENCES_ROW_ID`. Kept offline like every other kind, so an
+   *  app started without a connection knows them. */
+  instancePreferences: InstancePreferencesWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -174,6 +179,7 @@ export interface ReplicaHydrateResult {
   workflowBindings: WorkflowBindingWire[]
   workflowRuns: WorkflowRunRecord[]
   subscriptions: SubscriptionWire[]
+  instancePreferences: InstancePreferencesWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

@@ -54,6 +54,7 @@ import {
   type ClientMessage,
   type FeedCursorField,
   type PresenceRoomClientMessage,
+  type ServerFeatureFacts,
   type TopicClientMessage,
 } from '@podium/protocol'
 import type { MemberAccessChange } from '../store/users'
@@ -198,11 +199,15 @@ export interface ClientMuxDeps {
    * sees a redeploy on its reconnect instead of polling `/version` for it.
    */
   readonly serverBuild?: () => string
-  /** The feature ids this build offers, sent in every `welcome` beside the build. */
-  readonly serverFeatures?: () => readonly string[]
+  /** What this build and its config say about its feature flags, sent in every
+   *  `welcome` beside the build (POD-6677). */
+  readonly serverFeatures?: () => ServerFeatureFacts
   /** The clock `pong` reports, for the client's skew reading. */
   readonly now?: () => number
 }
+
+/** The facts as the `welcome` schema spells them (its arrays are mutable). */
+const wireFacts = (facts: ServerFeatureFacts) => ({ ...facts, flags: [...facts.flags] })
 
 export class ClientMux {
   private readonly attachedAtByPeer = new Map<string, number>()
@@ -457,7 +462,7 @@ export class ClientMux {
         // Topics: the account whose `account.events` this client may hold (D26).
         ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
         ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
-        ...(this.deps.serverFeatures ? { serverFeatures: [...this.deps.serverFeatures()] } : {}),
+        ...(this.deps.serverFeatures ? { serverFeatures: wireFacts(this.deps.serverFeatures()) } : {}),
       })
     }
     return Promise.resolve(completion)

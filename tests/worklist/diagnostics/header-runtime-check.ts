@@ -18,12 +18,12 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
   const timer = setInterval(() => {
     if (disposed) return
     try {
-      // POD-5798: live readings come from the LiveStore, history and lifecycle
-      // from the header's request answers.
+      // POD-5798: live readings come from the LiveStore, history from the
+      // header's request answer, lifecycle from the instance settings (POD-6677).
       const requests = headerRequests(pool)
       const result = runInAction(() => checkHeader(pool, referenceState(runtime), {
         metrics: headerView(pool).metrics(), quotas: headerView(pool).quotas(),
-        history: requests?.history ?? undefined, lifecycle: requests?.lifecycle ?? undefined,
+        history: requests?.history ?? undefined, lifecycle: headerView(pool).lifecycle() ?? undefined,
         connection: runtime.live.connection, outboxSize: runtime.live.outbox.pending,
         liveOnline: [...runtime.live.machineConditions].flatMap(([id, reading]) =>
           reading.known && reading.value.online ? [id] : []),

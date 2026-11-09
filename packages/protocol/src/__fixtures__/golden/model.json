@@ -3836,6 +3836,50 @@
       "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1}}"
     },
     {
+      "schema": "InstancePreferencesWire",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "InstancePreferencesWire",
+      "variant": "full",
+      "wire": {
+        "hibernation.enabled": true,
+        "hibernation.memoryPct": 50,
+        "hibernation.loadPerCore": 1,
+        "hibernation.maxIdleSessions": 1,
+        "hibernation.idleMinutes": 1,
+        "hibernation.idleShellMinutes": 1,
+        "hibernation.backstopMinutes": 60,
+        "gitWorkflow.defaultParentBranch": "gitWorkflow.defaultParentBranch",
+        "gitWorkflow.mergeStyle": "ff-only",
+        "gitWorkflow.autoRebaseBeforeMerge": true,
+        "issues.assistantEnabled": true,
+        "steward.enabled": true,
+        "experimental": {
+          "experimental.key": true
+        },
+        "worktreeGc.mode": "off",
+        "worktreeGc.afterDays": 1,
+        "transcripts.mirror": true,
+        "deployment.authOpenMode": true,
+        "deployment.updateChannel": "stable",
+        "deployment.connectEnabled": true,
+        "deployment.telemetryUsage": "on",
+        "deployment.telemetryCrash": "on",
+        "deployment.telemetryInstallId": "deployment.telemetryInstallId",
+        "deployment.telemetrySince": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"hibernation.enabled\":true,\"hibernation.memoryPct\":50,\"hibernation.loadPerCore\":1,\"hibernation.maxIdleSessions\":1,\"hibernation.idleMinutes\":1,\"hibernation.idleShellMinutes\":1,\"hibernation.backstopMinutes\":60,\"gitWorkflow.defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"gitWorkflow.mergeStyle\":\"ff-only\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{\"experimental.key\":true},\"worktreeGc.mode\":\"off\",\"worktreeGc.afterDays\":1,\"transcripts.mirror\":true,\"deployment.authOpenMode\":true,\"deployment.updateChannel\":\"stable\",\"deployment.connectEnabled\":true,\"deployment.telemetryUsage\":\"on\",\"deployment.telemetryCrash\":\"on\",\"deployment.telemetryInstallId\":\"deployment.telemetryInstallId\",\"deployment.telemetrySince\":1}"
+    },
+    {
       "schema": "IntegrationSecrets",
       "variant": "minimal",
       "wire": {},

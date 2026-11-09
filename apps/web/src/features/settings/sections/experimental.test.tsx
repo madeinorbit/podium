@@ -1,11 +1,11 @@
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FeaturesStateSnapshot } from '@/lib/use-feature'
+import type { FeatureStates } from '@/lib/use-feature'
 import { getFeatureStates } from '../../../../../server/src/features'
 import { ExperimentalSection } from './experimental'
 
-const state = vi.hoisted(() => ({ features: null as FeaturesStateSnapshot | null }))
+const state = vi.hoisted(() => ({ features: null as FeatureStates | null }))
 
 vi.mock('@/lib/use-feature', () => ({
   useFeaturesState: () =>

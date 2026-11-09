@@ -119,6 +119,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "superagent threads, from every write to the superagent_threads table (a command's, the turn runner's, a reset's, the boot back-fill's)",
     kind: 'mirror',
   },
+  'feed.instancePreferences': {
+    what: "the instance settings record, from every write of the settings blob (an admin's edit, a deployment write, the server's telemetry identity)",
+    kind: 'mirror',
+  },
   'feed.interactions': {
     what: 'pending agent questions, from session state changes and exits',
     kind: 'mirror',

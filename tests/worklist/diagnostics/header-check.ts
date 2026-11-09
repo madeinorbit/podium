@@ -1,6 +1,6 @@
 import type { AgentConcurrencyHistoryResult, PodiumClientApi } from '@podium/client-core/api'
 import type { ConnectionCondition } from '@podium/client-core/live'
-import type { HeaderLifecycle } from '@podium/client-graph/header-requests'
+import type { HostLifecycle } from '@podium/client-graph/instance-preferences'
 import {
   buildFlightDeckRows, createHostSessionAggregatesSelector, cwdInWorktree, issueForCwd,
   missionProgress,
@@ -20,7 +20,7 @@ export interface HeaderCheckInputs {
   quotas: readonly MachineQuotaWire[]
   connection: ConnectionCondition | undefined
   history?: AgentConcurrencyHistoryResult
-  lifecycle?: HeaderLifecycle
+  lifecycle?: HostLifecycle
   /** The LiveStore's unsent-write count (POD-5798). */
   outboxSize?: number
   /** Machines the LiveStore knows online: never listed offline (POD-5798). */

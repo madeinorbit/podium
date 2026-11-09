@@ -42,13 +42,13 @@ afterEach(() => {
 async function fixture(scale: 1 | 4 = 1) {
   const ctx = await startScenarioEngine(scale)
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true })
-  // POD-5798: live readings are the runtime's LiveStore; history and lifecycle
-  // are the header's request answers.
+  // POD-5798: live readings are the runtime's LiveStore; history is the
+  // header's request answer; lifecycle is the instance settings (POD-6677).
   const inputs = () => ({
     metrics: headerView(handle.pool).metrics(),
     quotas: [],
     connection: ctx.engine.live.connection,
-    lifecycle: headerRequests(handle.pool)?.lifecycle ?? undefined,
+    lifecycle: headerView(handle.pool).lifecycle() ?? undefined,
     history: headerRequests(handle.pool)?.history ?? undefined,
     outboxSize: ctx.engine.live.outbox.pending,
   })

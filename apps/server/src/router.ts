@@ -72,7 +72,6 @@ import {
   GIT_QUERIES,
   QUOTA_QUERIES,
   SEARCH_QUERIES,
-  SETTINGS_QUERIES,
   SPEC_QUERIES,
   SUPERAGENT_QUERIES,
   USAGE_QUERIES,
@@ -343,7 +342,6 @@ export const appRouter = t.router({
   conversations: t.router(conversationFamilyProcedures()),
   search: t.router(queryProcedures('search', SEARCH_QUERIES)),
   settings: t.router({
-    ...queryProcedures('settings', SETTINGS_QUERIES),
     /**
      * WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT (POD-421).
      *
@@ -365,8 +363,7 @@ export const appRouter = t.router({
      * the client believed (ADR 3 D8). The client's copy is a rendering hint
      * with no authority.
      *
-     * HAND-WRITTEN, and the reason is the same one that keeps `settings.get`
-     * hand-written: a `visibility` class names the state a command WRITES, and
+     * HAND-WRITTEN: a `visibility` class names the state a command WRITES, and
      * this describes the CALLER rather than any settings state. Giving it one
      * would be a well-typed lie of the kind POD-1075 refused. It is named as
      * an exception in `router.settings-guard.test.ts`, so the exception is
@@ -378,7 +375,8 @@ export const appRouter = t.router({
     ...settingsFamily,
   }),
   perf: t.router(perfFamilyProcedures()),
-  // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.
+  // Experimental feature flags [spec:SP-f4b9], resolved by the server: the CLI's
+  // read. The apps resolve them from `welcome` and the instance settings record.
   features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
   /**

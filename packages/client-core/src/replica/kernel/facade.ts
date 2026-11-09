@@ -126,6 +126,7 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'workflowBindings',
   'workflowRuns',
   'subscriptions',
+  'instancePreferences',
 ]
 
 /** Shared identity for an empty kind so engine snapshots do not churn
@@ -519,6 +520,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         workflowBindings: project('workflowBindings'),
         workflowRuns: project('workflowRuns'),
         subscriptions: project('subscriptions'),
+        instancePreferences: project('instancePreferences'),
         cursor: facade.getCursor(),
         feedCursor: facade.getFeedCursor(),
         // ADR 2 D7 rung 6 is the LEGACY blob's version check. This path has no

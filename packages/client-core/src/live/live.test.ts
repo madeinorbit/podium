@@ -121,6 +121,13 @@ function setup() {
   return { hub, frames, live, feed }
 }
 
+/** A server's feature facts as `welcome` carries them (POD-6677). */
+const facts = (...ids: string[]) => ({
+  devMode: false,
+  developmentBuild: false,
+  flags: ids.map((id) => ({ id, name: id, description: '', visibility: 'stable' as const })),
+})
+
 describe('the hub learns the server (welcome and pong)', () => {
   it('names the server build on every welcome, so a redeploy shows after the reconnect', () => {
     const socket = new FakeSocket()
@@ -133,15 +140,15 @@ describe('the hub learns the server (welcome and pong)', () => {
       type: 'welcome',
       clientId: 'c1',
       serverBuild: '0.1.0+one',
-      serverFeatures: ['a'],
+      serverFeatures: facts('a'),
     })
-    expect(hub.serverIdentity()).toEqual({ build: '0.1.0+one', features: ['a'] })
+    expect(hub.serverIdentity()).toEqual({ build: '0.1.0+one', features: facts('a') })
     // The redeploy: the socket drops, the new server answers the reconnect.
     socket.recv({
       type: 'welcome',
       clientId: 'c2',
       serverBuild: '0.1.0+two',
-      serverFeatures: ['a'],
+      serverFeatures: facts('a'),
     })
     expect(seen).toEqual(['0.1.0+one', '0.1.0+two'])
     expect(hub.serverIdentity()?.build).toBe('0.1.0+two')
@@ -293,7 +300,7 @@ describe('LiveFeed', () => {
     hub.connected = true
     hub.health = { status: 'ok', rttMs: 12, since: 0 }
     hub.skew = -40
-    hub.identity = { build: 'one', features: ['x'] }
+    hub.identity = { build: 'one', features: facts('x') }
     hub.emit('serverIdentity', hub.identity)
     frames.flush()
     expect(live.connection).toMatchObject({
@@ -301,13 +308,13 @@ describe('LiveFeed', () => {
       pingMs: 12,
       skewMs: -40,
       serverBuild: 'one',
-      serverFeatures: ['x'],
+      serverFeatures: facts('x'),
     })
-    hub.identity = { build: 'two', features: ['x', 'y'] }
+    hub.identity = { build: 'two', features: facts('x', 'y') }
     hub.emit('serverIdentity', hub.identity)
     frames.flush()
     expect(live.connection.serverBuild).toBe('two')
-    expect(live.connection.serverFeatures).toEqual(['x', 'y'])
+    expect(live.connection.serverFeatures).toEqual(facts('x', 'y'))
   })
 
   it('holds a machine metrics topic only while a reader watches it', () => {

@@ -597,6 +597,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
+  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.InstancePreferencesFeedCapture': {
+    kind: 'contained',
+    why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
+  },
   'apps/server/src/modules/superagent/thread-records.ts#ThreadRecordDeps.threads': {
     kind: 'contained',
     why: "The superagent repository's thread read and spec write for an owner's generic edit [POD-6675]: composition binds it to SuperagentRepository, whose statements join the entry point's transaction and whose feed capture appends the record's change in the same unit, so a rollback takes both with it and nothing outside the process saw them.",

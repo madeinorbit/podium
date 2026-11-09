@@ -112,6 +112,7 @@ describe('the generated commands', () => {
       'records.agentProfile.edit',
       'records.agentProfile.remove',
       'records.effect.edit',
+      'records.instancePreferences.edit',
       'records.issueProjection.create',
       'records.issueProjection.edit',
       'records.issueUserState.edit',

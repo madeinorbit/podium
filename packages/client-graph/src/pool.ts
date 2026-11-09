@@ -1,9 +1,6 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
 import type { LiveStore } from '@podium/client-core/live'
 import type { AccountView, GitRepositoryWire, MemberView, PinKind } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
-
-type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 
 import type { NotificationSession, SessionPhaseChange } from '@podium/client-core/sound'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
@@ -79,6 +76,7 @@ import type {
   AutomationRunWire,
   AutomationWire,
   EffectRecordWire,
+  InstancePreferences,
   MachineProjection,
   MachineWire,
   PersonalPreferences,
@@ -276,7 +274,6 @@ export interface PoolRows {
   account: AccountView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
   device: MobileClientSession & Readonly<Record<string, unknown>>
-  podiumSettings: PodiumSettings & Readonly<Record<string, unknown>>
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>
   messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>
@@ -307,6 +304,8 @@ export interface PoolRows {
   subscription: Readonly<SubscriptionWire> & { readonly subscriptionId: string } & Readonly<
       Record<string, unknown>
     >
+  /** POD-6677: the instance settings, resolved, its feed id stamped as `id`. */
+  instancePreferences: Readonly<InstancePreferences> & { readonly id: string } & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>

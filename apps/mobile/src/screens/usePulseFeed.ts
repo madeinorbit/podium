@@ -1,4 +1,6 @@
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
+import { instancePreferences } from '@podium/client-graph/instance-preferences'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type {
   HostMetricsWire,
   MachineId,
@@ -20,6 +22,7 @@ import {
   demoEnabled,
 } from '../client/demoData'
 import { useTrpc } from '../client/hooks'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
 import { usePulseLive } from '../client/use-inbox-data'
@@ -58,10 +61,12 @@ const CAPACITY_CONCURRENCY = 3
 interface PulseCache {
   history: QuotaWindowHistoryWire[]
   capacityReadings: MachineCapacityReadings
-  loadPerCore: number | null
 }
 
 const cacheByProfile = new Map<string, PulseCache>()
+
+const loadThresholdOf = (pool: MobxPool): number | null =>
+  instancePreferences(pool)?.loadPerCoreThreshold ?? null
 
 /** Tests only — the module cache is deliberately process-wide otherwise. */
 export function resetPulseCache(): void {
@@ -104,15 +109,16 @@ export function usePulseFeed(): PulseFeed {
     profileKey: string
     history: QuotaWindowHistoryWire[] | null
     capacityReadings: MachineCapacityReadings
-    loadPerCore: number | null
     historyFailed: boolean
   }>(() => ({
     profileKey,
     history: cached?.history ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
-    loadPerCore: cached?.loadPerCore ?? null,
     historyFailed: false,
   }))
+  // The auto-park threshold is the synced instance settings (POD-6677): no
+  // request, and an admin's change moves the meter on its own.
+  const loadPerCore = useMobilePoolProjection(loadThresholdOf, null)
   // A pull-to-refresh asks for ANOTHER READ of the request answers. Unfocused,
   // there is no loader and the pull is a no-op, which is correct: nothing is on
   // screen to refresh.
@@ -133,30 +139,11 @@ export function usePulseFeed(): PulseFeed {
         const next: PulseCache = {
           history: prior?.history ?? [],
           capacityReadings: prior?.capacityReadings ?? {},
-          loadPerCore: prior?.loadPerCore ?? null,
           ...patch,
         }
         cacheByProfile.set(profileKey, next)
         return next
       }
-      // The threshold the load meter means anything against. Best-effort:
-      // without it the meter falls back to the documented default rather than
-      // disappearing.
-      const loadThreshold = (): void => {
-        void trpc.settings.get
-          .query()
-          .then(
-            (s) => (s.hibernation.enabled ? s.hibernation.loadPerCore : null),
-            () => null,
-          )
-          .then((loadPerCore) => {
-            updateCache({ loadPerCore })
-            if (!cancelled) {
-              setAnswer((current) => ({ ...current, profileKey, loadPerCore }))
-            }
-          })
-      }
-
       const loadHistory = (): void => {
         void trpc.quota.history.query({ days: 42 }).then(
           (history) => {
@@ -262,7 +249,6 @@ export function usePulseFeed(): PulseFeed {
       }
 
       const load = (forceCapacity = false): void => {
-        loadThreshold()
         loadHistory()
         loadBreakdowns(forceCapacity)
       }
@@ -322,7 +308,7 @@ export function usePulseFeed(): PulseFeed {
       hosts: hostMetrics,
       machines,
       capacityReadings: {},
-      loadPerCore: null,
+      loadPerCore,
       nowMs: live.fetchedAt ?? Date.now(),
       historyFailed: false,
       reload,
@@ -332,6 +318,7 @@ export function usePulseFeed(): PulseFeed {
   return {
     ...answer,
     ...live,
+    loadPerCore,
     hosts: hostMetrics,
     machines,
     nowMs: live.fetchedAt ?? Date.now(),

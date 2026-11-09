@@ -278,7 +278,7 @@ export const QUOTA_QUERIES = {
 } as const
 
 export const FEATURE_QUERIES = {
-  /** Experimental feature flags [spec:SP-f4b9] — same auth as settings.get. */
+  /** Experimental feature flags [spec:SP-f4b9] — the CLI's read; the apps resolve flags from welcome and the instance record. */
   state: q(noInput, async (s) =>
     getFeatureStates(await s.modules.settings.getSettings(), loadConfig()),
   ),
@@ -305,19 +305,6 @@ export const SPEC_QUERIES = {
   list: q(specsInputs.list, (s, input) => s.modules.specs.list(input)),
   get: q(specsInputs.get, (s, input) => s.modules.specs.get(input)),
   search: q(specsInputs.search, (s, input) => s.modules.specs.search(input)),
-} as const
-
-/** POD-420 derived the four settings writes. `get` is a READ, and what it
- *  RETURNS changes shape under POD-419 and POD-421 — which is the other reason
- *  it carries no contract. */
-export const SETTINGS_QUERIES = {
-  /**
-   * THE INSTANCE SETTINGS (POD-6673). A caller's personal preferences are their
-   * synced `userPreferences` record, so this read answers the instance tier only:
-   * every personal leaf here is its default, never anybody's choice. POD-6677
-   * makes the instance tier a synced record too.
-   */
-  get: q(noInput, async (s) => await s.modules.settings.getSettings()),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed

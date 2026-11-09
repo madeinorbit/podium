@@ -1,6 +1,11 @@
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { asUserId, resolveUserPreferences } from '@podium/model'
+import {
+  asUserId,
+  INSTANCE_PREFERENCES_ROW_ID,
+  resolveInstancePreferences,
+  resolveUserPreferences,
+} from '@podium/model'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { useRuntimeSelector } from '@/app/store'
@@ -21,8 +26,14 @@ function myPreferencesRow() {
   }
   return { kind: 'userPreferences' as const, id: MY_PREFERENCES_ID, value: value as never }
 }
+/** The instance settings record is in the app's pool once the feed delivered
+ *  it (POD-6677); the stand-in holds its defaults until a test seeds others. */
+function instanceRow() {
+  const value = { ...resolveInstancePreferences(undefined), id: INSTANCE_PREFERENCES_ROW_ID }
+  return { kind: 'instancePreferences' as const, id: INSTANCE_PREFERENCES_ROW_ID, value: value as never }
+}
 function seeded(pool: MobxPool): MobxPool {
-  pool.apply({ type: 'update', rows: [myPreferencesRow()] })
+  pool.apply({ type: 'update', rows: [myPreferencesRow(), instanceRow()] })
   return pool
 }
 function pool() {
@@ -44,8 +55,10 @@ vi.mock('@/app/store-worklist-pool', () => ({
     const shared = pool()
     const sessions = selectFixture((state) => state.sessions)
     useMemo(() => {
-      // Keep my settings row unless a test already changed it in place.
+      // Keep my settings row and the instance's unless a test already changed
+      // them in place.
       const mine = shared.tables.userPreferences?.get(MY_PREFERENCES_ID)
+      const instance = shared.tables.instancePreferences?.get(INSTANCE_PREFERENCES_ROW_ID)
       shared.apply({
         type: 'replace',
         rows: [
@@ -57,6 +70,13 @@ vi.mock('@/app/store-worklist-pool', () => ({
           mine
             ? { kind: 'userPreferences' as const, id: MY_PREFERENCES_ID, value: mine as never }
             : myPreferencesRow(),
+          instance
+            ? {
+                kind: 'instancePreferences' as const,
+                id: INSTANCE_PREFERENCES_ROW_ID,
+                value: instance as never,
+              }
+            : instanceRow(),
         ],
       })
     }, [shared, sessions])

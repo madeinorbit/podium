@@ -698,12 +698,24 @@ it('Bob cannot change instance settings, roles or invites, or run server transfe
   expect(await store(inst).users.pendingInvites()).toEqual([])
 
   // Instance settings, login policy, telemetry and server transfer.
+  // The instance settings are a synced record (POD-6677): a member's edit is
+  // refused by the entry point, as for an unknown record.
+  const instanceEdit = (session: typeof bobSession, mutationId: string) =>
+    (
+      session.trpc as unknown as {
+        sync: { submit: { mutate(input: unknown): Promise<{ outcome: string }> } }
+      }
+    ).sync.submit.mutate({
+      mutationId,
+      command: 'records.instancePreferences.edit',
+      version: 1,
+      input: { id: 'instance', patch: { 'hibernation.memoryPct': 85 } },
+    })
+  expect(await instanceEdit(bobSession, 'bob-instance')).toMatchObject({
+    outcome: 'rejected',
+    refusal: { kind: 'unauthorized' },
+  })
   const refusals: Array<[string, () => Promise<unknown>]> = [
-    [
-      'settings.updateInstance',
-      () =>
-        bobSession.trpc.settings.updateInstance.mutate({ values: { 'hibernation.memoryPct': 85 } }),
-    ],
     [
       'settings.setSecret',
       () =>
@@ -743,7 +755,5 @@ it('Bob cannot change instance settings, roles or invites, or run server transfe
     expect(error?.data?.code, `${name}: ${error?.message}`).toBe('FORBIDDEN')
   }
   // The control arm: Alice's same settings write is applied.
-  await expect(
-    aliceSession.trpc.settings.updateInstance.mutate({ values: { 'hibernation.memoryPct': 85 } }),
-  ).resolves.toBeDefined()
+  expect(await instanceEdit(aliceSession, 'alice-instance')).toMatchObject({ outcome: 'applied' })
 })

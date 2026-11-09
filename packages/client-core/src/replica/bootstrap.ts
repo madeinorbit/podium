@@ -82,6 +82,7 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   workflowBinding: 'workflowBindings',
   workflowRun: 'workflowRuns',
   subscription: 'subscriptions',
+  instancePreferences: 'instancePreferences',
 }
 
 type SnapshotKind = Extract<

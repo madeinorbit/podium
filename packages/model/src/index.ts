@@ -199,6 +199,7 @@ export * from './representations/registry'
 // a missing classification rather than a silent default. `packages/runtime`
 // COMPOSES the blob from these bindings and redeclares none of them.
 export * from './settings/classification'
+export * from './settings/instance-record'
 export * from './settings/path-tiers'
 export * from './settings/preferences'
 export * from './settings/scrub'

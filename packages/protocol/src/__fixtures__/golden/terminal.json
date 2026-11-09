@@ -1321,6 +1321,41 @@
       "encoded": "{\"type\":\"resize\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
     },
     {
+      "schema": "ServerFeatureFactsWire",
+      "variant": "minimal",
+      "wire": {
+        "devMode": true,
+        "developmentBuild": true,
+        "flags": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"devMode\":true,\"developmentBuild\":true,\"flags\":[]}"
+    },
+    {
+      "schema": "ServerFeatureFactsWire",
+      "variant": "full",
+      "wire": {
+        "devMode": true,
+        "developmentBuild": true,
+        "channel": "stable",
+        "flags": [
+          {
+            "id": "flags[0].id",
+            "name": "flags[0].name",
+            "description": "flags[0].description",
+            "visibility": "hidden",
+            "config": true
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"devMode\":true,\"developmentBuild\":true,\"channel\":\"stable\",\"flags\":[{\"id\":\"flags[0].id\",\"name\":\"flags[0].name\",\"description\":\"flags[0].description\",\"visibility\":\"hidden\",\"config\":true}]}"
+    },
+    {
       "schema": "SessionBindingAdoptLaunchInstruction",
       "variant": "minimal",
       "wire": {
@@ -2598,12 +2633,25 @@
         "caps": ["caps[0]"],
         "accountUser": "accountUser",
         "serverBuild": "serverBuild",
-        "serverFeatures": ["serverFeatures[0]"]
+        "serverFeatures": {
+          "devMode": true,
+          "developmentBuild": true,
+          "channel": "stable",
+          "flags": [
+            {
+              "id": "serverFeatures.flags[0].id",
+              "name": "serverFeatures.flags[0].name",
+              "description": "serverFeatures.flags[0].description",
+              "visibility": "hidden",
+              "config": true
+            }
+          ]
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"],\"accountUser\":\"accountUser\",\"serverBuild\":\"serverBuild\",\"serverFeatures\":[\"serverFeatures[0]\"]}"
+      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"],\"accountUser\":\"accountUser\",\"serverBuild\":\"serverBuild\",\"serverFeatures\":{\"devMode\":true,\"developmentBuild\":true,\"channel\":\"stable\",\"flags\":[{\"id\":\"serverFeatures.flags[0].id\",\"name\":\"serverFeatures.flags[0].name\",\"description\":\"serverFeatures.flags[0].description\",\"visibility\":\"hidden\",\"config\":true}]}}"
     }
   ]
 }

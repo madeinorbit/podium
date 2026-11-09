@@ -1,7 +1,6 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
-import { ingestSettings } from '@podium/client-graph/requested-records'
-import { applySettingsPatch } from '@podium/commands/settings-write-plan'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +21,7 @@ type Store = ReferenceState<import('@/app/trpc').Trpc>
  */
 const storeState = {
   trpc: {} as Store['trpc'],
+  setInstancePreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
   settingsTab: 'sessions',
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
@@ -46,7 +46,6 @@ vi.mock('./readers', async (importOriginal) => ({
 }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: (name: string) => name === 'notifications' && notificationsEnabled,
-  invalidateFeatures: vi.fn(),
 }))
 vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () => ({}),
@@ -82,7 +81,6 @@ beforeEach(() => {
   const settings = normalizeSettings({})
   storeState.trpc = {
     settings: {
-      get: { query: vi.fn().mockResolvedValue(settings) },
       viewer: { query: vi.fn().mockResolvedValue({ permitted: {} }) },
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
       set: { mutate: vi.fn().mockResolvedValue({ settings, refusals: [] }) },
@@ -179,28 +177,30 @@ describe('Settings sheet — closing with unsaved edits', () => {
 
   it('shows remote untouched preferences, discards to live and saves only the changed leaf', async () => {
     storeState.settingsTab = 'hibernation'
-    const remote = normalizeSettings({
-      hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false },
+    const remote = { hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false } }
+    // The edit of the instance settings record (POD-6677): the outbox paints it
+    // on the record at once, as this stand-in does.
+    const update = vi.fn(async (values: Record<string, unknown>) => {
+      seedInstancePreferences(useWorklistPool()!, {
+        hibernation: { ...remote.hibernation, memoryPct: values['hibernation.memoryPct'] as number },
+      })
     })
-    const update = vi.fn(async ({ values }: { values: Record<string, unknown> }) =>
-      applySettingsPatch(remote, values),
-    )
-    Object.assign(storeState.trpc.settings, { updateInstance: { mutate: update } })
+    storeState.setInstancePreferences = update
     render(<SettingsView onClose={onClose} />)
     const memory = (await screen.findByDisplayValue('80')) as HTMLInputElement
     fireEvent.change(memory, { target: { value: '85' } })
-    act(() => ingestSettings(useWorklistPool()!, remote))
+    // An admin's change on another device arrives as the synced record.
+    act(() => seedInstancePreferences(useWorklistPool()!, remote))
     expect(await screen.findByDisplayValue('123')).toBeTruthy()
     expect(memory.value).toBe('85')
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(memory.value).toBe('90')
     fireEvent.change(memory, { target: { value: '85' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledExactlyOnceWith({ values: { 'hibernation.memoryPct': 85 } }),
-    )
+    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ 'hibernation.memoryPct': 85 }))
     expect(await screen.findByText('Saved ✓')).toBeTruthy()
   })
+
   it('demands the cap scalar only on Hibernation and never demands fleet metric rows', async () => {
     const view = render(<SettingsView onClose={onClose} />)
     await makeDirty()

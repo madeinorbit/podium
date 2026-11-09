@@ -13,6 +13,7 @@ import { headerRequests } from './header-requests'
 import type { HeaderEntity, HeaderRows } from './header-schema'
 import type { HeaderAggregate } from './header-session'
 import { HeaderSessions } from './header-sessions'
+import { instancePreferences } from './instance-preferences'
 import { here, omitGone } from './lookup'
 import { missions } from './mission'
 import type { IssueModel, MachineModel, SessionModel } from './models'
@@ -179,9 +180,7 @@ function createHeaderViews(pool: MobxPool) {
             | typeof LOADING
             | undefined
           const member =
-            summary &&
-            summary !== LOADING &&
-            ['live', 'starting'].includes(summary.status)
+            summary && summary !== LOADING && ['live', 'starting'].includes(summary.status)
               ? memo(`coldHost:${id}`, () => {
                   const value = omitGone(pool.row('session', id, 'summary')) as
                     | SessionView
@@ -469,8 +468,8 @@ function createHeaderViews(pool: MobxPool) {
       }),
     /** The connection condition (LiveStore). */
     connection: () => pool.live?.connection,
-    /** The host lifecycle settings the header asked for (a request answer). */
-    lifecycle: () => headerRequests(pool)?.lifecycle ?? null,
+    /** The host lifecycle settings: the synced instance settings (POD-6677). */
+    lifecycle: () => instancePreferences(pool)?.lifecycle ?? null,
     working: workingRoster,
     workingIds,
     workingCount,

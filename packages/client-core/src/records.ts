@@ -27,6 +27,7 @@ import type * as Declarations from '@podium/commands/records'
 import type {
   AGENT_PROFILE_RECORD,
   EFFECT_RECORD,
+  INSTANCE_PREFERENCES_RECORD,
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
   PIN_RECORD,
@@ -131,6 +132,8 @@ interface RecordKindTable {
   readonly agentProfile: typeof AGENT_PROFILE_RECORD
   readonly subscription: typeof SUBSCRIPTION_RECORD
   readonly workflowBinding: typeof WORKFLOW_BINDING_RECORD
+  // The instance settings (POD-6677): an admin's edits, leaf by leaf.
+  readonly instancePreferences: typeof INSTANCE_PREFERENCES_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -158,6 +161,7 @@ export function recordKinds(): RecordKindTable {
     agentProfile: d.AGENT_PROFILE_RECORD,
     subscription: d.SUBSCRIPTION_RECORD,
     workflowBinding: d.WORKFLOW_BINDING_RECORD,
+    instancePreferences: d.INSTANCE_PREFERENCES_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -293,6 +297,7 @@ export const RECORD_HOMES: {
       | 'effects'
       | 'superagentThreads'
       | 'subscriptions'
+      | 'instancePreferences'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -321,6 +326,8 @@ export const RECORD_HOMES: {
   subscription: { target: 'subscriptions', row: (id) => id },
   agentProfile: null,
   workflowBinding: null,
+  // POD-6677: the one instance settings record, keyed by its feed id.
+  instancePreferences: { target: 'instancePreferences', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

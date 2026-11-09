@@ -241,10 +241,10 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
   it('a SYSTEM write is attributed as system and is given NO human (ADR 9 D8 S5)', async () => {
     const p = port()
     await recordSettingsCommand(p, {
-      command: 'settings.updateInstance',
+      command: 'records.instancePreferences.edit',
       outcome: 'applied',
       principal: systemPrincipal('boot-reconcile'),
-      input: { values: {} },
+      input: { id: 'instance', patch: {} },
     })
     const row = p.rows[0]
     expect(row?.actorKind).toBe('system')

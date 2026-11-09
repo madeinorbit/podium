@@ -156,39 +156,8 @@ describe('the sync families on the entry point', () => {
     expect(await rowsOf(o, 'mut_conv_missing')).toEqual([])
   })
 
-  it('settings.updateInstance applies once; a value the schema refuses is invalid', async () => {
-    const o = await makeOracle()
-    await expectAppliedOnPath(
-      o,
-      envelope('settings.updateInstance', { values: { 'hibernation.memoryPct': 80 } }, 'mut_inst'),
-      { writes: false },
-    )
-
-    const reply = await submit(
-      o,
-      envelope(
-        'settings.updateInstance',
-        { values: { 'hibernation.memoryPct': 'not-a-number' } },
-        'mut_inst_bad',
-      ),
-    )
-    expect(reply.outcome).toBe('rejected')
-    if (reply.outcome === 'rejected') expect(reply.refusal.kind).toBe('invalid')
-  })
-
-  it('settings.updateInstance refuses a member: the admin floor', async () => {
-    const o = await makeOracle()
-    const user = await member(o)
-    const reply = await submitAs(
-      o,
-      userCommandPrincipal(user, 'member'),
-      'settings.updateInstance',
-      {
-        values: { 'hibernation.memoryPct': 70 },
-      },
-    )
-    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
-  })
+  // The instance settings are a synced record now (POD-6677): its edit is
+  // `records.instancePreferences.edit` (`settings/instance-record.test.ts`).
 })
 
 describe('the old routes of the sync families', () => {
@@ -202,15 +171,7 @@ describe('the old routes of the sync families', () => {
     }
   })
 
-  it('the routes shipped clients still call are served, as mutations', () => {
-    const verbOf = (proc: unknown) => (proc as { _def?: { type?: string } } | undefined)?._def?.type
-    expect(verbOf(routerRecord('settings').updateInstance)).toBe('mutation')
-  })
-
-  it('each kept route is a thin adapter onto the entry point', async () => {
-    const o = await makeOracle()
-    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
-    await o.call.settings.updateInstance({ values: { 'hibernation.memoryPct': 75 } })
-    expect(entry.mock.calls.map(([env]) => env.command)).toEqual(['settings.updateInstance'])
+  it('settings.updateInstance has no route: the instance settings are a synced record (POD-6677)', () => {
+    expect(routerRecord('settings').updateInstance).toBeUndefined()
   })
 })

@@ -22,6 +22,7 @@ import type {
   AccountQuotaPayload,
   AccountUsagePayload,
   MachineConditionPayload,
+  ServerFeatureFacts,
 } from '@podium/protocol'
 import { action, observable, observableRef, runInAction } from 'mobx'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -60,8 +61,10 @@ export interface ConnectionCondition {
   readonly skewMs?: number
   /** The server's build, from the newest `welcome`. */
   readonly serverBuild?: string
-  /** The features the server build offers, from the newest `welcome`. */
-  readonly serverFeatures?: readonly string[]
+  /** What the server's build and config say about its feature flags, from the
+   *  newest `welcome` (POD-6677); joined with the instance's experimental
+   *  toggles by `resolveFeatureStates`. */
+  readonly serverFeatures?: ServerFeatureFacts
 }
 
 /** This device's unsent writes, as the outbox service last counted them. */

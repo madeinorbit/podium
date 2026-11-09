@@ -1,8 +1,12 @@
+import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
-import { ingestSettings } from '@podium/client-graph/requested-records'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
-import { type ServerSecretKey, SETTINGS_PATH_TIERS } from '@podium/model/browser'
+import {
+  INSTANCE_PREFERENCES_ROW_ID,
+  SETTINGS_PATH_TIERS,
+  type ServerSecretKey,
+} from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
@@ -16,11 +20,11 @@ import { WaitingForServer } from '@/components/WaitingForServer'
 import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
-import { invalidateFeatures, useFeature } from '@/lib/use-feature'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useAdminSections } from './admin-viewer'
 import { useSettingsTab } from './readers'
-import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
+import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AppearanceSection } from './sections/appearance'
@@ -331,7 +335,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   onClose: () => void
   settingsTab: ReturnType<typeof useSettingsTab>
 }): JSX.Element {
-  const { trpc, setSettingsTab, setPreferences } = useSettingsClient()
+  const { trpc, setSettingsTab, setPreferences, setInstancePreferences } = useSettingsClient()
   const notificationsEnabled = useFeature('notifications')
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
@@ -342,32 +346,32 @@ const SettingsViewBody = observer(function SettingsViewBody({
     .flatMap((g) => g.tabs)
     .filter((tab) => tab.key !== 'notifications' || notificationsEnabled)
   const pool = useWorklistPool()
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
-  const instanceRecord = settingsRequest?.model
-  // My personal groups are my synced `userPreferences` record (POD-6673);
-  // `settings.get` answers the instance tier only. The draft reads each group
-  // from its home, live.
+  // Both preference tiers are synced records: my `userPreferences` (POD-6673)
+  // and the instance's `instancePreferences` (POD-6677). The draft reads each
+  // group from its home, live; an admin's change on another device moves it.
+  const instanceReady = pool ? instancePreferences(pool) !== undefined : false
   const myPreferencesId = pool ? myPreferences(pool)?.id : undefined
   const record = useMemo(
     () =>
-      instanceRecord && pool && myPreferencesId !== undefined
-        ? composedSettings(instanceRecord, () => here(pool.row('userPreferences', myPreferencesId)))
+      instanceReady && pool && myPreferencesId !== undefined
+        ? composedSettings(
+            () => here(pool.row('instancePreferences', INSTANCE_PREFERENCES_ROW_ID)),
+            () => here(pool.row('userPreferences', myPreferencesId)),
+          )
         : undefined,
-    [instanceRecord, pool, myPreferencesId],
+    [instanceReady, pool, myPreferencesId],
   )
   const edits = useMemo(
     () =>
       record
         ? new SettingsEditDraft(record, async (previous, next) => {
-            const result = await saveSettingsAsCommands(trpc, previous, next, {
+            return await saveSettingsAsCommands(trpc, previous, next, {
               personal: setPreferences,
+              instance: setInstancePreferences,
             })
-            if (pool) ingestSettings(pool, result.saved)
-            return result
           })
         : null,
-    [record, trpc, pool, setPreferences],
+    [record, trpc, setPreferences, setInstancePreferences],
   )
   const settings = edits?.settings ?? null
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
@@ -477,7 +481,8 @@ const SettingsViewBody = observer(function SettingsViewBody({
         })
         if (cancelled) return
         if (result.status === 'connected') {
-          if (pool) ingestSettings(pool, result.settings)
+          // The chat binding is my `userPreferences` record, published by the
+          // server's own write: it reaches the draft on its own.
           setSavedAt(Date.now())
           setTelegramSetup({
             status: 'connected',
@@ -513,7 +518,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
       cancelled = true
       window.clearInterval(id)
     }
-  }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc, pool])
+  }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
 
   /**
    * A SECRET WRITE IS ITS OWN COMMAND, issued here and NOT through the save bar.
@@ -614,9 +619,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
       if (!result) return
       const { refusals } = result
       setRefusals(refusals)
-      // Refresh feature gates so useFeature sees the saved experimental toggles
-      // [spec:SP-f4b9].
-      invalidateFeatures(trpc)
       // No "Saved ✓" flash over a refusal: something was not saved, and the bar
       // must say so rather than showing both messages in sequence.
       if (refusals.length === 0) setSavedAt(Date.now())
@@ -748,8 +750,8 @@ const SettingsViewBody = observer(function SettingsViewBody({
       // to "close", however it was asked for.
       onClose={requestClose}
       toolbar={
-        (error || settingsRequest?.error) && !settings ? (
-          <span className="text-[12px] text-destructive">{error || settingsRequest?.error}</span>
+        error && !settings ? (
+          <span className="text-[12px] text-destructive">{error}</span>
         ) : undefined
       }
     >
@@ -961,20 +963,33 @@ const SettingsViewBody = observer(function SettingsViewBody({
 /** The personal groups: my `userPreferences` record (POD-6673). */
 const PERSONAL_GROUPS = new Set(['roles', 'sidebar', 'autoContinue', 'notifications'])
 
+/** The instance groups: the `instancePreferences` record (POD-6677). */
+const INSTANCE_GROUPS = new Set(
+  SETTINGS_PATH_TIERS.filter((field) => field.tier === 'instance-preference').map(
+    (field) => field.path.split('.')[0]!,
+  ),
+)
+
 /** The settings the screen edits: every group read live from its home, the
- *  personal ones from my synced record and the rest from the instance answer. */
+ *  personal ones from my synced record and the instance ones from the
+ *  instance's. A secret-only group (`apiKeys`, `integrations`) is never on
+ *  either record: it reads as the blank default, and the secret surface shows
+ *  only whether a secret is set. */
 function composedSettings(
-  instance: PodiumSettings,
+  instance: () => Readonly<Record<string, unknown>> | undefined,
   mine: () => Readonly<Record<string, unknown>> | undefined,
 ): PodiumSettings {
   const out: Record<string, unknown> = {}
+  const blank = DEFAULT_SETTINGS as unknown as Record<string, unknown>
   for (const key of new Set(SETTINGS_PATH_TIERS.map((field) => field.path.split('.')[0]!))) {
     Object.defineProperty(out, key, {
       enumerable: true,
       get: () =>
         PERSONAL_GROUPS.has(key)
           ? mine()?.[key]
-          : (instance as unknown as Record<string, unknown>)[key],
+          : INSTANCE_GROUPS.has(key)
+            ? instance()?.[key]
+            : blank[key],
     })
   }
   return out as PodiumSettings

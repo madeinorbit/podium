@@ -20,7 +20,6 @@ import {
 import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSessionTitle, SESSION_TITLE_COMMAND } from '../sessions/title-sync-write'
-import { registerSettingsWrite } from '../settings/sync-write'
 import { registerShellCommands, SHELL_SYNC_COMMANDS } from '../shells/sync-write'
 import { SUPERAGENT_SYNC_FAMILY } from '../superagent/sync-write'
 import { WORKFLOW_SYNC_FAMILY } from '../workflows/sync-write'
@@ -34,7 +33,6 @@ export const FAMILY_COMMAND_NAMES = [
   'automations.setEnabled',
   'automations.remove',
   'conversations.setMeta',
-  'settings.updateInstance',
   // The session command plane's immediate writes (POD-6416).
   'sessions.setIssueId',
   'sessions.continue',
@@ -83,12 +81,6 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerSyncFamily(registry, SUPERAGENT_SYNC_FAMILY, deps)
   registerSyncFamily(registry, MAIL_SYNC_FAMILY, deps)
   registerMailAwaitObserved(registry, deps)
-  // The settings family keeps its own registration: its gate and its trail.
-  registerSettingsWrite(
-    registry,
-    { settings: () => deps.modules().settings, roleOf: deps.roleOf },
-    'settings.updateInstance',
-  )
   registerSessionFamilyCommands(registry, deps)
   registerOfferCommands(registry, deps)
   registerSessionTitle(registry, deps)

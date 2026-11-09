@@ -23,6 +23,8 @@ import {
   EffectDecision,
   EffectIdField,
   EffectRecordWire,
+  INSTANCE_PREFERENCE_LEAVES,
+  InstancePreferencesWire,
   IssueIdField,
   IssueProjection,
   IssueType,
@@ -33,6 +35,7 @@ import {
   MAX_AGENT_PROFILE_INSTRUCTIONS,
   NewIssueId,
   PinWire,
+  parseInstancePreferencesRowId,
   parseLayoutRowId,
   parsePinRowId,
   parseReadPositionRowId,
@@ -1031,6 +1034,77 @@ export const WORKFLOW_BINDING_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// instancePreferences (POD-6677, design POD-5620 §1.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * An ADMIN writes the instance's settings: one answer for everybody on the
+ * instance, so the floor is admin, as the matrix row's writers (`operator`) say.
+ * The adapter reads the account's role live, so a demoted admin's queued edit is
+ * refused at apply.
+ */
+const INSTANCE_PREFERENCES_EDIT: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'admin',
+  resource: 'settings-domain',
+  confirmation: 'none',
+  rationale:
+    'One answer for the whole deployment, so the floor is ADMIN (matrix row preferences-instance: ' +
+    'writers `operator`, "Write is admin-grade"). No confirmation: every leaf is a toggle or a ' +
+    'number, reversible by writing it again; the admin floor answers the instance-wide blast radius.',
+}
+
+/** One instance preference leaf as a field: a plain field, its own leaf. */
+const instanceLeafFields: Record<string, RecordField> = Object.fromEntries(
+  [...INSTANCE_PREFERENCE_LEAVES].map(([path, schema]) => [
+    path,
+    spec(schema, ROW.preferencesInstance),
+  ]),
+)
+
+/**
+ * THE INSTANCE PREFERENCES (design 1.5): one record for the whole instance whose
+ * fields are the `instance-preference` tier's leaf paths. Field-level
+ * last-writer-wins per leaf, the rule matrix row `preferences-instance` keeps for
+ * this tier: two admins changing different settings never overwrite each other.
+ * A cleared leaf (`unset`) resets it to the default; reset is a write, never a
+ * delete. Every member reads it (`deployment-substrate`); server secrets are not
+ * leaves of it.
+ */
+export const INSTANCE_PREFERENCES_RECORD = defineSyncedKind({
+  kind: 'instancePreferences',
+  title: 'instance settings',
+  wire: InstancePreferencesWire,
+  ref: rowRef(parseInstancePreferencesRowId, 'the instance preferences row id'),
+  conflict: 'field-LWW',
+  fields: instanceLeafFields,
+  ops: {
+    edit: {
+      policy: INSTANCE_PREFERENCES_EDIT,
+      note: 'Change or reset the instance settings, leaf by leaf (admins only).',
+    },
+  },
+  visibility: 'deployment-substrate',
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'Instance preferences only: the classification keeps every server secret out of this tier ' +
+      '(matrix row preferences-instance, `secret: preference`); `experimental` is a preference.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'A member who is not an admin is refused as for an unknown record: there is one record.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -1047,6 +1121,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   AGENT_PROFILE_RECORD,
   SUBSCRIPTION_RECORD,
   WORKFLOW_BINDING_RECORD,
+  INSTANCE_PREFERENCES_RECORD,
 ]
 
 /**

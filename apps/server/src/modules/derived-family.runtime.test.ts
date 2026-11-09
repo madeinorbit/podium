@@ -172,9 +172,10 @@ describe('the derived families, against the RUNNING appRouter', () => {
   it('can read a verb and a router record at all', () => {
     const settings = routerRecord('settings')
     expect(Object.keys(settings).length).toBeGreaterThan(0)
-    // `settings.get` is a query and `settings.set` a mutation — a pair the reader
-    // must be able to TELL APART, so this fails if `verbOf` returns a constant.
-    expect(verbOf(settings.get)).toBe('query')
-    expect(verbOf(settings.updateInstance)).toBe('mutation')
+    // `settings.viewer` is a query and `settings.setSecret` a mutation — a pair
+    // the reader must be able to TELL APART, so this fails if `verbOf` returns a
+    // constant.
+    expect(verbOf(settings.viewer)).toBe('query')
+    expect(verbOf(settings.setSecret)).toBe('mutation')
   })
 })

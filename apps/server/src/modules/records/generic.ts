@@ -92,6 +92,18 @@ export interface RecordAdapter {
     unset: readonly string[],
   ): Promise<unknown>
   remove?(ctx: SyncWriteContext, id: string, expectedRevision: number | undefined): Promise<unknown>
+  /**
+   * An edit whose unit of work rolled back (the adapter refused it, or the
+   * write failed), run OUTSIDE that unit: for a kind that keeps a trail of
+   * refusals (the instance settings, POD-6677), which a row written inside the
+   * unit would lose with it.
+   */
+  editRolledBack?(
+    ctx: SyncTargetContext,
+    id: string,
+    edited: { readonly patch: Fields; readonly unset: readonly string[] },
+    error: unknown,
+  ): Promise<void>
 }
 
 interface EditInput {
@@ -184,6 +196,14 @@ export function registerRecordKind(
         if (needsRead) await arbitrate(id, expected, editNeedsRevision(d, namedFields(edited)))
         return replyOf(await edit(ctx, id, patch, expected, unset))
       },
+      ...(adapter.editRolledBack !== undefined
+        ? {
+            rolledBack: async (ctx: SyncTargetContext, input: unknown, error: unknown) => {
+              const { id, patch, unset = [] } = input as EditInput
+              await adapter.editRolledBack?.(ctx, id, { patch, unset }, error)
+            },
+          }
+        : {}),
     })
   }
 

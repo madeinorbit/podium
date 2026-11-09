@@ -477,10 +477,23 @@ describe('the connection lifecycle', () => {
     expect(h.ports.sessions.onClientDetached).toHaveBeenCalledTimes(1)
   })
 
-  it('names its build in welcome and its clock in pong (POD-5798)', async () => {
+  it('names its build and feature facts in welcome and its clock in pong (POD-5798)', async () => {
+    const facts = {
+      devMode: false,
+      developmentBuild: false,
+      flags: [
+        {
+          id: 'git-panel',
+          name: 'Git panel',
+          description: 'd',
+          visibility: 'edge' as const,
+          config: true,
+        },
+      ],
+    }
     const h = await harness(undefined, {
       serverBuild: () => '0.1.0+build.7',
-      serverFeatures: () => ['issue-board'],
+      serverFeatures: () => facts,
       now: () => 1_234,
     })
     await h.mux.routeClientFrame(h.id, {
@@ -492,7 +505,7 @@ describe('the connection lifecycle', () => {
     })
     expect(h.sent.findLast((msg) => msg.type === 'welcome')).toMatchObject({
       serverBuild: '0.1.0+build.7',
-      serverFeatures: ['issue-board'],
+      serverFeatures: facts,
     })
     h.mux.routeClientFrame(h.id, { type: 'ping' })
     expect(h.sent.at(-1)).toEqual({ type: 'pong', serverTime: 1_234 })

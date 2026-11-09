@@ -7,7 +7,7 @@ interface SettingsClient extends Pick<Store,
   'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'startIssueSession' |
   'setSelectedIssueId' |
   'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId' |
-  'setPreferences'> {
+  'setPreferences' | 'setInstancePreferences'> {
   readonly owner: { readonly access: Store }
 }
 
@@ -34,6 +34,7 @@ export function useSettingsClient(): SettingsClient {
     setView: state.setView,
     setOpenIssueId: state.setOpenIssueId,
     setPreferences: state.setPreferences,
+    setInstancePreferences: state.setInstancePreferences,
   }
 }
 

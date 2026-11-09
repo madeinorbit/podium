@@ -153,19 +153,8 @@ describe('the derived settings router WRITES the trail', () => {
     expect((rows[0]?.detail as { error: string }).error).toContain('admin')
   })
 
-  it('records a handler-thrown refusal, not only a gate refusal', async () => {
-    // `normalizeSettings` refuses a value the model's schema rejects, INSIDE the
-    // handler. A trail wired only to the gate would miss every validation
-    // refusal — which is most of them.
-    const { call, audit } = await harness('admin')
-    await call.settings
-      .updateInstance({ values: { 'hibernation.memoryPct': 'not-a-number' } })
-      .catch(() => {})
-    const rows = (await audit()).filter((r) => r.command === 'settings.updateInstance')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.outcome).toBe('refused')
-    expect(rows[0]?.detail).toHaveProperty('error')
-  })
+  // A handler refusal of an instance settings edit is trailed by the record's
+  // own registration (POD-6677): `instance-record.test.ts`.
 
   it('a handler refusal now carries the CAUSE the wrapper used to hide', async () => {
     // POD-3824, and the non-vacuity control for the redaction test below: a

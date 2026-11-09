@@ -10,6 +10,7 @@ import type { HeaderRows } from './header-schema'
 import { HeaderSessions } from './header-sessions'
 import { attachHeaderSource } from './header-source'
 import { headerView } from './header-views'
+import { seedInstancePreferences } from './instance-preferences-fixture'
 import { MobxPool } from './pool'
 
 it('reads only changed header keys between 1x/4x and preserves removal and rescope', async () => {
@@ -200,9 +201,6 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
 })
 
 function requestsFixture() {
-  const lifecycle = vi.fn(
-    async () => ({ hibernation: { enabled: false }, worktreeGc: {} }) as never,
-  )
   const reading: AgentConcurrencyHistoryResult = {
     sampledAt: '2026-10-05T00:00:00Z',
     buckets: Array.from({ length: 24 }, () => ({ start: '2026-10-05T00:00:00Z', count: 0 })),
@@ -219,7 +217,6 @@ function requestsFixture() {
     replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
     access: {
       trpc: {
-        settings: { get: { query: lifecycle } },
         sessions: { concurrencyHistory: { query: history } },
       },
     },
@@ -228,7 +225,6 @@ function requestsFixture() {
   return {
     pool,
     history,
-    lifecycle,
     reading,
     runtime,
     start: () => {
@@ -279,8 +275,9 @@ it('releases header sessions with the attached history source when the last head
   }
 })
 
-/** POD-5798: quota is pushed; only the history and the lifecycle settings are requests. */
-it('asks for history on retain, on a working-count change and every 5 minutes; lifecycle once', async () => {
+/** POD-5798: quota is pushed; only the history is a request. The lifecycle
+ *  settings are the synced instance settings record (POD-6677). */
+it('asks for history on retain, on a working-count change and every 5 minutes; lifecycle is the record', async () => {
   vi.useFakeTimers()
   const f = requestsFixture()
   const stamp = new Date(0).toISOString()
@@ -297,12 +294,12 @@ it('asks for history on retain, on a working-count change and every 5 minutes; l
   try {
     await vi.advanceTimersByTimeAsync(0)
     expect(f.history).toHaveBeenCalledTimes(1)
-    expect(f.lifecycle).toHaveBeenCalledTimes(1)
     expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
-    expect(headerView(f.pool).lifecycle()).toEqual({
-      hibernation: { enabled: false },
-      worktreeGc: {},
-    })
+    // No record yet: no lifecycle. The record's arrival is the answer.
+    expect(headerView(f.pool).lifecycle()).toBeNull()
+    seedInstancePreferences(f.pool, { hibernation: { enabled: false } })
+    expect(headerView(f.pool).lifecycle()?.hibernation.enabled).toBe(false)
+    expect(headerView(f.pool).lifecycle()?.worktreeGc).toEqual({ mode: 'propose', afterDays: 14 })
     f.pool.apply({
       type: 'update',
       rows: [
@@ -320,8 +317,6 @@ it('asks for history on retain, on a working-count change and every 5 minutes; l
     expect(f.history).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(5 * 60_000)
     expect(f.history.mock.calls.length).toBeGreaterThanOrEqual(3)
-    // Settings were answered: never asked again.
-    expect(f.lifecycle).toHaveBeenCalledTimes(1)
   } finally {
     stop()
     f.pool.dispose()
@@ -332,23 +327,16 @@ it('keeps the last good history through a failure and asks nothing after release
   vi.useFakeTimers()
   const f = requestsFixture()
   f.history.mockResolvedValueOnce(f.reading).mockRejectedValueOnce(new Error('history unavailable'))
-  f.lifecycle.mockRejectedValueOnce(new Error('settings unavailable'))
   const stop = f.start()
   try {
     await vi.advanceTimersByTimeAsync(0)
     expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
-    expect(headerView(f.pool).lifecycle()).toBeNull()
     await vi.advanceTimersByTimeAsync(5 * 60_000)
     expect(headerView(f.pool).history()?.bucketMs).toBe(60_000)
     stop()
     const asked = f.history.mock.calls.length
     await vi.advanceTimersByTimeAsync(20 * 60_000)
     expect(f.history).toHaveBeenCalledTimes(asked)
-    // A failed settings request is asked again on the next retain.
-    const again = headerRequests(f.pool)!.retain()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(f.lifecycle).toHaveBeenCalledTimes(2)
-    again()
   } finally {
     stop()
     f.pool.dispose()

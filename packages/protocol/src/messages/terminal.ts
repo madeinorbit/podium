@@ -286,6 +286,23 @@ export const DraftTargetMessage = z.object({
 export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 
 // ---- Server -> browser client: terminal control frames ----
+/** One flag a server build defines (`ServerFeatureFlag`). */
+const ServerFeatureFlagWire = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().max(200),
+  description: z.string().max(2000),
+  visibility: z.enum(['hidden', 'development', 'edge', 'stable']),
+  config: z.boolean().optional(),
+})
+
+/** A server's feature facts (`ServerFeatureFacts`, `features.ts`). */
+export const ServerFeatureFactsWire = z.object({
+  devMode: z.boolean(),
+  developmentBuild: z.boolean(),
+  channel: z.enum(['stable', 'edge', 'dev']).optional(),
+  flags: z.array(ServerFeatureFlagWire).max(500),
+})
+
 export const WelcomeMessage = z.object({
   type: z.literal('welcome'),
   wireVersion: z.number().int().positive().optional(),
@@ -305,11 +322,15 @@ export const WelcomeMessage = z.object({
    */
   serverBuild: z.string().min(1).max(200).optional(),
   /**
-   * The feature ids this server build offers (POD-5798; detailed design 1.6),
-   * on every connect. Changes only when the server is upgraded or its config
-   * changes. Absent from older servers.
+   * What this server's build and config say about its feature flags (POD-5798,
+   * POD-6677; detailed design 1.6), on every connect: whether it is a source or
+   * development build, the update channel its environment or config.json
+   * forces, and each flag it defines with its config override. Changes only
+   * when the server is upgraded or reconfigured. The app joins these with the
+   * instance's experimental toggles (`resolveFeatureStates`). Absent from older
+   * servers.
    */
-  serverFeatures: z.array(z.string().min(1).max(100)).max(500).optional(),
+  serverFeatures: ServerFeatureFactsWire.optional(),
 })
 export const AttachedMessage = z.object({
   type: z.literal('attached'),

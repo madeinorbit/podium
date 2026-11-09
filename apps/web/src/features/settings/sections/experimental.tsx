@@ -10,10 +10,10 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { type FeaturesStateSnapshot, useFeaturesState } from '@/lib/use-feature'
+import { type FeatureStates, useFeaturesState } from '@/lib/use-feature'
 import { Section, Subsection } from './shared'
 
-type FeatureFlagWire = FeaturesStateSnapshot['flags'][number]
+type FeatureFlagWire = FeatureStates['flags'][number]
 
 /** Listed only because of dev mode (invisible on this channel in release builds). */
 function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boolean {
@@ -34,8 +34,9 @@ export const ExperimentalSection = observer(function ExperimentalSection({
   onReset: () => void
 }): JSX.Element {
   const [confirmingReset, setConfirmingReset] = useState(false)
-  // Shared module cache (same as useFeature) — one features.state fetch per app load;
-  // re-fetched after settings Save via invalidateFeatures [spec:SP-f4b9].
+  // The instance settings record's flags (same as useFeature): the server's
+  // facts joined with the SAVED toggles [spec:SP-f4b9]. A switch below edits
+  // the draft; the flag moves once Save writes the record.
   const state = useFeaturesState()
   const listed = state?.flags.filter((f) => f.listed) ?? []
   const channel = state?.channel ?? 'stable'

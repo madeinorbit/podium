@@ -14,6 +14,7 @@ import type { SessionStore } from '../../store'
 import { registerAgentProfileRecord } from '../agent-profiles/records'
 import { registerSubscriptionRecord } from '../issues/subscription-record'
 import { sessionStatePrincipalFor } from '../sessions/session-state/registry'
+import { registerInstancePreferencesRecord } from '../settings/instance-record'
 import { registerSuperagentThreadRecords } from '../superagent/thread-records'
 import type { SyncWriteRegistry } from '../sync-write/registry'
 import { registerUserRecords } from '../user-records/records'
@@ -76,5 +77,10 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
   registerWorkflowBindingRecord(registry, {
     modules: deps.modules,
     roleOf: async (user) => await deps.store().users.roleOf(asUserId(user)),
+  })
+  // The instance settings (POD-6677): an admin's edits, leaf by leaf.
+  registerInstancePreferencesRecord(registry, {
+    settings: () => deps.modules().settings,
+    roleOf: async (user) => await deps.store().users.roleOf(user),
   })
 }

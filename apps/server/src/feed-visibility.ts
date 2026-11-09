@@ -331,6 +331,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // Agent profiles are instance substrate (POD-6676, matrix row
         // `agent-profiles`): every member reads every profile.
         if (entity === 'agentProfile') return 'deployment-substrate'
+        // The instance settings (POD-6677): matrix row preferences-instance, every
+        // member of the instance reads them. Secrets are never on this record.
+        if (entity === 'instancePreferences') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'

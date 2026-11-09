@@ -206,3 +206,114 @@ export function resolveFeatureState(
     locked: false,
   }
 }
+
+// ---------------------------------------------------------------------------
+// What a server says about its flags, and what the app resolves from it
+// (POD-6677; design POD-5620 §1.6)
+// ---------------------------------------------------------------------------
+
+/** One flag as the connected server's build defines it, with its config.json
+ *  override when the server's config sets one. */
+export interface ServerFeatureFlag extends FeatureDefinition {
+  /** config.json `features[id]`: forces the flag on or off and locks its toggle. */
+  readonly config?: boolean
+}
+
+/**
+ * THE SERVER'S OWN FEATURE FACTS, on every connect in `welcome`. They describe
+ * the server build and its config, and change only when the server is upgraded
+ * or reconfigured; the operator's experimental toggles and the stored update
+ * channel are instance preferences and reach the app as the synced
+ * `instancePreferences` record. {@link resolveFeatureStates} joins the two.
+ */
+export interface ServerFeatureFacts {
+  /** A source build (no packaged version): every flag is listed. */
+  readonly devMode: boolean
+  /** A development-channel build: `development` flags are listed once the
+   *  instance turns `podium-development` on. */
+  readonly developmentBuild: boolean
+  /** The update channel the environment or config.json forces, above the
+   *  instance preference; absent when neither does. */
+  readonly channel?: 'stable' | 'edge' | 'dev'
+  /** The flags this build defines, in its registry order. */
+  readonly flags: readonly ServerFeatureFlag[]
+}
+
+/** One flag resolved: its definition and its state. */
+export interface FeatureStateWire extends FeatureState {
+  id: string
+  name: string
+  description: string
+  visibility: FeatureVisibility
+}
+
+/** Every flag resolved for one install: what Settings → Experimental shows. */
+export interface FeatureStates {
+  devMode: boolean
+  channel: 'stable' | 'edge'
+  flags: FeatureStateWire[]
+}
+
+/** The instance preferences the resolution reads. */
+export interface FeatureInstanceInput {
+  /** `experimental`: the operator's toggles. */
+  readonly experimental?: Readonly<Record<string, boolean>>
+  /** `deployment.updateChannel`: the stored channel, below env and config.json. */
+  readonly updateChannel?: 'stable' | 'edge' | 'dev'
+}
+
+/**
+ * Resolve every flag from the server's facts and the instance's preferences.
+ * The server's own gate (`getFeatureStates`) and every app resolve through this
+ * one function, so the app and the server never disagree about a flag.
+ */
+export function resolveFeatureStates(
+  facts: ServerFeatureFacts,
+  instance: FeatureInstanceInput,
+): FeatureStates {
+  const { devMode } = facts
+  // Release-channel visibility has two tiers, so the `dev` fleet channel
+  // (POD-1882) folds into `edge`: it is strictly more permissive than edge.
+  const fleetChannel = facts.channel ?? instance.updateChannel ?? 'stable'
+  const channel: 'stable' | 'edge' = fleetChannel === 'stable' ? 'stable' : 'edge'
+  const user = instance.experimental ?? {}
+  const development = facts.flags.find((flag) => flag.id === 'podium-development')
+  const developmentAudience =
+    facts.developmentBuild &&
+    development !== undefined &&
+    resolveFeatureState(development, {
+      configValue: development.config,
+      userValue: user['podium-development'],
+      channel,
+      devMode,
+    }).enabled
+  const flags = facts.flags.map((def): FeatureStateWire => {
+    const state = resolveFeatureState(def, {
+      configValue: def.config,
+      userValue: user[def.id],
+      channel,
+      devMode,
+      developmentAudience,
+    })
+    return {
+      id: def.id,
+      name: def.name,
+      description: def.description,
+      visibility: def.visibility,
+      ...state,
+    }
+  })
+  return { devMode, channel, flags }
+}
+
+/**
+ * THE FACTS AN APP USES BEFORE ITS FIRST `welcome` (started offline): this
+ * app's own registry, every flag listed and none locked, so each flag follows
+ * the operator's saved toggle. Nothing the server's config forces is known
+ * until it answers.
+ */
+export const OFFLINE_FEATURE_FACTS: ServerFeatureFacts = {
+  devMode: true,
+  developmentBuild: false,
+  flags: FEATURES,
+}

@@ -528,7 +528,7 @@ export class SettingsService {
   // -------------------------------------------------------------------------
 
   /**
-   * `settings.updatePersonal` / `settings.updateInstance` — a path-addressed
+   * `records.userPreferences.edit` / `records.instancePreferences.edit` — a path-addressed
    * preference patch.
    *
    * ONE METHOD FOR BOTH TIERS, and the tier gate is deliberately NOT here: it is
@@ -581,20 +581,24 @@ export class SettingsService {
     const previous = await this.store.getSettingsFor(actor)
     const patch = decodeSettingsPreferencePatch(values)
     const at = new Date(this.now()).toISOString()
-    const personal = Object.keys(patch).some(
-      (path) => classifySettingsPath(path)?.tier === 'personal-preference',
-    )
+    const tiers = new Set(Object.keys(patch).map((path) => classifySettingsPath(path)?.tier))
+    const personal = tiers.has('personal-preference')
     // A personal leaf is a field of the person's `userPreferences` record: the
-    // rows and the record's change entry commit together (POD-6673).
+    // rows and the record's change entry commit together (POD-6673). An
+    // instance leaf is a field of the `instancePreferences` record, whose change
+    // the blob write's own feed capture appends inside this same unit (POD-6677).
     const next =
-      personal && writer !== undefined
+      (personal || tiers.has('instance-preference')) && writer !== undefined
         ? (
             await writer.commit({
               write: async () => {
                 const resolved = await this.store.applyPreferencePatch(actor, patch, at)
-                return { resolved, record: await this.store.preferenceRecordFor(actor) }
+                return {
+                  resolved,
+                  record: personal ? await this.store.preferenceRecordFor(actor) : undefined,
+                }
               },
-              changes: ({ record }) => [userPreferencesChange(record)],
+              changes: ({ record }) => (record ? [userPreferencesChange(record)] : []),
             })
           ).result.resolved
         : await this.store.applyPreferencePatch(actor, patch, at)

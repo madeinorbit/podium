@@ -19,7 +19,9 @@ function fakeTrpc() {
   // My personal leaves are an edit of my `userPreferences` record (POD-6673),
   // handed to the save as its `personal` writer.
   const updatePersonal = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
-  const updateInstance = vi.fn(async () => normalizeSettings({}))
+  // The instance leaves are an edit of the `instancePreferences` record
+  // (POD-6677), handed to the save as its `instance` writer.
+  const updateInstance = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
   const setSecret = vi.fn(async () => ({
     key: 'apiKeys.openai',
     present: true,
@@ -34,28 +36,34 @@ function fakeTrpc() {
   }))
   const trpc = {
     settings: {
-      updateInstance: { mutate: updateInstance },
       setSecret: { mutate: setSecret },
       clearSecret: { mutate: clearSecret },
     },
   } as unknown as Trpc
   PERSONAL.set(trpc, async (values) => await updatePersonal({ values: { ...values } }))
+  INSTANCE.set(trpc, async (values) => await updateInstance({ values: { ...values } }))
   return { trpc, updatePersonal, updateInstance, setSecret, clearSecret }
 }
 
 const PERSONAL = new WeakMap<Trpc, (values: Readonly<Record<string, unknown>>) => Promise<void>>()
-/** The save as the settings screen calls it: with my record's writer. */
+const INSTANCE = new WeakMap<Trpc, (values: Readonly<Record<string, unknown>>) => Promise<void>>()
+/** The save as the settings screen calls it: with the two records' writers. */
 const save = (
   trpc: Trpc,
   previous: Parameters<typeof saveSettingsAsCommands>[1],
   next: Parameters<typeof saveSettingsAsCommands>[2],
   options: { online: boolean },
-) => saveSettingsAsCommands(trpc, previous, next, { ...options, personal: PERSONAL.get(trpc) })
+) =>
+  saveSettingsAsCommands(trpc, previous, next, {
+    ...options,
+    personal: PERSONAL.get(trpc),
+    instance: INSTANCE.get(trpc),
+  })
 
 const base = normalizeSettings({})
 
 describe('resetting absent-default instance settings', () => {
-  it('sends every optional instance clear through updateInstance and advances the saved baseline', async () => {
+  it('sends every optional instance clear as a reset of the instance record and advances the saved baseline', async () => {
     const { trpc, updatePersonal, updateInstance, setSecret, clearSecret } = fakeTrpc()
     const previous = normalizeSettings({
       transcripts: { mirror: false },
@@ -67,14 +75,14 @@ describe('resetting absent-default instance settings', () => {
     })
     const result = await save(trpc, previous, DEFAULT_SETTINGS, { online: true })
     expect(updateInstance).toHaveBeenCalledExactlyOnceWith({ values: {
-      'transcripts.mirror': null,
-      'deployment.authOpenMode': null,
-      'deployment.updateChannel': null,
-      'deployment.connectEnabled': null,
-      'deployment.telemetryUsage': null,
-      'deployment.telemetryCrash': null,
-      'deployment.telemetryInstallId': null,
-      'deployment.telemetrySince': null,
+      'transcripts.mirror': undefined,
+      'deployment.authOpenMode': undefined,
+      'deployment.updateChannel': undefined,
+      'deployment.connectEnabled': undefined,
+      'deployment.telemetryUsage': undefined,
+      'deployment.telemetryCrash': undefined,
+      'deployment.telemetryInstallId': undefined,
+      'deployment.telemetrySince': undefined,
     } })
     expect(updatePersonal).not.toHaveBeenCalled()
     expect(setSecret).not.toHaveBeenCalled()

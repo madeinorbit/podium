@@ -25,6 +25,7 @@ import type {
 import {
   asIssueId,
   asThreadId,
+  INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   pinRowId,
   SESSION_INTERRUPT_KIND,
@@ -228,6 +229,7 @@ export const COMMAND_ACTIONS = [
   'restoreIssue',
   'setSessionDraft',
   'setPreferences',
+  'setInstancePreferences',
 ] as const
 
 /** Command contracts reduced directly into non-entity action state. */
@@ -1410,6 +1412,15 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       await records.edit(
         { kind: 'userPreferences', id: userPreferencesRowId(rt.userId) },
         patch as RecordPatch<'userPreferences'>,
+      )
+    },
+    setInstancePreferences: async (values) => {
+      const patch: Record<string, unknown> = {}
+      for (const [path, value] of Object.entries(values)) patch[path] = value === undefined ? UNSET : value
+      if (Object.keys(patch).length === 0) return
+      await records.edit(
+        { kind: 'instancePreferences', id: INSTANCE_PREFERENCES_ROW_ID },
+        patch as RecordPatch<'instancePreferences'>,
       )
     },
   }

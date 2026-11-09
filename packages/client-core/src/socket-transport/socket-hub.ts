@@ -47,6 +47,7 @@ import {
   parseTopicPayload,
   presencePayloadWithinBudget,
   type RoomRef,
+  type ServerFeatureFacts,
   type ServerMessage,
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
@@ -580,7 +581,8 @@ export interface HubEvents {
 /** The server's own facts, from `welcome`. Both are absent from an older server. */
 export interface ServerIdentity {
   readonly build?: string
-  readonly features?: readonly string[]
+  /** What its build and config say about its feature flags (POD-6677). */
+  readonly features?: ServerFeatureFacts
 }
 
 export type HubEventKind = keyof HubEvents
@@ -2328,6 +2330,8 @@ export class SocketHub {
         case 'workflowBinding':
         case 'workflowRun':
         case 'subscription':
+        // POD-6677: the instance settings.
+        case 'instancePreferences':
           // These rows belong to the Replica. Session, conversation and
           // automation consumers read synced data without a hub projection.
           break

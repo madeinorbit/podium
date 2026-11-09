@@ -88,7 +88,7 @@ import {
   userCommandPrincipal,
 } from './command-principal'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
-import { getFeatureStates, isFeatureEnabled, offeredFeatures } from './features'
+import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
 import { makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -233,6 +233,10 @@ import {
   settledSpawnLaunch,
 } from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
+import {
+  makeInstancePreferencesFeedCapture,
+  reconcileInstancePreferences,
+} from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -727,6 +731,9 @@ export class SessionRegistry {
       await reconcileWorkflowRecords(synced, this.store.workflows)
       await reconcileSubscriptionRecords(synced, this.store.events)
     }
+    // The instance settings (POD-6677): the stored blob onto the log as the one
+    // `instancePreferences` record every member's first bootstrap holds.
+    await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
     await this.writes
       .system('boot.reconcile')
       .reconcile('machine', await this.modules.machines.projectionRows())
@@ -1289,6 +1296,12 @@ export class SessionRegistry {
     // inside its own transaction, whoever made it.
     this.store.superagent.setThreadFeedCapture(
       makeThreadFeedCapture(writes.system('feed.superagentThreads')),
+    )
+    // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
+    // `meta['settings']` publishes the instance settings record to every member
+    // inside its own transaction, whoever made it.
+    this.store.settings.setInstanceFeedCapture(
+      makeInstancePreferencesFeedCapture(writes.system('feed.instancePreferences')),
     )
     const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
@@ -5020,7 +5033,7 @@ export class SessionRegistry {
       presence,
       topics,
       serverBuild: () => serverBuildVersion(),
-      serverFeatures: () => offeredFeatures(),
+      serverFeatures: () => serverFeatureFacts(),
       now: () => this.now(),
       // This task is independent of session replay and feed admission
       // (POD-3509). Approvals reach a client on the feed (POD-6674).

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { listReclaimableWorktreesClient } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { attachHeaderRequests, type HeaderLifecycle } from '@podium/client-graph/header-requests'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { liveFixture } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -34,7 +34,7 @@ const lifecycle = {
     maxIdleSessions: 8,
   },
   worktreeGc: { mode: 'propose', afterDays: 1 },
-} as HeaderLifecycle
+} as const
 const metric = {
   machineId: MACHINE,
   hostname: 'fixture-host',
@@ -153,8 +153,8 @@ function fixture(scale: 1 | 4) {
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  // POD-5798: the machine and its live sample (LiveStore), and the lifecycle
-  // settings (the header's request answer).
+  // POD-5798: the machine and its live sample (LiveStore); the lifecycle
+  // settings are the synced instance settings record (POD-6677).
   headerEntities(pool).apply([
     {
       kind: 'machine',
@@ -164,9 +164,7 @@ function fixture(scale: 1 | 4) {
   ])
   headerEntities(pool).order('machine', [MACHINE])
   liveFixture(pool, () => now).metric(MACHINE, metric)
-  attachHeaderRequests(pool, { settings: { get: { query: async () => ({}) as never } } }).setLifecycle(
-    lifecycle as never,
-  )
+  seedInstancePreferences(pool, lifecycle)
   return count
 }
 

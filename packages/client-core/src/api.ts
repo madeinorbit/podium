@@ -50,7 +50,6 @@ import type {
   SyncSubmitReply,
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { PodiumSettings } from '@podium/runtime'
 
 export interface ApiQuery<I, O> {
   query(input: I): Promise<O>
@@ -360,11 +359,6 @@ export interface PodiumClientApi {
       { machineId?: MachineId; root: string; sha: string; path: string },
       { ok: boolean; output: string }
     >
-  }
-  settings: {
-    /** The INSTANCE settings: every personal leaf is its default. My own are
-     *  my synced `userPreferences` record (POD-6673). */
-    get: ApiQuery<void, PodiumSettings>
   }
   /** Hour×model token buckets for the last 7 days, harvested from harness
    *  transcripts. All window/cost math is client-side — see `viewmodels/usage`. */
