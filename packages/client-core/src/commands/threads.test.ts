@@ -1,6 +1,6 @@
 import { superagentThreadRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { harness, ME } from './test-support'
+import { harness, ME } from './commands.test.fixture'
 describe('engine action ownership boundary', () => {
   it('queues the prompt box’s model and effort as an edit of my thread record (POD-6675)', async () => {
     const h = harness()

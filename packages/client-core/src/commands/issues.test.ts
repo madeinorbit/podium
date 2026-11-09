@@ -2,7 +2,7 @@ import type { IssueProjection } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { emptyWorkspace, openTab } from '../values'
-import { harness, sessionId, myIssue } from './test-support'
+import { harness, sessionId, myIssue } from './commands.test.fixture'
 describe('engine action ownership boundary', () => {
   it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {
     const h = harness()

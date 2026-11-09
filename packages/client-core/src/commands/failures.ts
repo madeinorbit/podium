@@ -13,23 +13,18 @@ export function commandFailureReporter(notices: NoticeSink): (error: unknown) =>
 }
 
 /** Observe failures without replacing a command's result or promise identity. */
-export function reportCommandFailures<T extends object>(
-  commands: T,
+export function reportCommandFailure<F extends (...args: never[]) => unknown>(
+  command: F,
   report: (error: unknown) => void,
-): T {
-  return Object.fromEntries(
-    Object.entries(commands).map(([name, command]) => [
-      name,
-      (...args: unknown[]) => {
-        try {
-          const result = runInAction(() => command(...args))
-          if (result instanceof Promise) void result.then(undefined, report)
-          return result
-        } catch (error) {
-          report(error)
-          throw error
-        }
-      },
-    ]),
-  ) as T
+): F {
+  return ((...args: never[]) => {
+    try {
+      const result = runInAction(() => command(...args))
+      if (result instanceof Promise) void result.then(undefined, report)
+      return result
+    } catch (error) {
+      report(error)
+      throw error
+    }
+  }) as F
 }

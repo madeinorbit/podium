@@ -1,6 +1,6 @@
 import { pinRowId, tabOrderRowId, userPreferencesRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { harness, sessionId, ME } from './test-support'
+import { harness, sessionId, ME } from './commands.test.fixture'
 describe('engine action ownership boundary', () => {
   it('queues pins, tab orders and personal settings as generic edits of my records (POD-6673)', async () => {
     const h = harness()

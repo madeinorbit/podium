@@ -1,14 +1,16 @@
 import type { PodiumClientApi } from '../api'
 import type { FileScope } from '../values'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { FilesCommands } from './files-types'
 
 export function createFilesCommands<TApi extends PodiumClientApi>(
   rt: CommandDeps<TApi>,
+  report: (error: unknown) => void,
 ): FilesCommands<TApi> {
   const api = rt.api
 
-  return {
+  const commands: FilesCommands<TApi> = {
     read: ((scope: FileScope, path: string) =>
       scope.kind === 'session'
         ? api.files.read.query({ sessionId: scope.sessionId, path })
@@ -44,5 +46,15 @@ export function createFilesCommands<TApi extends PodiumClientApi>(
     commitFiles: ((args) => api.git.commitFiles.query(args)) as FilesCommands<TApi>['commitFiles'],
     commitDiffFile: ((args) =>
       api.git.commitDiffFile.query(args)) as FilesCommands<TApi>['commitDiffFile'],
+  }
+  return {
+    read: reportCommandFailure(commands.read, report),
+    list: reportCommandFailure(commands.list, report),
+    status: reportCommandFailure(commands.status, report),
+    log: reportCommandFailure(commands.log, report),
+    diff: reportCommandFailure(commands.diff, report),
+    write: reportCommandFailure(commands.write, report),
+    commitFiles: reportCommandFailure(commands.commitFiles, report),
+    commitDiffFile: reportCommandFailure(commands.commitDiffFile, report),
   }
 }

@@ -1,6 +1,6 @@
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { harness, sessionId, myIssue, mySession } from './test-support'
+import { harness, sessionId, myIssue, mySession } from './commands.test.fixture'
 
 describe('navigation read command coalescing', () => {
   it('keeps the latest observed receipt when a visit ends during leading enqueue', async () => {

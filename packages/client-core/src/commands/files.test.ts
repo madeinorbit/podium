@@ -16,11 +16,24 @@ function fixture() {
   const api = {
     files: { read: { query: read }, write: { mutate: write }, list: { query: list } },
     git: {
-      status: { query: status }, log: { query: log }, diffFile: { query: diff },
-      commitFiles: { query: commitFiles }, commitDiffFile: { query: commitDiffFile },
+      status: { query: status },
+      log: { query: log },
+      diffFile: { query: diff },
+      commitFiles: { query: commitFiles },
+      commitDiffFile: { query: commitDiffFile },
     },
   } as unknown as PodiumClientApi
-  return { commands: createFilesCommands({ api } as CommandDeps<PodiumClientApi>), read, write, list, status, log, diff, commitFiles, commitDiffFile }
+  return {
+    commands: createFilesCommands({ api } as CommandDeps<PodiumClientApi>, () => {}),
+    read,
+    write,
+    list,
+    status,
+    log,
+    diff,
+    commitFiles,
+    commitDiffFile,
+  }
 }
 
 describe('file commands retain their scoped request calls', () => {
@@ -42,9 +55,25 @@ describe('file commands retain their scoped request calls', () => {
   it('keeps the write base hash and rejects an artifact write before making a request', async () => {
     const f = fixture()
     const sessionId = asSessionId('s-file')
-    await f.commands.write({ scope: { kind: 'session', sessionId }, path: 'a.txt', content: 'new', baseHash: 'old' })
-    expect(f.write).toHaveBeenCalledExactlyOnceWith({ sessionId, path: 'a.txt', content: 'new', baseHash: 'old' })
-    await expect(f.commands.write({ scope: { kind: 'artifact', issueId: asIssueId('i-file'), artifactId: 'a' as never }, path: 'a.txt', content: 'new' })).rejects.toThrow('artifact snapshots are read-only')
+    await f.commands.write({
+      scope: { kind: 'session', sessionId },
+      path: 'a.txt',
+      content: 'new',
+      baseHash: 'old',
+    })
+    expect(f.write).toHaveBeenCalledExactlyOnceWith({
+      sessionId,
+      path: 'a.txt',
+      content: 'new',
+      baseHash: 'old',
+    })
+    await expect(
+      f.commands.write({
+        scope: { kind: 'artifact', issueId: asIssueId('i-file'), artifactId: 'a' as never },
+        path: 'a.txt',
+        content: 'new',
+      }),
+    ).rejects.toThrow('artifact snapshots are read-only')
     expect(f.write).toHaveBeenCalledTimes(1)
   })
 
@@ -62,6 +91,10 @@ describe('file commands retain their scoped request calls', () => {
     expect(f.log).toHaveBeenCalledExactlyOnceWith(scope)
     expect(f.diff).toHaveBeenCalledExactlyOnceWith({ ...scope, path: 'a.txt' })
     expect(f.commitFiles).toHaveBeenCalledExactlyOnceWith({ ...scope, sha: 'abc' })
-    expect(f.commitDiffFile).toHaveBeenCalledExactlyOnceWith({ ...scope, sha: 'abc', path: 'a.txt' })
+    expect(f.commitDiffFile).toHaveBeenCalledExactlyOnceWith({
+      ...scope,
+      sha: 'abc',
+      path: 'a.txt',
+    })
   })
 })

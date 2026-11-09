@@ -6,6 +6,7 @@ import { type RecordPatch, recordKinds, UNSET } from '../records'
 import { resolvedWorkspaceKey } from '../ui/state'
 import { workspaceKeyFor } from '../values'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { IssuesCommands } from './issues-types'
 import type { CommandWrites } from './writes'
 
@@ -44,7 +45,7 @@ export function createIssuesCommands<TApi extends PodiumClientApi>(
 ): IssuesCommands<TApi> {
   const { editRecord, myIssueState, markRead, pendingReads } = shared
 
-  return {
+  const commands: IssuesCommands<TApi> = {
     // The curation writes (POD-781). Nothing here but the enqueue: the queued
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or
@@ -141,5 +142,20 @@ export function createIssuesCommands<TApi extends PodiumClientApi>(
     // has since been replaced.
     dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) =>
       rt.write('dismissOffer', { sessionId, offerCreatedAt }),
+  }
+  return {
+    update: reportCommandFailure(commands.update, shared.reportFailure),
+    archive: reportCommandFailure(commands.archive, shared.reportFailure),
+    delete: reportCommandFailure(commands.delete, shared.reportFailure),
+    close: reportCommandFailure(commands.close, shared.reportFailure),
+    defer: reportCommandFailure(commands.defer, shared.reportFailure),
+    undefer: reportCommandFailure(commands.undefer, shared.reportFailure),
+    restore: reportCommandFailure(commands.restore, shared.reportFailure),
+    setLabels: reportCommandFailure(commands.setLabels, shared.reportFailure),
+    setPlacement: reportCommandFailure(commands.setPlacement, shared.reportFailure),
+    setTucked: reportCommandFailure(commands.setTucked, shared.reportFailure),
+    markRead: reportCommandFailure(commands.markRead, shared.reportFailure),
+    markUnread: reportCommandFailure(commands.markUnread, shared.reportFailure),
+    dismissOffer: reportCommandFailure(commands.dismissOffer, shared.reportFailure),
   }
 }

@@ -3,7 +3,7 @@ import { asIssueId, asSessionId, layoutRowId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { COMMAND_ACTIONS, UI_LOCAL_ACTIONS } from '../../test-support/commands'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
-import { harness, sessionId, ME } from './test-support'
+import { harness, sessionId, ME } from './commands.test.fixture'
 describe('engine action ownership boundary', () => {
   it('lets navigation suggest a panel mode without overwriting the operator’s pick', () => {
     // POD-1702. The native worker rows under a session focus it "in CLI", and

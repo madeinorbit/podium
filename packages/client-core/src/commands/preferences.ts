@@ -9,6 +9,7 @@ import type { PodiumClientApi } from '../api'
 import { type RecordPatch, type RecordRef, UNSET } from '../records'
 import type { PinKind } from '../values'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { PreferencesCommands } from './preferences-types'
 import type { CommandWrites } from './writes'
 export function createPreferencesCommands<TApi extends PodiumClientApi>(
@@ -16,7 +17,7 @@ export function createPreferencesCommands<TApi extends PodiumClientApi>(
   shared: CommandWrites,
 ): PreferencesCommands<TApi> {
   const { records } = shared
-  return {
+  const commands: PreferencesCommands<TApi> = {
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const pin = pinRowId(rt.userId, kind, id)
       if (pinned) await records.create('pin', pin, { userId: rt.userId, kind, entityId: id })
@@ -53,5 +54,14 @@ export function createPreferencesCommands<TApi extends PodiumClientApi>(
         patch as RecordPatch<'instancePreferences'>,
       )
     },
+  }
+  return {
+    setPinned: reportCommandFailure(commands.setPinned, shared.reportFailure),
+    setTabOrder: reportCommandFailure(commands.setTabOrder, shared.reportFailure),
+    setPreferences: reportCommandFailure(commands.setPreferences, shared.reportFailure),
+    setInstancePreferences: reportCommandFailure(
+      commands.setInstancePreferences,
+      shared.reportFailure,
+    ),
   }
 }

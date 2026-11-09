@@ -2,6 +2,7 @@ import { superagentThreadRowId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { type RecordPatch, UNSET } from '../records'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { ThreadsCommands } from './threads-types'
 import type { CommandWrites } from './writes'
 export function createThreadsCommands<TApi extends PodiumClientApi>(
@@ -9,7 +10,7 @@ export function createThreadsCommands<TApi extends PodiumClientApi>(
   shared: CommandWrites,
 ): ThreadsCommands<TApi> {
   const { editRecord } = shared
-  return {
+  const commands: ThreadsCommands<TApi> = {
     // The prompt box's model and effort are spec fields of my thread's record
     // (POD-6675, ADR 12 D2): one writer, this edit; `auto` clears the field so
     // the thread follows the superagent settings role again.
@@ -25,5 +26,8 @@ export function createThreadsCommands<TApi extends PodiumClientApi>(
         patch,
       )
     },
+  }
+  return {
+    setBackend: reportCommandFailure(commands.setBackend, shared.reportFailure),
   }
 }

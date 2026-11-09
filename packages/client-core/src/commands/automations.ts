@@ -1,14 +1,14 @@
 import type { PodiumClientApi } from '../api'
-
 import type { AutomationsCommands } from './automations-types'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { CommandWrites } from './writes'
 export function createAutomationsCommands<TApi extends PodiumClientApi>(
   _rt: CommandDeps<TApi>,
   shared: CommandWrites,
 ): AutomationsCommands<TApi> {
   const { records } = shared
-  return {
+  const commands: AutomationsCommands<TApi> = {
     // An agent's request, decided (POD-6674): a generic edit of its effect
     // record, made against the revision the person was shown. Queued and
     // painted at once; the first decision wins on the server, and the record's
@@ -25,5 +25,13 @@ export function createAutomationsCommands<TApi extends PodiumClientApi>(
     removeSubscription: async (id) => {
       await records.remove({ kind: 'subscription', id })
     },
+  }
+  return {
+    decideApproval: reportCommandFailure(commands.decideApproval, shared.reportFailure),
+    setSubscriptionEnabled: reportCommandFailure(
+      commands.setSubscriptionEnabled,
+      shared.reportFailure,
+    ),
+    removeSubscription: reportCommandFailure(commands.removeSubscription, shared.reportFailure),
   }
 }

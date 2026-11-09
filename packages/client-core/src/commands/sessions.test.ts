@@ -1,7 +1,7 @@
 import { asMutationId, asSessionId, layoutRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { OutboxEntry } from '../outbox'
-import { harness, sessionId, ME } from './test-support'
+import { harness, sessionId, ME } from './commands.test.fixture'
 describe('engine action ownership boundary', () => {
   it('answers a question as a session.answer record created at once, never queued (POD-6415)', async () => {
     const h = harness()

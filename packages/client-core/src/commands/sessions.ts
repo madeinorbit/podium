@@ -12,6 +12,7 @@ import {
   sessionHandoffEffect,
 } from '../spawn-agent'
 import type { CommandDeps } from './context'
+import { reportCommandFailure } from './failures'
 import type { SessionsCommands } from './sessions-types'
 import type { CommandWrites } from './writes'
 
@@ -67,7 +68,7 @@ export function createSessionsCommands<TApi extends PodiumClientApi>(
     }
   }
 
-  return {
+  const commands: SessionsCommands<TApi> = {
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
     launch: (args) => rt.launchSession(args),
     spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
@@ -232,5 +233,31 @@ export function createSessionsCommands<TApi extends PodiumClientApi>(
     clearSnooze: async (sessionId) =>
       editRecord(mySessionState(sessionId), { snoozedUntil: UNSET }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
+  }
+  return {
+    spawnDraftAgent: reportCommandFailure(commands.spawnDraftAgent, shared.reportFailure),
+    launch: reportCommandFailure(commands.launch, shared.reportFailure),
+    spawnIssueAgent: reportCommandFailure(commands.spawnIssueAgent, shared.reportFailure),
+    killSession: reportCommandFailure(commands.killSession, shared.reportFailure),
+    continueSession: reportCommandFailure(commands.continueSession, shared.reportFailure),
+    hibernate: reportCommandFailure(commands.hibernate, shared.reportFailure),
+    stop: reportCommandFailure(commands.stop, shared.reportFailure),
+    interrupt: reportCommandFailure(commands.interrupt, shared.reportFailure),
+    configure: reportCommandFailure(commands.configure, shared.reportFailure),
+    handoff: reportCommandFailure(commands.handoff, shared.reportFailure),
+    resume: reportCommandFailure(commands.resume, shared.reportFailure),
+    answer: reportCommandFailure(commands.answer, shared.reportFailure),
+    archive: reportCommandFailure(commands.archive, shared.reportFailure),
+    startIssueSession: reportCommandFailure(commands.startIssueSession, shared.reportFailure),
+    issueAction: reportCommandFailure(commands.issueAction, shared.reportFailure),
+    startBtw: reportCommandFailure(commands.startBtw, shared.reportFailure),
+    dismissEffect: reportCommandFailure(commands.dismissEffect, shared.reportFailure),
+    rename: reportCommandFailure(commands.rename, shared.reportFailure),
+    markRead: reportCommandFailure(commands.markRead, shared.reportFailure),
+    markUnread: reportCommandFailure(commands.markUnread, shared.reportFailure),
+    setWorkState: reportCommandFailure(commands.setWorkState, shared.reportFailure),
+    snooze: reportCommandFailure(commands.snooze, shared.reportFailure),
+    clearSnooze: reportCommandFailure(commands.clearSnooze, shared.reportFailure),
+    setSessionDraft: reportCommandFailure(commands.setSessionDraft, shared.reportFailure),
   }
 }
