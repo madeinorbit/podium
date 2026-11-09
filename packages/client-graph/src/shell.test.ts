@@ -130,6 +130,8 @@ describe('shell pool', () => {
         { availability: { daemon: false, server: true, supervisor: false, epoch: 'changed' } },
       ]) {
         f.pool.ingestLiveMachines([{ id: machine.id, value: { ...machine, ...patch } }])
+        // Online is the LiveStore's condition (POD-5798), so its fault is planted there.
+        if ('online' in patch) f.live.online(machine.id, patch.online)
         const report = settled(f)
         expect(report).toMatchObject({
           differences: 1,
@@ -137,6 +139,7 @@ describe('shell pool', () => {
           first: { sectionIndex: 9, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
         })
         expect(JSON.stringify(report)).not.toContain('private-machine-name')
+        f.live.online(machine.id, machine.online)
       }
     } finally {
       f.pool.dispose()

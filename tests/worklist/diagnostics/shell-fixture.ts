@@ -5,6 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { emptyWorkspace, missionRootFor, openTab, workspaceKeyFor } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
@@ -77,9 +78,13 @@ export function shellFixture(count = 40) {
     headerEntities(pool).order('machine', state.machines.map(value => value.id)); headerEntities(pool).order('shipOrder', state.shipOrders.map(value => value.id))
   }
   syncHeader()
+  // Online is a LiveStore condition (ADR 12 D1, POD-5798), not a record field:
+  // give the pool the same reading the reference machine row carries.
+  const live = liveFixture(pool, () => SHELL_NOW)
+  live.online(machineId, true)
   const source = new ShellSource(runtime)
   pool.sources.register(SHELL_ENTITIES, source)
-  return { issues, sessions, approvals, fileTabs, shipOrders, shipLanes, pool, source, loads, listeners, addressed,
+  return { issues, sessions, approvals, fileTabs, shipOrders, shipLanes, pool, live, source, loads, listeners, addressed,
     state: () => state,
     change(patch: Partial<Store>) { state = { ...state, ...patch }; syncHeader(); for (const listener of listeners) listener() },
     lane(value: ShipLaneProjection | undefined, id = shipLanes[0]!.id) {

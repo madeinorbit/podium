@@ -1,6 +1,5 @@
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { LiveStore } from '@podium/client-core/live'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
@@ -25,7 +24,6 @@ const flush = async () => {
 
 export function inputFixture(scale: 1 | 4) {
   const f = shellFixture(40 * scale)
-  f.pool.bindLive(new LiveStore())
   let state = {
     ...f.state(),
     pins: [],
