@@ -111,19 +111,6 @@ type DesktopSessionGlobals = {
   __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
 }
 
-const PANEL_ACTIONS = [
-  'hub',
-  'trpc',
-  'startBtw',
-  'setSessionDraft',
-  'hibernateSession',
-  'dismissOffer',
-  'sendChat',
-  'openFile',
-  'uiState',
-  'navigateToSession',
-] as const
-
 export function AgentPanel({
   sessionId,
   active = true,

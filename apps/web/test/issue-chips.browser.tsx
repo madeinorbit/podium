@@ -136,7 +136,7 @@ const proof = {
     pool: !!pool,
     repos: runtime ? referenceState(runtime).repos.length : undefined,
     issues: count,
-    sessions: runtime?.replica.rows('sessions').length,
+    sessions: runtime?.root.replica.rows('sessions').length,
   }),
   failures: () => failures,
   open(value = true) {

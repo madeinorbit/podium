@@ -104,7 +104,7 @@ export const COMMAND_ACTIONS = [
 ] as const
 
 /** The old test call shape, over the real command modules and UiStore. */
-export function fixtureCommands<TApi extends PodiumClientApi>(rt: CommandDeps<TApi>) {
+export function fixtureCommands<TApi extends PodiumClientApi>(rt: FixtureCommandDeps<TApi>) {
   const modules = createCommands(rt)
   const chat = createChatSends(rt)
   return {
@@ -204,4 +204,15 @@ export function fixtureCommands<TApi extends PodiumClientApi>(rt: CommandDeps<TA
     setPreferences: modules.preferences.setPreferences,
     setInstancePreferences: modules.preferences.setInstancePreferences,
   }
+}
+
+export interface FixtureCommandDeps<TApi extends PodiumClientApi> extends CommandDeps<TApi> {
+  readonly palette: import('../src/ui/view-models').PaletteViewModel
+  readonly hub: import('../src/socket-transport').SocketHub
+  readonly outboxSettlements: import('../src/conversation/sends').OutboxSettlements
+  readonly layoutSeed?: import('@podium/model').LayoutSnapshot
+  state(): Readonly<import('../src/ui/state').ScreenState>
+  batch(fn: () => void): void
+  onLocals(keys: readonly ('selectedIssueId' | 'navigation')[], listener: () => void): () => void
+  waitForSpawnConfirmed(sessionId: import('@podium/model').SessionId): Promise<void>
 }

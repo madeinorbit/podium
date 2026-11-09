@@ -2,9 +2,7 @@ import {
   useClientRuntime,
   useCommands,
   useDeviceState,
-  useHttpOrigin,
   useRequestClient,
-  useSocketHub,
   useUi,
 } from '@podium/client-core/react'
 import { useMemo } from 'react'
@@ -15,8 +13,6 @@ export function useSettingsClient() {
   const commands = useCommands<Trpc>()
   const ui = useUi()
   const trpc = useRequestClient<Trpc>()
-  const hub = useSocketHub()
-  const httpOrigin = useHttpOrigin()
   const deviceState = useDeviceState()
   return useMemo(
     () => ({
@@ -38,7 +34,7 @@ export function useSettingsClient() {
       setPreferences: commands.preferences.setPreferences,
       setInstancePreferences: commands.preferences.setInstancePreferences,
     }),
-    [commands, ui, trpc, hub, httpOrigin, deviceState, owner],
+    [commands, ui, trpc, deviceState, owner],
   )
 }
 

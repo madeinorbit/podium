@@ -992,15 +992,17 @@ export interface ScenarioSnapshot {
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = referenceState(engine)
   return {
-    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
-      (i) => ({
-        id: i.id,
-        title: (i as { title?: unknown }).title as string,
-        stage: (i as { stage?: unknown }).stage as string,
-        archived: Boolean((i as { archived?: unknown }).archived),
-        readAt: (i as { readAt?: unknown }).readAt ?? null,
-      }),
-    ),
+    issues: allIssueViewModels(
+      engine.root.replica,
+      snap.issueProjections,
+      snap.issueUserStates,
+    ).map((i) => ({
+      id: i.id,
+      title: (i as { title?: unknown }).title as string,
+      stage: (i as { stage?: unknown }).stage as string,
+      archived: Boolean((i as { archived?: unknown }).archived),
+      readAt: (i as { readAt?: unknown }).readAt ?? null,
+    })),
     sessions: snap.sessions.map((s) => ({
       sessionId: s.sessionId,
       lastActiveAt: s.lastActiveAt,

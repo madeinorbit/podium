@@ -10,7 +10,6 @@ import { useCommands } from '@podium/client-core/react'
  * (the server leaves the session where it was).
  */
 
-import { useClientRuntime } from '@podium/client-core/react'
 import { awaitEffect, effectShortfall } from '@podium/client-graph/write/await-effect'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { useCallback } from 'react'
@@ -36,7 +35,6 @@ export function useSessionHandoff(): (
   names: HandoffNames,
 ) => void {
   // The action owner, as the menus' other actions; never a store subscription.
-  const owner = useClientRuntime<Trpc>()
   const commandModules = useCommands<Trpc>()
 
   const pool = useWorklistPool()
@@ -60,6 +58,6 @@ export function useSessionHandoff(): (
         (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
       )
     },
-    [owner, pool],
+    [commandModules, pool],
   )
 }

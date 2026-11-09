@@ -41,11 +41,11 @@ export function createCommandWrites<TApi extends PodiumClientApi>(rt: CommandDep
     return typeof activityAt === 'string' && activityAt > now ? activityAt : now
   }
   const sessionActivity = (sessionId: SessionId): unknown => {
-    const session = rt.state().navigation.session(sessionId)
+    const session = rt.ui.screen.navigation.session(sessionId)
     return session === NAVIGATION_LOADING ? undefined : session?.lastActiveAt
   }
   const issueActivity = (id: string): unknown => {
-    const at = rt.state().navigation.activityAt(id)
+    const at = rt.ui.screen.navigation.activityAt(id)
     return at === NAVIGATION_LOADING ? undefined : at
   }
   const markRead = (

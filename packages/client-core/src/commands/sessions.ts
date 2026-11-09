@@ -216,12 +216,12 @@ export function createSessionsCommands<TApi extends PodiumClientApi>(
     // same edit.
     rename: async (sessionId, name) => editRecord({ kind: 'session', id: sessionId }, { name }),
     markRead: (sessionId, readAt) => {
-      if (readAt === undefined) rt.state().navigation.readIntent?.('session', sessionId, true)
+      if (readAt === undefined) rt.ui.screen.navigation.readIntent?.('session', sessionId, true)
       return markRead('session', sessionId, readAt ? { readAt } : {})
     },
     markUnread: async (sessionId) => {
       pendingReads.delete(`session:${sessionId}`)
-      rt.state().navigation.readIntent?.('session', sessionId, false)
+      rt.ui.screen.navigation.readIntent?.('session', sessionId, false)
       return editRecord(mySessionState(sessionId), { readAt: null })
     },
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>

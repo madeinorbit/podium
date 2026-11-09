@@ -32,7 +32,6 @@ import { cn } from '@/lib/utils'
 type Subscription = SubscriptionModel
 
 const NO_SUBSCRIPTIONS: readonly Subscription[] = Object.freeze([])
-const TRIGGER_ACTIONS = ['setSubscriptionEnabled', 'removeSubscription'] as const
 
 /** The event-subscription kinds a trigger can match. Mirrors the steward's
  *  subscription-event vocabulary (issue lifecycle + session state). */

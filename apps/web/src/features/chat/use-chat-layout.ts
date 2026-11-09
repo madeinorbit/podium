@@ -64,8 +64,6 @@ export interface ChatSurface {
   openFile: (sessionId: SessionId, path: string) => void
 }
 
-const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'clearAttachedSession'] as const
-
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
   const { trpc, openFile, httpOrigin, clearAttachedSession } = {

@@ -1,6 +1,6 @@
 import { machineFacts } from '@podium/client-graph/machine-facts'
 import type { MachineModel } from '@podium/client-graph'
-import { useClientRuntime, useRequestClient, useUi } from '@podium/client-core/react'
+import { useRequestClient, useUi } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { headerModel } from '@podium/client-graph/header-companion'
 import { headerRequests } from '@podium/client-graph/header-requests'
@@ -15,18 +15,16 @@ import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-poo
 /** Stable actions and transport handles stay on the existing mutation owner.
  * No snapshot subscription and no legacy data derivation in the pool branch. */
 export function useHeaderActions() {
-  const owner = useClientRuntime<import('@/app/trpc').Trpc>()
   const requestClient = useRequestClient<import('@/app/trpc').Trpc>()
   const screenUi = useUi()
 
   return useMemo(() => {
-    const state = owner.access
     return {
       trpc: requestClient,
       setView: screenUi.setView,
       setSettingsTab: screenUi.setSettingsTab,
     }
-  }, [owner])
+  }, [requestClient, screenUi])
 }
 
 const readWorkingCount = (pool: MobxPool) => headerView(pool).workingCount()

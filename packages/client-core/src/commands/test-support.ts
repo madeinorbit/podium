@@ -30,7 +30,7 @@ import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { Router } from '../ui-state'
 import { createRoutedUiState } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
-import type { CommandDeps } from './context'
+import type { FixtureCommandDeps as CommandDeps } from '../../test-support/commands'
 
 beforeAll(loadRecordDeclarations)
 export const sessionId = asSessionId('session-1')

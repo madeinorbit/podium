@@ -1,3 +1,4 @@
+import { superagentSourcePorts, replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
@@ -46,10 +47,10 @@ export const chatContextPoolScreen: PoolScreen = {
     await pool.sources.ensure(
       superagent.SUPERAGENT_SOURCE_KEY,
       superagent.SUPERAGENT_ENTITIES,
-      () => superagent.createSuperagentSource(runtime),
+      () => superagent.createSuperagentSource(superagentSourcePorts(runtime)),
     )
     await pool.sources.ensure(exits.SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
-      exits.createSessionExitSource(runtime),
+      exits.createSessionExitSource(replicaSourcePorts(runtime)),
     )
     pool.sources.register(
       CHAT_CONTEXT_ENTITIES,

@@ -38,8 +38,6 @@ export function useDraftValue(id: SessionId | undefined): string {
   const subscribe = useCallback((notify: () => void) => reaction(read, notify), [read])
   return useSyncExternalStore(subscribe, read)
 }
-
-const UI_ACTIONS = ['uiState'] as const
 export function useRuntimeUiValue(key: string): string | null {
   const ui = useDeviceState()
   const subscribe = useCallback((notify: () => void) => ui?.subscribe(notify) ?? (() => {}), [ui])

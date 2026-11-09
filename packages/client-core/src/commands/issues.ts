@@ -113,7 +113,7 @@ export function createIssuesCommands<TApi extends PodiumClientApi>(
       })
       // "The task on screen" is the workspace the selection resolves to, the
       // same key the strip is filed under.
-      const shown = tucked ? resolvedWorkspaceKey(rt.state()) : null
+      const shown = tucked ? resolvedWorkspaceKey(rt.ui.screen) : null
       const own =
         shown === workspaceKeyFor({ missionRootId: id }) ||
         shown === workspaceKeyFor({ issueId: asIssueId(id) })
@@ -123,12 +123,12 @@ export function createIssuesCommands<TApi extends PodiumClientApi>(
       return written
     },
     markRead: (id, readAt) => {
-      if (readAt === undefined) rt.state().navigation.readIntent?.('issue', id, true)
+      if (readAt === undefined) rt.ui.screen.navigation.readIntent?.('issue', id, true)
       return markRead('issue', id, readAt ? { readAt } : {})
     },
     markUnread: async (id) => {
       pendingReads.delete(`issue:${id}`)
-      rt.state().navigation.readIntent?.('issue', id, false)
+      rt.ui.screen.navigation.readIntent?.('issue', id, false)
       return editRecord(myIssueState(id), { readAt: null })
     },
     // `write`, like its neighbours, since POD-1110. It used to be a

@@ -1297,23 +1297,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private createCommands(): Commands<TApi> {
     return createCommands({
-      palette: this.palette,
       autoContinueDialog: this.autoContinueDialog,
       api: this.api,
-      hub: this.root.services.connection.hub,
       outbox: this.root.services.outbox.queue,
       userId: this.principal.userId,
-      outboxSettlements: this.root.services.outbox.settlements,
       router: this.router,
       notices: this.notices,
-      state: () => this.state,
       ui: this.ui,
-      // S5: one publication per click. The gesture's synchronous paints share
-      // this batch; the async outbox drain echo and background broadcasts stay
-      // separate by construction (they fire after the batch closed).
-      batch: (fn) => this.batch(fn),
-      onLocals: (_keys, listener) =>
-        reaction(() => [this.ui.selectedIssueId, this.ui.navigation], listener),
       write: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)
@@ -1326,8 +1316,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.requirePoolWriter().startIssueSession!(args),
       spawnIssueAgent: (args: Parameters<Commands<TApi>['sessions']['spawnIssueAgent']>[0]) =>
         this.requirePoolWriter().spawnIssueAgent!(args),
-      waitForSpawnConfirmed: (sessionId) =>
-        this.requirePoolWriter().waitForSpawnConfirmed!(sessionId),
       // ONE KEYSTROKE. The store write is synchronous and unconditional — it is
       // what the caret is attached to. Everything else about this edit (when it
       // goes out, whether it went out, when it is written to disk) is a

@@ -1,12 +1,4 @@
-import {
-  useClientRuntime,
-  useCommands,
-  useDeviceState,
-  useHttpOrigin,
-  useRequestClient,
-  useSocketHub,
-  useUi,
-} from '@podium/client-core/react'
+import { useClientRuntime, useCommands, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -37,9 +29,6 @@ export function useCommandLaunchActions() {
   const commands = useCommands<Trpc>()
   const ui = useUi()
   const trpc = useRequestClient<Trpc>()
-  const hub = useSocketHub()
-  const httpOrigin = useHttpOrigin()
-  const deviceState = useDeviceState()
   return useMemo(
     () => ({
       trpc: trpc,
@@ -75,7 +64,7 @@ export function useCommandLaunchActions() {
       openFileInWorktree: ui.openFileInWorktree,
       openArtifact: ui.openArtifact,
     }),
-    [commands, ui, trpc, hub, httpOrigin, deviceState, owner],
+    [commands, ui, trpc, owner],
   )
 }
 export function useCommandLaunchCatalog() {

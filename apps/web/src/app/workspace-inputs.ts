@@ -7,21 +7,6 @@ import { useCallback } from 'react'
 import { usePoolRepositories } from './header-data'
 import { useRuntimeActions } from './keyed-runtime'
 import { useWorklistPoolProjection } from './store-worklist-pool'
-
-const ACTIONS = [
-  'closeFileTab',
-  'markSessionRead',
-  'workspaceKey',
-  'openSessionTab',
-  'promoteWorkspaceTab',
-  'activateWorkspaceTab',
-  'closeWorkspaceTab',
-  'moveWorkspaceTab',
-  'splitWorkspacePane',
-  'closeWorkspacePane',
-  'focusWorkspacePane',
-  'resizeWorkspaceSplit',
-] as const
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_INPUTS = { sessions: EMPTY_SESSIONS, pendingIssueHasSession: false }
 

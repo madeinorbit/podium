@@ -35,11 +35,8 @@ export interface StoreServerConfig {
   wsClientUrl: string
 }
 
-/** UI-notice seam: web wires this to sonner toasts; mobile to its own surface. */
-export interface StoreNotices {
-  error(message: string): void
-  info(message: string, description?: string): void
-}
+/** Existing platform surface name; notices are owned by the device service. */
+export type StoreNotices = import('../notices').NoticeSink
 
 export const NOOP_NOTICES: StoreNotices = { error: () => {}, info: () => {} }
 

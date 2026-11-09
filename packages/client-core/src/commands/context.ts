@@ -1,16 +1,7 @@
-import type {
-  IssueId,
-  LayoutSnapshot,
-  MutationId,
-  PersonalPreferences,
-  SessionId,
-  UserId,
-} from '@podium/model'
+import type { IssueId, MutationId, PersonalPreferences, SessionId, UserId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
-import type { OutboxSettlements } from '../conversation/sends'
-import type { StoreNotices } from '../engine/types'
+import type { NoticeSink } from '../notices'
 import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
-import type { SocketHub } from '../socket-transport'
 import type {
   LaunchSessionArgs,
   SpawnDraftAgentArgs,
@@ -19,14 +10,11 @@ import type {
   TaskSpawnOutcome,
 } from '../spawn-agent'
 import type { Router } from '../ui-state'
-import type { ScreenState } from '../ui/state'
 
 export interface CommandDeps<TApi extends PodiumClientApi> {
   readonly ui: import('../ui/ui-store').UiStore
-  readonly palette: import('../ui/view-models').PaletteViewModel
   readonly autoContinueDialog: import('../ui/view-models').AutoContinueDialogModel
   readonly api: TApi
-  readonly hub: SocketHub
   readonly outbox: EngineOutbox
   /**
    * The session's spec revision as the replica holds it (POD-6399): what an
@@ -49,27 +37,8 @@ export interface CommandDeps<TApi extends PodiumClientApi> {
   /** My personal settings as the replica holds them, resolved with defaults
    *  (POD-6673). Absent: the defaults. */
   preferences?(): PersonalPreferences
-  /** Resolution waiters for queued entries, by id (POD-4762). */
-  readonly outboxSettlements: OutboxSettlements
   readonly router: Router
-  readonly notices: StoreNotices
-  /** Layout base persisted by an earlier session, for hydrate-first paint
-   *  (POD-571). The runtime reads it out of the replica; absent means cold. */
-  readonly layoutSeed?: LayoutSnapshot
-  state(): Readonly<ScreenState>
-  /**
-   * S5: the runtime's snapshot batch, exposed so one gesture's synchronous
-   * paints (navigation + optimistic overlays + their outbox-size handoff when
-   * it fires synchronously) publish once. No semantic change: commands still
-   * enqueue, echoes still apply, rollbacks still repaint.
-   */
-  batch(fn: () => void): void
-  /**
-   * Every published snapshot, for the actions that must WAIT for replicated
-   * state rather than read it once. The runtime publishes on any state change,
-   * so a listener that re-reads `state()` sees each delta as it lands.
-   */
-  onLocals(keys: readonly ('selectedIssueId' | 'navigation')[], listener: () => void): () => void
+  readonly notices: NoticeSink
   /**
    * Queue a write and repaint from it (#263). RESOLVES WHEN THE OVERLAY IS
    * PUBLISHED, not when the call is made (POD-781): the durable enqueue is a real
@@ -95,10 +64,5 @@ export interface CommandDeps<TApi extends PodiumClientApi> {
     /** True once the task was filed as a proposal (no agent comes). */
     proposed: Promise<boolean>
   }
-  /**
-   * Hold a first chat send until an optimistic spawn's create has reconciled
-   * (or rolled back) through the principal's pool transaction log.
-   */
-  waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
   setSessionDraft(sessionId: SessionId, text: string): void
 }

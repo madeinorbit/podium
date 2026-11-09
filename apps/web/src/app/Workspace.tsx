@@ -264,7 +264,6 @@ const MIN_PANE_PX = 160
 const RESIZE_STEP = 0.02
 /** Keyboard resize floor when there is no measured box to convert px against. */
 const MIN_PANE_FRACTION = 0.12
-const RENAME_ACTIONS = ['renameSession'] as const
 
 export function Workspace({
   loadDragRuntime = loadWorkspaceTabDrag,

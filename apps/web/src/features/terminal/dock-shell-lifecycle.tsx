@@ -46,13 +46,6 @@ export function staleDockShellIds(
     )
     .map((session) => session.sessionId)
 }
-
-/**
- * Retire dead dock-owned shells while the application is mounted, independently
- * of whether the Shell panel itself is open. The device-local mapping remains
- * in place so opening the panel can recognize the dead row and replace it.
- */
-const ACTIONS = ['trpc'] as const
 const EMPTY_IDS: SessionId[] = []
 
 /** Ask only about mapped identities, using the pool's declared cold fields. */
