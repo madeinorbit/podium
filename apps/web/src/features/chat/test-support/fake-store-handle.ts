@@ -6,7 +6,15 @@ import {
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MessageRecordWire, SessionId } from '@podium/model'
 import { afterEach } from 'vitest'
-import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
+import { useRuntimeSelector as selectStore } from '@/app/store'
+
+const selectMockSnapshot = selectStore as unknown as <T>(
+  read: (
+    state: import('../../../../../../tests/worklist/diagnostics/reference-state').ReferenceState<
+      import('@/app/trpc').Trpc
+    >,
+  ) => T,
+) => T
 
 /**
  * THE STORE HANDLE provider-free ChatView suites render against. Real enough

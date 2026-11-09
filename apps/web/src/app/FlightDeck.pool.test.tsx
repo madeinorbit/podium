@@ -262,7 +262,7 @@ describe('rendered mission pane parity', () => {
       pool.dispose()
       pool = handle.pool
       state.pool = pool
-      state.replica = ctx.engine.replica
+      state.replica = ctx.engine.root.replica
       state.selectedIssueId = id
       state.paneA = 's0'
       const errors = vi.spyOn(console, 'error')

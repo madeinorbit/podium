@@ -1,3 +1,4 @@
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -85,7 +86,7 @@ export function inputFixture(scale: 1 | 4) {
   const mobile = createMobileSessionSource(runtime, f.pool)
   f.pool.sources.register(['mobileSessionWindow', 'mobileSessionReader'], mobile)
   const stopHeader = attachHeaderSource(f.pool, runtime)
-  const stopExit = attachIssuePageSource(f.pool, runtime)
+  const stopExit = attachIssuePageSource(f.pool, replicaSourcePorts(runtime))
   return {
     f,
     runtime,

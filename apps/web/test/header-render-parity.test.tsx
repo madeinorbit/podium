@@ -73,7 +73,7 @@ async function mount(roster = false) {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        fixture.bindHub(owner.hub, owner.live)
+        fixture.bindHub(owner.root.services.connection.hub, owner.root.live)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))

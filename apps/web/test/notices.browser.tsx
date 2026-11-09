@@ -141,7 +141,7 @@ root.render(
       }) as never
     }
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub, undefined, runtime.live)
+      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >
@@ -189,13 +189,13 @@ const driver = {
       commitMs,
       failures: failures.length,
       actions,
-      parked: owner.outbox.deadLetters().length,
+      parked: owner.root.services.outbox.queue.deadLetters().length,
       opened: referenceState(owner).paneA,
     }
   },
   check() {
     return pool
-      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.live.outbox }, [
+      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.root.live.outbox }, [
           'synthetic-session-0',
         ])
       : null

@@ -4,6 +4,7 @@ import { createAutomationsCommands } from './automations'
 import type { AutomationsCommands } from './automations-types'
 import type { CommandDeps } from './context'
 import { createFilesCommands } from './files'
+import { reportCommandFailures } from './failures'
 import type { FilesCommands } from './files-types'
 import { createIssuesCommands } from './issues'
 import type { IssuesCommands } from './issues-types'
@@ -34,15 +35,19 @@ export interface Commands<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly records: RecordsApi
 }
 
-export function createCommands<TApi extends PodiumClientApi>(deps: CommandDeps<TApi>): Commands<TApi> {
+export function createCommands<TApi extends PodiumClientApi>(
+  deps: CommandDeps<TApi>,
+): Commands<TApi> {
   const shared = createCommandWrites(deps)
+  const reported = <T extends object>(family: T): T =>
+    reportCommandFailures(family, shared.reportFailure)
   return {
-    sessions: createSessionsCommands(deps, shared),
-    issues: createIssuesCommands(deps, shared),
-    files: createFilesCommands(deps),
-    preferences: createPreferencesCommands(deps, shared),
-    automations: createAutomationsCommands(deps, shared),
-    threads: createThreadsCommands(deps, shared),
+    sessions: reported(createSessionsCommands(deps, shared)),
+    issues: reported(createIssuesCommands(deps, shared)),
+    files: reported(createFilesCommands(deps)),
+    preferences: reported(createPreferencesCommands(deps, shared)),
+    automations: reported(createAutomationsCommands(deps, shared)),
+    threads: reported(createThreadsCommands(deps, shared)),
     records: shared.records,
   }
 }

@@ -306,8 +306,8 @@ describe('mobile pool ownership', () => {
     await waitFor(() =>
       expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
     )
-    await waitFor(() => expect(firstRuntime.live.outbox.pending).toBe(2))
-    await firstRuntime.replica.flush()
+    await waitFor(() => expect(firstRuntime.root.live.outbox.pending).toBe(2))
+    await firstRuntime.root.replica.flush()
     await first.quit()
     state.pools.length = 0
 

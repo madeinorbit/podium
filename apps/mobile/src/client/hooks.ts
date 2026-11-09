@@ -37,7 +37,7 @@ export {
 type MobileStore = Store<MobileTrpc>
 
 /** The existing replica handle, acquired without a snapshot subscription. */
-export function useReplica(): MobileStore['replica'] {
+export function useReplica(): import('@podium/client-core/replica').Replica {
   return useCoreReplica()
 }
 
@@ -93,7 +93,7 @@ const serverBuildOf = (live: LiveStore): string | undefined => live.connection.s
  * only when `read`'s answer changes. `read` must be a stable function.
  */
 function useLiveValue<T>(read: (live: LiveStore) => T): T {
-  const live = useClientRuntime<MobileTrpc>().live
+  const live = useClientRuntime<MobileTrpc>().root.live
   const [value, setValue] = useState(() => read(live))
   useEffect(() => reaction(() => read(live), setValue, { fireImmediately: true }), [live, read])
   return value

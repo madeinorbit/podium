@@ -186,7 +186,7 @@ export function watchReference(owner: ClientRuntime, changed: () => void): () =>
       ) as import('@podium/client-core/engine').LocalKey[],
       changed,
     ),
-    owner.replica.subscribeRowBatch!(changed),
+    owner.root.replica.subscribeRowBatch!(changed),
   ]
   return () =>
     stops.forEach((stop) => {

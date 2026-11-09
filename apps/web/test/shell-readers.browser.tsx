@@ -158,7 +158,9 @@ const recordCommit = (id: string) => {
 storeStats.enable()
 document.documentElement.classList.add('dark')
 const emit = (kind: string, value: unknown) =>
-  (runtime!.hub as unknown as { emit(kind: string, value: unknown): void }).emit(kind, value)
+  (
+    runtime!.root.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
+  ).emit(kind, value)
 const apply = (value: object) => (runtime as unknown as { apply(value: object): void }).apply(value)
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
@@ -281,9 +283,9 @@ root.render(
     onFatalError={(message) => failures.push(message)}
     attachRuntime={(owner) => {
       runtime = owner
-      fixture.bindHub(owner.hub, undefined, owner.live)
+      fixture.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
       fixture.publishMachines()
-      Object.assign(owner.hub, {
+      Object.assign(owner.root.services.connection.hub, {
         dismissOpenUrl: () => {
           effects.dismisses++
         },

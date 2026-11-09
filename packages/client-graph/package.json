@@ -46,6 +46,11 @@
       "@podium/source": "./src/*.ts",
       "types": "./src/*.ts",
       "import": "./src/*.ts"
+    },
+    "./source-ports": {
+      "@podium/source": "./src/source-ports.ts",
+      "types": "./src/source-ports.ts",
+      "import": "./src/source-ports.ts"
     }
   },
   "scripts": {

@@ -1,3 +1,10 @@
+import {
+  superagentSourcePorts,
+  chatSourcePorts,
+  replicaSourcePorts,
+} from '@podium/client-graph/source-ports'
+import { omitGone } from './lookup'
+import { headerEntities } from './header-entities'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
@@ -120,18 +127,18 @@ async function fixture(scale: 1 | 4) {
   const settings = new SettingsSource(add('settings'))
   settings.read('settingsWindow', 'window')
   stops.push(() => settings.dispose())
-  const superagent = await createSuperagentSource(add('superagent'))
+  const superagent = await createSuperagentSource(superagentSourcePorts(add('superagent')))
   superagent.read('superagentLocal', 'local')
   stops.push(() => superagent.dispose())
-  const chat = new ChatContextSource(add('chatContext'), pool)
+  const chat = new ChatContextSource(chatSourcePorts(add('chatContext')), pool)
   const session = ctx.targets.phaseSessionId
   chat.read('chatDraft', session)
   chat.read('chatWindow', 'window')
   stops.push(() => chat.dispose())
-  const inbox = new MobileInboxSource(add('mobileInbox'), pool)
+  const inbox = new MobileInboxSource(replicaSourcePorts(add('mobileInbox')), pool)
   inbox.read('mobileInboxState', 'state')
   stops.push(() => inbox.dispose())
-  const mobileSettings = await createMobileSettingsSource(add('mobileSettings'))
+  const mobileSettings = await createMobileSettingsSource(replicaSourcePorts(add('mobileSettings')))
   mobileSettings.read('mobileSettingsDiagnostics', 'diagnostics')
   stops.push(() => mobileSettings.dispose())
   const mobileSession = createMobileSessionSource(add('mobileSession'), pool)
@@ -285,7 +292,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
 
     it(`an issue batch wakes only the exit readers of the ids it names (${scale}x)`, async () => {
       const f = await fixture(scale)
-      const stop = attachIssuePageSource(f.pool, f.rt)
+      const stop = attachIssuePageSource(f.pool, replicaSourcePorts(f.rt))
       try {
         const renamed = f.ctx.targets.visibleRootId
         const other = [...f.pool.tables.issue.keys()].find((id) => id !== renamed) ?? ''

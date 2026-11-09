@@ -62,7 +62,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
   constructor(
     private readonly runtime: Pick<
       ClientRuntime,
-      'ui' | 'palette' | 'autoContinueDialog' | 'replica'
+      'ui' | 'palette' | 'autoContinueDialog' | 'root'
     >,
   ) {
     const lanes = () => {

@@ -42,7 +42,7 @@ it('declares launch and palette demand after attachment, follows window updates 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub, undefined, runtime.live)
+          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
           let detach: (() => void) | undefined
           attach = () => {
             detach = attachWorklistPool(runtime, fatal)
@@ -112,7 +112,7 @@ it('mounts the actual closed palette without issue/session demand at 1x/4x, then
       return <StoreProvider principal={asClientPrincipal(asUserId(`closed-palette-${scale}`))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
         createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-        attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); return attachWorklistPool(runtime, fatal) }}>
+        attachRuntime={runtime => { fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live); return attachWorklistPool(runtime, fatal) }}>
         <ConfirmProvider><CommandPalette />{children}</ConfirmProvider>
       </StoreProvider>
     }

@@ -115,7 +115,7 @@ root.render(
     attachRuntime={(owner) => {
       // Feed synthetic deltas through the real transcript controller and
       // compute worker without connecting this fixture to a server.
-      owner.hub.subscribeTranscript = (id, _since, listener) => {
+      owner.root.services.connection.hub.subscribeTranscript = (id, _since, listener) => {
         if (id !== sessionId) throw new Error('Unexpected fixture transcript')
         transcriptListeners.add(listener)
         return () => {

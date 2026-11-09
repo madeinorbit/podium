@@ -36,7 +36,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/lib/use-persisted-ui-state', () => ({
   usePersistedUiValue: (key: string, parse: (raw: string | null) => unknown) =>
-    parse(fixture.deviceState.get(key)),
+    parse(fixture.access.uiState.get(key)),
 }))
 vi.mock('./useFileDocument', () => ({
   useFileDocument: () => ({

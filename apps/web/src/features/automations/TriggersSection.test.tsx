@@ -52,7 +52,7 @@ function setup(subs: ReturnType<typeof subscription>[]) {
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.root.services.connection.hub)
           return attachWorklistPool(runtime, fatal)
         }}
       >
@@ -65,14 +65,18 @@ function setup(subs: ReturnType<typeof subscription>[]) {
 
 describe('TriggersSection', () => {
   it('lists my subscriptions from the pool, each with its state, and asks for no list (POD-6676)', async () => {
-    const { list, fatal, Wrapper } = setup(Array.from({ length: 5 }, (_, index) => subscription(index)))
+    const { list, fatal, Wrapper } = setup(
+      Array.from({ length: 5 }, (_, index) => subscription(index)),
+    )
     render(
       <Wrapper>
         <TriggersSection trpc={{} as Trpc} />
       </Wrapper>,
     )
     await waitFor(() => expect(screen.getAllByRole('switch')).toHaveLength(5))
-    const states = screen.getAllByRole('switch').map((toggle) => toggle.getAttribute('aria-checked'))
+    const states = screen
+      .getAllByRole('switch')
+      .map((toggle) => toggle.getAttribute('aria-checked'))
     expect(states).toEqual(['true', 'false', 'true', 'false', 'true'])
     // The records arrive on the feed: the old paged request is never made.
     expect(list).not.toHaveBeenCalled()

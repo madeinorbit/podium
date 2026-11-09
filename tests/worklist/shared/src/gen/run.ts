@@ -1,5 +1,9 @@
 import { referenceState, watchReference } from '../../../diagnostics/reference-state'
-import { SYNTHETIC_CLAUDE_KIND, SYNTHETIC_CODEX_KIND, SYNTHETIC_CODEX_TITLE } from '../../../harness/src/fixture/fixture-kinds.fixtures'
+import {
+  SYNTHETIC_CLAUDE_KIND,
+  SYNTHETIC_CODEX_KIND,
+  SYNTHETIC_CODEX_TITLE,
+} from '../../../harness/src/fixture/fixture-kinds.fixtures'
 import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
@@ -240,12 +244,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   let index = 0
 
   const outboxIds = (): string[] => [
-    ...ctx.engine.outbox.pending().map((e) => e.mutationId as string),
-    ...ctx.engine.outbox.awaiting().map((e) => e.mutationId as string),
+    ...ctx.engine.root.services.outbox.queue.pending().map((e) => e.mutationId as string),
+    ...ctx.engine.root.services.outbox.queue.awaiting().map((e) => e.mutationId as string),
     ...server.arrivals.map((a) => a.mutationId),
   ]
   const activity = (): string =>
-    `${publications}:${server.activity}:${ctx.engine.outbox.size()}:${ctx.engine.outbox.awaiting().length}`
+    `${publications}:${server.activity}:${ctx.engine.root.services.outbox.queue.size()}:${ctx.engine.root.services.outbox.queue.awaiting().length}`
 
   const quiesce = async (): Promise<void> => {
     let quiet = 0
@@ -741,7 +745,9 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         }
         detail['mutationIds'] = ids
         if (armTxIds.length > 0) detail['armTxIds'] = armTxIds
-        const queued = new Set(ctx.engine.outbox.pending().map((e) => e.mutationId as string))
+        const queued = new Set(
+          ctx.engine.root.services.outbox.queue.pending().map((e) => e.mutationId as string),
+        )
         detail['collapsed'] =
           ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
         return ids.length === 0 ? 'no outbox entry' : null

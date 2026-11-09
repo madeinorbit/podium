@@ -118,7 +118,7 @@ function App() {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub, runtime.live)
+        fixture.bindHub(runtime.root.services.connection.hub, runtime.root.live)
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >

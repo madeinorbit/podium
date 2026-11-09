@@ -1,3 +1,9 @@
+import {
+  replicaSourcePorts,
+  noticeSourcePorts,
+  superagentSourcePorts,
+  chatSourcePorts,
+} from '@podium/client-graph/source-ports'
 import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
@@ -371,20 +377,32 @@ async function measureScreenCells(
   const values = new Map<string, unknown>()
   try {
     const commands = attachCommandLaunchSource(pool, ctx.engine)
-    stops.push(() => commands.dispose(), attachIssuePageSource(pool, ctx.engine))
+    stops.push(
+      () => commands.dispose(),
+      attachIssuePageSource(pool, replicaSourcePorts(ctx.engine)),
+    )
     pool.sources.register(SHELL_ENTITIES, new ShellSource(ctx.engine))
-    pool.sources.register(NOTICE_ENTITIES, new NoticeSource(ctx.engine))
+    pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(ctx.engine)))
     pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(ctx.engine))
-    pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(ctx.engine))
-    pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(ctx.engine.replica))
-    pool.sources.register(MOBILE_INBOX_ENTITIES, new MobileInboxSource(ctx.engine, pool))
-    pool.sources.register(MOBILE_SETTINGS_ENTITIES, await createMobileSettingsSource(ctx.engine))
+    pool.sources.register(
+      SUPERAGENT_ENTITIES,
+      await createSuperagentSource(superagentSourcePorts(ctx.engine)),
+    )
+    pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(ctx.engine.root.replica))
+    pool.sources.register(
+      MOBILE_INBOX_ENTITIES,
+      new MobileInboxSource(replicaSourcePorts(ctx.engine), pool),
+    )
+    pool.sources.register(
+      MOBILE_SETTINGS_ENTITIES,
+      await createMobileSettingsSource(replicaSourcePorts(ctx.engine)),
+    )
     // This app attachment shares the pane/notice/chat sources through ensure.
     // Register chat through its normal ensure key before the mobile attachment.
     await pool.sources.ensure(
       'chat-context',
       CHAT_CONTEXT_ENTITIES,
-      () => new ChatContextSource(ctx.engine, pool),
+      () => new ChatContextSource(chatSourcePorts(ctx.engine), pool),
     )
     // Pane and exit sources are attached below by the mobile seam; pane is already
     // installed above, so attach only the mobile reader/window with its factory.
@@ -395,7 +413,10 @@ async function measureScreenCells(
     pool.sources.register(MOBILE_SESSION_ENTITIES, createMobileSessionSource(ctx.engine, pool))
     const { createSessionExitSource } = await import('@podium/client-graph/session-exit-source')
     const { SESSION_EXIT_ENTITIES } = await import('@podium/client-graph/session-exit-schema')
-    pool.sources.register(SESSION_EXIT_ENTITIES, await createSessionExitSource(ctx.engine))
+    pool.sources.register(
+      SESSION_EXIT_ENTITIES,
+      await createSessionExitSource(replicaSourcePorts(ctx.engine)),
+    )
     const board = createIssueBoardSource(pool, ctx.engine)
     pool.sources.register(ISSUE_BOARD_ENTITIES, board)
     const shell = shellViews(pool),

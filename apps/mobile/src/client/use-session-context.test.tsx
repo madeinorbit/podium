@@ -397,7 +397,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.hub, undefined, owner.live)
+          data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
           data.publishMachines()
           referenceState(owner).setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))
@@ -521,7 +521,7 @@ it('renders the same six phone readers through real late attachment with no Reac
 
 it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
   const enabled = await mount()
-  const wholeRows = vi.spyOn(enabled.runtime.replica, 'rows')
+  const wholeRows = vi.spyOn(enabled.runtime.root.replica, 'rows')
   expect(enabled.runtime).not.toHaveProperty('getSnapshot')
   await act(async () => {
     enabled.data.activity(1)
@@ -615,7 +615,10 @@ it('borrows each shared source once and keeps the conversation bridge across dra
   await act(async () => {
     enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })
     enabled.data.patch('pendingInteraction', 'notice-ask-2', { status: 'answered' })
-    await enabled.runtime.outbox.enqueue('sendText', { sessionId: SID, text: 'Held owner send' })
+    await enabled.runtime.root.services.outbox.queue.enqueue('sendText', {
+      sessionId: SID,
+      text: 'Held owner send',
+    })
     referenceState(enabled.runtime).setSessionDraft(SID, 'Later draft')
   })
   await waitFor(() => expect(outbox.held()).toMatchObject([{ text: 'Held owner send' }]))
@@ -637,7 +640,7 @@ it('keeps the original mutation owner when the pool conversation edits its draft
   await waitFor(() => expect(enabled.runtime.drafts.get(SID)).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
   await waitFor(() =>
-    expect(enabled.runtime.outbox.pending()).toContainEqual(
+    expect(enabled.runtime.root.services.outbox.queue.pending()).toContainEqual(
       expect.objectContaining({
         kind: 'sendText',
         input: expect.objectContaining({ sessionId: SID, text: 'New synthetic prompt' }),

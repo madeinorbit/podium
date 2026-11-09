@@ -131,7 +131,7 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub, undefined, runtime.live)
+          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >
@@ -210,7 +210,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub, undefined, runtime.live)
+          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >
@@ -345,7 +345,7 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub, undefined, runtime.live)
+          fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
           return attachWorklistPool(runtime, fatal)
         }}
       >

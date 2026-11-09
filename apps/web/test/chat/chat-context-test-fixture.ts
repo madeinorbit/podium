@@ -1,5 +1,12 @@
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
 import '@podium/client-graph/synced-models'
+import {
+  noticeSourcePorts,
+  superagentSourcePorts,
+  replicaSourcePorts,
+  chatSourcePorts,
+} from '@podium/client-graph/source-ports'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -11,6 +18,22 @@ type Store = ReferenceState & { drafts: Record<string, string> }
 
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asMutationId,
+  asSessionId,
+  DEFAULT_HARNESS_AGENT,
+  type SessionId,
+} from '@podium/model/browser'
+import {
+  asThreadId,
+  asUserId,
+  dedupeSessionsByResume,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
+} from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import {
   CHAT_CONTEXT_ENTITIES,
@@ -19,6 +42,11 @@ import {
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
+import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
+import {
+  createSessionExitSource,
+  SESSION_EXIT_SOURCE_KEY,
+} from '@podium/client-graph/session-exit-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import {
   createSessionExitSource,
@@ -250,8 +278,8 @@ export async function createChatContextFixture(resumeTwins = false) {
     selectedWorktree: null,
     machines: [{ id: 'chat-machine', name: 'Synthetic host', online: true }],
     repos: [{ path: '/synthetic/project', worktrees: [] }],
-    chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id),
-    replica: owner.replica,
+    chatSendsFor: (id: SessionId) => outboxChatSends(owner.root.services.outbox.queue, id),
+    replica: owner.root.replica,
     setSessionDraft: (id: string, text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
       drafts.set(id as SessionId, text)
@@ -299,13 +327,13 @@ export async function createChatContextFixture(resumeTwins = false) {
   ] as never)
   headerEntities(pool).order('machine', ['chat-machine'])
   headerEntities(pool).order('repository', ['/synthetic/project'])
-  pool.sources.register(NOTICE_ENTITIES, new NoticeSource(owner))
-  pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(owner))
+  pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(owner)))
+  pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(superagentSourcePorts(owner)))
   const exitSource = await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
-    createSessionExitSource(owner),
+    createSessionExitSource(replicaSourcePorts(owner)),
   )
   pool.sources.view('test.chatFixture.ui', () => ({ dispose: () => disposeFixtureUi(owner) }))
-  const source = new ChatContextSource(owner, pool)
+  const source = new ChatContextSource(chatSourcePorts(owner), pool)
   pool.sources.register(CHAT_CONTEXT_ENTITIES, source)
   const check = (override = state, models = issues.filter((row) => !row.deletedAt)) =>
     checkChatContext(

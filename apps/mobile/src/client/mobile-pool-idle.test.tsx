@@ -48,7 +48,7 @@ it.each([
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub, undefined, owner.live)
+        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >
@@ -65,7 +65,7 @@ it.each([
     expect(view.getByTestId('phone').textContent).toBe(`Synthetic agent 0||${12 * scale + 2}`),
   )
 
-  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
+  const wholeRows = vi.spyOn(runtime!.root.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
@@ -91,7 +91,9 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => runtime!.access.setSessionDraft(sid, 'Phone draft'))
+  await check('draft write', () =>
+    runtime!.root.commands.sessions.setSessionDraft(sid, 'Phone draft'),
+  )
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(
       `Phone pool name|Phone draft|${12 * scale + 2}`,

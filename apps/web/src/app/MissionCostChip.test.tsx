@@ -66,7 +66,7 @@ let answer: TaskCostWire = wire()
 // One stable handle, as the app's: readers key their models on `trpc` identity.
 const storeHandle = vi.hoisted(() => ({ access: { trpc: {} as Record<string, unknown> } }))
 vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => storeHandle) }))
-storeHandle.root.api = {
+storeHandle.access.trpc = {
   cost: {
     task: { query: () => Promise.resolve(answer) },
     tasks: { query: () => Promise.resolve(cohortRows) },

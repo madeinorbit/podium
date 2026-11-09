@@ -312,10 +312,10 @@ function makeEngine(
   })
   engine.setNavigationProvider(
     fixtureNavigation({
-      issues: () => engine.replica.rows('issueProjections'),
-      sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
-      markers: () => engine.replica.rows('issueUserStates'),
-      follow: (changed) => engine.replica.subscribeRows('sessions', changed),
+      issues: () => engine.root.replica.rows('issueProjections'),
+      sessions: () => engine.root.replica.rows('sessions') as unknown as SessionView[],
+      markers: () => engine.root.replica.rows('issueUserStates'),
+      follow: (changed) => engine.root.replica.subscribeRows('sessions', changed),
     }),
   )
   return { engine, hub, rw, fatals, errors }
@@ -611,7 +611,7 @@ describe('replicated layout routing', () => {
       const fixture = makeEngine()
       fixture.engine.attachPoolWriter({
         write: async (kind, input) => {
-          await fixture.engine.outbox.enqueue(kind, input)
+          await fixture.engine.root.services.outbox.queue.enqueue(kind, input)
         },
       })
       return fixture
@@ -624,19 +624,23 @@ describe('replicated layout routing', () => {
       kind: 'recordEdit',
       input: { kind: 'userLayout', id: expect.stringContaining(key), patch: { value } },
     })
-    expect(dock.engine.outbox.pending()).toMatchObject([layout('dockTab', 'git')])
+    expect(dock.engine.root.services.outbox.queue.pending()).toMatchObject([
+      layout('dockTab', 'git'),
+    ])
     dock.engine.dispose()
 
     const superPanel = withWriter()
     superPanel.engine.access.setSuperOpen(false)
     await settle()
-    expect(superPanel.engine.outbox.pending()).toMatchObject([layout('superOpen', '0')])
+    expect(superPanel.engine.root.services.outbox.queue.pending()).toMatchObject([
+      layout('superOpen', '0'),
+    ])
     superPanel.engine.dispose()
 
     const panelMode = withWriter()
     panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
-    expect(panelMode.engine.outbox.pending()).toMatchObject([
+    expect(panelMode.engine.root.services.outbox.queue.pending()).toMatchObject([
       layout('panelMode', JSON.stringify({ 'session-1': 'native' })),
     ])
     panelMode.engine.dispose()
@@ -661,9 +665,9 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     ])
     engine.destroy()
     expect(hub.topicHolds.size).toBe(0)
-    expect(engine.live.isDisposed).toBe(true)
-    expect(engine.live.quota.known).toBe(false)
-    expect(engine.live.machineConditions.size).toBe(0)
+    expect(engine.root.live.isDisposed).toBe(true)
+    expect(engine.root.live.quota.known).toBe(false)
+    expect(engine.root.live.machineConditions.size).toBe(0)
   })
 
   it('a new runtime starts with every reading unknown: nothing from a previous run survives', async () => {
@@ -676,7 +680,7 @@ describe('the LiveStore lifetime (POD-5798)', () => {
     const second = makeEngine({ storage, networkEnabled: false })
     second.engine.start()
     await settle()
-    const live = second.engine.live
+    const live = second.engine.root.live
     expect(live.connection.state).toBe('connecting')
     expect(live.connection.serverBuild).toBeUndefined()
     expect(live.quota.known).toBe(false)
@@ -911,7 +915,9 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
+    engine.root.replica.applySnapshot('sessions', [
+      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
+    ])
     await settle()
     engine.access.openFile(asSessionId('s1'), 'notes.md')
     await settle()
@@ -963,7 +969,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
+    engine.root.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
     await settle()
     engine.access.setSelectedIssueId(asIssueId('iss_9'))
     engine.access.openFile(asSessionId('s1'), 'notes.md')
@@ -983,7 +989,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.replica.applySnapshot('sessions', [
+    engine.root.replica.applySnapshot('sessions', [
       {
         ...session('s1', '/tmp/known-repo/.worktrees/wt1'),
         issueId: asIssueId('iss_own'),
@@ -1298,7 +1304,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const commit = new Promise<void>((resolve) => {
       release = resolve
     })
-    first.engine.outbox.flushLocalWrites = () => commit
+    first.engine.root.services.outbox.queue.flushLocalWrites = () => commit
     first.engine.root.commands.sessions.setSessionDraft(SID, 'before commit')
     const prepared = first.engine.prepareReload()
     first.engine.root.commands.sessions.setSessionDraft(SID, 'typed during commit')

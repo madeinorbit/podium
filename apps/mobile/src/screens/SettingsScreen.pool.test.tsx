@@ -198,9 +198,9 @@ async function mount(count = 8, scale?: number) {
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => errors.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub, undefined, owner.live)
+        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
         // This phone fixture starts offline with its saved records.
-        owner.live.setConnection({ state: 'offline', since: 0 })
+        owner.root.live.setConnection({ state: 'offline', since: 0 })
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
@@ -230,10 +230,11 @@ async function mount(count = 8, scale?: number) {
       hostname: row.hostname,
     }))
     await act(async () => {
-      ;(runtime.hub as unknown as { emit(kind: string, value: unknown): void }).emit(
-        'machines',
-        machines,
-      )
+      ;(
+        runtime.root.services.connection.hub as unknown as {
+          emit(kind: string, value: unknown): void
+        }
+      ).emit('machines', machines)
       data.publishHostMetrics(hosts as HostMetricsWire[])
     })
   }
@@ -290,7 +291,7 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
     await record('repository', () =>
       current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }),
     )
-    const cursor = vi.spyOn(current.runtime.replica, 'getCursor').mockReturnValue(42)
+    const cursor = vi.spyOn(current.runtime.root.replica, 'getCursor').mockReturnValue(42)
     await record('heartbeat', () =>
       current.data.replica.onKernelEvent({
         type: 'cursor',

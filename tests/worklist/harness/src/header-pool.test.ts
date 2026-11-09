@@ -47,10 +47,10 @@ async function fixture(scale: 1 | 4 = 1) {
   const inputs = () => ({
     metrics: headerView(handle.pool).metrics(),
     quotas: [],
-    connection: ctx.engine.live.connection,
+    connection: ctx.engine.root.live.connection,
     lifecycle: headerView(handle.pool).lifecycle() ?? undefined,
     history: headerRequests(handle.pool)?.history ?? undefined,
-    outboxSize: ctx.engine.live.outbox.pending,
+    outboxSize: ctx.engine.root.live.outbox.pending,
   })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {
@@ -166,7 +166,9 @@ describe('header pool values', () => {
       to: 'machine',
       inverse: 'sessions',
     })
-    expect(HEADER_RELATIONS.some((relation) => relation.from === ('hostMetric' as string))).toBe(false)
+    expect(HEADER_RELATIONS.some((relation) => relation.from === ('hostMetric' as string))).toBe(
+      false,
+    )
   })
 
   it('the checker detects value and extra-row faults', async () => {

@@ -7,7 +7,7 @@ import type { PoolSummaryFields } from '@podium/client-graph/source-registry'
 import { EMPTY_PENDING } from './row-source'
 
 export function createReadOnlyRuntimePool(runtime: WorklistRuntime, summaries: PoolSummaryFields) {
-  const rows = createRowSource(runtime, runtime.replica, { pending: EMPTY_PENDING })
+  const rows = createRowSource(runtime, runtime.root.replica, { pending: EMPTY_PENDING })
   const locals = createEngineLocals(runtime)
   try {
     const handle = createWorklistPool(
@@ -16,7 +16,7 @@ export function createReadOnlyRuntimePool(runtime: WorklistRuntime, summaries: P
         ...(rows.source.issueIdsByRef
           ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] }
           : {}),
-        subscribe: listener => rows.source.subscribe(listener),
+        subscribe: (listener) => rows.source.subscribe(listener),
       },
       locals.source,
       { summaries, worklist: 'demand' },
@@ -24,13 +24,23 @@ export function createReadOnlyRuntimePool(runtime: WorklistRuntime, summaries: P
     return {
       pool: handle.pool,
       dispose() {
-        try { handle.dispose() } finally {
-          try { locals.dispose() } finally { rows.dispose() }
+        try {
+          handle.dispose()
+        } finally {
+          try {
+            locals.dispose()
+          } finally {
+            rows.dispose()
+          }
         }
       },
     }
   } catch (error) {
-    try { locals.dispose() } finally { rows.dispose() }
+    try {
+      locals.dispose()
+    } finally {
+      rows.dispose()
+    }
     throw error
   }
 }

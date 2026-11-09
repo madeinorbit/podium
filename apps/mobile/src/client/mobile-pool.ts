@@ -1,3 +1,4 @@
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 /** The phone uses one shared pool over its existing runtime, replica and outbox.
  * Screens read only that pool; actions keep the existing store API and owner. */
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
@@ -90,7 +91,7 @@ export function createMobilePool(dev: boolean): MobilePool {
             MOBILE_SETTINGS_ENTITIES,
           } = await import('@podium/client-graph/mobile-settings')
           await pool.sources.ensure(MOBILE_SETTINGS_SOURCE_KEY, MOBILE_SETTINGS_ENTITIES, () =>
-            createMobileSettingsSource(runtime),
+            createMobileSettingsSource(replicaSourcePorts(runtime)),
           )
           await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>
             createSuperagentSource({

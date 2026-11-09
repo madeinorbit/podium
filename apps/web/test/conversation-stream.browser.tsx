@@ -21,9 +21,9 @@ root.render(<StoreProvider
   createReplicaFn={() => source.replica()}
   onFatalError={error => errors.push(error)}
   attachRuntime={runtime => {
-    fixture.bindHub(runtime.hub, undefined, runtime.live)
+    fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
     fixture.publishMachines()
-    runtime.hub.subscribeTranscript = (_id, _since, listener) => {
+    runtime.root.services.connection.hub.subscribeTranscript = (_id, _since, listener) => {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     }

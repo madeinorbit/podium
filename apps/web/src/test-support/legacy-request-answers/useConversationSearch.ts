@@ -1,6 +1,6 @@
 // Frozen legacy owner for the before/after fixture proof; never imported by product code.
 import { useEffect, useRef, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
+import { useRequestClient } from '@podium/client-core/react'
 import type { Trpc } from '@/app/trpc'
 
 /**
@@ -23,7 +23,7 @@ export function useConversationSearch(opts: {
   enabled?: boolean
   debounceMs?: number
 }): { hits: ConversationHit[]; busy: boolean } {
-  const trpc = useRuntimeSelector((s) => s.trpc)
+  const trpc = useRequestClient<import('@/app/trpc').Trpc>()
   const { query, projectPath, limit, enabled = true, debounceMs = 160 } = opts
   const [hits, setHits] = useState<ConversationHit[]>([])
   const [busy, setBusy] = useState(false)

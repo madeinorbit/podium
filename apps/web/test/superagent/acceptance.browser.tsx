@@ -58,7 +58,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => errors.push(error)}
     attachRuntime={(owner) => {
-      data.bindHub(owner.hub, undefined, owner.live)
+      data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
       owner.readPosition.replace({
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })

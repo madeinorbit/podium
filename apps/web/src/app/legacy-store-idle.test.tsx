@@ -84,7 +84,7 @@ it.each([
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub, undefined, owner.live)
+        data.bindHub(owner.root.services.connection.hub, undefined, owner.root.live)
         owner.access.setPanelMode(sid, 'chat')
         return attachWorklistPool(owner, (error) => failures.push(error))
       }}
@@ -113,7 +113,7 @@ it.each([
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
+  const wholeRows = vi.spyOn(runtime!.root.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
@@ -141,7 +141,9 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => runtime!.access.setSessionDraft(sid, 'Pool draft'))
+  await check('draft write', () =>
+    runtime!.root.commands.sessions.setSessionDraft(sid, 'Pool draft'),
+  )
   expect(view.getByTestId('locals').textContent).toBe('Pool draft|')
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('mapped dock change', () =>

@@ -112,7 +112,7 @@ describe('StoreProvider owns the sidebar pool', () => {
       ...screenOptions(poolBackedScreens, runtime!),
     })
     expect(replicaFactory).toHaveBeenCalledTimes(1)
-    expect(runtime!.replica).toBe(referenceState(runtime!).replica)
+    expect(runtime!.root.replica).toBe(referenceState(runtime!).replica)
     render()
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)

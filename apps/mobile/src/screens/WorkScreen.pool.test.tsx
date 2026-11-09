@@ -16,13 +16,7 @@ import {
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '../lib/work-sections'
-import {
-  asIssueId,
-  asSessionId,
-  isSortKey,
-  issueDepId,
-  sortKeyBetween,
-} from '@podium/model'
+import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Profiler, type ReactNode } from 'react'
@@ -221,15 +215,20 @@ vi.mock('../components/WorkIssueMenu', () => ({
   }) => {
     const row = state.pool!.worklistRow(target.issue.id)!
     return (
-    <div
-      data-testid="menu"
-      data-issue={target.issue.id}
-      data-issues={1 + row.visibleDescendantIds.length}
-      data-sessions={state.pool!.graph.subsetSize('issue', target.issue.id, 'pageSessions', 'unarchived')}
-      data-session-count={target.sessionCount}
-    >
-      <button type="button" aria-label="Close row menu" onClick={onClose} />
-    </div>
+      <div
+        data-testid="menu"
+        data-issue={target.issue.id}
+        data-issues={1 + row.visibleDescendantIds.length}
+        data-sessions={state.pool!.graph.subsetSize(
+          'issue',
+          target.issue.id,
+          'pageSessions',
+          'unarchived',
+        )}
+        data-session-count={target.sessionCount}
+      >
+        <button type="button" aria-label="Close row menu" onClick={onClose} />
+      </div>
     )
   },
 }))
@@ -365,20 +364,34 @@ async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
 function clickCorpus(scale: 1 | 4) {
   const base = buildCorpus(1)
   const larger = scale === 1 ? base : buildCorpus(scale)
-  const baseIssues = new Set(base.issueProjections.map(row => row.id))
-  const baseSessions = new Set(base.sessions.map(row => row.sessionId))
+  const baseIssues = new Set(base.issueProjections.map((row) => row.id))
+  const baseSessions = new Set(base.sessions.map((row) => row.sessionId))
   // Folding Pinned reveals project rows in the calm list. Keep those rows and
   // their descendant graphs identical too; grow unrelated archived history.
   // A different random live project at 4x is a different addressed workload.
-  const corpus = scale === 1 ? base : {
-    ...base,
-    issueProjections: [...base.issueProjections, ...larger.issueProjections
-      .filter(row => !baseIssues.has(row.id))
-      .map(row => ({ ...row, archived: true, parentId: undefined }))],
-    sessions: [...base.sessions, ...larger.sessions
-      .filter(row => !baseSessions.has(row.sessionId))
-      .map(row => ({ ...row, archived: true, issueId: undefined, refIssueId: undefined }))],
-  }
+  const corpus =
+    scale === 1
+      ? base
+      : {
+          ...base,
+          issueProjections: [
+            ...base.issueProjections,
+            ...larger.issueProjections
+              .filter((row) => !baseIssues.has(row.id))
+              .map((row) => ({ ...row, archived: true, parentId: undefined })),
+          ],
+          sessions: [
+            ...base.sessions,
+            ...larger.sessions
+              .filter((row) => !baseSessions.has(row.sessionId))
+              .map((row) => ({
+                ...row,
+                archived: true,
+                issueId: undefined,
+                refIssueId: undefined,
+              })),
+          ],
+        }
   const id = asIssueId('phone-click-target'),
     origin = asIssueId('phone-click-origin')
   const firstKey = corpus.issueProjections
@@ -536,9 +549,7 @@ describe('mobile WorkScreen pool consumer', () => {
       const originalRow = pool.row
       const row = originalRow.bind(pool)
       // A counter needs no spy history or global spy-registry reference to this pool.
-      pool.row = ((
-        ...args: Parameters<typeof pool.row>
-      ) => {
+      pool.row = ((...args: Parameters<typeof pool.row>) => {
         rowReads++
         if (args[0] === 'session' && args[1].startsWith('phone-menu-archived-')) archivedReads++
         return row(...args)
@@ -644,7 +655,7 @@ describe('mobile WorkScreen pool consumer', () => {
           .find((ref) => ref.id === 'phone-click-target')!
         expect(first).toBeDefined()
         const title = state
-          .runtime!.replica.rows('issueProjections')
+          .runtime!.root.replica.rows('issueProjections')
           .find((issue) => issue.id === first.id)!.title
         const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
         expect(row).not.toBeNull()
@@ -713,7 +724,11 @@ describe('mobile WorkScreen pool consumer', () => {
     it(`calm rows and unique membership at ${scale}x with no legacy reader`, async () => {
       const pool = await mount(scale)
       await drainNativeLoads()
-      expect(output(pool.view.container).labels.some(label => /^Needs you|^Answer |^Review /.test(label ?? ''))).toBe(false)
+      expect(
+        output(pool.view.container).labels.some((label) =>
+          /^Needs you|^Answer |^Review /.test(label ?? ''),
+        ),
+      ).toBe(false)
       expect(pool.view.container.querySelector('[role=progressbar]')).toBeNull()
       expect(state.sliceReads).toBe(0)
       expect(state.rowDerivations).toBe(0)
@@ -728,9 +743,10 @@ describe('mobile WorkScreen pool consumer', () => {
       const { view, corpus, feed } = await mount(scale)
       const initial = output(view.container)
       // Meter an issue drawn once; a title edit commits every visible band copy.
-      const labels = [...view.container.querySelectorAll('[data-label^="POD-"]')]
-        .map(row => row.getAttribute('data-label')!)
-      const label = labels.find(label => labels.indexOf(label) === labels.lastIndexOf(label))!
+      const labels = [...view.container.querySelectorAll('[data-label^="POD-"]')].map(
+        (row) => row.getAttribute('data-label')!,
+      )
+      const label = labels.find((label) => labels.indexOf(label) === labels.lastIndexOf(label))!
       expect(label).toBeDefined()
       const seq = Number(label.match(/POD-(\d+)/)![1])
       const target = corpus.issueProjections.find((row) => row.seq === seq)!
@@ -776,9 +792,7 @@ describe('mobile WorkScreen pool consumer', () => {
       const singleBand = (id: string) =>
         state.sections.filter((band) => band.data.some((item) => item.id === id)).length === 1
       const section = state.sections.find(
-        (band) =>
-          band.kind === 'project' &&
-          band.data.some((item) => singleBand(item.id)),
+        (band) => band.kind === 'project' && band.data.some((item) => singleBand(item.id)),
       )!
       expect(section).toBeDefined()
       const ref = section.data.find((item) => singleBand(item.id))!

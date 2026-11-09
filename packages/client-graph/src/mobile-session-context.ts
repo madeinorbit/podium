@@ -1,6 +1,7 @@
 import { machineFacts } from './machine-facts'
 import type { MachineModel } from './models'
 import { here, omitGone } from './lookup'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -224,7 +225,7 @@ export async function attachMobileSessionContext(owner: ClientRuntime, pool: Mob
     () => new SessionPaneSource(owner),
   )
   await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
-    createSessionExitSource(owner),
+    createSessionExitSource(replicaSourcePorts(owner)),
   )
   await pool.sources.ensure(
     'chat-context',

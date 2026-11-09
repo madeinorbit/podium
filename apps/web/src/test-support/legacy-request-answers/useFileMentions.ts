@@ -1,7 +1,7 @@
 // Frozen legacy owner for the before/after fixture proof; never imported by product code.
 import type { MachineId } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
+import { useRequestClient } from '@podium/client-core/react'
 import type { AtOption } from '../../lib/at-mention/at-mention'
 import { fileMentions } from '../../lib/at-mention/mention-sources'
 
@@ -37,7 +37,7 @@ export function useFileMentions({
   limit?: number
   debounceMs?: number
 }): AtOption[] {
-  const trpc = useRuntimeSelector((s) => s.trpc)
+  const trpc = useRequestClient<import('@/app/trpc').Trpc>()
   const [options, setOptions] = useState<AtOption[]>([])
   const seq = useRef(0)
 

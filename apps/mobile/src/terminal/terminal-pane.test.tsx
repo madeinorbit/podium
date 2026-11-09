@@ -1,41 +1,6 @@
+import { useCommands } from '@podium/client-core/react'
 import { seedIssueFixtures } from '../client/issue-fixtures'
 import { asUserId } from '@podium/model'
-// @vitest-environment happy-dom
-/**
- * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
- * WHAT it says while there is nothing to look at.
- *
- * ---------------------------------------------------------------------------
- * THE CREATE PATH MUST NOT ATTACH TO A SESSION THE SERVER HAS NEVER HEARD OF
- * (POD-1613).
- *
- * The operator's report: creating a session lands you on it with a permanently
- * blank terminal, while leaving to the overview and coming back renders it fine.
- *
- * The mechanism, measured rather than assumed:
- *
- *   1. `spawnDraftAgent` paints an OPTIMISTIC session row immediately, so
- *      SessionScreen's absence guard passes and TerminalPane mounts at once.
- *   2. `SocketHub.attach` sends its `attach` frame EXACTLY ONCE, at connection
- *      construction (socket-hub.ts) — it is re-sent only when the socket itself
- *      reconnects. A session the server has not created yet drops that frame.
- *   3. Nothing retries. `mountSession`'s `readyTimeoutMs` backstop then fires
- *      `onReady` anyway, so "Attaching terminal…" disappears and the operator is
- *      left looking at an empty grid FOREVER.
- *   4. Navigating away disposes the mount (`hub.detach`), and coming back builds
- *      a fresh connection whose one attach now lands — hence "it's there".
- *
- * This is the same hazard the desktop AgentPanel documents on its own `enabled`
- * gate ("its one-shot attach would be dropped and never retried, so
- * `spawnConfirmed` holds the mount until the reconcile") and defends with
- * `panelGates().terminalMounted`. Mobile gated only on transport connectivity.
- *
- * These cases drive the REAL optimism ledger — `store.spawnDraftAgent` mints the
- * pending id and a replica snapshot retires it — because a fixture that hands
- * the pane an already-confirmed session cannot reproduce a race and would pass
- * against the defect.
- */
-import { useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
@@ -43,7 +8,6 @@ import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
-import type { MobileTrpc } from '../client/trpc'
 import type { TerminalControlState } from './terminal-control'
 
 /**
@@ -144,7 +108,7 @@ let control: {
 } | null = null
 
 function CreateThenAttach() {
-  const store = useRuntimeSelector(s => s)
+  const store = useCommands().sessions
   const [sessionId, setSessionId] = useState<SessionId | null>(null)
   control = {
     spawn: () => store.spawnDraftAgent({ target: TARGET, agentKind: 'claude-code' }).sessionId,
@@ -431,7 +395,11 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     // moving to review must re-arm the overlay, or it keeps yesterday's colour.
     setRefLinksMock.mockClear()
     await act(async () => {
-      seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })], asUserId('user:test'))
+      seedIssueFixtures(
+        replica,
+        [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })],
+        asUserId('user:test'),
+      )
       await Promise.resolve()
     })
     expect(setRefLinksMock).toHaveBeenCalled()
@@ -439,7 +407,11 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
       setRefLinksMock.mockClear()
       await act(async () => {
-        seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'done', closedReason })], asUserId('user:test'))
+        seedIssueFixtures(
+          replica,
+          [issueRow({ id: 'iss-7', seq: 7, stage: 'done', closedReason })],
+          asUserId('user:test'),
+        )
         await Promise.resolve()
       })
       expect(setRefLinksMock).toHaveBeenCalled()

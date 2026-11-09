@@ -51,7 +51,7 @@ const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.
  *  host does (truth mode reads truth but never paints). The engine owns
  *  teardown through `ctx.dispose()`; dispose the feed first. */
 function attachFeed(ctx: ScenarioEngine) {
-  return createRowSource(ctx.engine, ctx.engine.replica, { mode: 'truth' })
+  return createRowSource(ctx.engine, ctx.engine.root.replica, { mode: 'truth' })
 }
 
 function issueRow(ctx: ScenarioEngine, id: string): Record<string, unknown> {
@@ -94,7 +94,9 @@ describe.each([
     // The txId IS the queue entry's mutation id: the ledger holds this
     // mark-read awaiting truth under exactly that id.
     const accepted = events[0]!.txId
-    expect(ctx.engine.outbox.awaiting().map((e) => e.mutationId)).toContain(accepted)
+    expect(ctx.engine.root.services.outbox.queue.awaiting().map((e) => e.mutationId)).toContain(
+      accepted,
+    )
 
     // The echo is recognised by value downstream, not here: no event.
     await writeOptimisticEcho(ctx)
@@ -116,9 +118,12 @@ describe.each([
     expect(events[1]!.txId).not.toBe(accepted)
     // The kernel's own rollback is untouched: the rejected read is gone from
     // every home, and a mark-read is discarded rather than parked.
-    const all = [...ctx.engine.outbox.pending(), ...ctx.engine.outbox.awaiting()]
+    const all = [
+      ...ctx.engine.root.services.outbox.queue.pending(),
+      ...ctx.engine.root.services.outbox.queue.awaiting(),
+    ]
     expect(all.map((e) => e.mutationId)).not.toContain(events[1]!.txId)
-    expect(ctx.engine.outbox.deadLetters()).toEqual([])
+    expect(ctx.engine.root.services.outbox.queue.deadLetters()).toEqual([])
     off()
     feed.dispose()
     ctx.dispose()
@@ -184,7 +189,9 @@ describe('write transport on the kernel queue', () => {
         error: { message: 'issueUpdate refused (invalid)', code: 'invalid', parked: true },
       },
     ])
-    expect(ctx.engine.outbox.deadLetters().map((d) => d.entry.mutationId)).toEqual([tx('2')])
+    expect(
+      ctx.engine.root.services.outbox.queue.deadLetters().map((d) => d.entry.mutationId),
+    ).toEqual([tx('2')])
     feed.dispose()
     ctx.dispose()
   }, 60_000)
@@ -267,9 +274,13 @@ describe('write transport on the kernel queue', () => {
     const id = ctx.targets.markReadId
     const readsFor = async (txId: MutationId): Promise<number> => {
       const spy = vi.spyOn(KernelOutbox.prototype, 'pending')
-      await ctx.engine.outbox.enqueue('recordEdit', markRead(ctx.engine.principal.userId, id), {
-        mutationId: txId,
-      })
+      await ctx.engine.root.services.outbox.queue.enqueue(
+        'recordEdit',
+        markRead(ctx.engine.principal.userId, id),
+        {
+          mutationId: txId,
+        },
+      )
       await tick()
       const n = spy.mock.calls.length
       spy.mockRestore()
@@ -300,7 +311,9 @@ describe('write transport on the kernel queue', () => {
     await writeOptimisticPress(ctx)
     expect(events.map((e) => e.type)).toEqual(['accepted'])
     // The ledger still took the applied entry into awaiting truth.
-    expect(ctx.engine.outbox.awaiting().map((e) => e.mutationId)).toEqual([events[0]!.txId])
+    expect(ctx.engine.root.services.outbox.queue.awaiting().map((e) => e.mutationId)).toEqual([
+      events[0]!.txId,
+    ])
     feed.dispose()
     ctx.dispose()
   }, 60_000)

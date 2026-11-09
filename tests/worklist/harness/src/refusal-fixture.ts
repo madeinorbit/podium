@@ -1,3 +1,4 @@
+import { noticeSourcePorts } from '@podium/client-graph/source-ports'
 import { omitGone } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
@@ -24,9 +25,10 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
     },
     server: {
       issueUpdate: async () => {
-        if (refuses) throw Object.assign(new Error('Synthetic refusal'), {
-          data: { code: 'CONFLICT', httpStatus: 409 },
-        })
+        if (refuses)
+          throw Object.assign(new Error('Synthetic refusal'), {
+            data: { code: 'CONFLICT', httpStatus: 409 },
+          })
         return {}
       },
     },
@@ -34,7 +36,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
 
   const handle = createRuntimeWorklistPool(ctx.engine)
   const { pool } = handle
-  pool.sources.register(NOTICE_ENTITIES, new NoticeSource(ctx.engine))
+  pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(ctx.engine)))
   const id = ctx.targets.visibleRootId
   const stop = autorun(() => {
     omitGone(pool.row('issue', id))
@@ -45,13 +47,24 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
   stop()
   const original = ctx.replica.row!('issueProjections', id)!.title
   return {
-    ctx, handle, pool, id, original,
-    get outbox() { return ctx.engine.outbox },
+    ctx,
+    handle,
+    pool,
+    id,
+    original,
+    get outbox() {
+      return ctx.engine.root.services.outbox.queue
+    },
     setOnline(next: boolean) {
       online = next
       if (next) for (const listener of onlineListeners) listener()
     },
-    accept() { refuses = false },
-    dispose() { handle.dispose(); ctx.engine.destroy() },
+    accept() {
+      refuses = false
+    },
+    dispose() {
+      handle.dispose()
+      ctx.engine.destroy()
+    },
   }
 }

@@ -1,3 +1,4 @@
+import { useChatSends } from '@podium/client-core/react'
 /**
  * A PHONE ERROR NOTICE IS SHOWN ON WHATEVER SCREEN IS UP (POD-4662).
  *
@@ -14,7 +15,6 @@
  * shows here is shown by the shell, not by a screen.
  */
 
-import { useRuntimeSelector } from '@podium/client-core/react'
 import { asSessionId, type SessionMeta, UNADDRESSABLE_SEND_REASON } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
@@ -48,7 +48,7 @@ const deleted = {
  *  reads nothing from the shell, which is the point. */
 let send: ((text: string) => Promise<void>) | null = null
 function DeletedSessionRoute() {
-  const sendChat = useRuntimeSelector((s) => s.sendChat)
+  const sendChat = useChatSends().sendChat
   // The send itself rejects ("not sent"); what this suite asserts is the notice.
   send = (text) =>
     sendChat({ sessionId: GONE, text, wake: true }).then(

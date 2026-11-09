@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -268,10 +269,10 @@ function Fixture() {
 /** Measurement-only trusted opening controls; both arms render the shipped
  * page and write through the existing synthetic runtime/outbox. */
 function IssuePageProbe({ ids }: { ids: string[] }) {
-  const { openIssueId, setOpenIssueId, markIssueRead } = useRuntimeSelector((s) => ({
+  const { markRead: markIssueRead } = useCommands().issues
+  const { openIssueId, setOpenIssueId } = useRuntimeSelector((s) => ({
     openIssueId: s.openIssueId,
     setOpenIssueId: s.setOpenIssueId,
-    markIssueRead: s.markIssueRead,
   }))
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">

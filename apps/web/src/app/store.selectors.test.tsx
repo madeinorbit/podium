@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { useClientRuntime } from '@podium/client-core/react'
 import { asSessionId, asUserId } from '@podium/model'
@@ -49,6 +50,7 @@ class FakeWS {
 }
 
 let renders: Record<string, number> = {}
+let latestCommands: ReturnType<typeof useCommands> | undefined
 let latestStore: import('./store').Store | null = null
 
 function ViewProbe(): null {
@@ -65,6 +67,7 @@ const DraftsProbe = observer(function DraftsProbe(): null {
 function CompatProbe(): null {
   renders.compat = (renders.compat ?? 0) + 1
   latestStore = useRuntimeSelector((s) => s)
+  latestCommands = useCommands()
   return null
 }
 let selectedLocals: { view: string; pane: string | null } | undefined
@@ -126,7 +129,7 @@ describe('selector-scoped store', () => {
     await render()
     const before = renders.structured
     const initial = selectedLocals
-    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
+    act(() => latestCommands?.sessions.setSessionDraft(asSessionId('s1'), 'hello'))
     await settle()
     expect(renders.structured).toBe(before)
     expect(selectedLocals).toBe(initial)
@@ -141,7 +144,7 @@ describe('selector-scoped store', () => {
     const draftsBefore = renders.drafts ?? 0
 
     // Change ONLY the drafts slice.
-    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
+    act(() => latestCommands?.sessions.setSessionDraft(asSessionId('s1'), 'hello'))
     await settle()
 
     expect(renders.drafts).toBe(draftsBefore + 1)
@@ -199,7 +202,7 @@ describe('selector-scoped store', () => {
     const before = { ...commits }
 
     // Unrelated slice: none of the three read `drafts`.
-    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
+    act(() => latestCommands?.sessions.setSessionDraft(asSessionId('s1'), 'hello'))
     await settle()
 
     expect(commits.workspace ?? 0).toBe(before.workspace ?? 0)

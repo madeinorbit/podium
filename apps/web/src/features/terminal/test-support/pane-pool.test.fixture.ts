@@ -2,6 +2,11 @@
 import '@podium/client-graph/synced-models'
 import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
+import {
+  noticeSourcePorts,
+  chatSourcePorts,
+  replicaSourcePorts,
+} from '@podium/client-graph/source-ports'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
@@ -55,18 +60,30 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
-      return () => { listeners.delete(listener) }
+      return () => {
+        listeners.delete(listener)
+      }
     },
-    get replica() { return replica },
+    get replica() {
+      return replica
+    },
     get drafts() {
-      return drafts ??= new DraftStore({
+      return (drafts ??= new DraftStore({
         storage: { get: () => null, set: () => {} },
-        hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never,
-        onChange: (id, text) => (readInputs() as PaneInputs & { setSessionDraft(id: string, text: string): void }).setSessionDraft(id, text),
-      })
+        hub: {
+          on: () => () => {},
+          sendDraftEdit: () => {},
+          connectionHealth: () => ({ status: 'ok' }),
+        } as never,
+        onChange: (id, text) =>
+          (
+            readInputs() as PaneInputs & { setSessionDraft(id: string, text: string): void }
+          ).setSessionDraft(id, text),
+      }))
     },
     outbox: { pending: () => [], deadLetters: () => [], subscribe: () => () => {} },
-    ownConversations: (options: ConversationCacheOptions) => conversations ??= new ConversationCache(options),
+    ownConversations: (options: ConversationCacheOptions) =>
+      (conversations ??= new ConversationCache(options)),
   })
   const runtime = owner as unknown as ClientRuntime
 
@@ -76,30 +93,57 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
 
   function publish() {
     const input = readInputs()
-    const normalized = 'issueProjections' in input
-      ? input as PaneInputs & ReturnType<typeof poolFixtureStore>
-      : poolFixtureStore(input)
+    const normalized =
+      'issueProjections' in input
+        ? (input as PaneInputs & ReturnType<typeof poolFixtureStore>)
+        : poolFixtureStore(input)
     // Historical display fixtures put companion names/login on the session.
     // Materialize their authoritative machine rows and leave only stored IDs.
     const machines = [...input.machines]
-    const sessions = input.sessions.map(value => {
-      const { machineName, condition, handoffTarget, displayRef: _displayRef, ...session } = value as SessionView
+    const sessions = input.sessions.map((value) => {
+      const {
+        machineName,
+        condition,
+        handoffTarget,
+        displayRef: _displayRef,
+        ...session
+      } = value as SessionView
       const machineId = session.machineId ?? asMachineId(`fixture-machine:${session.sessionId}`)
-      if (!machines.some(machine => machine.id === machineId)) machines.push({
-        id: machineId, name: machineName ?? '', online: true,
-        loggedOutHarnesses: condition === 'logged-out' ? [session.agentKind] : [],
-        inventory: { agents: [{ kind: session.agentKind, installed: true, login: { state: condition === 'logged-out' ? 'out' : 'in' } }], tools: [] },
-      } as unknown as MachineWire)
-      const handoffTargetMachineId = handoffTarget ? asMachineId(`fixture-handoff:${handoffTarget}`) : session.handoffTargetMachineId
-      if (handoffTarget && !machines.some(machine => machine.id === handoffTargetMachineId)) machines.push({
-        id: handoffTargetMachineId, name: handoffTarget, online: true,
-      } as unknown as MachineWire)
+      if (!machines.some((machine) => machine.id === machineId))
+        machines.push({
+          id: machineId,
+          name: machineName ?? '',
+          online: true,
+          loggedOutHarnesses: condition === 'logged-out' ? [session.agentKind] : [],
+          inventory: {
+            agents: [
+              {
+                kind: session.agentKind,
+                installed: true,
+                login: { state: condition === 'logged-out' ? 'out' : 'in' },
+              },
+            ],
+            tools: [],
+          },
+        } as unknown as MachineWire)
+      const handoffTargetMachineId = handoffTarget
+        ? asMachineId(`fixture-handoff:${handoffTarget}`)
+        : session.handoffTargetMachineId
+      if (handoffTarget && !machines.some((machine) => machine.id === handoffTargetMachineId))
+        machines.push({
+          id: handoffTargetMachineId,
+          name: handoffTarget,
+          online: true,
+        } as unknown as MachineWire)
       return { ...session, machineId, handoffTargetMachineId } as SessionMeta
     })
     state = { ...normalized, replica, dockShells: {}, reposLoaded: true }
     runInAction(() => {
-      spawnPrompts.replace([...input.pendingSpawnIds].map(id => [id, input.pendingSpawnPrompts.get(id) ?? null]))
-      for (const [id, text] of Object.entries(input.drafts)) owner.drafts.values.set(asSessionId(id), text)
+      spawnPrompts.replace(
+        [...input.pendingSpawnIds].map((id) => [id, input.pendingSpawnPrompts.get(id) ?? null]),
+      )
+      for (const [id, text] of Object.entries(input.drafts))
+        owner.drafts.values.set(asSessionId(id), text)
     })
     replica.applySnapshot('repos', [...normalized.replica.rows('repos')])
     replica.applySnapshot('issueProjections', normalized.issueProjections)
@@ -113,12 +157,18 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     for (const listener of listeners) listener()
     if (!pool) {
       const transactions = createPoolTransactions({
-        userId: 'fixture-user', outbox: { ...owner.outbox, awaiting: () => [] },
-        outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+        userId: 'fixture-user',
+        outbox: { ...owner.outbox, awaiting: () => [] },
+        outcomes: () => () => {},
+        addressed: () => () => {},
+        enqueue: async () => {},
       })
       const rows = createRowSource(owner, replica, { pending: transactions.pending })
       const handle = createWorklistPool(rows.source, {
-        get: () => ({ selectedIssueId: input.selectedIssueId ?? null, coarseNow: Date.parse('2026-06-03T00:00:00Z') }),
+        get: () => ({
+          selectedIssueId: input.selectedIssueId ?? null,
+          coarseNow: Date.parse('2026-06-03T00:00:00Z'),
+        }),
         subscribe: () => () => {},
       })
       pool = handle.pool
@@ -126,10 +176,20 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
       pool.attachTransactions({ mutate: transactions.mutate, spawnPrompts })
       sessionPaneView(pool)
       pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
-      pool.sources.register(NOTICE_ENTITIES, new NoticeSource(runtime))
-      pool.sources.register(CHAT_CONTEXT_ENTITIES, new ChatContextSource(runtime, pool))
-      pool.sources.register(SESSION_EXIT_ENTITIES, createSessionExitSource(runtime))
-      release = () => { handle.dispose(); rows.dispose(); transactions.dispose() }
+      pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(runtime)))
+      pool.sources.register(
+        CHAT_CONTEXT_ENTITIES,
+        new ChatContextSource(chatSourcePorts(runtime), pool),
+      )
+      pool.sources.register(
+        SESSION_EXIT_ENTITIES,
+        createSessionExitSource(replicaSourcePorts(runtime)),
+      )
+      release = () => {
+        handle.dispose()
+        rows.dispose()
+        transactions.dispose()
+      }
     }
     // A machine's online is a LiveStore condition (POD-5798): the fixture's
     // `online` is its reading, so a session on an offline machine reads as
@@ -139,8 +199,17 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
       const online = (machine as { online?: boolean }).online
       if (typeof online === 'boolean') live.online(machine.id, online)
     }
-    headerEntities(pool).order('machine', machines.map(machine => machine.id))
-    pool.applyLocals({ selectedIssueId: input.selectedIssueId ?? null, coarseNow: Date.parse('2026-06-03T00:00:00Z') }, new Set(['selectedIssueId']))
+    headerEntities(pool).order(
+      'machine',
+      machines.map((machine) => machine.id),
+    )
+    pool.applyLocals(
+      {
+        selectedIssueId: input.selectedIssueId ?? null,
+        coarseNow: Date.parse('2026-06-03T00:00:00Z'),
+      },
+      new Set(['selectedIssueId']),
+    )
     for (const session of input.sessions) pool.row('session', session.sessionId)
     pool.hydrate()
   }
@@ -149,26 +218,36 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     owner,
     sync,
     dispose() {
-      conversations?.dispose(); conversations = undefined
-      release?.(); release = undefined; pool = undefined
-      drafts?.dispose(); drafts = undefined
+      conversations?.dispose()
+      conversations = undefined
+      release?.()
+      release = undefined
+      pool = undefined
+      drafts?.dispose()
+      drafts = undefined
       replica = createReplicaFixture()
       listeners.clear()
       runInAction(() => spawnPrompts.clear())
     },
     hooks: {
       useWorklistPool: () => pool ?? null,
-      useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T, active = true) => {
-        const projection = useMemo(() => pool ? createPoolProjection(pool, read) : null, [pool, read])
+      useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T, empty: T, active = true) => {
+        const projection = useMemo(
+          () => (pool ? createPoolProjection(pool, read) : null),
+          [pool, read],
+        )
         const last = useMemo(() => ({ paint: undefined as { value: T } | undefined }), [projection])
         projection?.setActive(active)
         useEffect(() => () => projection?.dispose(), [projection])
-        return useSyncExternalStore(active && projection ? projection.subscribe : () => () => {}, () => {
-          if (!active || !projection) return last.paint?.value ?? empty
-          const value = projection.getSnapshot()
-          last.paint = { value }
-          return value
-        })
+        return useSyncExternalStore(
+          active && projection ? projection.subscribe : () => () => {},
+          () => {
+            if (!active || !projection) return last.paint?.value ?? empty
+            const value = projection.getSnapshot()
+            last.paint = { value }
+            return value
+          },
+        )
       },
     },
   }

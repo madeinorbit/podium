@@ -165,13 +165,13 @@ async function mount() {
   function Surface() {
     runtime = useClientRuntime() as ClientRuntime
     if (!configured.has(runtime)) {
-      const subscribeHealth = runtime.hub.onConnectionHealth.bind(runtime.hub)
-      fixture.bindHub(runtime.hub, undefined, runtime.live)
-      runtime.hub.onConnectionHealth = subscribeHealth
+      const subscribeHealth = runtime.root.services.connection.hub.onConnectionHealth.bind(runtime.root.services.connection.hub)
+      fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
+      runtime.root.services.connection.hub.onConnectionHealth = subscribeHealth
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.
-      Object.defineProperty(runtime.hub, 'connected', { configurable: true, get: () => connected })
-      runtime.live.setConnection({ state: connected ? 'online' : 'offline', since: Date.now() })
+      Object.defineProperty(runtime.root.services.connection.hub, 'connected', { configurable: true, get: () => connected })
+      runtime.root.live.setConnection({ state: connected ? 'online' : 'offline', since: Date.now() })
       configured.add(runtime)
     }
 
@@ -256,9 +256,9 @@ async function mount() {
       connected = next
       // This fixture disables the network feed, so publish its condition at
       // the same LiveStore boundary the feed owns in the running client.
-      runtime.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
-      const hub = runtime.hub as unknown as { emit(kind: string, value: unknown): void }
-      hub.emit('connectionHealth', runtime.hub.connectionHealth())
+      runtime.root.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
+      const hub = runtime.root.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
+      hub.emit('connectionHealth', runtime.root.services.connection.hub.connectionHealth())
     },
   }
 }
@@ -389,8 +389,8 @@ it('updates recovery and continuity through the original outbox retry, edit and 
   )
   expect(discard).toHaveBeenCalledWith(asMutationId('notice-mutation-1'))
   expect(cards()).toHaveLength(2)
-  expect(enabled.runtime.outbox.deadLetters()).toHaveLength(2)
-  expect(enabled.runtime.outbox.pending()).toHaveLength(2)
+  expect(enabled.runtime.root.services.outbox.queue.deadLetters()).toHaveLength(2)
+  expect(enabled.runtime.root.services.outbox.queue.pending()).toHaveLength(2)
   expectPoolReadersOnly(enabled.runtime)
 })
 

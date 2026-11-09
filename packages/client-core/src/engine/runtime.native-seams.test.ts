@@ -249,19 +249,19 @@ describe('the outbox takes its connectivity from the injected seams', () => {
     const onlineEvents = fakeOnlineEvents()
     const { engine } = makeEngine({ api, onlineEvents, isOnline: () => false })
     engine.start()
-    await engine.outbox.enqueue('recordEdit', {
+    await engine.root.services.outbox.queue.enqueue('recordEdit', {
       kind: 'userLayout',
       id: layoutRowId(asUserId('operator'), 'dockTab'),
       patch: { value: 'git' },
     })
     await settle()
-    expect(engine.outbox.pending()).toHaveLength(1)
+    expect(engine.root.services.outbox.queue.pending()).toHaveLength(1)
     expect(layoutSets).toHaveLength(0)
 
     onlineEvents.fire()
     await settle()
     expect(layoutSets).toHaveLength(1)
-    expect(engine.outbox.pending()).toHaveLength(0)
+    expect(engine.root.services.outbox.queue.pending()).toHaveLength(0)
   })
 
   it('releases the injected subscription on dispose', () => {
@@ -311,7 +311,7 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    await engine.outbox.enqueue('recordEdit', {
+    await engine.root.services.outbox.queue.enqueue('recordEdit', {
       kind: 'userLayout',
       id: layoutRowId(asUserId('operator'), 'dockTab'),
       patch: { value: 'git' },
@@ -319,13 +319,13 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
     await settle()
     // Durably queued and NOT sent. Without the injected probe this driver would
     // have called `platformIsOnline()`, got `true` under happy-dom, and sent it.
-    expect(engine.outbox.pending()).toHaveLength(1)
+    expect(engine.root.services.outbox.queue.pending()).toHaveLength(1)
     expect(layoutSets).toHaveLength(0)
 
     onlineEvents.fire()
     await settle()
     expect(layoutSets).toHaveLength(1)
-    expect(engine.outbox.pending()).toHaveLength(0)
+    expect(engine.root.services.outbox.queue.pending()).toHaveLength(0)
   })
 
   it('releases the injected subscription on dispose', async () => {
@@ -356,7 +356,7 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    await engine.outbox.enqueue('recordEdit', {
+    await engine.root.services.outbox.queue.enqueue('recordEdit', {
       kind: 'userLayout',
       id: layoutRowId(asUserId('operator'), 'dockTab'),
       patch: { value: 'git' },
@@ -368,7 +368,7 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
     expect(hub.connectCalls).toBe(0)
     expect(hub.connectNowCalls).toBe(0)
     expect(onlineEvents.subscribers()).toBe(0)
-    expect(engine.outbox.pending()).toHaveLength(1)
+    expect(engine.root.services.outbox.queue.pending()).toHaveLength(1)
     expect(layoutSets).toHaveLength(0)
   })
 })

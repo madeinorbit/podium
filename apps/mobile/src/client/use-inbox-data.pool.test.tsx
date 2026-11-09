@@ -226,7 +226,7 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.hub, owner.live)
+          data.bindHub(owner.root.services.connection.hub, owner.root.live)
           return state.host!.host.attach(owner, (error) => errors.push(error.message))
         }}
       >
@@ -489,7 +489,7 @@ it('shows the original outbox pending count and optimistically renamed card', as
   })
   await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
   expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.live.outbox.pending)
+  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.root.live.outbox.pending)
   await act(async () => {
     finish()
   })

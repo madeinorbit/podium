@@ -1,3 +1,6 @@
+import { superagentSourcePorts, noticeSourcePorts } from '@podium/client-graph/source-ports'
+import { omitGone } from './lookup'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -158,9 +161,9 @@ async function fixture() {
       ...state.superagentThreads.map(poolThread),
     ],
   })
-  const source = await createSuperagentSource(owner)
+  const source = await createSuperagentSource(superagentSourcePorts(owner))
   await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => source)
-  await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(owner))
+  await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(noticeSourcePorts(owner)))
   pool.sources.view('test.superagentFixture.ui', () => ({ dispose: () => disposeFixtureUi(owner) }))
   dispose.push(() => pool.dispose())
   return {
@@ -311,7 +314,7 @@ it('keeps unrelated publications out of thread derivation and honors active-thre
 })
 it('keeps booting tied to server session presence while optimistic store sessions exist', async () => {
   const f = await fixture()
-  vi.spyOn(f.owner.replica, 'getCursor').mockReturnValue(null)
+  vi.spyOn(f.owner.root.replica, 'getCursor').mockReturnValue(null)
   await settle(f)
   expect(f.state.sessions.length).toBeGreaterThan(0)
   expect(superagentState(f.pool).booting).toBe(true)
@@ -358,7 +361,7 @@ it('keeps the legacy 40-event tail through addressed changes, reading only the w
     f.publish({
       issueEvents: shuffle(Array.from({ length: size }, (_, index) => event(index + 1))),
     })
-    const row = vi.spyOn(f.owner.replica, 'row'),
+    const row = vi.spyOn(f.owner.root.replica, 'row'),
       events = () => row.mock.calls.filter(([kind]) => kind === 'issueEvents').length
     f.replace()
     await settle(f)

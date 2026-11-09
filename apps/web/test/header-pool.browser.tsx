@@ -91,7 +91,7 @@ root.render(
     attachRuntime={(owner) => {
       // StoreProvider starts the runtime before attachment: the hub listeners now
       // exist in both arms, even when no asynchronous pool import is requested.
-      fixture.bindHub(owner.hub, owner.live)
+      fixture.bindHub(owner.root.services.connection.hub, owner.root.live)
       fixture.publishMachines()
       fixture.publishMetrics(0)
       return attachWorklistPool(owner, (error) => failures.push(error.message))

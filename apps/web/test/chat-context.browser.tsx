@@ -229,7 +229,7 @@ root.render(
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub, undefined, runtime.live)
+        fixture.bindHub(runtime.root.services.connection.hub, undefined, runtime.root.live)
         fixture.publishMachines()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
@@ -270,7 +270,7 @@ const driver = {
     return checkChatContext(
       graph,
       { ...referenceState(owner), drafts: Object.fromEntries(owner.drafts.values) },
-      allIssueViewModels(owner.replica),
+      allIssueViewModels(owner.root.replica),
       [id, asSessionId('synthetic-session-1')],
     )
   },

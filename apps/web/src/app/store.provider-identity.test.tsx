@@ -1,3 +1,4 @@
+import { useSocketHub, useReplica } from '@podium/client-core/react'
 // @vitest-environment happy-dom
 // (the ROOT vitest run executes web tests under node; client-core/react pulls
 // terminal-client → xterm addons that need a browser-ish global at import time)
@@ -60,7 +61,7 @@ class FakeWS {
 
 let lastHub: unknown = null
 function Probe(): null {
-  lastHub = useRuntimeSelector((s) => s).hub
+  lastHub = useSocketHub()
   return null
 }
 
@@ -198,8 +199,8 @@ function PrincipalProbe(): null {
   const dockTab = useRuntimeSelector(selectDockTab)
   const live = useLive()
   seen = {
-    hub: store.hub,
-    replica: store.replica as unknown as { getFeedCursor(): unknown },
+    hub: useSocketHub(),
+    replica: useReplica() as unknown as { getFeedCursor(): unknown },
     dockTab,
     // Read when asserted: the LiveStore applies with the next frame.
     get outboxSize() {
