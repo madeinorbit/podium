@@ -35,7 +35,7 @@ import type {
   StartIssueSession,
   TaskSpawnOutcome,
 } from '../spawn-agent'
-import type { MainView, ReplicatedUiStatePort, RoutedUiState } from '../ui-state'
+import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
   FileScope,
@@ -637,9 +637,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   setInstancePreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
   /** Keyed access routes device preferences to UiStore and synced layout to the pool. */
   uiState: RoutedUiState
-  /** Command-owned replicated layout writer consumed by POD-403's routing,
-   * hydration, and migration module. Device-local keys fail closed here. */
-  replicatedLayout: ReplicatedUiStatePort
   /** This person's event-stream read positions (POD-1380). Its own port, not a
    * ui-state key: the position follows the user and merges monotonically. */
   readPosition: ReadPositionPort

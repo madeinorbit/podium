@@ -264,6 +264,11 @@
       "@podium/source": "./test-support/ui.ts",
       "types": "./test-support/ui.ts",
       "import": "./test-support/ui.ts"
+    },
+    "./test-support/layout": {
+      "@podium/source": "./test-support/layout.ts",
+      "types": "./test-support/layout.ts",
+      "import": "./test-support/layout.ts"
     }
   },
   "scripts": {

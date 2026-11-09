@@ -230,7 +230,7 @@ export type WorklistRuntime = RowSourceRuntime &
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
     readonly replica: RowSourceReplica
     readonly deviceState?: RoutedUiState
-    readonly replicatedLayout?: import('@podium/client-core/ui').LayoutAccess
+    readonly layout?: import('@podium/client-core/ui').LayoutAccess
     /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
     readonly live?: LiveStore
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
@@ -401,8 +401,8 @@ export function createRuntimeWorklistPool(
     const pool = handle.pool
     const principal = runtime.principal
     let stopLayout: () => void = () => {}
-    if (runtime.replicatedLayout && principal) {
-      const layout = runtime.replicatedLayout
+    if (runtime.layout && principal) {
+      const layout = runtime.layout
       const readLayout = (key: string) => {
         const model = pool.model('userLayout', layoutRowId(asUserId(principal.userId), key))
         return model && typeof model !== 'symbol' && !('reason' in model) ? model.value : undefined

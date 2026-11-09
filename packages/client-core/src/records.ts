@@ -112,7 +112,7 @@ interface RecordKindTable {
   readonly sessionUserState: typeof SESSION_USER_STATE_RECORD
   // My read and tuck marks on an issue (POD-6404).
   readonly issueUserState: typeof ISSUE_USER_STATE_RECORD
-  // One of my layout keys (POD-6404); the layout controller paints it.
+  // One of my layout keys (POD-6404); its own pool record paints the edit.
   readonly userLayout: typeof USER_LAYOUT_RECORD
   // A human gate's decision on an effect record: an approval (POD-6674).
   readonly effect: typeof EFFECT_RECORD

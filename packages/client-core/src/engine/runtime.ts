@@ -300,7 +300,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly router: Router
   readonly ui: UiStore
   readonly deviceState: RoutedUiState
-  readonly replicatedLayout: LayoutAccess
+  readonly layout: LayoutAccess
   /** This person's event-stream read positions (POD-1380) — its own family
    *  because a cursor merges monotonically, not last-writer-wins. */
   readonly readPosition: ReadPositionPort
@@ -479,7 +479,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.state = initialEngineState() as EngineState & ScreenState
     this.router = createRouter({ win: init.routerWindow, fallbackView: 'workspace' })
     // Synced layout is a pool handle. Device state loads below, independently.
-    this.replicatedLayout = new LayoutAccess(
+    this.layout = new LayoutAccess(
       this.principal.userId,
       createRecordsApi((kind, input) => this.requirePoolWriter().write(kind, input)),
       (error) => this.notices.error(this.formatError(error, 'Could not save view options')),
@@ -504,7 +504,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       publish: (patch) => this.apply(patch),
     })
-    this.deviceState = createUiKeys(() => this.ui, localUi, this.replicatedLayout)
+    this.deviceState = createUiKeys(() => this.ui, localUi, this.layout)
     this.ui = new UiStore({
       api: this.api,
       hub: this.hub,
@@ -1606,7 +1606,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       outboxSettlements: this.outboxSettlements,
       router: this.router,
       notices: this.notices,
-      layout: this.replicatedLayout,
       state: () => this.state,
       ui: this.ui,
       // S5: one publication per click. The gesture's synchronous paints share

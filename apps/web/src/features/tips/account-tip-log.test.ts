@@ -1,52 +1,56 @@
-import { createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { loadRecordDeclarations } from '@podium/client-core/records'
+import { memoryStorage } from '@podium/client-core/replica'
+import { layoutFixture } from '@podium/client-core/test-support/layout'
 import { openLegacyDeviceKeys } from '@podium/client-core/ui'
-import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
-import { MobxPool } from '@podium/client-graph'
+import { createRoutedUiState } from '@podium/client-core/ui-state'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { asUserId } from '@podium/model'
+import { asUserId, parseLayoutRowId } from '@podium/model'
 import { autorun } from 'mobx'
-import { afterEach, expect, it, vi } from 'vitest'
-import { createReplicatedLayoutController } from '../../../../../packages/client-core/test-support/legacy-layout'
+import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { ACCOUNT_TIP_IDS, AccountTipLog } from './account-tip-log'
 
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => null }))
+beforeAll(loadRecordDeclarations)
 const AT = '2026-10-27T18:00:00.000Z'
 const disposers: Array<() => void> = []
 afterEach(() => {
-  for (const stop of disposers.splice(0)) stop()
+  for (const stop of disposers.splice(0).reverse()) stop()
 })
 
-function account() {
-  const data = new Map<string, unknown>()
-  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
-  const replicated: ReplicatedUiStatePort = {
-    get: (key) => data.get(key),
-    set: (key, value) => {
-      data.set(key, value)
-      for (const listener of listeners) listener(new Set([key]))
-    },
-    clear: (key) => {
-      data.delete(key)
-    },
-    hydrate: async () => {},
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
+/** The fake server publishes each account's authoritative rows into real pools. */
+function account(initial: Readonly<Record<string, unknown>> = {}) {
+  const data = new Map(Object.entries(initial))
+  const devices = new Set<ReturnType<typeof layoutFixture>>()
+  const deliver = () => {
+    for (const target of devices) target.seed(Object.fromEntries(data))
   }
-  const device = (hydrate = replicated.hydrate, now = () => AT) => {
-    const local = openLegacyDeviceKeys(
-      createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }).deviceStorage(),
+  const device = (options: { loaded?: boolean; now?: () => string } = {}) => {
+    const path = layoutFixture(
+      asUserId('member'),
+      async (kind, input) => {
+        expect(input.kind).toBe('userLayout')
+        const key = parseLayoutRowId(input.id).key
+        if (kind === 'recordEdit')
+          data.set(key, (input as { patch: { value: unknown } }).patch.value)
+        else if (kind === 'recordRemove') data.delete(key)
+        else throw new Error(`Unexpected tip write: ${kind}`)
+        deliver()
+      },
+      options.loaded === false ? null : Object.fromEntries(data),
     )
-    const ui = createRoutedUiState({ local, replicated })
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    attachPreferenceSource(pool, ui)
-    const log = new AccountTipLog(pool, ui, hydrate, now)
-    disposers.push(() => pool.dispose())
-    // Keep all seven moments observed, as the guide does, and assert reactive answers.
+    devices.add(path)
+    const local = openLegacyDeviceKeys({ storage: memoryStorage(), keyPrefix: 'tips-fixture' })
+    const keys = createRoutedUiState({ local, replicated: path.layout })
+    attachPreferenceSource(path.pool, keys)
+    const log = path.pool.sources.view(
+      'account-tip-log',
+      () => new AccountTipLog(path.pool, keys, options.now ?? (() => AT)),
+    )
     const rendered = { ready: false, enabled: false, seen: [] as boolean[] }
+    disposers.push(() => {
+      devices.delete(path)
+      path.dispose()
+    })
     disposers.push(
       autorun(() => {
         rendered.ready = log.ready
@@ -54,37 +58,27 @@ function account() {
         rendered.seen = ACCOUNT_TIP_IDS.map((id) => log.isSeen(id))
       }),
     )
-    return { log, rendered, local }
+    return { ...path, log, rendered, local }
   }
-  return { data, device }
+  return { data, device, deliver }
 }
 
-it('waits for authoritative hydration even when preference rows have cached defaults', async () => {
-  const f = account()
-  let finish!: () => void
-  const d = f.device(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve
-      }),
-  )
-  const loading = d.log.load()
-  await Promise.resolve()
+it('waits for the principal pool rows before recording or showing a tip', () => {
+  const f = account(),
+    d = f.device({ loaded: false })
   expect(d.rendered.ready).toBe(false)
   d.log.record('first-prompt', 'finished')
   d.log.setEnabled(false)
   expect(f.data.size).toBe(0)
-  finish()
-  await loading
-  await vi.waitFor(() => expect(d.rendered.ready).toBe(true))
+  f.deliver()
+  expect(d.rendered.ready).toBe(true)
   expect(d.rendered.seen.every((seen) => !seen)).toBe(true)
 })
 
-it('shown does not mark seen; terminal outcomes mark one moment and preserve its original time', async () => {
-  const f = account()
-  const now = vi.fn(() => AT)
-  const d = f.device(undefined, now)
-  await d.log.load()
+it('shown does not mark seen; terminal outcomes preserve their original timestamps', () => {
+  const f = account(),
+    now = vi.fn(() => AT),
+    d = f.device({ now })
   d.log.record('first-prompt', 'shown')
   expect(f.data.size).toBe(0)
   d.log.record('first-prompt', 'finished')
@@ -98,102 +92,56 @@ it('shown does not mark seen; terminal outcomes mark one moment and preserve its
   expect(d.log.isSeen('ask-anything')).toBe(false)
 })
 
-it('different devices keep independent moments, remote changes repaint, and accounts are isolated', async () => {
-  const f = account()
-  const a = f.device(),
+it('feeds remote changes to both devices while isolating accounts', () => {
+  const f = account(),
+    a = f.device(),
     b = f.device(),
     other = account().device()
-  await Promise.all([a.log.load(), b.log.load(), other.log.load()])
   a.log.record('first-prompt', 'finished')
   b.log.record('first-send', 'dismissed')
-  await vi.waitFor(() => expect(a.rendered.seen.slice(0, 2)).toEqual([true, true]))
-  await vi.waitFor(() => expect(b.rendered.seen.slice(0, 2)).toEqual([true, true]))
+  expect(a.rendered.seen.slice(0, 2)).toEqual([true, true])
+  expect(b.rendered.seen.slice(0, 2)).toEqual([true, true])
   expect(other.rendered.seen.every((seen) => !seen)).toBe(true)
   a.log.setEnabled(false)
-  await vi.waitFor(() => expect(b.rendered.enabled).toBe(false))
+  expect(b.rendered.enabled).toBe(false)
   b.log.setEnabled(true)
-  await vi.waitFor(() => expect(a.rendered.enabled).toBe(true))
-  expect(a.log.isSeen('first-prompt')).toBe(true)
+  expect(a.rendered.enabled).toBe(true)
   expect(a.local.get('tips.enabled')).toBeNull()
 })
 
-it('skip all logs every moment and disables; re-enabling retains all progress across reloads', async () => {
-  const f = account()
-  const d = f.device()
-  await d.log.load()
+it('skip all logs each moment and re-enabling retains progress across reloads', () => {
+  const f = account(),
+    d = f.device()
   d.log.record('first-prompt', 'skipped-all')
   expect(d.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
   expect(d.rendered.enabled).toBe(false)
   d.log.setEnabled(true)
   const reload = f.device()
-  await reload.log.load()
+  expect(reload.rendered.ready).toBe(true)
   expect(reload.rendered.enabled).toBe(true)
   expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
 })
 
-it('failed hydration stays unready and can be retried', async () => {
-  const hydrate = vi
-    .fn()
-    .mockRejectedValueOnce(new Error('offline'))
-    .mockResolvedValueOnce(undefined)
-  const d = account().device(hydrate)
-  await expect(d.log.load()).rejects.toThrow('offline')
-  expect(d.rendered.ready).toBe(false)
-  await d.log.load()
-  expect(d.rendered.ready).toBe(true)
-})
-
-it('retires with the account pool even when hydration resolves after teardown', async () => {
-  const f = account()
-  let finish!: () => void
-  const d = f.device(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve
-      }),
-  )
-  const loading = d.log.load()
+it('retires with the account pool even when rows arrive after teardown', () => {
+  const f = account(),
+    d = f.device({ loaded: false })
   d.log.dispose()
-  finish()
-  await loading
+  f.deliver()
   expect(d.rendered.ready).toBe(false)
   d.log.record('first-prompt', 'finished')
   d.log.setEnabled(false)
   expect(f.data.size).toBe(0)
 })
 
-it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydrated state', async () => {
+it('keeps upgraded-account tips seen when a new pool snapshot adds other layout rows', () => {
   const seeded = Object.fromEntries(ACCOUNT_TIP_IDS.map((id) => [`tips.seen.${id}`, AT]))
-  const snapshot = { ...seeded, 'tips.enabled': 'false' }
-  type Init = Parameters<typeof createReplicatedLayoutController>[0]
-  const replicated = createReplicatedLayoutController({
-    outbox: { awaiting: () => [], pending: () => [] } as unknown as Init['outbox'],
-    notices: { error: () => {}, info: () => {} } as Init['notices'],
-    userId: asUserId('u-1'),
-  })
-  const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-  disposers.push(() => side.dispose())
-  const ui = createRoutedUiState({ local: openLegacyDeviceKeys(side.deviceStorage()), replicated })
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  attachPreferenceSource(pool, ui)
-  disposers.push(() => pool.dispose())
-  // The replica's rows are the base: the bootstrap installs the account slice.
-  replicated.replace(snapshot)
-  const log = new AccountTipLog(pool, ui, () => replicated.hydrate())
-  const rendered = { ready: false, seen: [] as boolean[] }
-  disposers.push(
-    autorun(() => {
-      rendered.ready = log.ready
-      rendered.seen = ACCOUNT_TIP_IDS.map((id) => log.isSeen(id))
-    }),
-  )
-  await log.load()
-  expect(rendered.ready).toBe(true)
-  expect(rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
-  // Server migration/feed regression checks this complete account slice. Feed
-  // delivery replaces the base, so omitting seeded rows would erase seen-state.
-  replicated.replace({ ...snapshot, dockTab: 'files' })
-  await vi.waitFor(() => expect(replicated.get('dockTab')).toBe('files'))
-  expect(rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
-  expect(log.enabled).toBe(false)
+  const f = account({ ...seeded, 'tips.enabled': 'false' }),
+    d = f.device()
+  expect(d.rendered.ready).toBe(true)
+  expect(d.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
+  f.data.set('dockTab', 'files')
+  f.deliver()
+  expect(d.layout.get('dockTab')).toBe('files')
+  expect(d.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
+  expect(d.log.enabled).toBe(false)
 })

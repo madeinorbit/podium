@@ -28,7 +28,6 @@ import {
 } from '../command-reducers'
 import type { OutboxEntry } from '../outbox'
 import { recordEditEntry, UNSET } from '../records'
-import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
   mutationId: asMutationId(`m-`),
@@ -366,11 +365,7 @@ describe('the presence contracts and their optimistic reducers', () => {
     // that paints nothing, which reads to the user as the click not registering.
     // ...or became a generic record edit, painted by the one record case
     // (POD-6404; the old route stays for older apps until POD-6359).
-    const reduced = [
-      ...Object.keys(PRESENCE_REDUCER_KINDS),
-      ...PRESENCE_CONTRACTS_AS_RECORD_EDITS,
-      ...ACTION_STATE_REDUCER_COMMANDS.filter((name) => sessionStateCommand(name) !== undefined),
-    ]
+    const reduced = [...Object.keys(PRESENCE_REDUCER_KINDS), ...PRESENCE_CONTRACTS_AS_RECORD_EDITS]
     expect(reduced.sort()).toEqual(eligible.sort())
   })
 
@@ -389,10 +384,7 @@ describe('the presence contracts and their optimistic reducers', () => {
     }
   })
 
-  it('routes the layout rows to action-state reducers and keeps direct-only commands absent', () => {
-    // Pins and tab orders are synced records since POD-6673: their overlay is
-    // the record's own, not an action-state reducer.
-    expect(ACTION_STATE_REDUCER_COMMANDS).toEqual(['layout.set', 'layout.clear'])
+  it('keeps direct-only commands outside the presence reducers', () => {
     for (const name of ['sessions.setIssueId', 'sessions.setDraft']) {
       expect(sessionStateCommand(name)?.offline).not.toBe('eligible')
       expect(Object.hasOwn(PRESENCE_REDUCER_KINDS, name), name).toBe(false)

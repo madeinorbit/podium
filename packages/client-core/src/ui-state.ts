@@ -539,13 +539,11 @@ export function debugFlagEnabled(ui: Pick<UiState, 'get'>, key: string): boolean
   return ui.get(key) === '1'
 }
 
-export interface ReplicatedUiStatePort {
+export interface LayoutKeyPort {
   get(key: string): unknown
-  /** Actions owns command dispatch. This method must update its optimistic row
-   * synchronously before returning, then enqueue through the Outbox. */
+  /** Generic pool edits paint the record before enqueueing through the outbox. */
   set(key: string, value: unknown): void
   clear(key: string): void
-  hydrate(): Promise<void>
   subscribe(cb: (keys: ReadonlySet<string>) => void): () => void
 }
 
@@ -555,7 +553,7 @@ export interface RoutedUiState {
   subscribe(cb: (keys: ReadonlySet<string>) => void): () => void
 }
 
-function replicatedString(port: ReplicatedUiStatePort, key: string): string | null {
+function layoutString(port: LayoutKeyPort, key: string): string | null {
   const value = port.get(key)
   if (value === undefined || value === null) return null
   return typeof value === 'string' ? value : JSON.stringify(value)
@@ -568,16 +566,10 @@ export function requireReplicatedLayoutKey(key: string): string {
   return layoutKey
 }
 
-/**
- * Route reads/writes and finish the one-shot legacy migration. Replica.uiState
- * has already folded raw legacy localStorage into the acting principal's local
- * collection. On the first read of a replicated key, move that value into the
- * optimistic replicated row and delete the local copy. A later principal sees
- * no raw key and therefore cannot consume the first principal's layout.
- */
+/** Route device keys to their owner and synced keys to the pool's layout port. */
 export function createRoutedUiState(init: {
   local: UiState
-  replicated: ReplicatedUiStatePort
+  replicated: LayoutKeyPort
 }): RoutedUiState {
   const { local, replicated } = init
   const legacyKeys = new Map<string, Set<string>>()
@@ -601,7 +593,7 @@ export function createRoutedUiState(init: {
     refuseCommandHome(key, route)
     if (route.home !== 'per-user-replicated') return local.get(key)
     const layoutKey = requireReplicatedLayoutKey(key)
-    const current = replicatedString(replicated, layoutKey)
+    const current = layoutString(replicated, layoutKey)
     if (current !== null) {
       return current
     }

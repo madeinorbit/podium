@@ -3,7 +3,7 @@ import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import {
   createRoutedUiState,
   FIRST_TASK_ACTIVATION_DRAFT_KEY,
-  type ReplicatedUiStatePort,
+  type LayoutKeyPort,
 } from '@podium/client-core/ui-state'
 import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { action, autorun, observable, runInAction } from 'mobx'
@@ -21,7 +21,7 @@ function fixture() {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const data = observable.map<string, unknown>(),
     listeners = new Set<(keys: ReadonlySet<string>) => void>()
-  const replicated: ReplicatedUiStatePort = {
+  const replicated: LayoutKeyPort = {
     get: (key) => data.get(key),
     set: action((key: string, value: unknown) => {
       data.set(key, value)
@@ -31,7 +31,6 @@ function fixture() {
       data.delete(key)
       for (const wake of listeners) wake(new Set([key]))
     }),
-    hydrate: async () => {},
     subscribe: (wake) => {
       listeners.add(wake)
       return () => {

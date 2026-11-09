@@ -180,9 +180,6 @@ export const COMMAND_ACTIONS = [
   'setInstancePreferences',
 ] as const
 
-/** Command contracts reduced directly into non-entity action state. */
-export const ACTION_STATE_REDUCER_COMMANDS = ['layout.set', 'layout.clear'] as const
-
 type ActionState = import('../ui/state').ScreenState
 
 type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[number]
@@ -202,7 +199,6 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
   | 'gitCommitFiles'
   | 'gitCommitDiffFile'
 > & {
-  readonly replicatedLayout: import('../ui-state').ReplicatedUiStatePort
   /**
    * S5 gesture batch: run navigation + its optimistic paints synchronously
    * inside one store publication. No write of its own; revert = remove the
@@ -213,7 +209,6 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
 }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
-  readonly layout: import('../ui-state').ReplicatedUiStatePort
   readonly ui: import('../ui/ui-store').UiStore
   readonly palette: import('../ui/view-models').PaletteViewModel
   readonly autoContinueDialog: import('../ui/view-models').AutoContinueDialogModel
@@ -447,12 +442,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     pendingReads.set(key, { readAt, write })
     return write
   }
-  const replicatedLayout = rt.layout
   // Pins, tab orders and personal settings are synced records of mine
   // (POD-6673): generic creates, edits and removes, shown at once from the
   // record's own overlay and on every device of mine once they land.
   return {
-    replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const pin = pinRowId(rt.userId, kind, id)
       if (pinned) await records.create('pin', pin, { userId: rt.userId, kind, entityId: id })
@@ -953,7 +946,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     setInstancePreferences: async (values) => {
       const patch: Record<string, unknown> = {}
-      for (const [path, value] of Object.entries(values)) patch[path] = value === undefined ? UNSET : value
+      for (const [path, value] of Object.entries(values))
+        patch[path] = value === undefined ? UNSET : value
       if (Object.keys(patch).length === 0) return
       await records.edit(
         { kind: 'instancePreferences', id: INSTANCE_PREFERENCES_ROW_ID },

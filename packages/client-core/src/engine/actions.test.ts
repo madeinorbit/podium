@@ -12,12 +12,12 @@ import {
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
-import { observable, runInAction } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
-import { createReplicatedLayoutController } from '../../test-support/legacy-layout'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { layoutFixture } from '../../test-support/layout'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
+import { loadRecordDeclarations } from '../records'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
@@ -36,7 +36,12 @@ import type { RuntimeState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
+beforeAll(loadRecordDeclarations)
 const sessionId = asSessionId('session-1')
+const cleanups: Array<() => void> = []
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+})
 
 /** Attribution is transport-derived; payload identity is inert (ADR 3 D7,
  *  multi-user-readiness 3.1.3 A3). Each name is refused INDIVIDUALLY. */
@@ -60,7 +65,7 @@ const mySession = (id: SessionId, patch: object) => ({
 })
 
 function harness(
-  layout: { seed?: LayoutSnapshot; fetch?: () => Promise<LayoutSnapshot> } = {},
+  layout: { seed?: LayoutSnapshot } = {},
   hub?: { reportTabRelease: (sessionId: SessionId) => void },
   extra: {
     sessionRevision?: (id: SessionId) => number | undefined
@@ -79,7 +84,6 @@ function harness(
     for (const listener of [...listeners]) listener()
   }
   let state = {
-    view: 'tasks' as const,
     pins: { panels: [], worktrees: [], repos: [] },
     tabOrders: {},
     sessions: [],
@@ -89,31 +93,6 @@ function harness(
     issueGitStates: [],
     repoProjections: [],
     repos: [],
-    superThreadId: 'global',
-    superOpen: false,
-    attachedSessionId: null,
-    dockTab: 'chat' as const,
-    paletteOpen: false,
-    selectedWorktree: null,
-    selectedIssueId: null,
-    transcriptReveal: null as {
-      nonce: number
-      sessionId: typeof sessionId
-      itemKey: string
-    } | null,
-    workspaces: {},
-    paneA: null,
-    paneB: null,
-    split: false,
-    focusedPane: 'p1',
-    panelMode: {},
-    dockShells: {},
-    dockVisibleSession: null,
-    autoContinuePromptSessionId: null,
-    sidebarSettings: { repoSort: 'lastUsed' as const, repoOrder: [], groupByRepo: false },
-    fileTabs: [],
-    recentFiles: [],
-    issueVisitBaseline: null,
   }
   const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
     queued.push({ kind, input })
@@ -133,9 +112,6 @@ function harness(
     receipt: { feedId: 'f', epoch: 'e', seq: 0 },
     replayed: false,
   }))
-  // The old controller fetched `layout.get` at boot and after every applied
-  // layout command. Nothing may call it now: the base is the replica's.
-  const layoutGet = vi.fn(layout.fetch ?? (async () => ({})))
   const router = {
     current: () => ({
       view: 'tasks',
@@ -151,7 +127,6 @@ function harness(
     autoContinueDialog: new AutoContinueDialogModel(),
     userId: ME,
     api: {
-      layout: { get: { query: layoutGet } },
       superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
       sessions: {
         kill: { mutate: vi.fn(async () => ({})) },
@@ -167,32 +142,24 @@ function harness(
     } as unknown as EngineOutbox,
     router,
     notices: { error: (message: string) => errors.push(message), info: vi.fn() } as StoreNotices,
-    ...(layout.seed !== undefined ? { layoutSeed: layout.seed } : {}),
-    state: () => state,
+    state: () => readState(),
     navigate: (intent: NavigationIntent) => {
-      const plan = planNavigation(state as unknown as RuntimeState, router.current(), intent, {
+      const plan = planNavigation(readState(), router.current(), intent, {
         visible: true,
         now: '2026-09-18T00:00:00.000Z',
       })
       ui.patch(plan.patch)
-      state = { ...state, ...plan.patch } as typeof state
       router.navigate(plan.route)
       publish()
       return true
     },
     // S5 gesture batch in miniature: run synchronously, like runtime.batch.
     batch: (fn: () => void) => fn(),
-    apply: (patch: Partial<typeof state>) => {
-      state = { ...state, ...patch }
-      publish()
-    },
     onLocals: (_keys: readonly string[], listener: () => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
     write: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
-    revealFileTab: vi.fn(),
-    recordRecentFile: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
@@ -208,22 +175,14 @@ function harness(
       }
     },
   })
-  Object.assign(state, { navigation })
-  const controller = createReplicatedLayoutController({
-    outbox: runtime.outbox,
-    notices: runtime.notices,
-    userId: ME,
-    seed: layout.seed,
-  })
-  const layoutRevision = observable.box(0)
-  controller.subscribe(() => runInAction(() => layoutRevision.set(layoutRevision.get() + 1)))
-  const reactiveController = {
-    ...controller,
-    get: (key: string) => {
-      layoutRevision.get()
-      return controller.get(key)
+  const layoutPath = layoutFixture(
+    ME,
+    async (kind, input) => {
+      await enqueue(kind, input)
     },
-  }
+    layout.seed ?? {},
+  )
+  cleanups.push(layoutPath.dispose)
   const values = new Map<string, string>()
   const keys = createRoutedUiState({
     local: {
@@ -234,7 +193,7 @@ function harness(
       },
       subscribe: () => () => {},
     },
-    replicated: reactiveController,
+    replicated: layoutPath.layout,
   })
   const revealTranscript = vi.fn()
   const ui = new UiStore({
@@ -248,20 +207,24 @@ function harness(
     reposLoaded: () => true,
     isVisible: () => true,
     changed: () => {
-      state = { ...state, ...ui.screen } as unknown as typeof state
       publish()
     },
     watch: (_keys, listener) => runtime.onLocals(['selectedIssueId', 'navigation'], listener),
     navigate: (runtime as unknown as { navigate: (intent: NavigationIntent) => boolean }).navigate,
   })
-  const { panelMode: _panel, superOpen: _super, dockTab: _dock, ...deviceState } = state
-  ui.patch({ ...deviceState, navigation } as unknown as Partial<RuntimeState>)
-  Object.assign(runtime, { ui, layout: controller })
-  const actions = { ...createEngineActions(runtime), replicatedLayout: controller }
-  const without = (list: OutboxEntry[], entry: OutboxEntry): void => {
-    const at = list.indexOf(entry)
-    if (at >= 0) list.splice(at, 1)
+  cleanups.push(() => ui.dispose())
+  ui.patch({ view: 'tasks', navigation })
+  function readState() {
+    return {
+      ...state,
+      ...ui.screen,
+      paletteOpen: runtime.palette.open,
+      autoContinuePromptSessionId: runtime.autoContinueDialog.sessionId,
+      issueVisitBaseline: null,
+    }
   }
+  Object.assign(runtime, { ui })
+  const actions = createEngineActions(runtime)
   return {
     actions,
     ui,
@@ -271,40 +234,21 @@ function harness(
     enqueue,
     pending,
     awaiting,
-    layoutGet,
-    /** The newest queued entry. */
-    queuedEntry: (): OutboxEntry => {
-      const entry = pending.at(-1)
-      if (entry === undefined) throw new Error('nothing queued')
-      return entry
-    },
-    /** The server's reply came back: the kernel moves the entry from pending to
-     *  awaiting and the outbox notifies (runtime: `outboxChanged`). */
-    reply: (entry: OutboxEntry): void => {
-      without(pending, entry)
-      awaiting.push(entry)
-      actions.replicatedLayout.outboxChanged()
-    },
-    /** The replica committed truth covering the entry: rows and retirement land
-     *  in one commit, then the row and outbox listeners run. */
-    confirm: (entry: OutboxEntry, base: LayoutSnapshot): void => {
-      without(awaiting, entry)
-      actions.replicatedLayout.replace(base)
-      actions.replicatedLayout.outboxChanged()
-    },
-    /** A refusal: the entry leaves the outbox without covering truth. */
-    drop: (entry: OutboxEntry): void => {
-      without(pending, entry)
-      without(awaiting, entry)
-      actions.replicatedLayout.outboxChanged()
-    },
+    layout: layoutPath.layout,
+    keys,
+    seedLayout: layoutPath.seed,
     errors,
     queued,
     navigated,
-    state: () => state,
+    state: () => readState(),
     /** Seed action state directly — the runtime's `apply`, in miniature. */
     seed: (patch: Record<string, unknown>) => {
-      state = { ...state, ...patch } as typeof state
+      state = {
+        ...state,
+        ...Object.fromEntries(
+          Object.entries(patch).filter(([key]) => !Object.hasOwn(ui.screen, key)),
+        ),
+      } as typeof state
       ui.patch(patch as Partial<RuntimeState>)
       publish()
     },
@@ -327,11 +271,24 @@ describe('engine action ownership boundary', () => {
     const mode = (): unknown => h.ui.panelMode[sessionId]
 
     h.actions.preferPanelMode(sessionId, 'native')
+    expect(h.queued).toEqual([
+      {
+        kind: 'recordEdit',
+        input: {
+          kind: 'userLayout',
+          id: layoutRowId(ME, 'panelMode'),
+          patch: { value: JSON.stringify({ [sessionId]: 'native' }) },
+        },
+      },
+    ])
+    h.seedLayout({ panelMode: JSON.stringify({ [sessionId]: 'native' }) })
     expect(mode()).toBe('native')
 
     h.actions.setPanelMode(sessionId, 'chat')
+    h.seedLayout({ panelMode: JSON.stringify({ [sessionId]: 'chat' }) })
     h.actions.preferPanelMode(sessionId, 'native')
     expect(mode()).toBe('chat')
+    expect(h.queued).toHaveLength(2)
   })
 
   it('opens one permanent tab and delivers transcript reveal actions to the chat view', () => {
@@ -486,217 +443,13 @@ describe('engine action ownership boundary', () => {
     ])
   })
 
-  it('queues personal layout writes optimistically through the Actions-owned port', () => {
-    const h = harness()
-
-    h.actions.replicatedLayout.set('podium.superOpen.v2', '1')
-    h.actions.replicatedLayout.set('dockTab', 'files')
-    h.actions.replicatedLayout.set('panelMode', JSON.stringify({ [sessionId]: 'native' }))
-
-    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
-    expect(h.actions.replicatedLayout.get('dockTab')).toBe('files')
-    // One key each: a record edit of my layout row (POD-6404).
-    const myLayout = (key: string, value: unknown) => ({
-      kind: 'recordEdit',
-      input: { kind: 'userLayout', id: layoutRowId(ME, key), patch: { value } },
-    })
-    expect(h.queued).toEqual([
-      myLayout('superOpen', '1'),
-      myLayout('dockTab', 'files'),
-      myLayout('panelMode', JSON.stringify({ [sessionId]: 'native' })),
-    ])
-  })
-
-  it('paints a persisted layout base with no fetch, no await and no frame in between', () => {
-    // POD-571. The controller used to start empty and fill from
-    // `api.layout.get.query()`, so the shell mounted its DEFAULT branch first —
-    // expanded sidebar sections, an open Flight Deck — and swapped when the network
-    // answered. Read SYNCHRONOUSLY here on purpose: an assertion behind an
-    // `await` would pass just as happily against the bug it is pinning.
-    const h = harness({ seed: { 'sidebar.section.pinned': 'true', 'superagent.mode': 'folded' } })
-
-    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('true')
-    expect(h.actions.replicatedLayout.get('podium:superagent:mode')).toBe('folded')
-  })
-
-  it('keeps a queued layout write painted over the persisted base', async () => {
-    // The offline-reload fold (#263) has to survive the seed: durable optimism
-    // is NEWER than the base it was queued against, so a restored queue still
-    // wins. Otherwise a reload would paint the value the user just toggled away.
-    const h = harness({ seed: { 'sidebar.section.pinned': 'true' } })
-
-    h.actions.replicatedLayout.set('sidebar.section.pinned', 'false')
-
-    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('false')
-    await vi.waitFor(() => expect(h.queued).toHaveLength(1))
-  })
-
-  it('drops a non-layout key from the seed rather than projecting it', () => {
-    // The seed comes off a persisted collection, so it is as trustworthy as the
-    // disk it was read from. `installBase`'s filter is the same one every other
-    // install path goes through — a device-local key must not acquire a
-    // replicated home by being written into the cache.
-    const h = harness({
-      seed: { 'sidebar.section.pinned': 'true', 'podium.shell.density': 'compact' },
-    })
-
-    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('true')
-    expect(() => h.actions.replicatedLayout.get('podium.shell.density')).toThrow(
-      /not a replicated layout key/,
-    )
-  })
-
-  it('rolls layout reducer optimism back when durable enqueue fails', async () => {
-    const h = harness()
-    h.enqueue.mockRejectedValueOnce(new Error('storage unavailable'))
-
-    h.actions.replicatedLayout.set('superOpen', '1')
-    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
-
-    await vi.waitFor(() => expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined())
-    expect(h.errors).toEqual([expect.stringContaining('storage unavailable')])
-  })
-
-  it('rolls a denied layout command back instead of leaving or retrying its overlay', async () => {
-    const h = harness()
-    h.actions.replicatedLayout.set('superOpen', '1')
-    await Promise.resolve()
-    await Promise.resolve()
-    h.drop(h.queuedEntry())
-
-    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
-  })
-
-  it('retires an accepted command whose row is absent instead of painting a phantom', async () => {
-    const h = harness()
-    h.actions.replicatedLayout.set('superOpen', '1')
-    await Promise.resolve()
-    await Promise.resolve()
-    const accepted = h.queuedEntry()
-    h.reply(accepted)
-    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
-
-    h.confirm(accepted, {})
-
-    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
-  })
-
-  describe('paint comes from live outbox entries only (ADR 12, POD-6278)', () => {
-    // There is no hold, no ignore-list and no refetch. A key's value is the
-    // replica's base, then every layout entry still in the outbox (pending and
-    // applied, in queue order), then temporary paint. An entry leaves the
-    // outbox when the replica commits the truth that covers it (POD-6277), so
-    // its paint ends in the very commit that installs that truth.
-    const FOLDER = 'sidebar.section.nulldisk'
-    const enqueued = async (): Promise<void> => {
-      await Promise.resolve()
-      await Promise.resolve()
-    }
-    function deferred<T>() {
-      let resolve!: (value: T) => void
-      const promise = new Promise<T>((r) => {
-        resolve = r
-      })
-      return { promise, resolve }
-    }
-
-    it('folder toggles alternate set and clear across a confirmed clear (the nulldisk sequence)', async () => {
-      // The proven defect: an applied `layoutClear` was held until a `layout.get`
-      // reconcile, and every collapse re-expanded the folder. Here the boot
-      // fetch's answer was taken BEFORE the clear landed and arrives after it.
-      const late = deferred<LayoutSnapshot>()
-      const h = harness({ seed: { [FOLDER]: '1' }, fetch: () => late.promise })
-      const layout = h.actions.replicatedLayout
-      const toggle = (): void => {
-        if (layout.get(FOLDER) === undefined) layout.set(FOLDER, '1')
-        else layout.clear(FOLDER)
-      }
-      const boot = layout.hydrate()
-
-      toggle() // expand
-      await enqueued()
-      const clear = h.queuedEntry()
-      h.reply(clear)
-      expect(layout.get(FOLDER)).toBeUndefined()
-      h.confirm(clear, {})
-      late.resolve({ [FOLDER]: '1' })
-      await boot
-      expect(layout.get(FOLDER)).toBeUndefined()
-
-      toggle() // collapse
-      expect(layout.get(FOLDER)).toBe('1')
-      await enqueued()
-      const set = h.queuedEntry()
-      h.reply(set)
-      h.confirm(set, { [FOLDER]: '1' })
-      expect(layout.get(FOLDER)).toBe('1')
-
-      toggle() // expand again
-      expect(layout.get(FOLDER)).toBeUndefined()
-      expect(h.queued.map((q) => q.kind)).toEqual(['recordRemove', 'recordEdit', 'recordRemove'])
-      expect(h.layoutGet).not.toHaveBeenCalled()
-    })
-
-    it('an applied layout write paints until its entry retires, then the base shows the server value', async () => {
-      const h = harness({ seed: { superOpen: '0' } })
-      const layout = h.actions.replicatedLayout
-      layout.set('superOpen', '1')
-      await enqueued()
-      const entry = h.queuedEntry()
-
-      h.reply(entry)
-      expect(layout.get('superOpen')).toBe('1')
-      // Truth that does not cover the entry yet: the entry keeps painting.
-      layout.replace({ superOpen: '0', dockTab: 'git' })
-      await layout.hydrate()
-      expect(layout.get('superOpen')).toBe('1')
-      expect(layout.get('dockTab')).toBe('git')
-
-      h.confirm(entry, { superOpen: '1', dockTab: 'git' })
-      expect(layout.get('superOpen')).toBe('1')
-      // Retired: nothing of the entry is left to hold a later truth back.
-      layout.replace({ superOpen: '0', dockTab: 'git' })
-      expect(layout.get('superOpen')).toBe('0')
-      expect(h.layoutGet).not.toHaveBeenCalled()
-    })
-
-    it("another device's later write shows once my entry retires", async () => {
-      // A boot fetch answered before the other device wrote is a second base
-      // writer with no cursor; it must not paint over the replica's truth.
-      const late = deferred<LayoutSnapshot>()
-      const h = harness({ seed: { dockTab: 'chat' }, fetch: () => late.promise })
-      const layout = h.actions.replicatedLayout
-      const boot = layout.hydrate()
-      layout.set('dockTab', 'files')
-      await enqueued()
-      const mine = h.queuedEntry()
-      h.reply(mine)
-
-      // The other device wrote after me: one frame covers my write and theirs.
-      h.confirm(mine, { dockTab: 'git' })
-      expect(layout.get('dockTab')).toBe('git')
-      late.resolve({ dockTab: 'files' })
-      await boot
-      expect(layout.get('dockTab')).toBe('git')
-      expect(h.layoutGet).not.toHaveBeenCalled()
-    })
-  })
-
-  it('fails closed for a device-local key without touching the Outbox', () => {
-    const h = harness()
-    expect(() => h.actions.replicatedLayout.set('podium.split', '1')).toThrow(
-      /not a replicated layout key/,
-    )
-    expect(h.queued).toEqual([])
-  })
-
   it('never accepts client attribution fields in assembled command payloads', async () => {
     const h = harness()
     await h.actions.setPinned('panel', sessionId, true)
     await h.actions.setTabOrder('/worktree', [sessionId])
     await h.actions.renameSession(sessionId, 'new name')
-    h.actions.replicatedLayout.set('superOpen', '1')
-    h.actions.replicatedLayout.clear('superOpen')
+    h.ui.setSuperOpen(true)
+    h.layout.clear('superOpen')
 
     // Per-field, deliberately: `not.toEqual(expect.arrayContaining([...]))`
     // only fails when EVERY listed field is present at once, so the realistic
@@ -711,7 +464,7 @@ describe('engine action ownership boundary', () => {
 })
 
 /**
- * The pane scalars are a MIRROR of the layout (POD-710). Every case here is one
+ * The pane scalars are DERIVED from the layout (POD-710). Every case here is one
  * of the writers that used to disagree with it — and a disagreement is not
  * cosmetic: `paneA`/`paneB`/`split` drive the `?pane=` route, PTY-relay
  * priority, the warm set and what the flight deck highlights.

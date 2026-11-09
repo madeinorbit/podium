@@ -11,7 +11,7 @@ import {
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_WIDTH_KEY,
-  type ReplicatedUiStatePort,
+  type LayoutKeyPort,
   readFileScrollPosition,
   readStoredDensity,
   requireReplicatedLayoutKey,
@@ -34,7 +34,7 @@ function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<stri
   }
 }
 
-function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort & {
+function replicatedUi(seed: Record<string, unknown> = {}): LayoutKeyPort & {
   data: Map<string, unknown>
   set: ReturnType<typeof vi.fn>
 } {
@@ -43,7 +43,6 @@ function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort
   const clear = vi.fn((key: string) => void data.delete(key))
   return {
     data,
-    hydrate: async () => {},
     get: (key) => data.get(key),
     set,
     clear,

@@ -51,7 +51,6 @@ export class LayoutAccess {
       },
     )
   }
-  async hydrate(): Promise<void> {}
   private canonical(key: string): string {
     if (isLayoutKey(key)) return key
     const canonical = layoutKeyFromLegacy(key)
