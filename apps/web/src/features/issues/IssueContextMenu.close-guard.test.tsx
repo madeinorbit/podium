@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { MobxPool } from '@podium/client-graph'
@@ -29,30 +28,33 @@ vi.mock('@/app/store-worklist-pool', async () => {
   }
 })
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  ...fixtureRuntimeHooks(() =>
-    withKeyedInputs({
-      subscribe: () => () => {},
-      getSnapshot: () => ({
-        trpc: { issues: { start: { mutate: vi.fn() } } },
-        markIssueRead: vi.fn(),
-        markIssueUnread: vi.fn(),
-        closeIssue,
-        get sessions() {
-          throw new Error('Task menu read legacy sessions')
-        },
-        get repos() {
-          throw new Error('Task menu read legacy repos')
-        },
-        get machines() {
-          throw new Error('Task menu read legacy machines')
-        },
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    // POD-3911: the menu reads owner.access, not getSnapshot directly.
+    ...fixtureRuntimeHooks(() =>
+      withKeyedInputs({
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          trpc: { issues: { start: { mutate: vi.fn() } } },
+          markIssueRead: vi.fn(),
+          markIssueUnread: vi.fn(),
+          closeIssue,
+          get sessions() {
+            throw new Error('Task menu read legacy sessions')
+          },
+          get repos() {
+            throw new Error('Task menu read legacy repos')
+          },
+          get machines() {
+            throw new Error('Task menu read legacy machines')
+          },
+        }),
       }),
-    }),
-  ),
-}))
+    ),
+  }
+})
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     throw new Error('Task menu used a legacy selector')

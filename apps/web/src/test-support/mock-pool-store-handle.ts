@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { workspaceKeyForState } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { vi } from 'vitest'
@@ -14,6 +13,8 @@ import { syncPoolFixture } from './pool-fixture'
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this
 // out of global setup leaves real-provider and missing-provider checks intact.
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const owner = withKeyedInputs({
     getSnapshot: () => {

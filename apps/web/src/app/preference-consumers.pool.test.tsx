@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { EXISTING_PODIUM_CLIENT_DRAFT_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -23,16 +22,19 @@ const ports = vi.hoisted(() => ({
   ui: null as RoutedUiState | null,
 }))
 
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return { uiState: ports.ui }
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return { uiState: ports.ui }
+      },
+    })),
+    useRuntimeSelector: () => {
+      throw new Error('Preference consumers must use the pool')
     },
-  })),
-  useRuntimeSelector: () => {
-    throw new Error('Preference consumers must use the pool')
-  },
-}))
+  }
+})
 
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useMemo, useSyncExternalStore } = await import('react')

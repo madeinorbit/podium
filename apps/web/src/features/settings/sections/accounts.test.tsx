@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@/test-support/mock-request-pool.test.fixture'
 import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
@@ -84,14 +83,17 @@ function publishUnchangedSelection(): void {
   for (const listener of storeListeners) listener()
 }
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return storeSnapshot
-    },
-  })),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return storeSnapshot
+      },
+    })),
+  }
+})
 
 vi.mock('@/app/store', () => {
   const useStore = () => storeSnapshot

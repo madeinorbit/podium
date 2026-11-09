@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 /**
  * POD-563 — the Reclaim tab is a PROPOSAL, not a queue.

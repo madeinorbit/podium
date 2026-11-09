@@ -1,5 +1,4 @@
 import { useCommands } from '@podium/client-core/react'
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { renderHook } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 
@@ -7,13 +6,16 @@ const current = vi.hoisted(() => ({
   owner: null as unknown as { access: Record<string, unknown>; services: Record<string, unknown> },
   legacy: vi.fn(),
 }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => current.owner),
-  useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => {
-    current.legacy()
-    return select(current.owner.access)
-  },
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => current.owner),
+    useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => {
+      current.legacy()
+      return select(current.owner.access)
+    },
+  }
+})
 vi.mock('../client/demoData', () => ({ demoEnabled: () => false }))
 
 import { useHttpOrigin, useHub, useReplica, useTrpc, useUiState } from '../client/hooks'

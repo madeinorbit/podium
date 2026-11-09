@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { type LiveFixture, liveFixture } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -51,13 +50,16 @@ const store = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return store
-    },
-  })),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return store
+      },
+    })),
+  }
+})
 
 const bucket = (over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
   hour: new Date().toISOString(),

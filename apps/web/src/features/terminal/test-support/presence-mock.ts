@@ -37,12 +37,15 @@ Object.defineProperties(paneOwner, {
   ownConversations: { value: fakeStoreHandle.ownConversations },
 })
 let fixtureOwner: typeof paneOwner | undefined
-vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('../../../../../../packages/client-core/src/react/provider')
-  >()),
-  ...fixtureRuntimeHooks(() => fixtureOwner ?? paneOwner),
-}))
+vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await importOriginal<
+      typeof import('../../../../../../packages/client-core/src/react/provider')
+    >()),
+    ...fixtureRuntimeHooks(() => fixtureOwner ?? paneOwner),
+  }
+})
 
 export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unknown> {
   fixtureOwner = owner

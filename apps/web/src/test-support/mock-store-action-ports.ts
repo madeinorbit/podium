@@ -6,6 +6,8 @@ import { fixtureStoreSnapshot } from './fixture-store'
 
 // Borrow the suite's existing action owner; leave its pool hooks to the suite.
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const owner = withKeyedInputs({
     getSnapshot: () => fixtureStoreSnapshot(selectMockSnapshot((state) => state)),

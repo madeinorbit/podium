@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 /**
  * POD-1535 — the presence SEAM under real React renders.
@@ -58,13 +57,16 @@ let hub = new FakeHub()
 
 // The hook reads the hub off the store. Only that read is mocked: the
 // registry, the fold and the refcount under test are the real ones.
-vi.mock('./provider', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return { hub }
-    },
-  })),
-}))
+vi.mock('./provider', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return { hub }
+      },
+    })),
+  }
+})
 
 const { usePresenceRoom } = await import('./use-presence-room')
 

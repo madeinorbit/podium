@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-issue-controls'

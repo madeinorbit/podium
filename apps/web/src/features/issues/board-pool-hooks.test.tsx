@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -38,13 +37,16 @@ vi.mock('@/app/store', () => ({
       updateIssue: state.update,
     }),
 }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return {}
-    },
-  })),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return {}
+      },
+    })),
+  }
+})
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => null,
   useWorklistPoolProjection: (read: (pool: object) => unknown, empty: unknown) =>

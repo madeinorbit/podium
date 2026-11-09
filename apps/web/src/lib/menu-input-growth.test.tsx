@@ -28,7 +28,9 @@ const f = vi.hoisted(() => ({
   pool: null as Pool | null,
   handoff: vi.fn(() => new Promise<string>(() => {})),
 }))
-vi.mock('@podium/client-core/react', () => {
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const owner = { access: { handoffSession: f.handoff } }
   return { ...fixtureRuntimeHooks(() => owner) }
 })

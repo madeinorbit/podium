@@ -1,3 +1,4 @@
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import type { AgentConcurrencyHistoryResult } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
@@ -58,7 +59,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       },
     } as unknown as ClientRuntime
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const stop = attachHeaderSource(pool, runtime)
+    const stop = attachHeaderSource(pool, fixtureRoot(runtime))
     const repositoryWrites = vi.fn()
     const stopWrites = observe(headerEntities(pool).tables.repository, (change) =>
       repositoryWrites(change.name),
@@ -193,7 +194,7 @@ function requestsFixture() {
     reading,
     runtime,
     start: () => {
-      const detach = attachHeaderSource(pool, runtime)
+      const detach = attachHeaderSource(pool, fixtureRoot(runtime))
       const release = headerRequests(pool)!.retain()
       return () => {
         release()

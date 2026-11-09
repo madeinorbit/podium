@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 /**
  * POD-647 — the seams the OLD WorkflowsView had NO test for, and which a
  * refactor therefore does not inherit coverage of.
@@ -29,10 +28,13 @@ const testHandle = vi.hoisted(() => ({
     return this.getSnapshot()
   },
 }))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => testHandle),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => testHandle),
+  }
+})
 
 /*
  * THE RECORDS (POD-6676). Workflows, revisions, bindings, profiles and runs are

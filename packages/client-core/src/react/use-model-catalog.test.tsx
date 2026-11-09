@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 
 import { asMachineId } from '@podium/model'
@@ -11,13 +10,16 @@ const refresh = vi.fn()
 const trpc = { models: { catalog: { query: catalog }, refresh: { mutate: refresh } } }
 let activeTrpc: unknown = trpc
 
-vi.mock('./provider', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return { trpc: activeTrpc }
-    },
-  })),
-}))
+vi.mock('./provider', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return { trpc: activeTrpc }
+      },
+    })),
+  }
+})
 
 const { useModelCatalog, useModelCatalogState } = await import('./use-model-catalog')
 

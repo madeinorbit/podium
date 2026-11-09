@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import '@/test-support/mock-screen-pool'
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
@@ -67,14 +66,17 @@ function publishUnchangedSelection(): void {
   for (const listener of storeListeners) listener()
 }
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => ({
-    get access() {
-      return storeSnapshot
-    },
-  })),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return storeSnapshot
+      },
+    })),
+  }
+})
 
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: useTestStoreSelector,

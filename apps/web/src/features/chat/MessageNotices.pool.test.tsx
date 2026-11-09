@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import '../../../test/shared-notice-model-fixture'
 import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import type { JSX, ReactNode } from 'react'
@@ -27,10 +26,13 @@ const mock = vi.hoisted(() => ({
   },
   rows: vi.fn(),
 }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => mock.owner),
-  useOutboxRecovery: () => mock.state.recoverOutbox,
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => mock.owner),
+    useOutboxRecovery: () => mock.state.recoverOutbox,
+  }
+})
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     mock.selectors()

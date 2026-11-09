@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 
 import type { SessionView } from '@podium/client-core/session-values'
@@ -28,7 +27,9 @@ vi.mock('@/app/store', () => ({
     return select({ sessions: f.sessions, ...f.actions })
   },
 }))
-vi.mock('@podium/client-core/react', () => {
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const owner = {
     get access() {
       return f.actions

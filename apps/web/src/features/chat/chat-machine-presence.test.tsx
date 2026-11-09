@@ -25,9 +25,12 @@ const transports = vi.hoisted(() => ({ trpc: {}, hub: {}, httpOrigin: 'http://of
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: typeof transports) => unknown) => read(transports),
 }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({ access: transports })),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({ access: transports })),
+  }
+})
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const view = useMemo(() => createPoolProjection(f.pool!, read), [read])

@@ -1,4 +1,4 @@
-import { observable, observe, runInAction } from 'mobx'
+import { observable, observe, reaction, runInAction } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView } from '../session-values'
 
@@ -271,6 +271,12 @@ function makeRouterWindow(initialUrl: string): {
   }
 }
 
+const noticeReleases = new Set<() => void>()
+afterEach(() => {
+  for (const release of noticeReleases) release()
+  noticeReleases.clear()
+})
+
 function makeEngine(
   opts: {
     url?: string
@@ -310,6 +316,21 @@ function makeEngine(
       ? { draftPersistDebounceMs: opts.draftPersistDebounceMs }
       : {}),
   })
+  // Stand in for the provider's platform toast consumer without changing the
+  // notice assertions: the runtime now writes the UiStore's unsaved queue.
+  noticeReleases.add(
+    reaction(
+      () => engine.ui.notices.slice(),
+      (pending) => {
+        for (const notice of pending) {
+          if (notice.kind === 'error') errors.push(notice.message)
+          else opts.info?.(notice.message, notice.description)
+          engine.ui.dismissNotice(notice.id)
+        }
+      },
+      { fireImmediately: true },
+    ),
+  )
   engine.setNavigationProvider(
     fixtureNavigation({
       issues: () => engine.root.replica.rows('issueProjections'),

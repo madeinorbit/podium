@@ -1,9 +1,9 @@
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -23,7 +23,7 @@ const fixture = vi.hoisted(() => ({
   sessions: [] as SessionView[],
 }))
 vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
-  createClientRuntime: () => fixture.handle,
+  createClientRuntime: () => fixtureRoot(fixture.handle as object),
 }))
 vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
@@ -102,7 +102,9 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
           name: `Unrelated ${index}`,
         }) as MachineWire,
     )
-    headerEntities(fixture.pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
+    headerEntities(fixture.pool).apply(
+      machines.map((value) => ({ kind: 'machine', id: value.id, value })),
+    )
     fixture.sessions = sessions.map(
       (session) =>
         new Proxy(session, {
@@ -228,7 +230,9 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
   const results = []
   {
     fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    headerEntities(fixture.pool).apply([{ kind: 'repository', id: '/before', value: repo('/before') }])
+    headerEntities(fixture.pool).apply([
+      { kind: 'repository', id: '/before', value: repo('/before') },
+    ])
     headerEntities(fixture.pool).order('repository', ['/before'])
     const owner = { start() {}, dispose() {}, destroy() {} }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
@@ -276,7 +280,9 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
         { ...store.getSnapshot(), repos: [repo('/before'), repo('/after')] },
         new Set(['repos']),
       )
-      headerEntities(fixture.pool!).apply([{ kind: 'repository', id: '/after', value: repo('/after') }])
+      headerEntities(fixture.pool!).apply([
+        { kind: 'repository', id: '/after', value: repo('/after') },
+      ])
       headerEntities(fixture.pool!).order('repository', ['/before', '/after'])
     })
     const relevant = readStoreStats().runtimes[0]!

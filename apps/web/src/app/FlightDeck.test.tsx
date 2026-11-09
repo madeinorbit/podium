@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {

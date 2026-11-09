@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 /**
  * THE DECK'S ONE PRICE, AND THE FOUR SILENCES (POD-1862).
@@ -65,7 +64,10 @@ let answer: TaskCostWire = wire()
 // The chip reads the store handle's keyed runtime access (since 01e6852ef5).
 // One stable handle, as the app's: readers key their models on `trpc` identity.
 const storeHandle = vi.hoisted(() => ({ access: { trpc: {} as Record<string, unknown> } }))
-vi.mock('@podium/client-core/react', () => ({ ...fixtureRuntimeHooks(() => storeHandle) }))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return { ...fixtureRuntimeHooks(() => storeHandle) }
+})
 storeHandle.access.trpc = {
   cost: {
     task: { query: () => Promise.resolve(answer) },

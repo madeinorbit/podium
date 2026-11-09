@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,32 +13,35 @@ const addSessionMutate = vi.fn(async () => ({}))
 // Starting is the issue's effect record (POD-6526), never the routes above.
 const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  ...fixtureRuntimeHooks(() =>
-    withKeyedInputs({
-      subscribe: () => () => {},
-      getSnapshot: () => ({
-        trpc: {
-          issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
-        },
-        markIssueRead: vi.fn(),
-        markIssueUnread: vi.fn(),
-        startIssueSession,
-        get sessions() {
-          throw new Error('Task menu read legacy sessions')
-        },
-        get repos() {
-          throw new Error('Task menu read legacy repos')
-        },
-        get machines() {
-          throw new Error('Task menu read legacy machines')
-        },
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    // POD-3911: the menu reads owner.access, not getSnapshot directly.
+    ...fixtureRuntimeHooks(() =>
+      withKeyedInputs({
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          trpc: {
+            issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
+          },
+          markIssueRead: vi.fn(),
+          markIssueUnread: vi.fn(),
+          startIssueSession,
+          get sessions() {
+            throw new Error('Task menu read legacy sessions')
+          },
+          get repos() {
+            throw new Error('Task menu read legacy repos')
+          },
+          get machines() {
+            throw new Error('Task menu read legacy machines')
+          },
+        }),
       }),
-    }),
-  ),
-}))
+    ),
+  }
+})
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     throw new Error('Task menu used a legacy selector')

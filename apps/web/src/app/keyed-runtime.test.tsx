@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { reaction } from 'mobx'
 // @vitest-environment happy-dom
@@ -24,14 +23,17 @@ import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/se
 import { useDraftValue, usePendingSpawnPrompt } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => f.owner),
-  useUiValue: (key: string) => {
-    const ui = (f.owner as { ui: object }).ui
-    const read = () => Reflect.get(ui, key)
-    return useSyncExternalStore((notify) => reaction(read, notify), read)
-  },
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => f.owner),
+    useUiValue: (key: string) => {
+      const ui = (f.owner as { ui: object }).ui
+      const read = () => Reflect.get(ui, key)
+      return useSyncExternalStore((notify) => reaction(read, notify), read)
+    },
+  }
+})
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {
     const view = createPoolProjection(f.pool as MobxPool, read)

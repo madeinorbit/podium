@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 import type { JSX } from 'react'
 import { act } from 'react'
@@ -26,13 +25,16 @@ const store = vi.hoisted(() => {
   return { data, listeners, uiState, available: { value: true }, legacyReads: vi.fn() }
 })
 
-vi.mock('@podium/client-core/react', () => ({
-  useRuntimeSelector: (select: (s: unknown) => unknown) => {
-    store.legacyReads()
-    return select({ uiState: store.available.value ? store.uiState : undefined })
-  },
-  ...fixtureRuntimeHooks(() => ({ deviceState: store.uiState })),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    useRuntimeSelector: (select: (s: unknown) => unknown) => {
+      store.legacyReads()
+      return select({ uiState: store.available.value ? store.uiState : undefined })
+    },
+    ...fixtureRuntimeHooks(() => ({ deviceState: store.uiState })),
+  }
+})
 
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useSyncExternalStore } = await import('react')

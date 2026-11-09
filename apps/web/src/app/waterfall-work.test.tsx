@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 // @vitest-environment happy-dom
 
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -26,10 +25,13 @@ const owner = {
     trpc: { sessions: { activityHistory: { query } } },
   },
 }
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => owner),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+  }
+})
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
     const selector = useRef(read)

@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
@@ -67,25 +66,28 @@ const handoffSession = vi.fn(async () => 'eff_handoff')
 const markIssueRead = vi.fn(async () => {})
 const markIssueUnread = vi.fn(async () => {})
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  ...fixtureRuntimeHooks(() => ({
-    access: {
-      handoffSession,
-      markIssueRead,
-      markIssueUnread,
-      get sessions() {
-        throw new Error('Task menu read legacy sessions')
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({
+      access: {
+        handoffSession,
+        markIssueRead,
+        markIssueUnread,
+        get sessions() {
+          throw new Error('Task menu read legacy sessions')
+        },
+        get repos() {
+          throw new Error('Task menu read legacy repos')
+        },
+        get machines() {
+          throw new Error('Task menu read legacy machines')
+        },
       },
-      get repos() {
-        throw new Error('Task menu read legacy repos')
-      },
-      get machines() {
-        throw new Error('Task menu read legacy machines')
-      },
-    },
-  })),
-}))
+    })),
+  }
+})
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     throw new Error('Task menu used a legacy selector')

@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -27,13 +26,16 @@ vi.mock('./IssueContextMenu', () => ({
     )
   },
 }))
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    getSnapshot: () => {
-      throw new Error('Task reader borrowed the old store')
-    },
-  })),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      getSnapshot: () => {
+        throw new Error('Task reader borrowed the old store')
+      },
+    })),
+  }
+})
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useMemo, useSyncExternalStore } = await import('react')

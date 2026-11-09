@@ -12,7 +12,9 @@ export function fixtureRoot<T extends object>(
   if (read(owner, 'root')) return owner as T & { root: RuntimeRoot; batch(fn: () => void): void }
   const access = () => read(owner, 'access') ?? read(owner, 'getSnapshot')?.() ?? owner
   const stop = (id: string, opts?: { force?: boolean }) =>
-    read(access(), 'endSession')?.(id, opts?.force)
+    opts?.force === undefined
+      ? read(access(), 'endSession')?.(id)
+      : read(access(), 'endSession')?.(id, opts.force)
   const commands = {
     sessions: {
       get spawnDraftAgent() {

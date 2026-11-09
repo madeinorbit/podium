@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionMeta } from '@podium/model'
 import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
@@ -38,6 +37,8 @@ const hostStore = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const { withKeyedInputs } = await import('@podium/client-core/test-support/keyed-inputs')
   const { fixtureStoreSnapshot } = await import('@/test-support/fixture-store')

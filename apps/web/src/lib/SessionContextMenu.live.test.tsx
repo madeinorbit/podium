@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { asSessionId } from '@podium/model'
@@ -21,30 +20,33 @@ const state: {
 // A move is a `session.handoff` effect record (POD-6422): the action answers its id.
 const handoffSession = vi.fn(async () => 'eff_handoff')
 
-vi.mock('@podium/client-core/react', () => ({
-  ...fixtureRuntimeHooks(() => ({
-    access: {
-      setPinned: vi.fn(),
-      setSnooze: vi.fn(),
-      clearSnooze: vi.fn(),
-      hibernateSession: vi.fn(),
-      resurrectSession: vi.fn(),
-      startBtw: vi.fn(),
-      markSessionRead: vi.fn(),
-      markSessionUnread: vi.fn(),
-      handoffSession,
-      get repos() {
-        throw new Error('Menu read legacy repositories')
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      access: {
+        setPinned: vi.fn(),
+        setSnooze: vi.fn(),
+        clearSnooze: vi.fn(),
+        hibernateSession: vi.fn(),
+        resurrectSession: vi.fn(),
+        startBtw: vi.fn(),
+        markSessionRead: vi.fn(),
+        markSessionUnread: vi.fn(),
+        handoffSession,
+        get repos() {
+          throw new Error('Menu read legacy repositories')
+        },
+        get machines() {
+          throw new Error('Menu read legacy machines')
+        },
+        get issues() {
+          throw new Error('Menu read legacy issues')
+        },
       },
-      get machines() {
-        throw new Error('Menu read legacy machines')
-      },
-      get issues() {
-        throw new Error('Menu read legacy issues')
-      },
-    },
-  })),
-}))
+    })),
+  }
+})
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     throw new Error('Menu subscribed to the old store')

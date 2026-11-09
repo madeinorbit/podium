@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { type RuntimeState, workspaceKeyForState } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'

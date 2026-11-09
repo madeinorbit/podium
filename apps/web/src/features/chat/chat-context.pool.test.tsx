@@ -1,4 +1,3 @@
-import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 
