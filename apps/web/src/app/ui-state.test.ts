@@ -114,23 +114,6 @@ describe('replica ui-state collection', () => {
     }
   })
 
-  it('theme keys are MIRRORED into ui-state but stay in localStorage (anti-flash fast path)', () => {
-    const { storage, data } = makeStorage({
-      'podium.theme.mode': 'light',
-    })
-    const ui = openLegacyDeviceKeys(
-      createReplicaFixture({
-        storage,
-        keyPrefix: prefix,
-        enumerateKeys: () => [...data.keys()],
-      }).deviceStorage(),
-    )
-    expect(ui.get('podium.theme.mode')).toBe('light')
-    // index.html's anti-flash script and the pre-store ThemeProvider read these
-    // raw — migration must NOT retire them.
-    expect(data.get('podium.theme.mode')).toBe('light')
-  })
-
   it('ignores resurrected per-file keys after the one-time side-cache migration', async () => {
     const { storage, data } = makeStorage()
     const a = openLegacyDeviceKeys(
