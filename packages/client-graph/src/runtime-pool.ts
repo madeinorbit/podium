@@ -303,8 +303,8 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     // A new record's placement guess (POD-6400): the held repos whose field
     // matches (an issue's repo by its path). Repos only: a handful of rows, read
     // when a create is reduced, never observed. Any other table answers none.
-    // untracked-read: fresh-record-placement
     known: (entity, field, value) =>
+      // untracked-read: fresh-record-placement
       untracked(() => {
         const repos = entity === 'repo' ? attachedPool(runtime).get()?.tables.repo : undefined
         if (!repos) return []

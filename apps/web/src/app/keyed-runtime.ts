@@ -1,5 +1,6 @@
 import type { KeyedInputs, KeyedListName, KeyedListRow, LocalKey } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { SessionId } from '@podium/model/browser'
 import { reaction } from 'mobx'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
@@ -82,6 +83,6 @@ const UI_ACTIONS = ['uiState'] as const
 export function useRuntimeUiValue(key: string): string | null {
   const { uiState: ui } = useRuntimeActions(UI_ACTIONS)
   const subscribe = useCallback((notify: () => void) => ui?.subscribe(notify) ?? (() => {}), [ui])
-  const read = useCallback(() => ui?.get(key) ?? null, [ui, key])
+  const read = useCallback(() => allowImperativeRead(() => ui?.get(key) ?? null), [ui, key])
   return useSyncExternalStore(subscribe, read)
 }
