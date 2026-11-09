@@ -55,7 +55,9 @@ function fixture(sessions: SliceSession[] = []) {
   screen.patch({ settingsTab: state.settingsTab })
   const owner = {
     getSnapshot: read,
-    get access() { return state },
+    get access() {
+      return state
+    },
     ui: screen,
     deviceState: ui,
     subscribe: (wake: () => void) => {
@@ -224,11 +226,14 @@ describe('declared settings readers', () => {
       session('shell', 'shell'),
       { ...session('headless', 'codex'), headless: true },
     ])
-    const requested = createPoolProjection(f.pool, pool => checkSettings(pool, f.owner as never))
+    const requested = createPoolProjection(f.pool, (pool) => checkSettings(pool, f.owner as never))
     disposals.push(requested.subscribe(() => {}))
     requested.getSnapshot()
     f.owner.deviceState.set('podium.sounds.enabled', 'false')
-    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({ key: 'podium.sounds.enabled', value: 'false' })
+    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({
+      key: 'podium.sounds.enabled',
+      value: 'false',
+    })
     // A component observes catalog demand; imperative oracle reads are immediate.
     expect(requested.getSnapshot().pending).toBeGreaterThan(0)
     await Promise.resolve()

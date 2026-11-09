@@ -1,7 +1,6 @@
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { MobxPool } from '@podium/client-graph'
 // @vitest-environment happy-dom
 import type { SessionId, SessionMeta } from '@podium/model'
@@ -250,7 +249,10 @@ beforeEach(() => {
     sessions: [session('s1'), session('s2'), session('s3')],
     // The engine's mission is present even when the view's deliberately
     // separate projection has not arrived or has already archived the row.
-    navigation: fixtureNavigation({ issues: () => [task] as never, sessions: () => state.sessions as never }),
+    navigation: fixtureNavigation({
+      issues: () => [task] as never,
+      sessions: () => state.sessions as never,
+    }),
     selectedWorktree: '/repo/wt',
     selectedIssueId: task.id,
     paneA: 's2',

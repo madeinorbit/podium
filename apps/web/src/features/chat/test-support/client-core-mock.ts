@@ -7,7 +7,9 @@ import './pool-fixture'
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   ...(await import('./fake-store-handle').then(async ({ fakeStoreHandle }) => ({
-    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => fakeStoreHandle),
+    ...(
+      await import('@podium/client-core/test-support/react')
+    ).fixtureUiHooks(() => fakeStoreHandle),
     useStoreHandle: () => fakeStoreHandle,
   }))),
   useModelCatalog: () => ({}),
@@ -18,7 +20,13 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
 
 // The shared lifecycle hook reads the provider module directly.
 vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../../../packages/client-core/src/react/provider')>()),
+  ...(await importOriginal<
+    typeof import('../../../../../../packages/client-core/src/react/provider')
+  >()),
   ...(await import('./fake-store-handle').then(async ({ fakeStoreHandle }) => ({
-    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => fakeStoreHandle), useStoreHandle: () => fakeStoreHandle }))),
+    ...(
+      await import('@podium/client-core/test-support/react')
+    ).fixtureUiHooks(() => fakeStoreHandle),
+    useStoreHandle: () => fakeStoreHandle,
+  }))),
 }))

@@ -2,21 +2,21 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { nativeAccountId } from '@podium/runtime'
 import {
   asIssueId,
   asMachineId,
   asRepoId,
   asSessionId,
   asUserId,
-  resolveUserPreferences,
   type GitRepositoryWire,
   type MachineId,
   type MachineWire,
+  resolveUserPreferences,
 } from '@podium/model'
+import { nativeAccountId } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useMemo, useSyncExternalStore } from 'react'
 import { runInAction } from 'mobx'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
@@ -28,9 +28,22 @@ const featureEnabled = vi.hoisted(() => ({ value: true }))
 const preferences = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 function publishHarness(harness: string) {
   const userId = asUserId('menu-operator')
-  preferences.apply({ type: 'update', rows: [{ kind: 'userPreferences', id: userId, value: {
-    ...resolveUserPreferences({ userId, 'roles.coding.accountId': nativeAccountId(harness) }, userId), id: userId,
-  } as never }] })
+  preferences.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'userPreferences',
+        id: userId,
+        value: {
+          ...resolveUserPreferences(
+            { userId, 'roles.coding.accountId': nativeAccountId(harness) },
+            userId,
+          ),
+          id: userId,
+        } as never,
+      },
+    ],
+  })
 }
 vi.mock('@/app/store-worklist-pool', async (original) => ({
   ...(await original<typeof import('@/app/store-worklist-pool')>()),

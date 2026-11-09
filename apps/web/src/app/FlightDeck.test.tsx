@@ -1,27 +1,26 @@
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { asIssueId, asUserId, type TaskCostWire } from '@podium/model/browser'
-import { resetPolledQueryCache } from '@/lib/use-polled-query'
-import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
-// @vitest-environment happy-dom
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import {
   ConversationCache,
   type ConversationCacheOptions,
   DraftStore,
 } from '@podium/client-core/conversation'
-import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
+// @vitest-environment happy-dom
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
-
+import { asIssueId, asUserId, type TaskCostWire } from '@podium/model/browser'
+import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { seedCacheFromCorpus } from '../../../../tests/worklist/shared/src/scenarios'
 import {
@@ -91,8 +90,20 @@ const harness = vi.hoisted(() => ({
   issueVisitBaseline: null as { issueId: string; readAt: string | null; openedAt: string } | null,
   replica: {},
   trpc: {
-    settings: { get: { query: async () => ({ ...DEFAULT_SETTINGS, roles: { ...DEFAULT_SETTINGS.roles,
-      coding: { ...DEFAULT_SETTINGS.roles.coding, accountId: nativeAccountId(harness.codingHarness) } } }) } },
+    settings: {
+      get: {
+        query: async () => ({
+          ...DEFAULT_SETTINGS,
+          roles: {
+            ...DEFAULT_SETTINGS.roles,
+            coding: {
+              ...DEFAULT_SETTINGS.roles.coding,
+              accountId: nativeAccountId(harness.codingHarness),
+            },
+          },
+        }),
+      },
+    },
     features: { state: { query: async () => null } },
     // The mission header asks what the mission cost (POD-1862). These decks
     // have no figure, which is the ordinary case and renders no chip at all —
@@ -174,7 +185,12 @@ vi.mock('./store', () => ({
   useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({
       issues: harness.issues,
-      userPreferences: [{ userId: asUserId('fixture-user'), 'roles.coding.accountId': nativeAccountId(harness.codingHarness) }],
+      userPreferences: [
+        {
+          userId: asUserId('fixture-user'),
+          'roles.coding.accountId': nativeAccountId(harness.codingHarness),
+        },
+      ],
       sessions: harness.sessions,
       repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,
@@ -309,10 +325,14 @@ const settle = async (): Promise<void> => {
 
 it('offers collapse and no width-mode toggle; the column edge resizes it', async () => {
   await deck()
-  expect(screen.getByTestId('flight-deck-scroller').classList.contains('flight-full-panel')).toBe(true)
+  expect(screen.getByTestId('flight-deck-scroller').classList.contains('flight-full-panel')).toBe(
+    true,
+  )
   expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeDefined()
   // The compact/wide toggle is gone (POD-6245); no view bar sits below either.
-  expect(screen.queryByRole('button', { name: /compact Flight Deck|Expand mission overview/ })).toBeNull()
+  expect(
+    screen.queryByRole('button', { name: /compact Flight Deck|Expand mission overview/ }),
+  ).toBeNull()
   expect(screen.queryByRole('group', { name: 'Deck view' })).toBeNull()
 })
 
@@ -613,7 +633,9 @@ describe('Full task filters', () => {
     await deck()
     const coordinator = () => document.querySelector('[data-flight-session="coord"]')
     for (const name of ['All 3', 'Needs you 0', 'Active 1', 'Up next 1', 'Done 1']) {
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name }))
+      })
       expect(coordinator()).not.toBeNull()
       expect(harness.ui.has('podium.flightDeck.mode')).toBe(false)
     }
@@ -627,8 +649,13 @@ describe('Full task filters', () => {
 
   it('reveals a finished session from a narrowed Full filter and search', async () => {
     harness.issues = [
-      issue('root'), issue('t1', { parentId: 'root', stage: 'done',
-        closedAt: '2026-01-01T00:00:00Z', memberSessionIds: ['s1'] }),
+      issue('root'),
+      issue('t1', {
+        parentId: 'root',
+        stage: 'done',
+        closedAt: '2026-01-01T00:00:00Z',
+        memberSessionIds: ['s1'],
+      }),
     ]
     harness.sessions = [session('s1', { issueId: 't1', agentState: { phase: 'ended' } })]
     await deck()
@@ -651,12 +678,15 @@ describe('Full mission header', () => {
   const details = () => fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
 
   it('expands human markdown sections and Acceptance, with no agent brief or invented columns', async () => {
-    harness.issues = [issue('root', {
-      description: 'A human summary.\n\n## Delivery\n\n- Keep the authored structure.\n- **Ship** the increment.',
-      brief: 'SECRET AGENT INSTRUCTIONS',
-      activityNotes: 'Agent progress update',
-      acceptance: '- Human can read the result.\n- Existing actions still work.',
-    })]
+    harness.issues = [
+      issue('root', {
+        description:
+          'A human summary.\n\n## Delivery\n\n- Keep the authored structure.\n- **Ship** the increment.',
+        brief: 'SECRET AGENT INSTRUCTIONS',
+        activityNotes: 'Agent progress update',
+        acceptance: '- Human can read the result.\n- Existing actions still work.',
+      }),
+    ]
     harness.sessions = []
     await deck()
     expect(description().querySelector('.flight-full-description-summary')).toBeTruthy()
@@ -664,16 +694,22 @@ describe('Full mission header', () => {
     expect(screen.queryByRole('region', { name: 'Acceptance' })).toBeNull()
     captureHeader('Two-line human summary')
     details()
-    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
     expect(description().querySelector('h2')?.textContent).toBe('Delivery')
     expect(description().querySelector('strong')?.textContent).toBe('Ship')
-    expect(screen.getByRole('region', { name: 'Acceptance' }).querySelectorAll('li')).toHaveLength(2)
+    expect(screen.getByRole('region', { name: 'Acceptance' }).querySelectorAll('li')).toHaveLength(
+      2,
+    )
     for (const text of ['SECRET AGENT INSTRUCTIONS', 'Agent progress update', 'Goal', 'Scope']) {
       expect(description().textContent).not.toContain(text)
     }
     captureHeader('Expanded authored sections and Acceptance')
     fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
-    expect(screen.getByRole('button', { name: 'Read more' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Read more' }).getAttribute('aria-expanded')).toBe(
+      'false',
+    )
     expect(screen.queryByRole('region', { name: 'Acceptance' })).toBeNull()
   })
 
@@ -692,14 +728,20 @@ describe('Full mission header', () => {
   })
 
   it('shows acceptance without substituting instructions when the description is absent', async () => {
-    harness.issues = [issue('root', {
-      brief: 'Agent-only instructions', activityNotes: 'Agent-only note', acceptance: 'A human check.',
-    })]
+    harness.issues = [
+      issue('root', {
+        brief: 'Agent-only instructions',
+        activityNotes: 'Agent-only note',
+        acceptance: 'A human check.',
+      }),
+    ]
     harness.sessions = []
     await deck()
     expect(description().textContent).toContain('No description yet.')
     details()
-    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('A human check.')
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain(
+      'A human check.',
+    )
     expect(description().textContent).not.toContain('Agent-only')
   })
 
@@ -717,41 +759,58 @@ describe('Full mission header', () => {
 
   it('counts leaves consistently with the Full done line, without parents or phases', async () => {
     harness.issues = [
-      issue('root'), issue('phase', { parentId: 'root', type: 'phase' }),
+      issue('root'),
+      issue('phase', { parentId: 'root', type: 'phase' }),
       issue('parent', { parentId: 'phase' }),
       issue('finished', { parentId: 'parent', stage: 'done', closedAt: '2026-01-01T00:00:00Z' }),
       issue('future', { parentId: 'parent', stage: 'backlog' }),
-      issue('cancelled', { parentId: 'phase', stage: 'done', closedReason: 'cancelled', closedAt: '2026-01-01T00:00:00Z' }),
+      issue('cancelled', {
+        parentId: 'phase',
+        stage: 'done',
+        closedReason: 'cancelled',
+        closedAt: '2026-01-01T00:00:00Z',
+      }),
       issue('proposal', { parentId: 'root', stage: 'proposed' }),
     ]
     harness.sessions = []
     await deck()
-    await waitFor(() => expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
-      '1 of 2 tasks done, 0 working, 0 waiting, 1 to do',
-    ))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label'),
+      ).toBe('1 of 2 tasks done, 0 working, 0 waiting, 1 to do'),
+    )
     expect(screen.getByRole('button', { name: /^All 2$/ })).toBeTruthy()
     // Done work shows by default (POD-6245); the done line appears once it is hidden.
     fireEvent.click(screen.getByTitle('Hide done tasks'))
     expect(screen.getByRole('button', { name: /1 task done Show/ })).toBeTruthy()
-    const before = screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')
+    const before = screen
+      .getByTestId('mission-gauge-track')
+      .parentElement?.getAttribute('aria-label')
     fireEvent.click(screen.getByRole('button', { name: /1 task done Show/ }))
-    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(before)
+    expect(
+      screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label'),
+    ).toBe(before)
     captureHeader('Leaf totals · parents and phases excluded')
   })
 
   it('renders all four bands from the shared Full model', async () => {
-    harness.issues = [issue('root', { description: 'A mission with work in every band.' }),
+    harness.issues = [
+      issue('root', { description: 'A mission with work in every band.' }),
       issue('done', { parentId: 'root', stage: 'done', closedAt: '2026-01-01T00:00:00Z' }),
       issue('working', { parentId: 'root', memberSessionIds: ['worker'] }),
-      issue('blocked', { parentId: 'root', stage: 'backlog', blocked: true,
-        deps: [{ id: 'future', type: 'blocked-by' }] }),
+      issue('blocked', {
+        parentId: 'root',
+        stage: 'backlog',
+        blocked: true,
+        deps: [{ id: 'future', type: 'blocked-by' }],
+      }),
       issue('future', { parentId: 'root', stage: 'backlog' }),
     ]
     harness.sessions = [session('worker', { issueId: 'working', agentState: WORKING })]
     await deck()
-    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
-      '1 of 4 tasks done, 1 working, 0 waiting, 2 to do',
-    )
+    expect(
+      screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label'),
+    ).toBe('1 of 4 tasks done, 1 working, 0 waiting, 2 to do')
     captureHeader('Four bands · shared live leaf totals')
   })
 
@@ -759,20 +818,40 @@ describe('Full mission header', () => {
     harness.issues = [issue('root', { stage: 'backlog' })]
     harness.sessions = []
     await deck()
-    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
-      '0 of 1 tasks done, 0 working, 0 waiting, 1 to do',
-    )
+    expect(
+      screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label'),
+    ).toBe('0 of 1 tasks done, 0 working, 0 waiting, 1 to do')
   })
 
   it('keeps the cost floor and existing Add agent action without the crew chip', async () => {
-    harness.issues = [issue('root', { description: 'Human summary.', defaultAgent: 'codex', agentProfileId: 'profile' })]
+    harness.issues = [
+      issue('root', {
+        description: 'Human summary.',
+        defaultAgent: 'codex',
+        agentProfileId: 'profile',
+      }),
+    ]
     harness.sessions = [session('present', { issueId: 'root', agentState: WORKING })]
-    const usage = { model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0,
-      cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 2 }
+    const usage = {
+      model: 'claude-opus-5',
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
+      messages: 2,
+    }
     harness.costAnswer = {
-      issueId: asIssueId('root'), state: 'costed', own: { models: [usage], messages: 2, sessionCount: 1 },
-      rollup: { models: [usage], messages: 2, sessionCount: 1 }, descendantCount: 0,
-      provisional: false, floor: 'partial', uncostedSessionCount: 1, harnesses: ['codex'], sessions: [],
+      issueId: asIssueId('root'),
+      state: 'costed',
+      own: { models: [usage], messages: 2, sessionCount: 1 },
+      rollup: { models: [usage], messages: 2, sessionCount: 1 },
+      descendantCount: 0,
+      provisional: false,
+      floor: 'partial',
+      uncostedSessionCount: 1,
+      harnesses: ['codex'],
+      sessions: [],
     } satisfies TaskCostWire
     await deck()
     await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
@@ -782,7 +861,9 @@ describe('Full mission header', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex (default)' }))
     await waitFor(() => expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root' }))
-    expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: ['present'] })
+    expect(harness.focusIssueSession).toHaveBeenCalledWith('root', {
+      excludeSessionIds: ['present'],
+    })
   })
 })
 
@@ -798,12 +879,17 @@ afterAll(() => {
   const sourceCss = readFileSync('src/styles.css', 'utf8')
   const css = sourceCss.split('/* Full mission header (v6).')[1]?.split('/* ── THE RUNNING')[0]
   const hatch = sourceCss.match(/\.gauge-hatch\s*\{[^}]+\}/)?.[0] ?? ''
-  const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
-  writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full mission header</title><style>
+  const tokens = readFileSync('src/index.css', 'utf8')
+    .split('[data-theme="podium"].dark {')[1]
+    ?.split('}')[0]
+  writeFileSync(
+    path,
+    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full mission header</title><style>
     :root{${tokens}--font-mono:ui-monospace,monospace;--shell-type-micro:10.5px}
     *{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:12px system-ui}main{max-width:1100px;margin:auto}article{margin:24px 0}button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}svg{flex:none}.samples{display:flex;flex-wrap:wrap;align-items:start;gap:20px}.sample{flex:none;border:1px solid #33373f;border-radius:8px;background:#1d1f23;padding:12px 16px}.sample>p{color:#949aa4}.shell-type-micro{font-size:10.5px}.shell-type-column-title{margin:4px 0;font-weight:600}.deck-header>div:first-child{display:flex;align-items:center;gap:6px}.deck-header>div:first-child>span[aria-hidden]{flex:1}.deck-header button{flex-shrink:0}.deck-header h2{text-align:left}.deck-header .mt-2\\.5{margin-top:10px}.flight-full-gauge-row{display:flex;flex-wrap:wrap;align-items:center;margin-top:12px}.mission-gauge-full{display:flex;align-items:center}.mission-gauge-full [data-testid="mission-gauge-track"]{display:flex;height:26px;gap:2px;padding:2px;border-radius:8px;background:#16171a}.mission-gauge-full [data-testid="mission-live-chip"], [data-testid="mission-cost-chip"], button[aria-label="Add agent to mission"]{display:flex;align-items:center;flex:none;height:26px;gap:6px;padding:0 9px;border-radius:8px;background:#16171a;white-space:nowrap}[data-testid="mission-cost-chip"]{border:1px solid #3a3f48}
     /* Full mission header (v6).${css}\n${hatch}
-  </style><main><h1>Full mission header</h1><p>Actual tested header DOM at 300px, 480px and 900px. Summary and band shedding use the source CSS. Actions wrap and retain their labels. Static captures; use Read more and Collapse in the live Full view.</p>${headerCaptures.map(c => `<article><h2>${c.title}</h2><div class="samples">${[300,480,900].map(w => `<div class="sample" style="width:${w}px"><p>${w}px</p>${c.html}</div>`).join('')}</div></article>`).join('')}</main></html>`)
+  </style><main><h1>Full mission header</h1><p>Actual tested header DOM at 300px, 480px and 900px. Summary and band shedding use the source CSS. Actions wrap and retain their labels. Static captures; use Read more and Collapse in the live Full view.</p>${headerCaptures.map((c) => `<article><h2>${c.title}</h2><div class="samples">${[300, 480, 900].map((w) => `<div class="sample" style="width:${w}px"><p>${w}px</p>${c.html}</div>`).join('')}</div></article>`).join('')}</main></html>`,
+  )
 })
 
 describe('flight deck mission agent action', () => {
@@ -820,7 +906,10 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
 
     await waitFor(() =>
-      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({
+        issueId: 'root',
+        agentKind: 'codex',
+      }),
     )
     expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: [] })
     expect(harness.startIssue).not.toHaveBeenCalled()
@@ -838,7 +927,10 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
 
     await waitFor(() =>
-      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({
+        issueId: 'root',
+        agentKind: 'codex',
+      }),
     )
     expect(harness.startIssue).not.toHaveBeenCalled()
   })
@@ -857,7 +949,10 @@ describe('flight deck mission agent action', () => {
     // No mode: the launch paint begins a never-started issue and adds to a
     // started one, from the issue's own row (POD-6526).
     await waitFor(() =>
-      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({
+        issueId: 'root',
+        agentKind: 'codex',
+      }),
     )
     expect(harness.addSession).not.toHaveBeenCalled()
     expect(harness.startIssue).not.toHaveBeenCalled()
@@ -1415,12 +1510,20 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
   })
 
   it('keeps a proposed parent reachable in the Full tail after it leaves the accepted tree', async () => {
-    harness.issues.push(issue('proposal-parent', { parentId: 'root', stage: 'proposed', title: 'Proposed parent' }),
-      issue('proposal-child', { parentId: 'proposal-parent' }))
+    harness.issues.push(
+      issue('proposal-parent', { parentId: 'root', stage: 'proposed', title: 'Proposed parent' }),
+      issue('proposal-child', { parentId: 'proposal-parent' }),
+    )
     await deck()
-    const proposal = screen.getByTestId('flight-proposed').querySelector('[data-flight-issue="proposal-parent"]')
+    const proposal = screen
+      .getByTestId('flight-proposed')
+      .querySelector('[data-flight-issue="proposal-parent"]')
     expect(proposal).not.toBeNull()
-    expect(screen.getByTestId('flight-deck-v6-rows').querySelector('[data-flight-issue="proposal-parent"]')).toBeNull()
+    expect(
+      screen
+        .getByTestId('flight-deck-v6-rows')
+        .querySelector('[data-flight-issue="proposal-parent"]'),
+    ).toBeNull()
     fireEvent.contextMenu(proposal!.querySelector('button')!)
     expect(await screen.findByText('Set status')).toBeTruthy()
   })
@@ -1692,7 +1795,9 @@ describe('flight deck spine (POD-758)', () => {
     await deck()
     const row = document.querySelector('[data-flight-session="lead"]')
     expect(row?.getAttribute('data-seat')).toBe('coordinator')
-    expect(row?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain('Coordinator')
+    expect(row?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain(
+      'Coordinator',
+    )
     expect(row?.closest('[data-testid="flight-full-coordinator"]')).not.toBeNull()
   })
 })
@@ -1837,7 +1942,9 @@ describe('flight deck spine geometry (POD-1226)', () => {
     expect(button?.getAttribute('title')).toContain('POD-1-A')
     expect(button?.getAttribute('title')).toContain('Needs you')
     expect(button?.getAttribute('title')).toContain('coordinator')
-    expect(button?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain('Coordinator')
+    expect(button?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain(
+      'Coordinator',
+    )
   })
 })
 
@@ -1932,12 +2039,19 @@ describe('flight deck without a mission', () => {
 describe('Full coordinator and session seats', () => {
   const row = (id: string) => document.querySelector<HTMLElement>(`[data-flight-session="${id}"]`)!
   const button = (id: string) => row(id).querySelector<HTMLButtonElement>('.deck-agent')!
-  const selected = () => [...document.querySelectorAll('[data-flight-session][data-selected="true"]')]
-    .map(node => node.getAttribute('data-flight-session'))
+  const selected = () =>
+    [...document.querySelectorAll('[data-flight-session][data-selected="true"]')].map((node) =>
+      node.getAttribute('data-flight-session'),
+    )
   const fixtures = () => {
     harness.issues = [
       issue('root', { title: 'Mission', coordinatorSessionId: 'coord' }),
-      issue('phase', { parentId: 'root', type: 'phase', title: 'Build', coordinatorSessionId: 'lead' }),
+      issue('phase', {
+        parentId: 'root',
+        type: 'phase',
+        title: 'Build',
+        coordinatorSessionId: 'lead',
+      }),
       issue('task', { parentId: 'phase', title: 'Build storage', coordinatorSessionId: 'worker' }),
     ]
     harness.sessions = [
@@ -1961,9 +2075,12 @@ describe('Full coordinator and session seats', () => {
     expect(row('coord').dataset.seat).toBe('coordinator')
     expect(row('lead').dataset.seat).toBe('phase-lead')
     expect(row('worker').dataset.seat).toBe('worker')
-    for (const id of ['root-helper', 'phase-helper', 'task-helper']) expect(row(id).dataset.seat).toBe('helper')
+    for (const id of ['root-helper', 'phase-helper', 'task-helper'])
+      expect(row(id).dataset.seat).toBe('helper')
     const phase = document.querySelector('[data-phase-lead-slot="phase"]')!
-    expect(phase.querySelector('[data-flight-session]')?.getAttribute('data-flight-session')).toBe('lead')
+    expect(phase.querySelector('[data-flight-session]')?.getAttribute('data-flight-session')).toBe(
+      'lead',
+    )
     expect(row('lead').textContent).toContain('phase lead')
     for (const id of ['coord', 'root-helper', 'phase-helper', 'worker', 'task-helper']) {
       harness.paneB = id
@@ -1978,7 +2095,9 @@ describe('Full coordinator and session seats', () => {
     harness.paneB = 'file:readme'
     view.rerender(<DeckHarness />)
     expect(selected()).toEqual([])
-    expect(document.querySelector('.flight-v6-card[data-selected], .flight-v6-strip[data-selected]')).toBeNull()
+    expect(
+      document.querySelector('.flight-v6-card[data-selected], .flight-v6-strip[data-selected]'),
+    ).toBeNull()
     expect(document.querySelectorAll('[data-flight-session]')).toHaveLength(6)
   })
 
@@ -1999,7 +2118,11 @@ describe('Full coordinator and session seats', () => {
   })
 
   it('keeps a simple issue, its pending offer and selected helper stable as child tasks and phases arrive', async () => {
-    const offer = { message: 'Approve the design', createdAt: '2026-01-01T00:00:00.000Z', actions: [] }
+    const offer = {
+      message: 'Approve the design',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      actions: [],
+    }
     harness.issues = [issue('root', { title: 'Sync comparison', coordinatorSessionId: 'coord' })]
     harness.sessions = [session('coord', { issueId: 'root', offer, agentState: { phase: 'idle' } })]
     harness.paneA = 'coord'
@@ -2013,7 +2136,10 @@ describe('Full coordinator and session seats', () => {
     captureSeats('Simple issue · pending offer opens in conversation', view.container)
     fireEvent.click(button('coord'))
     expect(harness.openSessionTab).toHaveBeenLastCalledWith('coord', { permanent: false })
-    harness.sessions = [...harness.sessions, session('helper', { issueId: 'root', agentState: { phase: 'idle' } })]
+    harness.sessions = [
+      ...harness.sessions,
+      session('helper', { issueId: 'root', agentState: { phase: 'idle' } }),
+    ]
     harness.paneA = 'helper'
     harness.issues = [
       ...harness.issues,
@@ -2029,9 +2155,14 @@ describe('Full coordinator and session seats', () => {
     expect(screen.getByTestId('flight-proposed').textContent).toContain('Suggested follow-up')
     expect((harness.sessions[0] as SessionView).offer).toBe(offer)
     captureSeats('Simple issue · helper focused and flat child', view.container)
-    harness.issues = [...harness.issues, issue('phase', { parentId: 'root', type: 'phase', title: 'Verify' })]
+    harness.issues = [
+      ...harness.issues,
+      issue('phase', { parentId: 'root', type: 'phase', title: 'Verify' }),
+    ]
     view.rerender(<DeckHarness />)
-    await waitFor(() => expect(document.querySelector('[data-flight-phase="phase"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(document.querySelector('[data-flight-phase="phase"]')).not.toBeNull(),
+    )
     expect(row('coord')).toBe(coordinator)
     expect(row('coord').dataset.word).toBe('needs-you')
     expect(selected()).toEqual(['helper'])
@@ -2054,21 +2185,30 @@ describe('Full coordinator and session seats', () => {
     expect(row('other').dataset.seat).toBe('helper')
     expect(row('unmarked-lead').dataset.seat).toBe('helper')
     expect(selected()).toEqual(['other'])
-    expect(document.querySelector('.flight-full-phase-content')?.getAttribute('data-has-lead')).toBe('false')
+    expect(
+      document.querySelector('.flight-full-phase-content')?.getAttribute('data-has-lead'),
+    ).toBe('false')
   })
 
   it('keeps the existing empty state with no live sessions and puts stopped sessions in the archive', async () => {
     harness.issues = [issue('root', { coordinatorSessionId: 'stopped' })]
-    harness.sessions = [session('stopped', { issueId: 'root', status: 'exited', exitCode: 0, archived: true })]
+    harness.sessions = [
+      session('stopped', { issueId: 'root', status: 'exited', exitCode: 0, archived: true }),
+    ]
     await deck()
     expect(screen.queryByTestId('flight-full-coordinator')).toBeNull()
-    expect(screen.getByTestId('flight-deck-tail').textContent).toContain('Agent left · choose a handoff')
+    expect(screen.getByTestId('flight-deck-tail').textContent).toContain(
+      'Agent left · choose a handoff',
+    )
     expect(screen.getByRole('button', { name: /archived session/i })).toBeTruthy()
   })
 
   it('gives a focused archived conversation the same selected row as live seats', async () => {
     fixtures()
-    harness.sessions = [...harness.sessions, session('archived', { issueId: 'root', archived: true, status: 'exited' })]
+    harness.sessions = [
+      ...harness.sessions,
+      session('archived', { issueId: 'root', archived: true, status: 'exited' }),
+    ]
     harness.split = true
     harness.paneA = 'coord'
     harness.paneB = 'archived'
@@ -2088,18 +2228,24 @@ describe('Full coordinator and session seats', () => {
 // source CSS. It is deliberately static: routing is covered hermetically above.
 const seatCaptures: { title: string; html: string }[] = []
 function captureSeats(title: string, node: HTMLElement) {
-  if (process.env['PODIUM_FULL_SEATS_REVIEW_HTML']) seatCaptures.push({ title, html: node.innerHTML })
+  if (process.env['PODIUM_FULL_SEATS_REVIEW_HTML'])
+    seatCaptures.push({ title, html: node.innerHTML })
 }
 afterAll(() => {
   const path = process.env['PODIUM_FULL_SEATS_REVIEW_HTML']
   if (!path) return
   const css = readFileSync('src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
-  const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
-  writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full coordinator and session seats</title><style>
+  const tokens = readFileSync('src/index.css', 'utf8')
+    .split('[data-theme="podium"].dark {')[1]
+    ?.split('}')[0]
+  writeFileSync(
+    path,
+    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full coordinator and session seats</title><style>
   :root{${tokens} --font-mono:ui-monospace,monospace;--motion-working:#6f9dff;--motion-total:#848a94}
   *{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:13px system-ui}main{max-width:980px;margin:auto}h1{font-size:18px}h2{font-size:14px;margin-top:28px}p{color:#949aa4;line-height:1.5}button{font:inherit;color:inherit;background:none;border:0;padding:0}svg{flex:none}.size-5{width:20px;height:20px}.size-4{width:16px;height:16px}.flex{display:flex}.flex-none{flex:none}.items-center{align-items:center}.justify-center{justify-content:center}.border{border:1px solid #3a3f48}.rounded{border-radius:4px}.rounded-\\[6px\\]{border-radius:6px}.deck-header{padding:12px}.deck-chrome{background:#1e2025}.deck-chrome>div:not(.deck-header){padding:6px 12px}.deck-header button{margin-right:10px}.deck-rows{padding:8px}.deck-chrome>div>div{display:flex;gap:8px}
   /* Full flight deck v6.${css}
-  </style><main><h1>Full coordinator and session seats</h1><p>Actual rendered acceptance fixtures. The focused pane selects one session. The coordinator stays above filters; phase leads sit first inside their phases. Offers open in the conversation. Static captures.</p>${seatCaptures.map(c => `<article><h2>${c.title}</h2>${c.html}</article>`).join('')}</main></html>`)
+  </style><main><h1>Full coordinator and session seats</h1><p>Actual rendered acceptance fixtures. The focused pane selects one session. The coordinator stays above filters; phase leads sit first inside their phases. Offers open in the conversation. Static captures.</p>${seatCaptures.map((c) => `<article><h2>${c.title}</h2>${c.html}</article>`).join('')}</main></html>`,
+  )
 })
 
 describe('Full phase sections', () => {
@@ -2108,15 +2254,22 @@ describe('Full phase sections', () => {
       issue('root', { title: 'Mission' }),
       issue('phase', { parentId: 'root', type: 'phase', title: 'Build', sortKey: 'a' }),
       issue('work', { parentId: 'phase', title: 'Unfinished work' }),
-      issue('done', { parentId: 'phase', title: 'Finished work', stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }),
+      issue('done', {
+        parentId: 'phase',
+        title: 'Finished work',
+        stage: 'done',
+        closedAt: '2026-01-01T00:00:00.000Z',
+      }),
       issue('loose', { parentId: 'root', title: 'Loose work', sortKey: 'z' }),
       issue('proposal', { parentId: 'root', title: 'Suggested follow-up', stage: 'proposed' }),
     ]
     harness.sessions = []
     const current = await deck()
     const groups = current.getByTestId('flight-deck-full-groups')
-    const order = () => [...groups.querySelectorAll('[data-flight-issue], [data-flight-phase]')]
-      .map(node => node.getAttribute('data-flight-issue') ?? node.getAttribute('data-flight-phase'))
+    const order = () =>
+      [...groups.querySelectorAll('[data-flight-issue], [data-flight-phase]')].map(
+        (node) => node.getAttribute('data-flight-issue') ?? node.getAttribute('data-flight-phase'),
+      )
     // Done work shows in place by default (POD-6245); hide it to get the line.
     expect(order()).toEqual(['loose', 'phase', 'done', 'work'])
     fireEvent.click(screen.getByTitle('Hide done tasks'))

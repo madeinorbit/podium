@@ -1,8 +1,12 @@
 import '@podium/client-graph/synced-models'
-import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
-import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
+import {
+  ConversationCache,
+  type ConversationCacheOptions,
+  DraftStore,
+} from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -57,11 +61,18 @@ const f = vi.hoisted(() => ({
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}),
   confirm: vi.fn(async () => true),
 }))
-const paneDrafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+const paneDrafts = new DraftStore({
+  storage: { get: () => null, set: () => {} },
+  hub: {
+    on: () => () => {},
+    sendDraftEdit: () => {},
+    connectionHealth: () => ({ status: 'ok' }),
+  } as never,
+})
 let paneConversations: ConversationCache | undefined
 const paneStoreHandle = withKeyedInputs({
   ownConversations: (options: ConversationCacheOptions) =>
-    paneConversations ??= new ConversationCache(options),
+    (paneConversations ??= new ConversationCache(options)),
   drafts: paneDrafts,
   getSnapshot: () => f.state,
   subscribe: (_listener: () => void) => () => {},
@@ -149,8 +160,22 @@ const pickerFixture = vi.hoisted(() => ({ real: false }))
 vi.mock('@/lib/ModelEffortPicker', async (original) => {
   const actual = await original<typeof import('@/lib/ModelEffortPicker')>()
   return {
-    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) => pickerFixture.real ? <actual.ModelPicker {...props} /> : <button type="button" data-model={props.value}>{props.value}</button>,
-    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) => pickerFixture.real ? <actual.EffortPicker {...props} /> : <button type="button" data-effort={props.value}>{props.value}</button>,
+    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) =>
+      pickerFixture.real ? (
+        <actual.ModelPicker {...props} />
+      ) : (
+        <button type="button" data-model={props.value}>
+          {props.value}
+        </button>
+      ),
+    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) =>
+      pickerFixture.real ? (
+        <actual.EffortPicker {...props} />
+      ) : (
+        <button type="button" data-effort={props.value}>
+          {props.value}
+        </button>
+      ),
   }
 })
 vi.mock('@/lib/SnoozeControl', () => ({
@@ -159,7 +184,11 @@ vi.mock('@/lib/SnoozeControl', () => ({
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
-vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW, useDeadlineNow: () => SESSION_PANE_NOW, useAgeNow: () => SESSION_PANE_NOW }))
+vi.mock('@/lib/clock-hooks', () => ({
+  useClock: () => SESSION_PANE_NOW,
+  useDeadlineNow: () => SESSION_PANE_NOW,
+  useAgeNow: () => SESSION_PANE_NOW,
+}))
 
 const useFixtureIssues = () => f.issues
 
@@ -234,8 +263,16 @@ beforeEach(() => {
     schedule: () => () => {},
   })
   paneTransactions = createPoolTransactions({
-    userId: 'operator', outbox: { pending: () => [], awaiting: () => [], deadLetters: () => [], subscribe: () => () => {} },
-    outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+    userId: 'operator',
+    outbox: {
+      pending: () => [],
+      awaiting: () => [],
+      deadLetters: () => [],
+      subscribe: () => () => {},
+    },
+    outcomes: () => () => {},
+    addressed: () => () => {},
+    enqueue: async () => {},
   })
   f.pool.attachTransactions(paneTransactions)
   f.pool.apply({
@@ -387,7 +424,17 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   f.pool!.apply({
     type: 'update',
     rows: [
-      { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'synthetic', prefix: 'POD', repoPath: '/synthetic', repoName: 'Synthetic' } as never },
+      {
+        kind: 'worktree',
+        id: '/synthetic',
+        value: {
+          path: '/synthetic',
+          repoId: 'synthetic',
+          prefix: 'POD',
+          repoPath: '/synthetic',
+          repoName: 'Synthetic',
+        } as never,
+      },
       ...issues.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ],
   })
@@ -434,10 +481,18 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   )
   expect(paint).not.toHaveBeenCalled()
   for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
-    act(() => f.pool!.apply({
-      type: 'update', rows: [{ kind: 'issue', id: updated.id,
-        value: { ...updated, stage: 'done', closedReason } as never }],
-    }))
+    act(() =>
+      f.pool!.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'issue',
+            id: updated.id,
+            value: { ...updated, stage: 'done', closedReason } as never,
+          },
+        ],
+      }),
+    )
     expect(stages).toEqual([closedReason, closedReason, 'review', null, null, null, null, null])
     expect(paint).toHaveBeenCalledTimes(1)
     paint.mockClear()
@@ -480,8 +535,10 @@ it('never accesses legacy session, machine or window collections on the pool inp
       modes = usePanePanelModes()
     const confirmed = usePaneSpawnConfirmed(id),
       dock = useDockPaneInputs('/synthetic/w19', null)
-    const ownership = { selectedIssueId: usePaneSelectedIssueId(), stampIssue: usePaneStampIssue(id),
-      }
+    const ownership = {
+      selectedIssueId: usePaneSelectedIssueId(),
+      stampIssue: usePaneStampIssue(id),
+    }
     expect(ownership).toMatchObject({
       selectedIssueId: null,
       stampIssue: undefined,
@@ -505,7 +562,7 @@ it('uses pool facts in the real chat header while leaving transcript reads on th
   const held = { sends: [] }
   const reader = { records: () => ({ records: [], pending: 0 }) }
   f.pool!.sources.register(['chatHeld', 'chatContextReader'], {
-    read: (kind: string) => kind === 'chatHeld' ? held : reader,
+    read: (kind: string) => (kind === 'chatHeld' ? held : reader),
     dispose() {},
   } as never)
   function Header({ transcript = false }: { transcript?: boolean }) {

@@ -1,6 +1,6 @@
-import type { MobxPool } from '@podium/client-graph'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -103,7 +103,9 @@ vi.mock('@podium/client-core/socket-transport', () => ({
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] })) },
+    refreshRepos: {
+      mutate: vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] })),
+    },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
@@ -132,7 +134,7 @@ let api: {
 
 function Consumer(): null {
   attachedPool = useWorklistPool()
-  const s = useRuntimeSelector(s => s)
+  const s = useRuntimeSelector((s) => s)
   api = {
     setPane: s.setPane,
     setFocusedPane: s.setFocusedPane,
@@ -184,7 +186,9 @@ async function mount(): Promise<void> {
         principal={TEST_PRINCIPAL}
         createReplicaFn={() => {
           const replica = createReplicaFixture()
-          replica.applySnapshot('userLayouts', [{ userId: asUserId('operator'), key: 'panelMode', value: {} }])
+          replica.applySnapshot('userLayouts', [
+            { userId: asUserId('operator'), key: 'panelMode', value: {} },
+          ])
           return replica
         }}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}

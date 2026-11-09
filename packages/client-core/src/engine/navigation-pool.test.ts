@@ -2,9 +2,9 @@ import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import { fixtureUi } from '../../test-support/ui'
-import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import type { SessionView } from '../session-values'
 import { planNavigation } from '../ui/navigation'
+import { AutoContinueDialogModel, PaletteViewModel } from '../ui/view-models'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
 import { createEngineActions } from './actions'
@@ -573,7 +573,10 @@ describe('navigation with an injected pool provider', () => {
     const resolve = vi.fn().mockResolvedValue({ kind: 'session', sessionId: seat.sessionId })
     const ui = fixtureUi(undefined, {
       api: { sessions: { resolve: { query: resolve } } } as never,
-      navigate: (intent) => { navigate(intent); return true },
+      navigate: (intent) => {
+        navigate(intent)
+        return true
+      },
       waitForSessionNavigation,
     })
     ui.patch(st)

@@ -1,9 +1,11 @@
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { workspaceKeyForState } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { vi } from 'vitest'
 import { useRuntimeSelector as selectLocals } from '@/app/store'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState) => T) => T
+
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 
@@ -31,8 +33,13 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
   Object.defineProperties(owner, {
-    hub: { get: () => selectMockSnapshot(state => state.hub) },
-    replica: { get: () => selectMockSnapshot(state => state.replica) },
+    hub: { get: () => selectMockSnapshot((state) => state.hub) },
+    replica: { get: () => selectMockSnapshot((state) => state.replica) },
   })
-  return { ...actual, ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner), useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  return {
+    ...actual,
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    useStoreHandle: () => owner,
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
 })

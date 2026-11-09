@@ -390,14 +390,15 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
         stop = undefined
         return
       }
-      const stopLocals = owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener)
+      const stopLocals = owner.onLocals(
+        keys as import('../engine/keyed-inputs').LocalKey[],
+        listener,
+      )
       // Store still exposes UiStore-backed getters. They publish through MobX,
       // rather than the engine's local channel, and must invalidate this seam too.
-      const stopUi = reaction(
-        () => keys.map((key) => Reflect.get(owner.access, key)),
-        listener,
-        { equals: compareShallow },
-      )
+      const stopUi = reaction(() => keys.map((key) => Reflect.get(owner.access, key)), listener, {
+        equals: compareShallow,
+      })
       stop = () => {
         stopLocals()
         stopUi()

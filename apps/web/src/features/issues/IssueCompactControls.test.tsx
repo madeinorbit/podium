@@ -111,7 +111,8 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore: () => state(),
-    useRuntimeSelector: (selector: (value: ReturnType<typeof state>) => unknown) => selector(state()),
+    useRuntimeSelector: (selector: (value: ReturnType<typeof state>) => unknown) =>
+      selector(state()),
   }
 })
 
@@ -264,7 +265,11 @@ describe('IssueCompactControls', () => {
       // harness clears the model and effort with it, so the optimistic row never
       // shows the previous agent's model.
       // POD-3911: seed agent-specific overrides so both resets change a field.
-      render(<IssueCompactControls issue={unstarted({ defaultModel: 'old-model', defaultEffort: 'high' })} />)
+      render(
+        <IssueCompactControls
+          issue={unstarted({ defaultModel: 'old-model', defaultEffort: 'high' })}
+        />,
+      )
 
       fireEvent.click(screen.getByLabelText('Agent'))
       fireEvent.click(await screen.findByText('Codex'))

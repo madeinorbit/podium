@@ -498,7 +498,9 @@ function useFixturePool(): MobxPool {
       // These provider-free fixtures already hand out their record objects.
       // Real-pool observation tests cover shared model identity and field demand.
       model: (entity: Parameters<MobxPool['row']>[0], id: string) =>
-        ['session', 'instancePreferences', 'userPreferences', 'userLayout', 'pin'].includes(entity) ? records().model(entity, id) : omitGone(pool.row(entity, id)),
+        ['session', 'instancePreferences', 'userPreferences', 'userLayout', 'pin'].includes(entity)
+          ? records().model(entity, id)
+          : omitGone(pool.row(entity, id)),
       selection: {
         // The selected row the fixture store names (the real pool's
         // selection local): rows read it for their selected weight, and the
@@ -895,8 +897,12 @@ function useFixturePool(): MobxPool {
         },
       },
       tables: {
-        get pin() { return records().tables.pin },
-        get userPreferences() { return records().tables.userPreferences },
+        get pin() {
+          return records().tables.pin
+        },
+        get userPreferences() {
+          return records().tables.userPreferences
+        },
         // My thread records, each with its feed id stamped as `id` (POD-6675).
         superagentThread: {
           values: (): IterableIterator<unknown> =>

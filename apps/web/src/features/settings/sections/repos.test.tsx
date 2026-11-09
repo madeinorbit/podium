@@ -1,5 +1,5 @@
-import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire } from '@podium/model'
 import { asMachineId, asRepoId } from '@podium/model/browser'

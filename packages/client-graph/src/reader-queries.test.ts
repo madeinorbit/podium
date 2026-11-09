@@ -1,13 +1,17 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { headerView } from './header-views'
 import { liveFixture } from './live-fixture'
 import { omitGone } from './lookup'
 import { settingsView } from './settings-views'
-import { headerView } from './header-views'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
+import { createMobileInboxSnapshotViews as createMobileInboxViews } from '../../../tests/worklist/diagnostics/mobile-inbox'
+import {
+  compareSidebarSnapshots,
+  type SidebarSnapshot,
+} from '../../../tests/worklist/diagnostics/sidebar-check'
 import { automationViews } from './automation-views'
 import { chatMentionIssues, chatReferenceSessions } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
@@ -21,7 +25,6 @@ import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MOBILE_INBOX_SUMMARIES } from './mobile-inbox-schema'
 import { MobileInboxSource } from './mobile-inbox-source'
-import { createMobileInboxSnapshotViews as createMobileInboxViews } from '../../../tests/worklist/diagnostics/mobile-inbox'
 import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
@@ -39,11 +42,23 @@ const now = Date.parse('2026-10-03T12:00:00Z'),
 
 it('hydrates normalized issue facets without reading the repository companion', () => {
   const issue = {
-    id: 'cold', seq: 7, repoId: 'repo', title: 'Cold issue', stage: 'done',
-    archived: true, audience: 'agent', createdAt: old, updatedAt: old, deps: [],
+    id: 'cold',
+    seq: 7,
+    repoId: 'repo',
+    title: 'Cold issue',
+    stage: 'done',
+    archived: true,
+    audience: 'agent',
+    createdAt: old,
+    updatedAt: old,
+    deps: [],
   }
   const lane = {
-    path: '/repo/checkout', repoId: 'repo', repoPath: '/repo', prefix: 'SYN', repoName: 'Repo',
+    path: '/repo/checkout',
+    repoId: 'repo',
+    repoPath: '/repo',
+    prefix: 'SYN',
+    repoName: 'Repo',
   }
   const fields: PropertyKey[] = []
   const countedLane = new Proxy(lane, {
@@ -53,14 +68,18 @@ it('hydrates normalized issue facets without reading the repository companion', 
     },
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load: () => issue, schedule: () => () => {},
+    load: () => issue,
+    schedule: () => () => {},
   })
   let stop: (() => void) | undefined
   try {
-    pool.apply({ type: 'replace', rows: [
-      { kind: 'worktree', id: lane.path, value: countedLane },
-      { kind: 'issue', id: issue.id, value: issue },
-    ] as RowRecord[] })
+    pool.apply({
+      type: 'replace',
+      rows: [
+        { kind: 'worktree', id: lane.path, value: countedLane },
+        { kind: 'issue', id: issue.id, value: issue },
+      ] as RowRecord[],
+    })
     expect(omitGone(pool.row('issue', issue.id))).toBe(LOADING)
     fields.length = 0
     expect(pool.hydrate()).toBe(1)
@@ -75,9 +94,12 @@ it('hydrates normalized issue facets without reading the repository companion', 
       shownPaths.push(row.repoPath)
     })
     expect(shownPaths).toEqual(['/repo'])
-    pool.apply({ type: 'update', rows: [
-      { kind: 'worktree', id: lane.path, value: { ...lane, repoPath: '/renamed' } },
-    ] as RowRecord[] })
+    pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'worktree', id: lane.path, value: { ...lane, repoPath: '/renamed' } },
+      ] as RowRecord[],
+    })
     expect(shownPaths).toEqual(['/repo', '/renamed'])
     expect(pool.queries.ids(query)).toEqual([])
     expect(pool.queries.ids({ ...query, projectPaths: ['/renamed'] })).toEqual([issue.id])
@@ -262,7 +284,10 @@ function fixture(scale = 1, bootOnly = false) {
         lastActiveAt: old,
         createdAt: old,
         refRepoId: 'query-repo',
-        refSeq: id === 'z-twin' ? 1 : (sessionSequences.get(id) ??
+        refSeq:
+          id === 'z-twin'
+            ? 1
+            : (sessionSequences.get(id) ??
               (sessionSequences.set(id, sessionSequences.size + 2), sessionSequences.size + 1)),
         refLetter: 'A',
         ...extra,

@@ -1,16 +1,13 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { automationViews } from '@podium/client-graph/automation-views'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
 import { AutomationSource } from '@podium/client-graph/automation-source'
-import { checkAutomations } from '../../../../tests/worklist/diagnostics/automation-check'
-import { modelFields } from '../../../../tests/worklist/diagnostics/model-fields'
+import { automationViews } from '@podium/client-graph/automation-views'
 import { attachPoolScreens, type PoolScreen, screenOptions } from '@podium/client-graph/host'
+import { omitGone } from '@podium/client-graph/lookup'
 import { MobxPool } from '@podium/client-graph/pool'
 import { PoolSources } from '@podium/client-graph/source-registry'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -18,9 +15,15 @@ import { asMachineId, asUserId } from '@podium/model/browser'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { automationTargetChoices } from '@/features/automations/automation-form'
-import { AUTOMATION_HISTORY_LIMIT, AutomationHistory } from '@/features/automations/automation-history'
 import type { AutomationRun } from '@/features/automations/AutomationsView'
+import { automationTargetChoices } from '@/features/automations/automation-form'
+import {
+  AUTOMATION_HISTORY_LIMIT,
+  AutomationHistory,
+} from '@/features/automations/automation-history'
+import { checkAutomations } from '../../../../tests/worklist/diagnostics/automation-check'
+import { modelFields } from '../../../../tests/worklist/diagnostics/model-fields'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createAutomationsFixture } from '../../test/automations-fixture'
 import {
   useAutomationList,
@@ -137,12 +140,18 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     )
   }
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool(), targets: useAutomationTargets('/synthetic/offline') }),
+    () => ({
+      owner: useStoreHandle<Trpc>(),
+      pool: useWorklistPool(),
+      targets: useAutomationTargets('/synthetic/offline'),
+    }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.targets.pending).toBe(0))
   const state = referenceState(result.current.owner)
-  const choices = result.current.targets.ids.map(id => automationViews(result.current.pool!).target(id))
+  const choices = result.current.targets.ids.map((id) =>
+    automationViews(result.current.pool!).target(id),
+  )
   expect(choices).toEqual(
     automationTargetChoices(
       state.repos,
@@ -246,7 +255,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   expect(fatal).not.toHaveBeenCalled()
   const state = referenceState(owner)
   expect(result.current.repos.repos).toEqual(state.repos)
-  expect(result.current.targets.ids.map(id => automationViews(pool!).target(id))).toEqual(
+  expect(result.current.targets.ids.map((id) => automationViews(pool!).target(id))).toEqual(
     automationTargetChoices(
       state.repos,
       state.sessions,
@@ -289,14 +298,18 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
 function legacyRunGroups(pool: MobxPool) {
   const catalog = omitGone(pool.row('automationCatalog', 'catalog'))
   const runGroups: Record<string, AutomationRun[]> = {}
-  if (catalog && catalog !== LOADING) for (const id of catalog.automations) {
-    const row = omitGone(pool.row('automation', id))
-    if (!row || row === LOADING || Reflect.get(row, 'system') === true) continue
-    runGroups[id] = pool.sources.related('automation', id, 'runs').flatMap(runId => {
-      const run = omitGone(pool.row('automationRun', runId))
-      return run && run !== LOADING ? [run] : []
-    }).sort((a, b) => b.firedAt.localeCompare(a.firedAt))
-  }
+  if (catalog && catalog !== LOADING)
+    for (const id of catalog.automations) {
+      const row = omitGone(pool.row('automation', id))
+      if (!row || row === LOADING || Reflect.get(row, 'system') === true) continue
+      runGroups[id] = pool.sources
+        .related('automation', id, 'runs')
+        .flatMap((runId) => {
+          const run = omitGone(pool.row('automationRun', runId))
+          return run && run !== LOADING ? [run] : []
+        })
+        .sort((a, b) => b.firedAt.localeCompare(a.firedAt))
+    }
   return runGroups
 }
 
@@ -306,9 +319,20 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
   const first = fixture.runs[0]!
   // 30 runs on one automation, fired out of ID order, so the window cuts.
   for (let index = 0; index < 26; index++) {
-    const value = { ...first, id: `synthetic-run-extra-${index}`, sessionId: null, outcome: 'missed', detail: `extra ${index}`,
-      firedAt: new Date(Date.parse(first.firedAt) + (((index * 7) % 26) + 10) * 1000).toISOString() }
-    fixture.records.set(`automationRun:${value.id}`, { entity: 'automationRun', entityId: value.id, value, provenance: { seq: 1 } })
+    const value = {
+      ...first,
+      id: `synthetic-run-extra-${index}`,
+      sessionId: null,
+      outcome: 'missed',
+      detail: `extra ${index}`,
+      firedAt: new Date(Date.parse(first.firedAt) + (((index * 7) % 26) + 10) * 1000).toISOString(),
+    }
+    fixture.records.set(`automationRun:${value.id}`, {
+      entity: 'automationRun',
+      entityId: value.id,
+      value,
+      provenance: { seq: 1 },
+    })
   }
   const reads = vi.spyOn(MobxPool.prototype, 'row')
   function Wrapper({ children }: { children: ReactNode }) {
@@ -335,14 +359,18 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
   )
   await waitFor(() => expect(result.current.list.pending).toBe(0))
   expect(result.current.list.automations).toHaveLength(6)
-  const runReads = () => reads.mock.calls.filter(([entity]) => String(entity) === 'automationRun').map(([, id]) => id)
+  const runReads = () =>
+    reads.mock.calls.filter(([entity]) => String(entity) === 'automationRun').map(([, id]) => id)
   expect(runReads()).toEqual([])
   const pool = result.current.pool!
   const state = referenceState(result.current.owner)
   // The server's order: firedAt descending, newest window only.
   const query = vi.fn(async ({ automationId, limit }: { automationId: string; limit: number }) =>
-    state.automationRuns.filter(run => run.automationId === automationId)
-      .sort((a, b) => Date.parse(b.firedAt) - Date.parse(a.firedAt)).slice(0, limit))
+    state.automationRuns
+      .filter((run) => run.automationId === automationId)
+      .sort((a, b) => Date.parse(b.firedAt) - Date.parse(a.firedAt))
+      .slice(0, limit),
+  )
   const legacy = legacyRunGroups(pool)
   reads.mockClear()
   for (const automation of result.current.list.automations) {
@@ -351,24 +379,38 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
     await history.refresh()
     if (process.env.PODIUM_AUTOMATION_NEGATIVE_CONTROL)
       Object.defineProperty(history.runs[0]!, 'outcome', { value: 'Wrong outcome' })
-    expect(history.runs.map(run => modelFields('automationRun', run))).toEqual(legacy[automation.id]!.slice(0, AUTOMATION_HISTORY_LIMIT))
+    expect(history.runs.map((run) => modelFields('automationRun', run))).toEqual(
+      legacy[automation.id]!.slice(0, AUTOMATION_HISTORY_LIMIT),
+    )
     expect(modelFields('automationRun', history.runs.at(0)!)).toEqual(legacy[automation.id]![0])
     expect(history.pending).toBe(false)
     history.close()
   }
   expect(legacy['synthetic-auto-0']).toHaveLength(30)
-  expect(query).toHaveBeenCalledWith({ automationId: 'synthetic-auto-0', limit: AUTOMATION_HISTORY_LIMIT })
+  expect(query).toHaveBeenCalledWith({
+    automationId: 'synthetic-auto-0',
+    limit: AUTOMATION_HISTORY_LIMIT,
+  })
   // Six windows: 20 + 5 × 4 distinct runs read, never the 30th-newest history.
   expect(new Set(runReads()).size).toBe(AUTOMATION_HISTORY_LIMIT + 5 * 4)
   // Shown runs stay live in today's run source; a failed request is the view's error.
   const live = new AutomationHistory('synthetic-auto-1' as never, query, pool)
   await live.refresh()
   await act(async () => {
-    fixture.patch('automationRun', 'synthetic-run-1-3', { outcome: 'error', detail: 'Synthetic failure' })
+    fixture.patch('automationRun', 'synthetic-run-1-3', {
+      outcome: 'error',
+      detail: 'Synthetic failure',
+    })
     await Promise.resolve()
   })
   expect(live.runs[0]).toMatchObject({ id: 'synthetic-run-1-3', outcome: 'error' })
-  const failing = new AutomationHistory('synthetic-auto-1' as never, async () => { throw new Error('offline') }, pool)
+  const failing = new AutomationHistory(
+    'synthetic-auto-1' as never,
+    async () => {
+      throw new Error('offline')
+    },
+    pool,
+  )
   await failing.refresh()
   expect(failing).toMatchObject({ error: 'offline', pending: false })
   expect(failing.runs).toEqual([])

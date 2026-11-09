@@ -10,9 +10,9 @@ import type { MobxPool } from '@podium/client-graph'
 import {
   chatArtifactIssue,
   chatInteractions,
+  chatItemAttachments,
   chatMentionIssues,
   chatReferenceSessions,
-  chatItemAttachments,
   chatUploadArtifact,
 } from '@podium/client-graph/chat-context'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -69,7 +69,9 @@ const handle = {
   subscribe: (_listener: () => void) => () => {},
   readLocal: (key: import('@podium/client-core/engine').LocalKey) =>
     f.fixture!.owner.readLocal(key),
-  get drafts() { return f.fixture!.owner.drafts },
+  get drafts() {
+    return f.fixture!.owner.drafts
+  },
 }
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
@@ -80,7 +82,9 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@podium/client-core/react', async () => ({
-  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => f.fixture!.owner),
+  ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+    () => f.fixture!.owner,
+  ),
   useStoreHandle: () => handle,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
@@ -121,30 +125,35 @@ import { observer } from 'mobx-react-lite'
 import { ChatComposer } from './ChatComposer'
 import { ItemAttachments } from './ChatUploadThumb'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
+import { useChatConversationPorts } from './test-support/conversation-ports'
+import { useModelSend } from './test-support/model-send'
 import {
   useChatArtifactIssue,
   useChatContextWindow,
   useChatDraft,
   useChatInteractions,
   useChatIssueSeq,
+  useChatItemMessage,
   useChatMachines,
   useChatMentions,
   useChatReferenceMachines,
   useChatRepositoryKey,
   useChatSession,
   useChatSessionExitKind,
-  useChatThreads,
   useChatThread,
+  useChatThreads,
   useChatUploadSrc,
-  useChatItemMessage,
 } from './use-chat-context'
-import { useChatConversationPorts } from './test-support/conversation-ports'
-import { useModelSend } from './test-support/model-send'
 
-const ItemAttachmentTags = observer(({ itemId, ...props }: Omit<Parameters<typeof ItemAttachments>[0], 'attachments'> & { itemId: string }) => {
-  const message = useChatItemMessage(props.sessionId, itemId)
-  return <ItemAttachments {...props} attachments={message?.attachments ?? []} />
-})
+const ItemAttachmentTags = observer(
+  ({
+    itemId,
+    ...props
+  }: Omit<Parameters<typeof ItemAttachments>[0], 'attachments'> & { itemId: string }) => {
+    const message = useChatItemMessage(props.sessionId, itemId)
+    return <ItemAttachments {...props} attachments={message?.attachments ?? []} />
+  },
+)
 
 beforeEach(async () => {
   f.guard = true
@@ -232,9 +241,9 @@ it('preserves mention ties, pending question order, saved drafts, held sends and
     corpus.sessions.map((row) => row.sessionId),
   )
   expect(corpus.pool.tables.session.has(corpus.sessions[1]!.sessionId)).toBe(false)
-  expect(omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary'))).not.toHaveProperty(
-    'privateBody',
-  )
+  expect(
+    omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary')),
+  ).not.toHaveProperty('privateBody')
   expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toMatchObject({
     sends: [{ mutationId: 'held-failed' }, { mutationId: 'held-live' }],
   })
@@ -424,7 +433,12 @@ it('shows a path-less image turn from its matched message record’s stored copy
               ...row,
               transcriptItem: { id: 'u-queued', cursor: 'c-queued' },
               attachments: [
-                { id: 'att-9', filename: 'cat.png', mediaType: 'image/png', kind: 'image' as const },
+                {
+                  id: 'att-9',
+                  filename: 'cat.png',
+                  mediaType: 'image/png',
+                  kind: 'image' as const,
+                },
               ],
             }
           : row,
@@ -465,7 +479,6 @@ it('shows a path-less image turn from its matched message record’s stored copy
   expect(view.getByRole('button', { name: 'Open cat.png, image 1 of 1' })).toBeTruthy()
 })
 
-
 it('updates addressed records, question membership and outbox without re-reading collections', async () => {
   const corpus = f.fixture!
   await corpus.load()
@@ -492,7 +505,9 @@ it('updates addressed records, question membership and outbox without re-reading
   )
   corpus.updateMessages(corpus.data.messages.slice(1), ['notice-message-0'])
   expect(corpus.check().differences).toBe(0)
-  expect(omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId))).not.toMatchObject({
+  expect(
+    omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)),
+  ).not.toMatchObject({
     messages: expect.arrayContaining(['notice-message-0']),
   })
 })
@@ -909,21 +924,32 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   expect(corpus.source.counts.orderIds).toBe(work.orderIds)
 })
 
-
 it('requests no thread for ordinary chat and only the selected backend row for a superthread', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined as string | undefined } })
+  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), {
+    initialProps: { id: undefined as string | undefined },
+  })
   expect(hook.result.current).toBeUndefined()
-  expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog')).toBe(false)
+  expect(
+    rows.mock.calls.some(
+      ([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog',
+    ),
+  ).toBe(false)
   await act(async () => hook.rerender({ id: 'own-thread' }))
   await waitFor(() => expect(hook.result.current).toMatchObject({ id: 'own-thread' }))
   expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThreadCatalog')).toBe(false)
-  expect(rows.mock.calls.filter(([kind]) => String(kind) === 'superThread').every(([, id]) => id === 'own-thread')).toBe(true)
+  expect(
+    rows.mock.calls
+      .filter(([kind]) => String(kind) === 'superThread')
+      .every(([, id]) => id === 'own-thread'),
+  ).toBe(true)
 })
 
 it('keeps mention catalog demand off until the picker is visible', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), { initialProps: { query: null as string | null } })
+  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), {
+    initialProps: { query: null as string | null },
+  })
   expect(hook.result.current).toEqual([])
   expect(rows).not.toHaveBeenCalled()
   await act(async () => hook.rerender({ query: 'task' }))

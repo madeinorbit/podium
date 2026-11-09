@@ -1,33 +1,37 @@
+import { TranscriptLog } from '@podium/client-core/conversation'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { headerView } from '@podium/client-graph/header-views'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { TranscriptLog } from '@podium/client-core/conversation'
 import type { SessionId } from '@podium/model/browser'
+
 // @vitest-environment happy-dom
 
-import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
+import type { NavigationProvider } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
-import type { NavigationProvider } from '@podium/client-core/engine'
-import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
-import { missionView } from '@podium/client-graph/mission-view'
-import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { spy } from 'mobx'
-import { MobxPool } from '@podium/client-graph/pool'
 import { screenOptions } from '@podium/client-graph/host'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { missionView } from '@podium/client-graph/mission-view'
+import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
+import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { spy } from 'mobx'
 import { Profiler, type ProfilerOnRenderCallback, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { expectPoolOutput } from '../../../../tests/worklist/harness/src/oracle/pool-output'
-import { seedCacheFromCorpus, startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
+import {
+  seedCacheFromCorpus,
+  startScenarioEngine,
+} from '../../../../tests/worklist/shared/src/scenarios'
 import { FlightDeck } from './FlightDeck'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
@@ -242,28 +246,51 @@ async function settled() {
 }
 
 describe('rendered mission pane parity', () => {
-  it.each([[1, 'i1766'], [4, 'i13916'], [4, 'i14941']] as const)('paints a cold runtime mission at %sx (%s) using the automatic loader', async (scale, id) => {
-    const ctx = await startScenarioEngine(scale, { seed: 4443 })
-    const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
-    pool.dispose()
-    pool = handle.pool
-    state.pool = pool
-    state.replica = ctx.engine.replica
-    state.selectedIssueId = id
-    state.paneA = 's0'
-    const errors = vi.spyOn(console, 'error')
-    try {
-      const current = mount()
-      await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-scroller"]')).not.toBeNull(), { timeout: 10_000 })
-      const root = missionView(pool).issue(state.selectedIssueId)
-      expect(root && typeof root !== 'symbol' ? current.container.querySelector('.deck-header')?.textContent : '').toContain(root && typeof root !== 'symbol' ? root.displayRef : 'missing root')
-      expect(errors.mock.calls.filter(([message]) => String(message).includes('same key'))).toEqual([])
-    } finally {
-      cleanup()
-      handle.dispose()
-      ctx.dispose()
-    }
-  }, 60_000)
+  it.each([
+    [1, 'i1766'],
+    [4, 'i13916'],
+    [4, 'i14941'],
+  ] as const)(
+    'paints a cold runtime mission at %sx (%s) using the automatic loader',
+    async (scale, id) => {
+      const ctx = await startScenarioEngine(scale, { seed: 4443 })
+      const handle = createRuntimeWorklistPool(
+        ctx.engine,
+        screenOptions(poolBackedScreens, ctx.engine),
+      )
+      pool.dispose()
+      pool = handle.pool
+      state.pool = pool
+      state.replica = ctx.engine.replica
+      state.selectedIssueId = id
+      state.paneA = 's0'
+      const errors = vi.spyOn(console, 'error')
+      try {
+        const current = mount()
+        await waitFor(
+          () =>
+            expect(
+              current.container.querySelector('[data-testid="flight-deck-scroller"]'),
+            ).not.toBeNull(),
+          { timeout: 10_000 },
+        )
+        const root = missionView(pool).issue(state.selectedIssueId)
+        expect(
+          root && typeof root !== 'symbol'
+            ? current.container.querySelector('.deck-header')?.textContent
+            : '',
+        ).toContain(root && typeof root !== 'symbol' ? root.displayRef : 'missing root')
+        expect(
+          errors.mock.calls.filter(([message]) => String(message).includes('same key')),
+        ).toEqual([])
+      } finally {
+        cleanup()
+        handle.dispose()
+        ctx.dispose()
+      }
+    },
+    60_000,
+  )
 
   it('does not commit another roster render when the host catalog publishes equal values', async () => {
     const root = issues.find(
@@ -499,9 +526,14 @@ describe('mission sections read their own fields', () => {
     }
     return counts
   }
-  const LABEL_PARTS = new Set(['observerFlightDeckV6TaskTitle', 'observerTaskFold', 'observerTaskBody', 'observerTaskActions'])
+  const LABEL_PARTS = new Set([
+    'observerFlightDeckV6TaskTitle',
+    'observerTaskFold',
+    'observerTaskBody',
+    'observerTaskActions',
+  ])
 
-  it('a title-only change redraws only that task\'s label, and the root\'s only the header title', async () => {
+  it("a title-only change redraws only that task's label, and the root's only the header title", async () => {
     const root = issues.find(
       (issue) =>
         !issue.archived &&
@@ -522,24 +554,44 @@ describe('mission sections read their own fields', () => {
     const child = issues.find((issue) => issue.id === childId)!
     const strips = current.container.querySelectorAll('[data-flight-issue]').length
     const renamed = await reactionsDuring(() =>
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: child.id, value: { ...child, title: 'Renamed task only' } }] }),
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id: child.id, value: { ...child, title: 'Renamed task only' } }],
+      }),
     )
-    expect(current.container.querySelector(`[data-flight-issue="${child.id}"]`)?.textContent).toContain('Renamed task only')
+    expect(
+      current.container.querySelector(`[data-flight-issue="${child.id}"]`)?.textContent,
+    ).toContain('Renamed task only')
     expect(current.container.querySelectorAll('[data-flight-issue]').length).toBe(strips)
     expect(renamed.get('observerFlightDeckV6TaskTitle')).toBe(1)
     expect([...renamed.keys()].filter((name) => !LABEL_PARTS.has(name))).toEqual([])
     const header = await reactionsDuring(() =>
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: { ...root, title: 'Renamed mission only' } }] }),
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id: root.id, value: { ...root, title: 'Renamed mission only' } }],
+      }),
     )
-    expect(current.container.querySelector('.deck-header')?.textContent).toContain('Renamed mission only')
+    expect(current.container.querySelector('.deck-header')?.textContent).toContain(
+      'Renamed mission only',
+    )
     expect([...header.keys()]).toEqual(['observerDeckTitle'])
   }, 120_000)
 
   it('keeps expanded human details live while title updates redraw only the header title', async () => {
-    const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId &&
-      issue.childCount >= 2 && issue.childCount < 12)
+    const root = issues.find(
+      (issue) =>
+        !issue.archived &&
+        !issue.deletedAt &&
+        !issue.parentId &&
+        issue.childCount >= 2 &&
+        issue.childCount < 12,
+    )
     if (!root) throw new Error('Missing mission fixture')
-    const authored = { ...root, description: 'Original human description.', acceptance: 'Original acceptance.' }
+    const authored = {
+      ...root,
+      description: 'Original human description.',
+      acceptance: 'Original acceptance.',
+    }
     state.selectedIssueId = root.id
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: authored }] })
     mount()
@@ -547,14 +599,18 @@ describe('mission sections read their own fields', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
     const description = screen.getByTestId('full-mission-description')
     expect(description.textContent).toContain('Original human description.')
-    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('Original acceptance.')
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain(
+      'Original acceptance.',
+    )
 
     const renamed = { ...authored, title: 'Only the mission title changed' }
     const titleReactions = await reactionsDuring(() =>
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: renamed }] }),
     )
     expect([...titleReactions.keys()]).toEqual(['observerDeckTitle'])
-    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
 
     const revised = { ...renamed, description: 'Revised human description.' }
     const descriptionReactions = await reactionsDuring(() =>
@@ -564,10 +620,16 @@ describe('mission sections read their own fields', () => {
     expect([...descriptionReactions.keys()]).toEqual(['observerFullDeckBrief'])
 
     const acceptanceReactions = await reactionsDuring(() =>
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id,
-        value: { ...revised, acceptance: 'Revised acceptance.' } }] }),
+      pool.apply({
+        type: 'update',
+        rows: [
+          { kind: 'issue', id: root.id, value: { ...revised, acceptance: 'Revised acceptance.' } },
+        ],
+      }),
     )
-    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('Revised acceptance.')
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain(
+      'Revised acceptance.',
+    )
     expect([...acceptanceReactions.keys()]).toEqual(['observerFullDeckBrief'])
   }, 120_000)
 })

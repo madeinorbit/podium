@@ -18,6 +18,7 @@ import {
   workspaceKeyFor,
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
@@ -33,7 +34,6 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import { liveFixture } from '@podium/client-graph/live-fixture'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
 import {
@@ -731,7 +731,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
 /** The synthetic project's band. Bands follow the registered repositories,
  *  which come from checkout records in path order (POD-6644). */
 function projectBand() {
-  const band = sidebarView(pool!).sections().bands.find((entry) => entry.repoId === 'synthetic-repo')
+  const band = sidebarView(pool!)
+    .sections()
+    .bands.find((entry) => entry.repoId === 'synthetic-repo')
   if (!band) throw new Error('The synthetic project band is missing')
   return band
 }
@@ -1185,7 +1187,11 @@ describe('real pool row mutations and receipts', () => {
     })
     // Both machines are online: their live condition.
     for (const id of ['source', 'target'])
-      liveFixture(pool!).condition(id, { online: true, since: null, availability: { daemon: true } } as never)
+      liveFixture(pool!).condition(id, {
+        online: true,
+        since: null,
+        availability: { daemon: true },
+      } as never)
     await menu()
     fireEvent.click(await item('Handoff'))
     fireEvent.click(await item('Synthetic target'))

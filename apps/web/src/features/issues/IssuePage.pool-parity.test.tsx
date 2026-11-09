@@ -25,7 +25,10 @@ import { OperatorFocusProvider } from '@/app/operator-focus'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveIssueRollups, deriveIssueViews } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import {
+  deriveIssueRollups,
+  deriveIssueViews,
+} from '../../../../../tests/worklist/diagnostics/reference/issue-views'
 import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
@@ -459,7 +462,10 @@ describe('issue page rendered pool parity', () => {
   ] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async (surface) => {
     const next = await arm(surface)
     if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
-      writeFileSync(`${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`, JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2))
+      writeFileSync(
+        `${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`,
+        JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2),
+      )
     // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
@@ -531,10 +537,7 @@ describe('issue page rendered pool parity', () => {
       useEffect(() => {
         initial(first.current)
         attach = () => {
-          stop = startupHost!.attach(
-            owner as unknown as ClientRuntime,
-            errors,
-          )
+          stop = startupHost!.attach(owner as unknown as ClientRuntime, errors)
         }
         return () => stop?.()
       }, [owner])

@@ -1,5 +1,5 @@
-import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -28,9 +28,12 @@ it('reads only changed settings keys and no list membership on scalar updates at
     const ids = vi.fn((kind: string) =>
         kind === 'machines' ? [...machines.values()] : kind === 'checkouts' ? checkouts : [],
       ),
-      row = vi.fn((kind: string, id: string) => (kind === 'machines' ? machines.get(id) : undefined))
+      row = vi.fn((kind: string, id: string) =>
+        kind === 'machines' ? machines.get(id) : undefined,
+      )
     const emit = (id: string) => {
-      for (const listener of [...listeners]) listener({ type: 'update', rows: [{ kind: 'machines', id }] })
+      for (const listener of [...listeners])
+        listener({ type: 'update', rows: [{ kind: 'machines', id }] })
     }
     const source = new SettingsSource({
       ui,
@@ -77,7 +80,10 @@ it('reads only changed settings keys and no list membership on scalar updates at
         emit('m0')
       })
       // One read to see the catalog did not move, one for the observed row.
-      expect(row.mock.calls).toEqual([['machines', 'm0'], ['machines', 'm0']])
+      expect(row.mock.calls).toEqual([
+        ['machines', 'm0'],
+        ['machines', 'm0'],
+      ])
       expect(ids).not.toHaveBeenCalled()
       expect(paints).toBe(1)
       expect(read()).toMatchObject({ name: 'Renamed' })

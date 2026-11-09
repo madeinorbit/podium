@@ -73,7 +73,10 @@ function poolRuntime() {
       const batch: ReplicaAddressedBatch = { type: 'update', rows: [{ kind: 'effects', id }] }
       for (const listener of [...listeners]) listener(batch)
     },
-    dispose: () => { handle.dispose(); rt.ui.dispose() },
+    dispose: () => {
+      handle.dispose()
+      rt.ui.dispose()
+    },
   }
 }
 

@@ -1,3 +1,4 @@
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { addSink, resetLevels, setLogLevel } from '@podium/logger'
 import {
   type AutomationRunWire,
@@ -18,10 +19,9 @@ import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@pod
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
+import { memoryStorage } from './contract'
 import { applyLegacyMetadataState } from './legacy-wire-v1-binding'
 import { type LegacyMetadataAppliedState, LegacyWireV1Feed } from './legacy-wire-v1-feed'
-import { memoryStorage } from './contract'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []

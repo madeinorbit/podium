@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { requireHere } from '@podium/client-graph/lookup'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import { requireHere } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire } from '@podium/model/browser'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -11,22 +11,34 @@ import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../test/header-fixture'
-import { NewPanelMenu } from './NewPanelMenu'
 import { NewIssueDialog } from '../features/issues/NewIssueDialog'
+import { NewPanelMenu } from './NewPanelMenu'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
-it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1x/4x with a fixed origin', async surface => {
+it.each([
+  'NewPanelMenu',
+  'NewIssueDialog',
+] as const)('meters actual open %s at 1x/4x with a fixed origin', async (surface) => {
   const samples = []
   for (const scale of [1, 4]) {
     const fixture = createHeaderFixture(128 * scale, 128 * scale, 'open-launcher-proof')
-    let repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
-      path: at === 0 ? '/synthetic/project' : `/synthetic/p${at}`, originUrl: `https://example.invalid/p${at}`,
-      machineId: 'host-one', branch: 'main',
-      worktrees: Array.from({ length: 8 }, (_, tree) => ({ path: at === 0 ? `/synthetic/project/wt-${tree}` : `/synthetic/p${at}/wt-${tree}`, branch: 'topic' })),
+    let repos = Array.from({ length: 32 * scale }, (_, at) => ({
+      kind: 'repository',
+      path: at === 0 ? '/synthetic/project' : `/synthetic/p${at}`,
+      originUrl: `https://example.invalid/p${at}`,
+      machineId: 'host-one',
+      branch: 'main',
+      worktrees: Array.from({ length: 8 }, (_, tree) => ({
+        path: at === 0 ? `/synthetic/project/wt-${tree}` : `/synthetic/p${at}/wt-${tree}`,
+        branch: 'topic',
+      })),
     })) as GitRepositoryWire[]
     // Keep the chosen root's history and its eight worktrees fixed; the rest is
     // unrelated history, rather than a larger displayed neighbourhood.
@@ -34,12 +46,24 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
       if (record.entity !== 'session') continue
       const value = record.value as { sessionId: string; cwd: string }
       const at = Number(value.sessionId.split('-').at(-1)) || 0
-      fixture.records.set(key, { ...record, value: { ...value, cwd: repos[at % repos.length]!.path } })
+      fixture.records.set(key, {
+        ...record,
+        value: { ...value, cwd: repos[at % repos.length]!.path },
+      })
     }
-    const machines = ['host-one', 'host-two'].map(id => ({ id, name: id, hostname: id, online: true,
+    const machines = ['host-one', 'host-two'].map((id) => ({
+      id,
+      name: id,
+      hostname: id,
+      online: true,
       serviceAssignment: { server: false, agentExecution: true },
       availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
-      inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+      },
     }))
     // Machines and repositories are records; online is the live condition (POD-6644).
     fixture.putMachinesAndRepos({ machines, repos })
@@ -55,13 +79,33 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
       const [open, setOpen] = useState(false)
       choose = setPath
       show = setOpen
-      if (surface === 'NewIssueDialog') return open ? <NewIssueDialog onClose={() => setOpen(false)} /> : null
-      return <NewPanelMenu worktree={{ path, repoPath: path, isMain: true, branch: 'main', machineId: 'host-one' } as never} onOpened={() => {}} />
+      if (surface === 'NewIssueDialog')
+        return open ? <NewIssueDialog onClose={() => setOpen(false)} /> : null
+      return (
+        <NewPanelMenu
+          worktree={
+            { path, repoPath: path, isMain: true, branch: 'main', machineId: 'host-one' } as never
+          }
+          onOpened={() => {}}
+        />
+      )
     }
-    const app = render(<StoreProvider principal={asClientPrincipal(asUserId('open-launcher-proof'))}
-      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-      createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
-      attachRuntime={runtime => { fixture.bindHub(runtime.hub, undefined, runtime.live); return attachWorklistPool(runtime, fatal) }}><Host /></StoreProvider>)
+    const app = render(
+      <StoreProvider
+        principal={asClientPrincipal(asUserId('open-launcher-proof'))}
+        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+        api={fixture.api}
+        createReplicaFn={() => fixture.newReplica()}
+        networkEnabled={false}
+        onFatalError={fatal}
+        attachRuntime={(runtime) => {
+          fixture.bindHub(runtime.hub, undefined, runtime.live)
+          return attachWorklistPool(runtime, fatal)
+        }}
+      >
+        <Host />
+      </StoreProvider>,
+    )
     await waitFor(() => expect(pool).toBeTruthy())
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Web pool missing')
@@ -70,35 +114,82 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     const usageQuery = vi.spyOn(attached.queries, 'activity')
     async function measured(action: string, fn: () => unknown) {
       usageQuery.mockClear()
-      const result = await measureWork(async () => insideReader(`web.${surface}.${action}`, async () => {
-        await act(async () => { await fn() })
-        for (let at = 0; at < 20; at++) {
-          let loaded = 0
-          await act(async () => { loaded = attached!.hydrate() })
-          if (!loaded) break
-        }
-      }), { pool: attached! })
+      const result = await measureWork(
+        async () =>
+          insideReader(`web.${surface}.${action}`, async () => {
+            await act(async () => {
+              await fn()
+            })
+            for (let at = 0; at < 20; at++) {
+              let loaded = 0
+              await act(async () => {
+                loaded = attached!.hydrate()
+              })
+              if (!loaded) break
+            }
+          }),
+        { pool: attached! },
+      )
       if (['catalog', 'usage', 'heartbeat', 'closed-heartbeat'].includes(action))
         expect(usageQuery, `${surface} ${action} usage reads at ${scale}x`).not.toHaveBeenCalled()
       return { action, ...result.work }
     }
     const cells = []
-    cells.push(await measured('open', () => surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(true)))
+    cells.push(
+      await measured('open', () =>
+        surface === 'NewPanelMenu'
+          ? fireEvent.click(screen.getByRole('button', { name: 'New panel' }))
+          : show(true),
+      ),
+    )
     if (surface === 'NewPanelMenu') {
       expect(screen.getByRole('menuitem', { name: /^New Claude$/ })).toBeTruthy()
       cells.push(await measured('repository-choice', () => choose('/synthetic/p1')))
       expect(screen.getByText('p1', { exact: true })).toBeTruthy()
-      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
+      cells.push(
+        await measured('machine-choice', () =>
+          fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' })),
+        ),
+      )
     } else expect(screen.getByLabelText('Title')).toBeTruthy()
-    cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); fixture.putMachinesAndRepos({ repos }) }))
-    expect(requireHere(attached.model('repository', JSON.stringify(['host-one', '/synthetic/project']))).branch).toBe('updated')
-    cells.push(await measured('usage', () => fixture.patch('session', 'synthetic-session-0', { createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' })))
-    cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))
-    await act(async () => { surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(false) })
-    cells.push(await measured('closed-heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' })))
+    cells.push(
+      await measured('catalog', () => {
+        repos = repos.map((repo, at) => (at === 0 ? { ...repo, branch: 'updated' } : repo))
+        fixture.putMachinesAndRepos({ repos })
+      }),
+    )
+    expect(
+      requireHere(attached.model('repository', JSON.stringify(['host-one', '/synthetic/project'])))
+        .branch,
+    ).toBe('updated')
+    cells.push(
+      await measured('usage', () =>
+        fixture.patch('session', 'synthetic-session-0', {
+          createdAt: '2026-10-03T00:00:00Z',
+          lastActiveAt: '2026-10-03T00:00:00Z',
+        }),
+      ),
+    )
+    cells.push(
+      await measured('heartbeat', () =>
+        fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' }),
+      ),
+    )
+    await act(async () => {
+      surface === 'NewPanelMenu'
+        ? fireEvent.click(screen.getByRole('button', { name: 'New panel' }))
+        : show(false)
+    })
+    cells.push(
+      await measured('closed-heartbeat', () =>
+        fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' }),
+      ),
+    )
     usageQuery.mockClear()
     if (surface === 'NewIssueDialog') {
-      await act(async () => { show(true) })
+      await act(async () => {
+        show(true)
+      })
       expect(usageQuery).toHaveBeenCalled()
       expect(screen.getByLabelText('Title')).toBeTruthy()
     }
@@ -107,17 +198,38 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
     expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
     samples.push({ scale, repositories: repos.length, sessions: 128 * scale, cells })
-    app.unmount(); cleanup()
+    app.unmount()
+    cleanup()
   }
-  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
+  console.info(
+    `[supported launcher ${surface}]`,
+    JSON.stringify(
+      samples.map((sample) => ({
+        ...sample,
+        cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({
+          action,
+          rows,
+          derivations,
+          elements,
+          elementsBy,
+        })),
+      })),
+    ),
+  )
   expect(samples).toHaveLength(2)
   for (const sample of samples) {
-    const heartbeat = sample.cells.find(cell => cell.action === 'heartbeat')!
-    const closed = sample.cells.find(cell => cell.action === 'closed-heartbeat')!
+    const heartbeat = sample.cells.find((cell) => cell.action === 'heartbeat')!
+    const closed = sample.cells.find((cell) => cell.action === 'closed-heartbeat')!
     expect(heartbeat.rows).toBe(closed.rows)
-    if (surface === 'NewPanelMenu') expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
-    else expect(heartbeat.elementsBy?.['consumer:web.NewIssueDialog.heartbeat/launch.catalogUsage'] ?? 0).toBe(0)
-    expect(sample.cells.find(cell => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(6)
+    if (surface === 'NewPanelMenu')
+      expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
+    else
+      expect(
+        heartbeat.elementsBy?.['consumer:web.NewIssueDialog.heartbeat/launch.catalogUsage'] ?? 0,
+      ).toBe(0)
+    expect(sample.cells.find((cell) => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(6)
   }
-  expect(samples[1]!.cells.find(cell => cell.action === 'heartbeat')!.rows).toBe(samples[0]!.cells.find(cell => cell.action === 'heartbeat')!.rows)
+  expect(samples[1]!.cells.find((cell) => cell.action === 'heartbeat')!.rows).toBe(
+    samples[0]!.cells.find((cell) => cell.action === 'heartbeat')!.rows,
+  )
 }, 60_000)

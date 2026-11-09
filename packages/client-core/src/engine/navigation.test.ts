@@ -4,8 +4,8 @@ import { fixtureNavigation } from '../../test-support/navigation'
 import { planNavigation } from '../ui/navigation'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
-import { type RuntimeState, workspaceMirrorPatch } from './state'
 import { Reactions } from './reactions'
+import { type RuntimeState, workspaceMirrorPatch } from './state'
 
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
 const issue = { id: asIssueId('issue'), archived: false } as IssueProjection
@@ -75,7 +75,11 @@ describe('pure navigation plan', () => {
     })
     try {
       visits.updateIssueVisitBaseline()
-      expect(visits.issueVisitBaseline).toEqual({ issueId: issue.id, readAt: null, openedAt: context.now })
+      expect(visits.issueVisitBaseline).toEqual({
+        issueId: issue.id,
+        readAt: null,
+        openedAt: context.now,
+      })
     } finally {
       visits.dispose()
     }
@@ -161,16 +165,30 @@ describe('pure navigation plan', () => {
     })
     try {
       visits.setIssueVisitBaseline(before.issueVisitBaseline)
-      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, context).patch)
+      Object.assign(
+        before,
+        planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, context).patch,
+      )
       visits.updateIssueVisitBaseline()
       expect(visits.issueVisitBaseline).toBe(before.issueVisitBaseline)
-      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'settings' }, context).patch)
+      Object.assign(
+        before,
+        planNavigation(before, routeDefaults('workspace'), { view: 'settings' }, context).patch,
+      )
       visits.updateIssueVisitBaseline()
       expect(visits.issueVisitBaseline).toBeNull()
       before.view = 'workspace'
       visits.setIssueVisitBaseline(before.issueVisitBaseline)
       visible = false
-      Object.assign(before, planNavigation(before, routeDefaults('workspace'), { view: 'workspace' }, { ...context, visible }).patch)
+      Object.assign(
+        before,
+        planNavigation(
+          before,
+          routeDefaults('workspace'),
+          { view: 'workspace' },
+          { ...context, visible },
+        ).patch,
+      )
       visits.updateIssueVisitBaseline()
       expect(visits.issueVisitBaseline).toBeNull()
     } finally {

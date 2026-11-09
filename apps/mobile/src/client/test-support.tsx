@@ -18,12 +18,11 @@ import { omitGone } from '@podium/client-graph/lookup'
 
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { knownReading } from '@podium/client-core/live'
-import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
-import { runInAction } from 'mobx'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
@@ -43,6 +42,7 @@ import {
   type SuperagentThreadWire,
 } from '@podium/model'
 import { render, waitFor } from '@testing-library/react'
+import { runInAction } from 'mobx'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
@@ -312,21 +312,35 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     setHostMetrics(samples: readonly HostMetricsWire[]) {
       runInAction(() => {
         const live = runtimeHandle!.live
-        const incoming = new Set(samples.map(sample => String(sample.machineId ?? sample.hostname)))
+        const incoming = new Set(
+          samples.map((sample) => String(sample.machineId ?? sample.hostname)),
+        )
         for (const id of live.machineMetrics.keys())
           if (!incoming.has(id)) live.applyTopic('machine.metrics', id, undefined)
         for (const sample of samples)
-          live.applyTopic('machine.metrics', String(sample.machineId ?? sample.hostname), knownReading(sample, Date.now()))
+          live.applyTopic(
+            'machine.metrics',
+            String(sample.machineId ?? sample.hostname),
+            knownReading(sample, Date.now()),
+          )
       })
     },
     /** Move the machines after mount: their records and live conditions (POD-6644). */
     setMachines(machines: MachineWire[]) {
-      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, { ...fixture, machines, repos: undefined })
+      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, {
+        ...fixture,
+        machines,
+        repos: undefined,
+      })
       applyMachineConditions(runtimeHandle, machines)
     },
     /** Move the repositories after mount: their checkout records (POD-6644). */
     setRepos(repos: GitRepositoryWire[]) {
-      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, { ...fixture, machines: undefined, repos })
+      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, {
+        ...fixture,
+        machines: undefined,
+        repos,
+      })
     },
   }
 }
@@ -341,7 +355,8 @@ function seedMachineRecords(
     ...(fixture.machines ? { machines: fixture.machines } : {}),
     ...(fixture.repos ? { repos: fixture.repos } : {}),
   })
-  const of = (entity: string) => records.filter((record) => record.entity === entity).map((record) => record.value)
+  const of = (entity: string) =>
+    records.filter((record) => record.entity === entity).map((record) => record.value)
   if (fixture.machines) {
     // A test's machine projections are the machines' records; its listing
     // supplies a record only where it gave none (and always the access rows).
@@ -356,11 +371,15 @@ function seedMachineRecords(
 }
 
 /** Each machine's online and presence facts on the runtime's LiveStore. */
-function applyMachineConditions(runtime: ClientRuntime<MobileTrpc> | undefined, machines: readonly MachineWire[]) {
+function applyMachineConditions(
+  runtime: ClientRuntime<MobileTrpc> | undefined,
+  machines: readonly MachineWire[],
+) {
   if (!runtime) return
   runInAction(() => {
     for (const machine of machines) {
-      const { online, lastSeenAt, availability, presenceSource, daemonReadiness } = machine as MachineWire & Record<string, unknown>
+      const { online, lastSeenAt, availability, presenceSource, daemonReadiness } =
+        machine as MachineWire & Record<string, unknown>
       runtime.live.applyTopic(
         'machine.condition',
         String(machine.id),

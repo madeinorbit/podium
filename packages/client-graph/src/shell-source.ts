@@ -35,11 +35,14 @@ export class ShellSource implements PoolSource<ShellEntity> {
   }
   // Each question follows only its own membership. Editing a workspace must
   // not rebuild the unchanged file list or wake its observers.
-  private readonly screenCatalog = Object.defineProperties({}, {
-    files: { enumerable: true, get: () => this.fileIds },
-    workspaces: { enumerable: true, get: () => this.workspaceIds },
-    lanes: { enumerable: true, get: () => this.orders.get('shellShipLane') ?? EMPTY_IDS },
-  }) as ShellRows['shellCatalog']
+  private readonly screenCatalog = Object.defineProperties(
+    {},
+    {
+      files: { enumerable: true, get: () => this.fileIds },
+      workspaces: { enumerable: true, get: () => this.workspaceIds },
+      lanes: { enumerable: true, get: () => this.orders.get('shellShipLane') ?? EMPTY_IDS },
+    },
+  ) as ShellRows['shellCatalog']
 
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private readonly orders = observable.map<ShellEntity, readonly string[]>(undefined, {

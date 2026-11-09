@@ -208,7 +208,12 @@ const schema = {
       appVersion: { type: 'string', optional: true, nullable: true, source: machineProjection() },
       installKind: { type: 'string', optional: true, nullable: true, source: machineProjection() },
       versionState: { type: 'enum', optional: true, source: machineProjection() },
-      targetVersion: { type: 'string', optional: true, nullable: true, source: machineProjection() },
+      targetVersion: {
+        type: 'string',
+        optional: true,
+        nullable: true,
+        source: machineProjection(),
+      },
       targetUnavailableReason: {
         type: 'string',
         optional: true,

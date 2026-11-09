@@ -1,8 +1,11 @@
-import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
-import { observableFixtureKeys, patchFixtureScreen } from '@podium/client-core/test-support/ui'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import {
+  disposeFixtureUi,
+  observableFixtureKeys,
+  patchFixtureScreen,
+} from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
@@ -266,10 +269,12 @@ export async function inputMechanisms(scale: 1 | 4) {
   }
   const observableKeys = observableFixtureKeys(ui)
   const preferences = new PreferenceSource(observableKeys)
-  const preferenceStops = keys.map(key => autorun(() => {
-    const row = preferences.read(key)
-    if (row && row !== LOADING) row.value
-  }))
+  const preferenceStops = keys.map((key) =>
+    autorun(() => {
+      const row = preferences.read(key)
+      if (row && row !== LOADING) row.value
+    }),
+  )
   await flush()
   preferenceReads = 0
   ui.set(keys[0]!, '1')

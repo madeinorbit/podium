@@ -43,43 +43,43 @@ export function openLegacyDeviceKeys(device: DeviceStorage): LegacyDeviceKeys {
   // UiPersistence consumes the imported screen keys and keeps the one current
   // screen document. Persist this principal's fold before retiring any input.
   try {
-  if (device.storage.getItem(`${storageKey}.migrated`) === null) {
-    const retired = new Set<string>()
-    const mirrored = new Set<string>(MIRRORED_UI_KEYS)
-    const take = (key: string) => {
-      const value = device.storage.getItem(key)
-      if (value === null) return
-      values[key] = value
-      if (!mirrored.has(key)) retired.add(key)
-    }
-    for (const key of [...LEGACY_UI_KEYS, ...MIRRORED_UI_KEYS]) take(key)
-    let enumerated: readonly string[] = []
-    try {
-      enumerated = device.enumerateKeys?.() ?? Object.keys(device.storage)
-    } catch {}
-    for (const key of enumerated) {
-      if (LEGACY_UI_PREFIXES.some(prefix => key.startsWith(prefix))) take(key)
-      for (const [prefix, target] of Object.entries(LEGACY_UI_MAP_PREFIXES)) {
-        if (!key.startsWith(prefix)) continue
+    if (device.storage.getItem(`${storageKey}.migrated`) === null) {
+      const retired = new Set<string>()
+      const mirrored = new Set<string>(MIRRORED_UI_KEYS)
+      const take = (key: string) => {
         const value = device.storage.getItem(key)
-        if (value === null) continue
-        let entries: Record<string, string> = {}
-        try {
-          const parsed: unknown = JSON.parse(values[target] ?? '{}')
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-            entries = parsed as Record<string, string>
-        } catch {}
-        entries[key.slice(prefix.length)] = value
-        values[target] = JSON.stringify(entries)
-        retired.add(key)
+        if (value === null) return
+        values[key] = value
+        if (!mirrored.has(key)) retired.add(key)
       }
+      for (const key of [...LEGACY_UI_KEYS, ...MIRRORED_UI_KEYS]) take(key)
+      let enumerated: readonly string[] = []
+      try {
+        enumerated = device.enumerateKeys?.() ?? Object.keys(device.storage)
+      } catch {}
+      for (const key of enumerated) {
+        if (LEGACY_UI_PREFIXES.some((prefix) => key.startsWith(prefix))) take(key)
+        for (const [prefix, target] of Object.entries(LEGACY_UI_MAP_PREFIXES)) {
+          if (!key.startsWith(prefix)) continue
+          const value = device.storage.getItem(key)
+          if (value === null) continue
+          let entries: Record<string, string> = {}
+          try {
+            const parsed: unknown = JSON.parse(values[target] ?? '{}')
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+              entries = parsed as Record<string, string>
+          } catch {}
+          entries[key.slice(prefix.length)] = value
+          values[target] = JSON.stringify(entries)
+          retired.add(key)
+        }
+      }
+      try {
+        device.storage.setItem(storageKey, JSON.stringify(values))
+        device.storage.setItem(`${storageKey}.migrated`, '1')
+        for (const key of retired) device.storage.removeItem(key)
+      } catch {}
     }
-    try {
-      device.storage.setItem(storageKey, JSON.stringify(values))
-      device.storage.setItem(`${storageKey}.migrated`, '1')
-      for (const key of retired) device.storage.removeItem(key)
-    } catch {}
-  }
   } catch {}
   const entries = observable.map(Object.entries(values))
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()

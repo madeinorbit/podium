@@ -1,6 +1,5 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type IssueViewModel } from '@podium/client-core/replica'
-import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, ISSUE_STAGES, issueUserStateRowId, pinRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -11,6 +10,7 @@ import { IssueListView } from '@/features/issues/IssueListView'
 import { IssuesKanban } from '@/features/issues/IssuesKanban'
 import { DEFAULT_DISPLAY } from '@/features/issues/issues-display'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -20,7 +20,8 @@ const screenFixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel
 vi.mock('@/app/store-worklist-pool', async () => {
   const { fakeBoardPool } = await import('@/test-support/fake-board-pool')
   const pool = fakeBoardPool(
-    (entity: string, key: string) => entity === 'issueBoardRow' ? screenFixture.issues.get(key) : undefined,
+    (entity: string, key: string) =>
+      entity === 'issueBoardRow' ? screenFixture.issues.get(key) : undefined,
     (id) => screenFixture.issues.get(id),
   )
   return {
@@ -52,7 +53,7 @@ async function open(factory: IDBFactory) {
   }
 }
 function screenOutput(models: IssueViewModel[]) {
-  screenFixture.issues = new Map(models.map(issue => [issue.id, issue]))
+  screenFixture.issues = new Map(models.map((issue) => [issue.id, issue]))
   const common = {
     focusId: null,
     selected: [],
@@ -67,7 +68,7 @@ function screenOutput(models: IssueViewModel[]) {
       display={DEFAULT_DISPLAY}
       groups={ISSUE_STAGES.map((stage) => ({
         stage,
-        count: models.filter(issue => issue.stage === stage).length,
+        count: models.filter((issue) => issue.stage === stage).length,
         rows: models
           .filter((i) => i.stage === stage)
           .map((issue) => ({ id: issue.id, depth: 0, childCount: 0, expanded: false })),
@@ -86,7 +87,7 @@ function screenOutput(models: IssueViewModel[]) {
       {...common}
       columns={ISSUE_STAGES.map((stage) => ({
         stage,
-        ids: models.filter((i) => i.stage === stage).map(issue => issue.id),
+        ids: models.filter((i) => i.stage === stage).map((issue) => issue.id),
       }))}
       filter={{}}
       now={Date.parse('2026-10-01T12:00:00Z')}
@@ -158,22 +159,26 @@ describe('web legacy issue retention', () => {
         value: wire,
         provenance: { seq: 1 },
       })),
-      ...(['issueProjections', 'issueUserStates', 'issueGitStates', 'repos', 'pins'] as const).flatMap(
-        (kind) =>
-          fixture.replica.rows(kind).map((value) => ({
-            entity: {
-              issueProjections: 'issueProjection',
-              issueUserStates: 'issueUserState',
-              issueGitStates: 'issueGitState',
-              repos: 'repo',
-              pins: 'pin',
-            }[kind],
-            entityId: 'id' in value ? value.id : 'kind' in value
-              ? pinRowId(value.userId, value.kind, value.entityId)
-              : issueUserStateRowId(value.userId, value.entityId),
-            value,
-            provenance: { seq: 1 },
-          })),
+      ...(
+        ['issueProjections', 'issueUserStates', 'issueGitStates', 'repos', 'pins'] as const
+      ).flatMap((kind) =>
+        fixture.replica.rows(kind).map((value) => ({
+          entity: {
+            issueProjections: 'issueProjection',
+            issueUserStates: 'issueUserState',
+            issueGitStates: 'issueGitState',
+            repos: 'repo',
+            pins: 'pin',
+          }[kind],
+          entityId:
+            'id' in value
+              ? value.id
+              : 'kind' in value
+                ? pinRowId(value.userId, value.kind, value.entityId)
+                : issueUserStateRowId(value.userId, value.entityId),
+          value,
+          provenance: { seq: 1 },
+        })),
       ),
     ]
     const cache = before.viewFor(principal).cache

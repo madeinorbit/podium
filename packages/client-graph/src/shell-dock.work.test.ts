@@ -1,4 +1,3 @@
-import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId, asShipOrderId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -6,6 +5,7 @@ import { expect, it, vi } from 'vitest'
 import { dockSnapshot, legacyShellSnapshot } from '../../../tests/worklist/diagnostics/shell-check'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import type { HeaderRows } from './header-schema'
 import { shellViews } from './shell-views'
 import { LOADING } from './worklist/rollup'
@@ -14,8 +14,16 @@ function dockFixture() {
   const f = shellFixture()
   // Production issue paths join through the authoritative repo companion.
   // Keep this input local: the legacy parity fixture is owned by POD-5667.
-  f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'shell-repo',
-    value: { id: 'shell-repo', prefix: 'SYN', repoPath: '/synthetic/project' } }] as never })
+  f.pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'repo',
+        id: 'shell-repo',
+        value: { id: 'shell-repo', prefix: 'SYN', repoPath: '/synthetic/project' },
+      },
+    ] as never,
+  })
   // Real mission navigation stores its root selection. Archiving a child does
   // not switch the active file's workspace to the archived child's empty key.
   f.change({ selectedIssueId: f.issues[0]!.id })
@@ -44,9 +52,15 @@ function fixture(scale: 1 | 4) {
   const order = { ...f.shipOrders[1]!, id: asShipOrderId('extra-0') }
   f.change({
     repos: [
-      { ...root, worktrees: [...root.worktrees, ...Array.from({ length: count }, (_, index) => ({
-        path: `/synthetic/project/unused-${index}`,
-      }))] },
+      {
+        ...root,
+        worktrees: [
+          ...root.worktrees,
+          ...Array.from({ length: count }, (_, index) => ({
+            path: `/synthetic/project/unused-${index}`,
+          })),
+        ],
+      },
       ...Array.from({ length: count }, (_, index) => ({
         ...root,
         repoId: `other-${index}` as typeof root.repoId,
@@ -54,10 +68,13 @@ function fixture(scale: 1 | 4) {
         worktrees: [],
       })),
     ],
-    shipOrders: [...f.shipOrders, ...Array.from({ length: count }, (_, index) => ({
-      ...order,
-      id: asShipOrderId(`extra-${index}`),
-    }))],
+    shipOrders: [
+      ...f.shipOrders,
+      ...Array.from({ length: count }, (_, index) => ({
+        ...order,
+        id: asShipOrderId(`extra-${index}`),
+      })),
+    ],
   })
   return { ...f, count, order }
 }
@@ -71,10 +88,18 @@ it('keeps cold dock lookup work constant across 1x/4x collections', async () => 
         async () => insideReader('cold shell dock', () => dockSnapshot(shellViews(f.pool))),
         { pool: f.pool },
       )
-      expect(value).toMatchObject({ shipping: {
-        unfinishedCount: f.count + 3, decisionCount: f.count + 1,
-      } })
-      samples.push({ scale, rows: work.rows, elements: work.elements, derivations: work.derivations })
+      expect(value).toMatchObject({
+        shipping: {
+          unfinishedCount: f.count + 3,
+          decisionCount: f.count + 1,
+        },
+      })
+      samples.push({
+        scale,
+        rows: work.rows,
+        elements: work.elements,
+        derivations: work.derivations,
+      })
     } finally {
       f.pool.dispose()
     }
@@ -88,7 +113,8 @@ it('keeps cold dock lookup work constant across 1x/4x collections', async () => 
 it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order counts', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
-    const f = fixture(scale), views = shellViews(f.pool)
+    const f = fixture(scale),
+      views = shellViews(f.pool)
     const row = vi.spyOn(f.pool, 'row')
     const indexed = vi.spyOn(f.pool.queries, 'indexed')
     let stop = () => {}
@@ -111,31 +137,67 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
         gitIssue: { id: f.issues[1]!.id },
         mailIssueId: f.issues[1]!.id,
       })
-      const order = await measure(() => headerEntities(f.pool).apply([{
-        kind: 'shipOrder', id: f.order.id, value: { ...f.order, humanState: 'waiting' },
-      }]))
+      const order = await measure(() =>
+        headerEntities(f.pool).apply([
+          {
+            kind: 'shipOrder',
+            id: f.order.id,
+            value: { ...f.order, humanState: 'waiting' },
+          },
+        ]),
+      )
       expect(views.dock.shipping).toEqual({ unfinishedCount: f.count + 3, decisionCount: f.count })
-      const repo = await measure(() => headerEntities(f.pool).apply([{
-        kind: 'repository', id: JSON.stringify(['shell-machine', '/synthetic/project']),
-        value: { ...f.state().repos[0]!, repoId: 'other-scope' as HeaderRows['repository']['repoId'] },
-      }]))
-      expect(dockSnapshot(views)).toMatchObject({ scope: { repoId: 'other-scope', repoPath: '/synthetic/project' } })
+      const repo = await measure(() =>
+        headerEntities(f.pool).apply([
+          {
+            kind: 'repository',
+            id: JSON.stringify(['shell-machine', '/synthetic/project']),
+            value: {
+              ...f.state().repos[0]!,
+              repoId: 'other-scope' as HeaderRows['repository']['repoId'],
+            },
+          },
+        ]),
+      )
+      expect(dockSnapshot(views)).toMatchObject({
+        scope: { repoId: 'other-scope', repoPath: '/synthetic/project' },
+      })
       expect(views.dock.shipping).toEqual({ unfinishedCount: 0, decisionCount: 0 })
-      const issue = await measure(() => f.pool.apply({
-        type: 'update', rows: [{ kind: 'issue', id: f.issues[1]!.id,
-          value: { ...f.issues[1]!, archived: true } }] as never,
-      }))
+      const issue = await measure(() =>
+        f.pool.apply({
+          type: 'update',
+          rows: [
+            { kind: 'issue', id: f.issues[1]!.id, value: { ...f.issues[1]!, archived: true } },
+          ] as never,
+        }),
+      )
       expect(dockSnapshot(views)).toHaveProperty('mailIssueId', 'containing-0')
       const before = output.length
       row.mockClear()
-      const unrelated = await measure(() => headerEntities(f.pool).apply([{
-        kind: 'shipOrder', id: f.order.id, value: { ...f.order, humanState: 'shipped' },
-      }]))
+      const unrelated = await measure(() =>
+        headerEntities(f.pool).apply([
+          {
+            kind: 'shipOrder',
+            id: f.order.id,
+            value: { ...f.order, humanState: 'shipped' },
+          },
+        ]),
+      )
       expect(output).toHaveLength(before)
       expect(row).not.toHaveBeenCalled()
-      expect(indexed.mock.calls.some(([question]) => question.kind === 'containingIssues')).toBe(false)
-      samples.push({ scale, cold: cold.work, observed: observed.work, pane: pane.work,
-        order: order.work, repo: repo.work, issue: issue.work, unrelated: unrelated.work })
+      expect(indexed.mock.calls.some(([question]) => question.kind === 'containingIssues')).toBe(
+        false,
+      )
+      samples.push({
+        scale,
+        cold: cold.work,
+        observed: observed.work,
+        pane: pane.work,
+        order: order.work,
+        repo: repo.work,
+        issue: issue.work,
+        unrelated: unrelated.work,
+      })
     } finally {
       stop()
       row.mockRestore()
@@ -154,7 +216,8 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
 })
 
 it('preserves dock scope path, group order, machine, linked scan and fallback semantics', () => {
-  const f = dockFixture(), views = shellViews(f.pool)
+  const f = dockFixture(),
+    views = shellViews(f.pool)
   const root = f.state().repos[0]!
   const repos = [
     { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone/base' }] },
@@ -168,9 +231,19 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
     f.change({ paneA: asSessionId(f.fileTabs[0]!.id), repos })
     stop = autorun(() => dockSnapshot(views))
     const check = (cwd: string, machineId: typeof root.machineId | undefined, scans = repos) => {
-      f.change({ repos: scans, fileTabs: [{ ...f.fileTabs[0]!, worktreePath: cwd,
-        scope: { kind: 'worktree', root: cwd, ...(machineId ? { machineId } : {}) } }] })
-      const expected = legacyShellSnapshot(f.state(), f.issues).sections.find(section => section.key === 'dock')!
+      f.change({
+        repos: scans,
+        fileTabs: [
+          {
+            ...f.fileTabs[0]!,
+            worktreePath: cwd,
+            scope: { kind: 'worktree', root: cwd, ...(machineId ? { machineId } : {}) },
+          },
+        ],
+      })
+      const expected = legacyShellSnapshot(f.state(), f.issues).sections.find(
+        (section) => section.key === 'dock',
+      )!
       const actual = dockSnapshot(views)
       expect(actual).not.toBe(LOADING)
       expect(actual && actual !== LOADING ? actual.scope : null).toEqual(expected.fields.scope)
@@ -192,23 +265,42 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
 })
 
 it('tracks active session cwd and attachment changes and keeps explicit file git precedence', () => {
-  const f = dockFixture(), views = shellViews(f.pool)
-  const values: unknown[] = [], stop = autorun(() => values.push(dockSnapshot(views)))
+  const f = dockFixture(),
+    views = shellViews(f.pool)
+  const values: unknown[] = [],
+    stop = autorun(() => values.push(dockSnapshot(views)))
   try {
     const selected = { ...f.sessions[0]!, cwd: '/undiscovered/sub', issueId: f.issues[2]!.id }
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: selected.sessionId, value: selected }] as never })
+    f.pool.apply({
+      type: 'update',
+      rows: [{ kind: 'session', id: selected.sessionId, value: selected }] as never,
+    })
     expect(dockSnapshot(views)).toMatchObject({
       active: { cwd: selected.cwd, sessionId: selected.sessionId },
       scope: { repoId: 'shell-repo', repoPath: '/synthetic/project' },
       gitIssue: undefined,
       mailIssueId: f.issues[2]!.id,
     })
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[2]!.id,
-      value: { ...f.issues[2]!, worktreePath: '/undiscovered' } }] as never })
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: f.issues[2]!.id,
+          value: { ...f.issues[2]!, worktreePath: '/undiscovered' },
+        },
+      ] as never,
+    })
     expect(dockSnapshot(views)).toHaveProperty('gitIssue.id', f.issues[2]!.id)
-    f.change({ paneA: asSessionId(f.fileTabs[0]!.id), fileTabs: [{
-      ...f.fileTabs[0]!, issueId: f.issues[0]!.id,
-    }] })
+    f.change({
+      paneA: asSessionId(f.fileTabs[0]!.id),
+      fileTabs: [
+        {
+          ...f.fileTabs[0]!,
+          issueId: f.issues[0]!.id,
+        },
+      ],
+    })
     expect(dockSnapshot(views)).toMatchObject({
       gitIssue: { id: f.issues[0]!.id },
       mailIssueId: f.issues[1]!.id,

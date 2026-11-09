@@ -1,5 +1,5 @@
-import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { asMachineId, type CheckoutWire, checkoutRepositoryId, checkoutRowId } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -17,13 +17,22 @@ function fixture(scale: 1 | 4) {
   const machines = new Map(
       Array.from({ length: 128 * scale }, (_, n) => [
         `m${n}`,
-        { id: `m${n}`, name: `Machine ${n}`, loggedOutHarnesses: [] } as unknown as SettingsRows['settingsMachine'],
+        {
+          id: `m${n}`,
+          name: `Machine ${n}`,
+          loggedOutHarnesses: [],
+        } as unknown as SettingsRows['settingsMachine'],
       ]),
     ),
     repos = new Map(
       Array.from({ length: 128 * scale }, (_, n) => [
         checkoutRowId(asMachineId('m0'), `/repo/${n}`),
-        { machineId: 'm0', path: `/repo/${n}`, root: `/repo/${n}`, kind: 'repository' } as CheckoutWire,
+        {
+          machineId: 'm0',
+          path: `/repo/${n}`,
+          root: `/repo/${n}`,
+          kind: 'repository',
+        } as CheckoutWire,
       ]),
     )
   const lists = new Set<(batch: ReplicaAddressedBatch) => void>(),
@@ -98,7 +107,9 @@ function fixture(scale: 1 | 4) {
     measure,
     clear,
     tab(next: string) {
-      runInAction(() => { ui.settingsTab = next })
+      runInAction(() => {
+        ui.settingsTab = next
+      })
     },
   }
 }
@@ -276,7 +287,8 @@ it('loads one declared machine or repository and follows only observed keys at 1
       expect(f.lists.size).toBe(1)
       repoStop()
       const control = await f.measure('whole settings bootstrap control', () => {
-        for (const machine of f.owner.replica.rows('machines')) f.owner.replica.row!('machines', machine.id)
+        for (const machine of f.owner.replica.rows('machines'))
+          f.owner.replica.row!('machines', machine.id)
       })
       expect(control.rows).toBe(128 * scale)
       expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
@@ -328,7 +340,10 @@ it('loads catalog ids separately from payloads and releases shared channels afte
     expect(catalogPaints).toBe(beforePaints)
     expect(f.ids).not.toHaveBeenCalled()
     // One read to see the catalog did not move, one for the observed row.
-    expect(f.row.mock.calls).toEqual([['machines', 'm0'], ['machines', 'm0']])
+    expect(f.row.mock.calls).toEqual([
+      ['machines', 'm0'],
+      ['machines', 'm0'],
+    ])
     f.clear()
     f.machines.delete('m1')
     f.emit('machines', 'm1')

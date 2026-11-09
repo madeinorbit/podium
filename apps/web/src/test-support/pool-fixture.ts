@@ -8,8 +8,8 @@ import { referenceView } from '@podium/client-graph/issue-reference'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { observable, runInAction } from 'mobx'
 import { asUserId, pinRowId, resolveUserPreferences } from '@podium/model'
+import { observable, runInAction } from 'mobx'
 
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
@@ -119,7 +119,16 @@ export function syncPoolFixture(
     })
     seedInstancePreferences(pool)
     const userId = asUserId('fixture-user')
-    pool.apply({ type: 'update', rows: [{ kind: 'userPreferences', id: userId, value: { ...resolveUserPreferences(undefined, userId), id: userId } as never }] })
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'userPreferences',
+          id: userId,
+          value: { ...resolveUserPreferences(undefined, userId), id: userId } as never,
+        },
+      ],
+    })
     if (state.uiState) {
       const keys = observableFixtureKeys(state.uiState as RoutedUiState)
       attachPreferenceSource(pool, keys)
@@ -172,8 +181,16 @@ export function syncPoolFixture(
     const personal = state.userPreferences?.[0]
     const personalId = personal?.userId ?? asUserId('fixture-user')
     const rows: RowSourceEvent['rows'] = [
-      { kind: 'userPreferences', id: personalId, value: { ...resolveUserPreferences(personal, personalId), id: personalId } as never },
-      ...normalized.replica.rows('pins').map(value => ({ kind: 'pin' as const, id: pinRowId(value.userId, value.kind, value.entityId), value: { ...value, id: pinRowId(value.userId, value.kind, value.entityId) } })),
+      {
+        kind: 'userPreferences',
+        id: personalId,
+        value: { ...resolveUserPreferences(personal, personalId), id: personalId } as never,
+      },
+      ...normalized.replica.rows('pins').map((value) => ({
+        kind: 'pin' as const,
+        id: pinRowId(value.userId, value.kind, value.entityId),
+        value: { ...value, id: pinRowId(value.userId, value.kind, value.entityId) },
+      })),
       ...repoWorktrees,
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
       ...(state.sessions ?? []).map((value) => ({
@@ -282,7 +299,10 @@ export function syncPoolFixture(
       void Promise.resolve(settingsApi.settings.get.query())
         .then((groups) => {
           if (groups && typeof groups === 'object') {
-            seedInstancePreferences(fixturePool, groups as Parameters<typeof seedInstancePreferences>[1])
+            seedInstancePreferences(
+              fixturePool,
+              groups as Parameters<typeof seedInstancePreferences>[1],
+            )
           }
         })
         .catch(() => undefined)

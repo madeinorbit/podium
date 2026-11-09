@@ -1,4 +1,3 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
@@ -11,11 +10,9 @@ import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
-import {
-  pickTargets,
-  ScenarioCache,
-} from '../../../../tests/worklist/shared/src/scenarios'
+import { pickTargets, ScenarioCache } from '../../../../tests/worklist/shared/src/scenarios'
 import { poolBackedScreens } from './pool-screens'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 

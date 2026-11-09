@@ -27,13 +27,14 @@ export function setReferenceClock(runtime: object, read: () => number): void {
 }
 
 /** Test oracle only. Production has no full record state or publication. */
-export function referenceState<
-  T extends import('@podium/client-core/api').PodiumClientApi,
->(runtime: {
-  readonly access: Store<T>
-  readonly replica?: ClientRuntime['replica']
-  readonly principal?: { userId: string }
-}, options: { screen?: boolean } = {}): ReferenceState<T> {
+export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(
+  runtime: {
+    readonly access: Store<T>
+    readonly replica?: ClientRuntime['replica']
+    readonly principal?: { userId: string }
+  },
+  options: { screen?: boolean } = {},
+): ReferenceState<T> {
   return runInAction(() => {
     const access = runtime.access
     const replica = runtime.replica ?? access.replica
@@ -118,15 +119,22 @@ export function referenceState<
         }
       }
     ).live
-    const access_ = new Map(replica.rows('machineAccess').map((row) => [String(row.machineId), row]))
+    const access_ = new Map(
+      replica.rows('machineAccess').map((row) => [String(row.machineId), row]),
+    )
     const machines = replica.rows('machines').flatMap((machine) => {
       const mine = access_.get(String(machine.id))
       if (!mine) return []
       // Online and presence are the LiveStore's condition (unknown reads offline).
       const reading = live?.conditionOf(String(machine.id))
       const condition = reading?.known ? reading.value : undefined
-      const { since: _since, ...presence } = (condition ?? { online: false }) as Record<string, unknown>
-      return [{ ...mine, ...machine, ...presence, id: machine.id, online: condition?.online === true }]
+      const { since: _since, ...presence } = (condition ?? { online: false }) as Record<
+        string,
+        unknown
+      >
+      return [
+        { ...mine, ...machine, ...presence, id: machine.id, online: condition?.online === true },
+      ]
     })
     const repos = [...repositoriesFromCheckouts(replica.rows('checkouts'))]
     return {

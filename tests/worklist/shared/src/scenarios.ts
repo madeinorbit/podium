@@ -101,7 +101,10 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { machineRecords, repositoriesAsCheckouts } from '@podium/client-core/test-support/machine-records'
+import {
+  machineRecords,
+  repositoriesAsCheckouts,
+} from '@podium/client-core/test-support/machine-records'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import {
@@ -928,7 +931,8 @@ export async function startEngineOnCorpus(
       )
       ctx.replica.batch(() => {
         for (const record of cache.readEntities())
-          if (record.entity === 'checkout' && !next.has(record.entityId)) remove(ctx, 'checkout', record.entityId)
+          if (record.entity === 'checkout' && !next.has(record.entityId))
+            remove(ctx, 'checkout', record.entityId)
         for (const [id, value] of next) {
           const held = cache.read('checkout', id)?.value
           if (held && JSON.stringify(held) === JSON.stringify(value)) continue

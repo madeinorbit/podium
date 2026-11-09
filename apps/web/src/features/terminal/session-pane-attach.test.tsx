@@ -1,28 +1,28 @@
 // @vitest-environment happy-dom
-import { knownReading } from '@podium/client-core/live'
-import { machineRecords } from '@podium/client-core/test-support/machine-records'
-import { runInAction } from 'mobx'
-import { observer } from '@podium/client-graph/react'
+
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { knownReading } from '@podium/client-core/live'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
+import { asUserId, isMachineOfflineForLiveTerminal, layoutRowId } from '@podium/model/browser'
+import { cleanup, render, waitFor } from '@testing-library/react'
+import { runInAction } from 'mobx'
+import { StrictMode } from 'react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { usePoolMachine } from '@/app/header-data'
+import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import {
   SESSION_PANE_NOW,
   sessionPaneFixture,
 } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
-import { asUserId, layoutRowId } from '@podium/model/browser'
-import { cleanup, render, waitFor } from '@testing-library/react'
-import { StrictMode } from 'react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ScenarioCache } from '../../../../../tests/worklist/shared/src/scenarios'
 import { useChatSession } from '../chat/use-chat-context'
-import { usePoolMachine } from '@/app/header-data'
-import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
 import {
@@ -69,7 +69,11 @@ vi.mock('@/lib/SnoozeControl', () => ({ SnoozeControl: () => null }))
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
-vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW, useDeadlineNow: () => SESSION_PANE_NOW, useAgeNow: () => SESSION_PANE_NOW }))
+vi.mock('@/lib/clock-hooks', () => ({
+  useClock: () => SESSION_PANE_NOW,
+  useDeadlineNow: () => SESSION_PANE_NOW,
+  useAgeNow: () => SESSION_PANE_NOW,
+}))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -100,7 +104,9 @@ function replicaFactory() {
   const cache = new ScenarioCache()
   for (const row of [live, shell, offline]) cache.put('session', row.sessionId, row)
   cache.put('userLayout', layoutRowId(asUserId('session-pane-attach'), 'panelMode'), {
-    userId: 'session-pane-attach', key: 'panelMode', value: { [live.sessionId]: 'chat' },
+    userId: 'session-pane-attach',
+    key: 'panelMode',
+    value: { [live.sessionId]: 'chat' },
   })
   // Each machine's record and my access row (POD-6644); online is the live condition.
   for (const record of machines.flatMap((row) => machineRecords('session-pane-attach', row)))
@@ -116,7 +122,11 @@ function binding(next: ClientRuntime): () => void {
   next.access.setDockShell(shell.cwd, shell.sessionId)
   runInAction(() => {
     for (const row of machines)
-      next.live.applyTopic('machine.condition', row.id, knownReading({ online: row.online, since: null }, Date.now()))
+      next.live.applyTopic(
+        'machine.condition',
+        row.id,
+        knownReading({ online: row.online, since: null }, Date.now()),
+      )
   })
   return attachWorklistPool(next, (error) => errors.push(error))
 }
@@ -132,7 +142,11 @@ const Inputs = observer(function Inputs() {
   const ownership = { selectedIssueId: usePaneSelectedIssueId() }
   const chatSession = useChatSession(offline.sessionId)
   const chatMachine = usePoolMachine(chatSession?.machineId)
-  const chat = { session: chatSession, presenceOfflineMachineName: chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null }
+  const chat = {
+    session: chatSession,
+    presenceOfflineMachineName:
+      chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null,
+  }
 
   return (
     <>

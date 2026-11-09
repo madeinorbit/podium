@@ -1,4 +1,3 @@
-import { fixtureUi } from '@podium/client-core/test-support/ui'
 /**
  * TESTS ONLY: a settings source owner over a replica that answers checkout and
  * machine records (POD-6644). Tests give the repositories and machines in the
@@ -11,6 +10,7 @@ import {
   machineRecords,
   repositoriesAsCheckouts,
 } from '@podium/client-core/test-support/machine-records'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { GitRepositoryWire, MachineFacts } from '@podium/model'
 import { headerEntities } from './header-entities'
 import { seedFixtureMachines } from './live-fixture'
@@ -49,14 +49,19 @@ export function settingsOwnerFixture(input: {
   const setMachines = (list: readonly Machine[]) => {
     const records = list.flatMap((machine) => machineRecords(userId, machine))
     machines = new Map(
-      records.filter((record) => record.entity === 'machine').map((record) => [record.entityId, record.value]),
+      records
+        .filter((record) => record.entity === 'machine')
+        .map((record) => [record.entityId, record.value]),
     )
-    access = records.filter((record) => record.entity === 'machineAccess').map((record) => record.value)
+    access = records
+      .filter((record) => record.entity === 'machineAccess')
+      .map((record) => record.value)
   }
   const given = input.machines ?? []
   const listed = [
     ...given,
-    ...((input.repos ?? []).some((repo) => !repo.machineId) && !given.some((m) => m.id === FIXTURE_MACHINE_ID)
+    ...((input.repos ?? []).some((repo) => !repo.machineId) &&
+    !given.some((m) => m.id === FIXTURE_MACHINE_ID)
       ? [DEFAULT_MACHINE]
       : []),
   ]
@@ -92,8 +97,13 @@ export function settingsOwnerFixture(input: {
     listeners,
     /** Put the machines in `pool` as the row source would: records, and online on the LiveStore. */
     seed(pool: MobxPool) {
-      headerEntities(pool).apply(seedFixtureMachines(pool, listed as unknown as MachineFacts[]) as never)
-      headerEntities(pool).order('machine', listed.map((machine) => machine.id))
+      headerEntities(pool).apply(
+        seedFixtureMachines(pool, listed as unknown as MachineFacts[]) as never,
+      )
+      headerEntities(pool).order(
+        'machine',
+        listed.map((machine) => machine.id),
+      )
     },
     /** Replace the repositories; announced as one checkout change. */
     setRepos(repos: readonly Repo[], changedPath = repos[0]?.path ?? '') {

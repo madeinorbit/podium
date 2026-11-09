@@ -1,18 +1,19 @@
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import { headerView } from '@podium/client-graph/header-views'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { headerView } from '@podium/client-graph/header-views'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+
 /** Pool-only regressions for the final green mobile slice controls.
  * The literal counts, titles, paths, shared clock and machine refusals are
  * unchanged. The real provider owns the replica and all mutation handles. */
 
-import { deadlineClock } from '@podium/mobx-helpers'
-import { useClock } from '../lib/clock-hooks'
 import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { deadlineClock } from '@podium/mobx-helpers'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { useClock } from '../lib/clock-hooks'
 import { useConnected, useIssues, useSessions, useStoreActions } from './hooks'
 import { useMobilePoolProjection } from './mobile-pool'
 import { renderWithMobileStore } from './test-support'
@@ -99,7 +100,8 @@ function WorklistProbe() {
 function readRows(pool: MobxPool) {
   return mobileWorkView(pool)
     .mobileSections()
-    .sectionKeys.map(key => mobileWorkView(pool).mobileSections().section(key)).flatMap((section) =>
+    .sectionKeys.map((key) => mobileWorkView(pool).mobileSections().section(key))
+    .flatMap((section) =>
       section.data.flatMap((ref) => {
         const row = mobileWorkView(pool).mobileRow(ref)
         return row && typeof row !== 'symbol' ? [row.title] : []
@@ -107,7 +109,9 @@ function readRows(pool: MobxPool) {
     )
     .join('|')
 }
-function readSharedClock(pool: MobxPool) { return pool.clock === deadlineClock }
+function readSharedClock(pool: MobxPool) {
+  return pool.clock === deadlineClock
+}
 
 describe('mobile reads the resident pool worklist', () => {
   it('paints the accepted rows and paths through the pool', async () => {

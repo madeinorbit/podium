@@ -1,12 +1,14 @@
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { workspaceKeyForState } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { vi } from 'vitest'
 import { useRuntimeSelector as selectLocals } from '@/app/store'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 import './mock-screen-pool'
-const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState<import('@/app/trpc').Trpc>) => T) => T
+const selectMockSnapshot = selectLocals as unknown as <T>(
+  read: (state: ReferenceState<import('@/app/trpc').Trpc>) => T,
+) => T
 
 // Opt-in for provider-free suites that replace the web store. Stable accessors
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this
@@ -32,5 +34,10 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
-  return { ...actual, ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner), useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  return {
+    ...actual,
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    useStoreHandle: () => owner,
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
 })

@@ -162,12 +162,16 @@ export function createSidebarFixture(
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
     })
     const deliver = result.onKernelEvent.bind(result)
-    return Object.assign(result, { onKernelEvent(event: Parameters<typeof deliver>[0]) {
-      if (event.type === 'removed' || event.type === 'evicted') exits.set(`${event.entity}:${event.entityId}`, event.type)
-      if (event.type === 'upserted') exits.delete(`${event.record.entity}:${event.record.entityId}`)
-      if (event.type === 'bootstrap-installed') exits.clear()
-      deliver(event)
-    } })
+    return Object.assign(result, {
+      onKernelEvent(event: Parameters<typeof deliver>[0]) {
+        if (event.type === 'removed' || event.type === 'evicted')
+          exits.set(`${event.entity}:${event.entityId}`, event.type)
+        if (event.type === 'upserted')
+          exits.delete(`${event.record.entity}:${event.record.entityId}`)
+        if (event.type === 'bootstrap-installed') exits.clear()
+        deliver(event)
+      },
+    })
   }
   const api = {
     settings: { get: { query: async () => ({ sessionDefaults: { agent: 'codex' } }) } },
@@ -202,15 +206,26 @@ export function createSidebarFixture(
       const kept = new Set(nextRecords.map((next) => `${next.entity}:${next.entityId}`))
       if (input.machines)
         for (const [key, record] of records)
-          if ((record.entity === 'machine' || record.entity === 'machineAccess') && !kept.has(key)) {
+          if (
+            (record.entity === 'machine' || record.entity === 'machineAccess') &&
+            !kept.has(key)
+          ) {
             records.delete(key)
-            replica.onKernelEvent({ type: 'removed', entity: record.entity, entityId: record.entityId })
+            replica.onKernelEvent({
+              type: 'removed',
+              entity: record.entity,
+              entityId: record.entityId,
+            })
           }
       if (input.repos)
         for (const [key, record] of records)
           if (record.entity === 'checkout' && !kept.has(key)) {
             records.delete(key)
-            replica.onKernelEvent({ type: 'removed', entity: 'checkout', entityId: record.entityId })
+            replica.onKernelEvent({
+              type: 'removed',
+              entity: 'checkout',
+              entityId: record.entityId,
+            })
           }
       for (const next of nextRecords) {
         const record = put(next.entity, next.entityId, next.value)

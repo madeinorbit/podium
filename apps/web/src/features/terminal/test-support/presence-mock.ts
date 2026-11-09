@@ -1,7 +1,7 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureUiHooks } from '@podium/client-core/test-support/react'
 import { vi } from 'vitest'
 import { useConversation } from '../../../../../../packages/client-core/src/react/use-conversation'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /**
  * The presence seam, stubbed for suites that render `AgentPanel` for reasons
  * other than presence (POD-1535).
@@ -17,7 +17,6 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
  *     (await import('./test-support/presence-mock')).presenceSeamStub())
  */
 
-
 import { useRuntimeSelector as readFixture } from '@/app/store'
 import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 
@@ -32,10 +31,15 @@ const paneOwner = withKeyedInputs({
   subscribe: fakeStoreHandle.subscribe,
 })
 
-Object.defineProperties(paneOwner, { drafts: { get: () => fakeStoreHandle.drafts }, ownConversations: { value: fakeStoreHandle.ownConversations } })
+Object.defineProperties(paneOwner, {
+  drafts: { get: () => fakeStoreHandle.drafts },
+  ownConversations: { value: fakeStoreHandle.ownConversations },
+})
 let fixtureOwner: typeof paneOwner | undefined
 vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../../../packages/client-core/src/react/provider')>()),
+  ...(await importOriginal<
+    typeof import('../../../../../../packages/client-core/src/react/provider')
+  >()),
   useStoreHandle: () => fixtureOwner ?? paneOwner,
 }))
 
