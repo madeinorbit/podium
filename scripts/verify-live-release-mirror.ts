@@ -113,13 +113,19 @@ export async function verifyLiveReleaseMirror(channels: readonly ReleaseChannel[
       rejected = error instanceof Error && error.message.includes('signature verification FAILED')
     }
     if (!rejected) throw new Error('invalid signature did not fail closed')
-    if (artifacts?.desktop) {
-      const companion = await createReleaseFetcher().fetchRelease<Json>(path + 'latest.json', {
-        origin: resolved.origin,
-        fetch: withoutPrimary,
-        read: (response) => response.json() as Promise<Json>,
-      })
-      await checkReferences('latest.json', companion.data)
+    // Older headless documents omit the desktop family while latest.json still serves apps.
+    const companion = await fetchFromReleaseOrigin(
+      releaseUrl(path + 'latest.json', resolved.origin),
+      resolved.origin,
+      { signal: AbortSignal.timeout(30_000) },
+      withoutPrimary,
+    )
+    if (companion.ok) {
+      await checkReferences('latest.json', (await companion.json()) as Json)
+    } else {
+      await companion.body?.cancel()
+      if (companion.status !== 404 || artifacts?.desktop)
+        throw new Error(`mirror desktop feed is unavailable: ${channel} HTTP ${companion.status}`)
     }
     reports.push({ channel, version: resolved.data.version, platform })
   }
