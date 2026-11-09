@@ -4,7 +4,6 @@ import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
-import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -125,8 +124,7 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
       }
       return row(...args)
     }) as MobxPool['row'])
-    const ui = fixtureUi()
-    const owner = { ui, start() {}, dispose: () => ui.dispose(), destroy: () => ui.dispose() }
+    const owner = { start() {}, dispose() {}, destroy() {} }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     fixture.handle = Object.assign(
       owner,
@@ -236,8 +234,7 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
       { kind: 'repository', id: '/before', value: repo('/before') },
     ])
     headerEntities(fixture.pool).order('repository', ['/before'])
-    const ui = fixtureUi()
-    const owner = { ui, start() {}, dispose: () => ui.dispose(), destroy: () => ui.dispose() }
+    const owner = { start() {}, dispose() {}, destroy() {} }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     const store = createSubscriptionStore(
       {

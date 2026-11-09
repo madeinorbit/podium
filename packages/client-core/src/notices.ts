@@ -7,15 +7,24 @@ export interface NoticeSink {
 }
 
 /** Notices last only on this device, in the UiStore's unsaved toast queue. */
-export function createNotices(ui: () => UiStore): NoticeSink {
+export function createNotices(ui: () => UiStore, consumer?: NoticeSink): NoticeSink {
+  const add = (kind: 'error' | 'info', message: string, description?: string): void => {
+    const owner = ui()
+    const id = randomUUID()
+    owner.addNotice({
+      id,
+      kind,
+      message,
+      ...(description !== undefined ? { description } : {}),
+    })
+    if (consumer) {
+      if (kind === 'error') consumer.error(message)
+      else consumer.info(message, description)
+      owner.dismissNotice(id)
+    }
+  }
   return {
-    error: (message) => ui().addNotice({ id: randomUUID(), kind: 'error', message }),
-    info: (message, description) =>
-      ui().addNotice({
-        id: randomUUID(),
-        kind: 'info',
-        message,
-        ...(description !== undefined ? { description } : {}),
-      }),
+    error: (message) => add('error', message),
+    info: (message, description) => add('info', message, description),
   }
 }

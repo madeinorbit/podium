@@ -302,20 +302,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       }
     }
   }, [runtime])
-  useEffect(() => {
-    if (!runtime) return
-    return reaction(
-      () => runtime.ui.notices.slice(),
-      (pending) => {
-        for (const notice of pending) {
-          if (notice.kind === 'error') latest.current.notices.error(notice.message)
-          else latest.current.notices.info(notice.message, notice.description)
-          runtime.ui.dismissNotice(notice.id)
-        }
-      },
-      { fireImmediately: true },
-    )
-  }, [runtime])
   if (runtime === null || principal === null) {
     // FAIL CLOSED: no runtime means no transport, no replica read, no outbox —
     // and no children, because a child that rendered here would necessarily be

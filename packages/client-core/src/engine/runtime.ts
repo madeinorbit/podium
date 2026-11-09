@@ -1417,7 +1417,7 @@ export function createClientRuntime<TApi extends PodiumClientApi = PodiumClientA
   // and the queue, in that order, exactly as this store used to build them.
   // Both in the one action the store was always built in.
   let runtime: ClientRuntime<TApi>
-  const notices = createNotices(() => runtime.ui)
+  const notices = createNotices(() => runtime.ui, init.notices)
   return runInAction(() => {
     const root = createRuntimeRoot<TApi>({
       ...init,
