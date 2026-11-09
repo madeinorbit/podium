@@ -41,7 +41,6 @@ import {
 
 import { profileServerIdentity, watchAccountSwitch } from '@podium/client-core/accounts'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import {
   browserWakeSource,
   createFeedRelay,
@@ -69,6 +68,7 @@ import {
   type TranscriptDatabases,
 } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/runtime-root'
 import {
   browserFollowAdopt,
   type FollowEvent,
@@ -221,7 +221,7 @@ export interface MobileReplicaDeps {
 }
 
 export interface MobileReplica {
-  readonly createReplicaFn: import('@podium/client-core/engine').CreateReplicaForPrincipal
+  readonly createReplicaFn: import('@podium/client-core/runtime-root').CreateReplicaForPrincipal
   dispose(): Promise<void>
   /** What the engine reads through — the kernel-backed facade. */
   readonly replica: Replica

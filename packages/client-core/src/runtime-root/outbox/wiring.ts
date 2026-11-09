@@ -1,9 +1,9 @@
 /**
- * Engine transport + write-path wiring (#262 [spec:SP-3fe2]): constructs the
- * SocketHub (metadata delta mode, persist-after-apply into the replica) and the
- * Outbox (durable offline write queue over the replica's storage). Extracted
- * verbatim from react/provider.tsx so the engine — and any non-React client —
- * shares ONE construction path with zero React involvement.
+ * The outbox's write-path wiring (#262 [spec:SP-3fe2]): the queued kinds, their
+ * commands, routing, dead-letter rules and maximum ages, the executors, and the
+ * Outbox (durable offline write queue over the replica's storage). The outbox
+ * service (`./outbox-service.ts`) is the one construction site; the socket hub
+ * half of the old engine wiring is the connection service's (`../connection/hub.ts`).
  */
 
 import type { ConfirmationRule } from '@podium/commands'
@@ -28,7 +28,9 @@ import {
   type OutboxRejectionReason,
   type RetrySatisfaction,
 } from '@podium/sync/outbox'
-import type { PodiumClientApi } from '../api'
+import type { PodiumClientApi } from '../../api'
+import { assertSendAccepted } from '../../engine/send-outcome'
+import type { StoreNotices } from '../../engine/types'
 import {
   classifyRefusal,
   type OnlineEvents,
@@ -38,13 +40,13 @@ import {
   type OutboxSettlement,
   platformIsOnline,
   platformOnlineEvents,
-} from '../outbox'
+} from '../../outbox'
 import {
   couldNotSaveNotice,
   recoverableAuthoredText,
   sessionGoneNotice,
-} from '../outbox-recovery-copy'
-import { recordRevisionChainFor } from '../record-revisions'
+} from '../../outbox-recovery-copy'
+import { recordRevisionChainFor } from '../../record-revisions'
 import {
   isRecordOutboxKind,
   RECORD_HOMES,
@@ -57,11 +59,8 @@ import {
   recordOpOf,
   recordWireCommand,
   recordWireInput,
-} from '../records'
-import type { Replica } from '../replica/kernel/facade'
-import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
-import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
-import { type FeedSinkPort, SocketHub } from '../socket-transport'
+} from '../../records'
+import type { Replica } from '../../replica/kernel/facade'
 import {
   isLegacyOutboxKind,
   LEGACY_AUTOMATIC_KINDS,
@@ -71,8 +70,6 @@ import {
   submitRecordEditAsLegacy,
   submitRecordRemoveAsLegacy,
 } from './legacy-outbox-kinds'
-import { assertSendAccepted } from './send-outcome'
-import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
  *  §2.3). Each executor replays with the entry's stable mutationId, so the
@@ -170,7 +167,7 @@ export type OutboxKinds = {
    * so a session start made offline still lands; its status comes back on the
    * record, never in the reply.
    */
-  effectCreate: import('../spawn-agent').EffectCreateInput
+  effectCreate: import('../../spawn-agent').EffectCreateInput
   /** Take an ended effect record off the feed (a failed start's Dismiss). */
   effectDismiss: { id: string }
 }
@@ -774,66 +771,6 @@ async function submitRecord(
   throw new SyncSubmitRefusedError(command.name, reply.refusal)
 }
 
-/** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
-export type CreateHub = (opts: ConstructorParameters<typeof SocketHub>[0]) => SocketHub
-
-/** Expected cold-offline failures leave the persisted kernel slice mounted. */
-export function isInitialConnectivityError(message: string): boolean {
-  return (
-    message === 'WebSocket connection failed' ||
-    message === 'WebSocket connection closed before connecting'
-  )
-}
-
-export function createEngineHub(args: {
-  wsClientUrl: string
-  api: PodiumClientApi
-  replica: Replica
-  onFatalError: (message: string) => void
-  createHub?: CreateHub
-  /**
-   * WIRE v2 (POD-1223): when supplied, this hub advertises wire 2 and hands
-   * every frame to the kernel Replica's consumer.
-   *
-   * The two feed ports are mutually exclusive. Canonical v2 envelopes go to
-   * the supplied Replica sink; wire-v1 gets a Replica-owned compatibility sink.
-   */
-  feed?: FeedSinkPort
-  /** Liveness ping cadence, when the platform has an opinion (native: 10 s). */
-  heartbeatIntervalMs?: number
-  makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
-}): SocketHub {
-  const { api, replica } = args
-  const make: CreateHub = args.createHub ?? ((opts) => new SocketHub(opts))
-  const heartbeat =
-    args.heartbeatIntervalMs !== undefined
-      ? { heartbeatIntervalMs: args.heartbeatIntervalMs }
-      : undefined
-  if (args.feed !== undefined) {
-    return make({
-      url: args.wsClientUrl,
-      onError: (message) => {
-        if (!isInitialConnectivityError(message)) args.onFatalError(message)
-      },
-      feed: args.feed,
-      ...(args.makeSocket ? { makeSocket: args.makeSocket } : {}),
-      ...heartbeat,
-    })
-  }
-  return make({
-    url: args.wsClientUrl,
-    onError: (message) => args.onFatalError(message),
-    ...heartbeat,
-    issuesNormalized: true,
-    ...(args.makeSocket ? { makeSocket: args.makeSocket } : {}),
-    legacyFeed: new LegacyWireV1Feed({
-      fetchChangesSince: (cursor) => api.sync.changesSince.query({ cursor }),
-      initialCursor: replica.getCursor(),
-      applied: (state) => applyLegacyMetadataState(replica, state),
-    }),
-  })
-}
-
 /** What an executor reports that is neither applied nor refused. */
 export interface OutboxExecutorHooks {
   /** A send resolved without delivery because its session no longer exists. */
@@ -905,7 +842,7 @@ export function readOutboxReply<K extends keyof OutboxKinds>(
  * POD-781 group 3 found out what two places cost.
  *
  * This map used to live inline in `createEngineOutbox` below, and the
- * kernel-backed queue (`engine/kernel-outbox.ts`, which is what the WEB app
+ * kernel-backed queue (`./kernel-outbox.ts`, which is what the WEB app
  * actually runs) carried a hand-written `switch` over dotted command names
  * doing the same job. The two drifted the moment this issue added a kind: seven
  * curation commands were queued, routed, overlaid and tested, and every one of

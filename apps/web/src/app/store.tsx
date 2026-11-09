@@ -6,7 +6,6 @@
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 
-import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import { type ClientPrincipal, principalKey } from '@podium/client-core/principal'
 import {
@@ -15,6 +14,10 @@ import {
   type StoreNotices,
   useRuntimeSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
+import type {
+  CreateEngineOutbox,
+  CreateReplicaForPrincipal,
+} from '@podium/client-core/runtime-root'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'

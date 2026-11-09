@@ -1,6 +1,6 @@
 /** Editable issue fields and validation for commands sent through the kernel. */
 
-import type { OutboxKinds } from '@podium/client-core/engine'
+import type { OutboxKinds } from '@podium/client-core/runtime-root'
 import { asIssueId, asUserId, issueUserStateRowId, type MutationId } from '@podium/model'
 
 /**

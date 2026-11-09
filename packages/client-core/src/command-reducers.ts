@@ -33,7 +33,6 @@ import type {
   UserPreferencesWire,
 } from '@podium/model'
 import { IssueProjection, type IssueUserStateWire } from '@podium/model'
-import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
 import {
   isRecordOutboxKind,
@@ -42,6 +41,7 @@ import {
   recordDeclaration,
   recordOpOf,
 } from './records'
+import type { OutboxKinds } from './runtime-root/outbox/wiring'
 
 /** The entities a per-row reader may paint from transactions (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */

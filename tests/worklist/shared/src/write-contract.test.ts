@@ -6,12 +6,7 @@
  *
  * An arm that writes its own {@link PendingLog} adds its factory to `LOGS`.
  */
-import {
-  deadLetterHandlingFor,
-  OUTBOX_COMMANDS,
-  OUTBOX_ROUTING,
-  shouldParkDeadLetter,
-} from '@podium/client-core/engine'
+import { deadLetterHandlingFor, OUTBOX_COMMANDS, OUTBOX_ROUTING, shouldParkDeadLetter } from '@podium/client-core/runtime-root'
 import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createPendingLog, ECHO_TTL_MS, type LogOutcome, type PendingLog } from './pending-log'

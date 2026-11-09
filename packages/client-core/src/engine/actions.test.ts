@@ -34,7 +34,7 @@ import {
 } from './actions'
 import type { RuntimeState } from './state'
 import type { StoreNotices } from './types'
-import type { EngineOutbox, OutboxKinds } from './wiring'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 
 beforeAll(loadRecordDeclarations)
 const sessionId = asSessionId('session-1')

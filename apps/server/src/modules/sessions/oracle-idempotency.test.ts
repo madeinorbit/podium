@@ -9,7 +9,7 @@
  *
  * Correction to the issue brief worth recording: offline queueing is NOT
  * issue-writes-only today. `createEngineOutbox`
- * (packages/client-core/src/engine/wiring.ts) covers session rename,
+ * (packages/client-core/src/runtime-root/outbox/wiring.ts) covers session rename,
  * setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread,
  * dismissOffer (POD-1110 — the offer bar's "none of these") and resumeAndSend
  * alongside the three issue kinds; pins, tab order and sendText stay DIRECT by

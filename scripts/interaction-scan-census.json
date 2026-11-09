@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "7dd1500a9c924a389cdd05ac8c0c2ceaf582144db84b462e208737296aca0b2f",
+      "tokens": "cb929be46327b3208d19ffec1d477a93a3dbef1eaf9c2a679a3cf92cfffc57f0",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "bbaf9b84ef030ca757ccc45eb9cd174f895c4663eca9a9b113d26cd67a52e59c",
+      "fingerprint": "288896aaba3b766a562fb8d774c0ebc81415533420f3087baa632de46b543d3c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -9211,14 +9211,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "5d24e222126c6ff9aca3fff2afee46b7857624025f561832cc34678cef0e7917",
+      "tokens": "b55783151129affda07b0c360b04399443707f45734958af5e2043ced57fe113",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "1204a6812fb4be428d2767041b315e2622a4400a10d68165bd42d63492cc6b21",
+      "fingerprint": "26df8ae1edebf942c222516cf0207c59e453ee11b96c232938347f2435560966",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12679,12 +12679,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "773eaabaca022cd5f8de2037925234446b8c9a68359f8a641da7f582ef459f33",
+      "tokens": "9e198fe684e28dadfd93b8d7d34df01ed331a3c5bf4aeff700def94e1eca15ec",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "8489f16d1256022fd40f0d96e26736ae8046092d54f56646e054176e5b7601d4",
+      "fingerprint": "18534cc3496e2aaf08173b233abc1328a264a71c9baebbb89caa75430ada248d",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -13129,7 +13129,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/kernel-outbox.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/kernel-outbox.ts",
       "holder": "openKernelEngineOutbox/overlay",
       "rule": "helper-consumer",
       "tokens": "2ee90abaa1862e11c0939b33769879194a5d5d641a4241f3a93e72519fe96f61",
@@ -13137,7 +13137,7 @@
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "7922227f63336eb9db34d5089e4eb8c932fb15d3af03deecb7aa3b1f3a3b6b6a",
+      "fingerprint": "741b83230b5985acb3317bbe862924f31b633e53d822b58f805d1750625d5eca",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -14218,7 +14218,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/wiring.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/wiring.ts",
       "holder": "outboxExecutors/dismissOffer/callback",
       "rule": "reader-summary",
       "tokens": "3de277922846f01bceb0a4dad1fae9cdd57f0be6f952ee5d8f6750beac693e25",
@@ -14226,9 +14226,9 @@
         "then:b2dce2d95bc7386803017b355eea037d984a772eec69c6449be43f46df8e2a21"
       ],
       "origin": [
-        "83426d458bdf2b43fd33bb435e1442b2468cbfa41503c243146ea2a7ad975642"
+        "c52781b4d788fd43adb48ccae956508a79b02f29a4e6b2643ae3ef882ad73fcf"
       ],
-      "fingerprint": "f3c1c069f60ba7dce7bc099c5831bf045d07d6078e3ea9b473eda50d1e06cbe7",
+      "fingerprint": "0258cf80cc642783025574f16be7ad94e10234a6a48d35777e1981e1b57d2715",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14238,15 +14238,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/wiring.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/wiring.ts",
       "holder": "outboxExecutors/resumeAndSend/callback",
       "rule": "reader-summary",
       "tokens": "b6d15a44481ada85ad58b5f3406442961db6cc0bf0d987d505a374846fefbc65",
       "gate": [],
       "origin": [
-        "cc84418acad4634ca913a5696797a2d73116ad08885f1dc9a7167bd076e77e68"
+        "bc5c4fb8cc221b8d26f502f94f645733378e5c58f3cee41d1fe69bbb69fe5f38"
       ],
-      "fingerprint": "97e6b1bd0272a6fc4d05723b85aae917f46ecfc418e72b7630a0aea534e2f74a",
+      "fingerprint": "152cb9b1fd87cd8b593606920b5c74ed9d63634db0bafdd30deb1eab6cabc5bb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14256,15 +14256,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/wiring.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/wiring.ts",
       "holder": "outboxExecutors/sendText/callback",
       "rule": "reader-summary",
       "tokens": "e1b116ccc2495dc588f05a4c4f06a2ae762c047d2343a0ca4cb801d7a44f699b",
       "gate": [],
       "origin": [
-        "91447917745a87b25af9313d216c5ed23a182dbb4d5bfc267ffc61c2a4a99ba0"
+        "028441cc904725aa7abcb576be29c32436dae65e669f76387bf114fba4a380dd"
       ],
-      "fingerprint": "9a43149e236e075338f5c01a7c7fac557b94b85222d431f058dc8cc9f457fce1",
+      "fingerprint": "00b75cbc8a759a34562f391ee0d4428083b61b26072eab8ec6fa8aec2ccc93f7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14274,7 +14274,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/wiring.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/wiring.ts",
       "holder": "readOutboxReply",
       "rule": "reader-summary",
       "tokens": "0c7965cb3023233687f63790fb150ba409b01bd6950958a0fe6dfd99b0e75637",
@@ -14282,9 +14282,9 @@
         "then:21b7f0714fa50c855765c013a2b94a47264a619bac6c20aa86f2824d52018df1"
       ],
       "origin": [
-        "cc84418acad4634ca913a5696797a2d73116ad08885f1dc9a7167bd076e77e68"
+        "bc5c4fb8cc221b8d26f502f94f645733378e5c58f3cee41d1fe69bbb69fe5f38"
       ],
-      "fingerprint": "9510dcca95de5e12384c4dcb92ef011e54f612613edd098d7a23b092f5e3a39b",
+      "fingerprint": "937571d5cd8f1846b1b9d384d90f032eedfa64b03c640a7dc2b3d9449f664b47",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14294,7 +14294,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/engine/wiring.ts",
+      "file": "packages/client-core/src/runtime-root/outbox/wiring.ts",
       "holder": "readOutboxReply",
       "rule": "reader-summary",
       "tokens": "0c7965cb3023233687f63790fb150ba409b01bd6950958a0fe6dfd99b0e75637",
@@ -14302,9 +14302,9 @@
         "then:21b7f0714fa50c855765c013a2b94a47264a619bac6c20aa86f2824d52018df1"
       ],
       "origin": [
-        "91447917745a87b25af9313d216c5ed23a182dbb4d5bfc267ffc61c2a4a99ba0"
+        "028441cc904725aa7abcb576be29c32436dae65e669f76387bf114fba4a380dd"
       ],
-      "fingerprint": "a7b9ca936547a71efdff6a3bdb5efea8f98d6274ac15ae3299e52e9536cdd934",
+      "fingerprint": "d35158a669013e67386cb95c13a511493b19bdf5844c0755c8af9a0788f1e7ab",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

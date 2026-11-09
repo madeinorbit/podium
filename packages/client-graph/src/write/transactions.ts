@@ -21,14 +21,10 @@ import type {
   PerUserRecordTarget,
 } from '@podium/client-core/command-reducers'
 import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
-import type {
-  EngineOutbox,
-  OutboxKinds,
-  OutboxOutcome,
-  SpawnPlaceholderEvent,
-} from '@podium/client-core/engine'
+import type { SpawnPlaceholderEvent } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { EngineOutbox, OutboxKinds, OutboxOutcome } from '@podium/client-core/runtime-root'
 import {
   asMutationId,
   type MutationId,

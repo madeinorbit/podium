@@ -21,11 +21,13 @@
 import type { MutationId, SessionId } from '@podium/model'
 import { asMutationId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import { randomUUID } from '../id'
 import { ChatNotSentError, chatNotSent } from '../chat-values'
-export { ChatNotSentError, outboxChatSends, type OutboxChatSend } from '../chat-values'
+import { randomUUID } from '../id'
+
+export { ChatNotSentError, type OutboxChatSend, outboxChatSends } from '../chat-values'
+
 import type { OutboxSettlement } from '../outbox'
-import type { EngineOutbox, OutboxKinds } from './wiring'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 
 export interface ChatSendInput {
   readonly sessionId: SessionId

@@ -17,13 +17,13 @@ import {
 import type { SyncSubmitInput } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
-import type { PodiumClientApi } from '../api'
-import type { OutboxEntry, OutboxStorage } from '../outbox'
-import type { RecordEditEntry } from '../records'
-import type { Replica } from '../replica/contract'
+import type { PodiumClientApi } from '../../api'
+import type { StoreNotices } from '../../engine/types'
+import type { OutboxEntry, OutboxStorage } from '../../outbox'
+import type { RecordEditEntry } from '../../records'
+import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
 import { legacyCallsForRecordEdit } from './legacy-outbox-kinds'
-import type { StoreNotices } from './types'
 import { outboxExecutors } from './wiring'
 
 const ME = asUserId('u-1')

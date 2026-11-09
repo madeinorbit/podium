@@ -12,30 +12,31 @@
  *   metrics (the store's demand hook), so a daemon samples only then.
  * - `account.usage:<me>` is held only while a usage reader watches
  *   `live.usage()`, so the server harvests transcripts only then.
- * - The connection condition follows the socket hub: its health rule, ping
- *   round-trip, clock skew and the server identity from each `welcome`.
+ *
+ * The connection condition is the connection service's and the outbox counts
+ * the outbox service's (runtime-root/, POD-6681); all three write through the
+ * root's one frame queue.
  *
  * APPLIED AT MOST ONCE PER FRAME (ADR 7 Amendment 2 D20). Readings are queued
  * by key, the newest replacing an older one still waiting, and the whole queue
  * goes into the store in one action per animation frame (one macrotask when the
- * page is hidden). Topic frames never wait behind the sync feed: the hub hands
- * them over on their own path, and this queue is separate from the feed's.
+ * page is hidden; `./frame-queue.ts`). Topic frames never wait behind the sync
+ * feed: the hub hands them over on their own path, and this queue is separate
+ * from the feed's.
  */
 
-import type { ServerFeatureFacts, TopicKind, TopicPayload } from '@podium/protocol'
-import { ConversationFrameScheduler } from '../conversation/frame-scheduler'
-import type { ConnectionHealth, ServerIdentity } from '../socket-transport/socket-hub'
+import type { TopicKind, TopicPayload } from '@podium/protocol'
 import type { TopicListener, TopicState } from '../socket-transport/subscriptions'
+import { LiveFrameQueue, type LiveFrameScheduler } from './frame-queue'
 import {
-  type ConnectionCondition,
-  type ConnectionState,
   knownReading,
   type LiveStore,
   type LiveTopicKind,
-  type OutboxCondition,
   type Reading,
   unknownReading,
 } from './live-store'
+
+export type { LiveFrameScheduler } from './frame-queue'
 
 /** The slice of the socket hub the feed uses. */
 export interface LiveFeedHub {
@@ -44,19 +45,6 @@ export interface LiveFeedHub {
     id: string,
     listener: TopicListener<TopicPayload<K>>,
   ): () => void
-  connectionHealth(): ConnectionHealth
-  serverIdentity(): ServerIdentity | null
-  clockSkewMs(): number | null
-  readonly connected: boolean
-  on(event: 'connectionHealth', handler: (health: ConnectionHealth) => void): () => void
-  on(event: 'serverIdentity', handler: (identity: ServerIdentity) => void): () => void
-  on(event: 'clockSkew', handler: (skewMs: number) => void): () => void
-}
-
-/** How queued readings reach the store: once per paint by default. */
-export interface LiveFrameScheduler {
-  enqueue(work: () => void): void
-  dispose(): void
 }
 
 /** The machines whose condition the feed holds: the `machine` records the
@@ -74,6 +62,10 @@ export interface LiveFeedOptions {
   /** The signed-in account: `account.quota:<userId>`. */
   readonly userId: string
   readonly now?: () => number
+  /** The runtime root's frame queue, shared with the connection and outbox
+   *  services; the root disposes it. Absent: the feed keeps its own. */
+  readonly frames?: LiveFrameQueue
+  /** For a feed that keeps its own queue (tests): how that queue reaches a frame. */
   readonly scheduler?: LiveFrameScheduler
 }
 
@@ -91,22 +83,13 @@ export function readingOfTopic<T>(state: TopicState<T>, now: number): Reading<T>
   }
 }
 
-export function connectionStateOf(health: ConnectionHealth, connected: boolean): ConnectionState {
-  if (health.status === 'down') return 'offline'
-  // Before the first connection the hub reports `ok` with no socket: the
-  // first dial, not a loss (the fatal-error page owns that messaging).
-  if (!connected) return 'connecting'
-  return health.status === 'degraded' ? 'degraded' : 'online'
-}
-
 export class LiveFeed {
   private readonly hub: LiveFeedHub
   private readonly live: LiveStore
   private readonly now: () => number
-  private readonly scheduler: LiveFrameScheduler
-  /** The newest write per key, waiting for the next frame. */
-  private readonly queued = new Map<string, () => void>()
-  private flushQueued = false
+  private readonly frames: LiveFrameQueue
+  /** Whether {@link frames} is this feed's own, to dispose with it. */
+  private readonly ownsFrames: boolean
   private readonly conditions = new Map<string, () => void>()
   private readonly metrics = new Map<string, () => void>()
   private offs: Array<() => void> = []
@@ -119,7 +102,8 @@ export class LiveFeed {
     this.hub = options.hub
     this.live = options.live
     this.now = options.now ?? Date.now
-    this.scheduler = options.scheduler ?? new ConversationFrameScheduler()
+    this.ownsFrames = options.frames === undefined
+    this.frames = options.frames ?? new LiveFrameQueue(options.scheduler)
   }
 
   /** Arm every subscription. Idempotent; re-arms after {@link stop} (StrictMode). */
@@ -134,10 +118,6 @@ export class LiveFeed {
     this.followMachines(machines.ids())
     for (const id of this.live.watchedMetrics) this.watchMetrics(id, true)
     if (this.live.usageWatched) this.watchUsage(true)
-    this.offs.push(this.hub.on('connectionHealth', () => this.queueConnection()))
-    this.offs.push(this.hub.on('serverIdentity', () => this.queueConnection()))
-    this.offs.push(this.hub.on('clockSkew', () => this.queueConnection()))
-    this.queueConnection()
   }
 
   /** Release every subscription. The readings stay until {@link dispose}. */
@@ -160,8 +140,7 @@ export class LiveFeed {
     if (this.disposed) return
     this.stop()
     this.disposed = true
-    this.queued.clear()
-    this.scheduler.dispose()
+    if (this.ownsFrames) this.frames.dispose()
   }
 
   /**
@@ -209,11 +188,6 @@ export class LiveFeed {
     )
   }
 
-  /** The outbox service's counts, applied with the frame like every other reading. */
-  setOutbox(next: OutboxCondition): void {
-    this.queue('outbox', () => this.live.setOutbox(next))
-  }
-
   private followMachines(ids: readonly string[]): void {
     if (!this.started) return
     const wanted = new Set(ids)
@@ -241,62 +215,8 @@ export class LiveFeed {
     this.queue(`${kind}:${id}`, () => this.live.applyTopic(kind, id, reading))
   }
 
-  private queueConnection(): void {
-    this.queue('connection', () => {
-      const health = this.hub.connectionHealth()
-      const identity = this.hub.serverIdentity()
-      const skewMs = this.hub.clockSkewMs()
-      const state = connectionStateOf(health, this.hub.connected)
-      const previous = this.live.connection
-      const next: ConnectionCondition = {
-        state,
-        since: state === previous.state ? previous.since : health.since,
-        ...(health.rttMs !== null && state !== 'offline' ? { pingMs: health.rttMs } : {}),
-        ...(skewMs !== null ? { skewMs } : {}),
-        ...(identity?.build !== undefined ? { serverBuild: identity.build } : {}),
-        ...(identity?.features !== undefined ? { serverFeatures: identity.features } : {}),
-      }
-      if (sameConnection(previous, next)) return
-      // DECLARED LOST (D20): every reading of the present goes unknown with it.
-      if (state === 'offline' && previous.state !== 'offline')
-        this.live.markAllUnknown(health.since)
-      this.live.setConnection(next)
-    })
-  }
-
   private queue(key: string, write: () => void): void {
     if (this.disposed) return
-    this.queued.delete(key)
-    this.queued.set(key, write)
-    if (this.flushQueued) return
-    this.flushQueued = true
-    this.scheduler.enqueue(() => this.flush())
+    this.frames.queue(key, write)
   }
-
-  /** One frame: every queued reading, in one action (the scheduler's). */
-  private flush(): void {
-    this.flushQueued = false
-    if (this.disposed) return
-    const writes = [...this.queued.values()]
-    this.queued.clear()
-    for (const write of writes) write()
-  }
-}
-
-function sameConnection(a: ConnectionCondition, b: ConnectionCondition): boolean {
-  return (
-    a.state === b.state &&
-    a.since === b.since &&
-    a.pingMs === b.pingMs &&
-    a.skewMs === b.skewMs &&
-    a.serverBuild === b.serverBuild &&
-    sameFacts(a.serverFeatures, b.serverFeatures)
-  )
-}
-
-/** The same facts: every welcome carries a fresh object, usually equal by value. */
-function sameFacts(a: ServerFeatureFacts | undefined, b: ServerFeatureFacts | undefined): boolean {
-  if (a === b) return true
-  if (!a || !b) return false
-  return JSON.stringify(a) === JSON.stringify(b)
 }

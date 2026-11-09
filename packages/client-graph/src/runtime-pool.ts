@@ -263,7 +263,7 @@ type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
   readonly outbox: PoolTransactionsPorts['outbox'] & {
-    enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']
+    enqueue: import('@podium/client-core/runtime-root').EngineOutbox['enqueue']
   }
   /** Routes the runtime's queued actions through the log (POD-5432). */
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void

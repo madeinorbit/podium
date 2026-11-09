@@ -1,6 +1,6 @@
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
@@ -10,6 +10,7 @@ import {
   createSideCache,
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
+import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { asIssueId, asUserId } from '@podium/model/browser'

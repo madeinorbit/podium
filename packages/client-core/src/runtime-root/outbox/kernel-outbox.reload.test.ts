@@ -1,8 +1,8 @@
 import { asSessionId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it, vi } from 'vitest'
-import type { PodiumClientApi } from '../api'
-import type { Replica } from '../replica/contract'
+import type { PodiumClientApi } from '../../api'
+import type { Replica } from '../../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
 
 describe('reload outbox durability', () => {

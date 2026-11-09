@@ -1,4 +1,5 @@
 export * from './provider'
+export * from './runtime-root'
 export * from './store-stats-profiler'
 export * from './use-activity-disclosure'
 export * from './use-conversation'

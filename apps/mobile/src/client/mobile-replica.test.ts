@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { CreateEngineOutbox, EngineOutbox, StoreNotices } from '@podium/client-core/engine'
+import type { StoreNotices } from '@podium/client-core/engine'
 import {
   principalKeyPrefix,
   REPLICA_KEY_PREFIX,
@@ -12,6 +12,7 @@ import {
   type StorageApi,
 } from '@podium/client-core/replica'
 import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import type { CreateEngineOutbox, EngineOutbox } from '@podium/client-core/runtime-root'
 import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'

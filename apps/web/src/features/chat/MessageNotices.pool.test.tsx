@@ -22,7 +22,10 @@ const mock = vi.hoisted(() => ({
   owner: { get access() { return mock.state } },
   rows: vi.fn(),
 }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => mock.owner }))
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => mock.owner,
+  useOutboxRecovery: () => mock.state.recoverOutbox,
+}))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     mock.selectors()

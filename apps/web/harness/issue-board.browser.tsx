@@ -1,10 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
-import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
@@ -12,11 +9,15 @@ import {
   createSideCache,
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
+import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus, FIXED_NOW } from '../../../tests/worklist/harness/src/fixture'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
@@ -129,7 +130,8 @@ function Fixture() {
 
 Object.assign(window, {
   __boardHarness: {
-    ready: () => ready && !!pool && typeof omitGone(pool.row('issueBoardWindow', 'current')) !== 'symbol',
+    ready: () =>
+      ready && !!pool && typeof omitGone(pool.row('issueBoardWindow', 'current')) !== 'symbol',
     errors: () => [...errors],
     corpus: corpus.stats,
     now: FIXED_NOW,

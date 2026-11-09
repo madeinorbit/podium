@@ -1,5 +1,5 @@
 /** Prior-value reference transport contracts used only by the worklist regression harness. */
-import type { OutboxKinds } from '@podium/client-core/engine'
+import type { OutboxKinds } from '@podium/client-core/runtime-root'
 import {
   EDITABLE_STAGES,
   type EditableStage,

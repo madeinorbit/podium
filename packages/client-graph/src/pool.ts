@@ -77,7 +77,7 @@ import {
  * never configures MobX.
  */
 
-import type { OutboxKinds } from '@podium/client-core/engine'
+import type { OutboxKinds } from '@podium/client-core/runtime-root'
 import type {
   AgentProfileWire,
   AutomationRunWire,

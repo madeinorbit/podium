@@ -86,11 +86,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { PodiumClientApi } from '../api'
-import {
-  type ClientRuntime,
-  type CreateReplicaForPrincipal,
-  createClientRuntime,
-} from '../engine/runtime'
+import { type ClientRuntime, createClientRuntime } from '../engine/runtime'
 import {
   defaultFormatError,
   NOOP_NOTICES,
@@ -98,14 +94,15 @@ import {
   type StoreNotices,
   type StoreServerConfig,
 } from '../engine/types'
-import type { VisibilitySource } from '../engine/visibility'
-import type { CreateEngineOutbox } from '../engine/wiring'
-import type { LiveStore } from '../live/live-store'
 import type { OnlineEvents } from '../outbox'
 import type { ClientPrincipal } from '../principal'
 import { principalKey, samePrincipal } from '../principal'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
+import type { CreateEngineOutbox } from '../runtime-root/outbox/wiring'
+import type { CreateReplicaForPrincipal, RuntimeRoot } from '../runtime-root/root'
 import type { FeedSinkPort } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
+import { RuntimeProvider } from './runtime-root'
 
 // Shared runtime seams (#262): types live with the runtime; re-exported here so
 // the react entrypoint's public surface is unchanged.
@@ -321,7 +318,11 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         key={principalKey(principal)}
         value={runtime as unknown as StoreHandle<PodiumClientApi>}
       >
-        <AccountLifetime>{children}</AccountLifetime>
+        {/* The runtime root (POD-6681): components reach it only through
+            useRuntime/useLive/useOutboxRecovery, never its services. */}
+        <RuntimeProvider runtime={runtime.root as unknown as RuntimeRoot}>
+          <AccountLifetime>{children}</AccountLifetime>
+        </RuntimeProvider>
       </Ctx.Provider>
     </PrincipalCtx.Provider>
   )
@@ -455,15 +456,6 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
     }
   }, [owner])
   return useSyncExternalStore(view.subscribe, view.read)
-}
-
-/**
- * This user's LiveStore (POD-5798): connection, quota and usage, unsent writes.
- * Read its fields inside an `observer`, under their own names; machine online
- * and load are fields of the machine model, not read here.
- */
-export function useLive(): LiveStore {
-  return useStoreHandle().live
 }
 
 /** Screen state belongs to this device's MobX UiStore. Read fields in observers. */

@@ -86,11 +86,8 @@ import {
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import {
-  createClientRuntime,
-  loadingNavigationProvider,
-  openKernelEngineOutbox,
-} from '@podium/client-core/engine'
+import { createClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
+import { openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {

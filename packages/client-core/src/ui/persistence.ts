@@ -1,7 +1,7 @@
 import { lazy } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, asThreadId } from '@podium/model'
 import { action, reaction } from 'mobx'
-import type { VisibilitySource } from '../engine/visibility'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import {
   readStoredDockShells,
   readStoredFileTabs,

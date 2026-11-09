@@ -31,8 +31,8 @@ import {
   revisionOf,
 } from '@podium/sync/outbox'
 import type { Cursor, OptimisticOverlayPort } from '@podium/sync/replica'
-import type { PodiumClientApi } from '../api'
-import { randomUUID } from '../id'
+import type { PodiumClientApi } from '../../api'
+import { randomUUID } from '../../id'
 import {
   classifyRefusal,
   type OnlineEvents,
@@ -40,16 +40,16 @@ import {
   type OutboxEntry,
   platformIsOnline,
   platformOnlineEvents,
-} from '../outbox'
-import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
-import { type RecordRevisionChain, recordRevisionChainFor } from '../record-revisions'
+} from '../../outbox'
+import { couldNotSaveNotice, sessionGoneNotice } from '../../outbox-recovery-copy'
+import { type RecordRevisionChain, recordRevisionChainFor } from '../../record-revisions'
 import {
   isRecordOutboxKind,
   loadRecordDeclarations,
   recordOutboxKindOfCommand,
   recordWireInput,
-} from '../records'
-import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
+} from '../../records'
+import { outboxOverlayPort } from '../../replica-assembly/outbox-overlay'
 import { LEGACY_OUTBOX_COMMANDS, type LegacyOutboxKind } from './legacy-outbox-kinds'
 import {
   type CreateEngineOutbox,

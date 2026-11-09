@@ -7,9 +7,9 @@
 
 import type { OverlayTarget } from '@podium/client-core/command-reducers'
 import { foldRowOverlays } from '@podium/client-core/command-reducers'
-import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { OutboxOutcome } from '@podium/client-core/runtime-root'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,

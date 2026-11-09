@@ -1,5 +1,5 @@
-import type { VisibilitySource } from '../engine/visibility'
 import type { OnlineEvents } from '../outbox'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
 
 /**
  * WHAT THE PHONE KNOWS (POD-2055 F4).

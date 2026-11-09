@@ -14,13 +14,6 @@ import {
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from './api'
 import { foldRowOverlays, overlaysForOutboxEntry } from './command-reducers'
-import {
-  deadLetterHandlingFor,
-  OUTBOX_ROUTING,
-  outboxCommandFor,
-  outboxCommandOf,
-  outboxExecutors,
-} from './engine/wiring'
 import { classifyRefusal, type OutboxEntry } from './outbox'
 import {
   createRecordsApi,
@@ -33,6 +26,13 @@ import {
   recordWireCommands,
   UNSET,
 } from './records'
+import {
+  deadLetterHandlingFor,
+  OUTBOX_ROUTING,
+  outboxCommandFor,
+  outboxCommandOf,
+  outboxExecutors,
+} from './runtime-root/outbox/wiring'
 
 const ISSUE = 'iss_00000000-0000-4000-8000-000000000001'
 const USER = asUserId('u-1')

@@ -4,11 +4,8 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
 
 import { createHash } from 'node:crypto'
-import {
-  type ClientRuntime,
-  createEngineOutbox,
-  type OutboxOutcome,
-} from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { planReorderKeys } from '@podium/client-core/values'

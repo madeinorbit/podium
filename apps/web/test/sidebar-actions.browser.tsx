@@ -1,18 +1,15 @@
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
-import {
-  type ClientRuntime,
-  createEngineOutbox,
-  type OutboxOutcome,
-} from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { spreadSortKeys } from '@podium/model'
 import { asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'

@@ -57,7 +57,7 @@ import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
 // The kernel queue alone: the engine's index also loads the decorated client
 // models, which this node lane does not transform.
-import { openKernelEngineOutbox } from '../../packages/client-core/src/engine/kernel-outbox'
+import { openKernelEngineOutbox } from '../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
 
 const FEED_TYPES = new Set(['feedDelta', 'feedRescope', 'feedResyncRequired'])
 const THREAD_KIND = 'superagentThread'

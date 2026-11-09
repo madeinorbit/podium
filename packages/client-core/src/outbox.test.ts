@@ -2,7 +2,6 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { SyncSubmitRefusedError } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deadLetterHandlingFor } from './engine/wiring'
 import {
   createOutbox,
   type Outbox,
@@ -13,6 +12,7 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from './outbox'
+import { deadLetterHandlingFor } from './runtime-root/outbox/wiring'
 
 type Kinds = {
   rename: { sessionId: SessionId; name: string }

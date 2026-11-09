@@ -23,8 +23,8 @@ import {
   parseLayoutRowId,
   parseSessionUserStateRowId,
 } from '@podium/model'
-import type { PodiumClientApi } from '../api'
-import type { RecordEditEntry, RecordRemoveEntry } from '../records'
+import type { PodiumClientApi } from '../../api'
+import type { RecordEditEntry, RecordRemoveEntry } from '../../records'
 
 /** The retired kinds and the command each was queued under. */
 export const LEGACY_OUTBOX_COMMANDS = {

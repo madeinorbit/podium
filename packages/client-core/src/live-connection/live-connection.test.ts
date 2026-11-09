@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { PodiumClientApi } from '../api'
-import { createEngineHub } from '../engine/wiring'
-import { memoryStorage } from '../replica/contract'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { describe, expect, it, vi } from 'vitest'
 import { cookieCredentials } from '../accounts/storage'
+import type { PodiumClientApi } from '../api'
+import { memoryStorage } from '../replica/contract'
+import { createEngineHub } from '../runtime-root/connection/hub'
 import type {
   FeedServerFrame,
   FeedSinkPort,
@@ -15,10 +15,10 @@ import {
   browserServerRelocation,
   createFeedRelay,
   createSocketLogin,
+  type FeedBroadcastChannel,
   observeLiveConnection,
   serverRelocationDestination,
   socketLoginOptions,
-  type FeedBroadcastChannel,
 } from './index'
 
 function sink() {

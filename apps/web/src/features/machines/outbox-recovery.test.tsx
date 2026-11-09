@@ -16,8 +16,9 @@
  *    a revoked-while-offline entry from leaking back the content the revocation
  *    removed.
  */
-import { shouldParkDeadLetter } from '@podium/client-core/engine'
+
 import { createOutbox, type Outbox } from '@podium/client-core/outbox'
+import { shouldParkDeadLetter } from '@podium/client-core/runtime-root'
 import { asMutationId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -51,10 +52,10 @@ const storeState = () => ({
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (select: (s: unknown) => unknown) => select(storeState()),
 }))
-// The card reads its recovery actions through the store handle; the indicator's
+// The card reads its recovery actions from the outbox service; the indicator's
 // legacy reader records its work against the same owner.
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return storeState() } }),
+  useOutboxRecovery: () => storeState().recoverOutbox,
 }))
 
 // The migrated surface gets refusal data through the pool notice hook, rather

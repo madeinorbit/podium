@@ -30,7 +30,6 @@
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
 
-import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
   describeQueuedChange,
@@ -41,13 +40,13 @@ import {
   replaceAuthoredText,
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useOutboxRecovery } from '@podium/client-core/react'
+import { outboxCommandFor } from '@podium/client-core/runtime-root'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { AlertTriangle, Copy, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -69,7 +68,7 @@ function DeadLetterRow({
   parked: OutboxDeadLetterEntry
   lone: boolean
 }): JSX.Element {
-  const recover = useStoreHandle<Trpc>().access.recoverOutbox
+  const recover = useOutboxRecovery()
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   // THE CONSUMER for `CommandPolicy.confirmation` (POD-1224). A

@@ -24,11 +24,11 @@ import type { PodiumClientApi } from '../api'
 import type { OnlineEvents } from '../outbox'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage } from '../replica/contract'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
+import { openKernelEngineOutbox } from '../runtime-root/outbox/kernel-outbox'
+import type { CreateEngineOutbox } from '../runtime-root/outbox/wiring'
 import type { SocketHub, SocketHubOptions } from '../socket-transport'
-import { openKernelEngineOutbox } from './kernel-outbox'
 import { createClientRuntime } from './runtime'
-import type { VisibilitySource } from './visibility'
-import type { CreateEngineOutbox } from './wiring'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

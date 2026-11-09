@@ -4,10 +4,10 @@ import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../../../packages/client-core/src/api'
-import { openKernelEngineOutbox } from '../../../packages/client-core/src/engine/kernel-outbox'
 import type { StoreNotices } from '../../../packages/client-core/src/engine/types'
 import type { OutboxEntry, OutboxStorage } from '../../../packages/client-core/src/outbox'
 import type { Replica } from '../../../packages/client-core/src/replica/contract'
+import { openKernelEngineOutbox } from '../../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
 import {
   draftLaunchEffect,
   type EffectCreateInput,

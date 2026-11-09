@@ -9,14 +9,14 @@
  * geometry until `attached`. C3 is unchanged and is what B2 rests on.
  */
 
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type CreateHub, createEngineHub } from '../engine/wiring'
+import { memoryStorage } from '../replica/contract'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import type { LegacyMetadataAppliedState } from '../replica/legacy-wire-v1-feed'
-import { memoryStorage } from '../replica/contract'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { type CreateHub, createEngineHub } from '../runtime-root/connection/hub'
 import { type ConnectionState, SocketHub, type WebSocketLike } from './socket-hub'
 
 const SESSION = asSessionId('s-sizing')

@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   deadLetterHandlingFor,
-  isInitialConnectivityError,
   OUTBOX_COMMANDS,
   OUTBOX_DEAD_LETTER_HANDLING,
   OUTBOX_ROUTING,
@@ -19,15 +18,6 @@ import {
   outboxRoutingFor,
   shouldParkDeadLetter,
 } from './wiring'
-
-describe('isInitialConnectivityError', () => {
-  it('recognizes only the expected cold-offline socket failures', () => {
-    expect(isInitialConnectivityError('WebSocket connection failed')).toBe(true)
-    expect(isInitialConnectivityError('WebSocket connection closed before connecting')).toBe(true)
-    expect(isInitialConnectivityError('feed protocol rejected')).toBe(false)
-    expect(isInitialConnectivityError('Invalid WebSocket URL')).toBe(false)
-  })
-})
 
 /**
  * POD-785. The routing table is what actually stops the production failure: the

@@ -1,5 +1,5 @@
 /** Web storage and cross-tab adapters for the shared replica assembly. */
-import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
+
 import {
   browserFeedChannel,
   createFeedRelay,
@@ -12,6 +12,10 @@ import type {
   TranscriptDatabases,
 } from '@podium/client-core/replica-assembly'
 import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
+import type {
+  CreateEngineOutbox,
+  CreateReplicaForPrincipal,
+} from '@podium/client-core/runtime-root'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import {
   openIndexedDbTranscriptBackend,
@@ -49,8 +53,9 @@ export function eraseTranscriptDatabase(
 
 export function webTranscriptDatabases(
   factory: IdbFactoryLike = globalThis.indexedDB as unknown as IdbFactoryLike,
-  keyRange: TranscriptIdbKeyRange = (globalThis as unknown as { IDBKeyRange: TranscriptIdbKeyRange })
-    .IDBKeyRange,
+  keyRange: TranscriptIdbKeyRange = (
+    globalThis as unknown as { IDBKeyRange: TranscriptIdbKeyRange }
+  ).IDBKeyRange,
 ): TranscriptDatabases {
   return {
     open: (principal) =>

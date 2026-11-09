@@ -19,14 +19,13 @@ import {
   type ChatSendInput,
   type ChatSendOutcome,
   discardChatThroughOutbox,
-  type EngineOutbox,
   newChatMessageId,
   type OutboxChatSend,
   OutboxSettlements,
-  openKernelEngineOutbox,
   outboxChatSends,
   sendChatThroughOutbox,
 } from '@podium/client-core/engine'
+import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MutationId, SessionId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 

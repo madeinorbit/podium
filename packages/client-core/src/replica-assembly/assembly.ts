@@ -6,11 +6,6 @@ import {
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import type { PodiumClientApi } from '../api'
-import {
-  type CreateEngineOutbox,
-  type CreateReplicaForPrincipal,
-  openKernelEngineOutbox,
-} from '../engine'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import {
   createKernelReplica,
@@ -22,14 +17,12 @@ import {
   type Replica,
   type StorageApi,
 } from '../replica'
-import type { FeedSinkPort } from '../socket-transport'
 import {
-  createStoreTranscriptCache,
-  createTranscriptStore,
-  type StoreTranscriptCache,
-  type TranscriptStore,
-  type TranscriptStoreBackend,
-} from '../transcript-store'
+  type CreateEngineOutbox,
+  type CreateReplicaForPrincipal,
+  openKernelEngineOutbox,
+} from '../runtime-root'
+import type { FeedSinkPort } from '../socket-transport'
 import {
   createSyncTransferTelemetry,
   HttpBootstrapSource,
@@ -39,6 +32,13 @@ import {
   SyncCancelledError,
   SyncNetworkError,
 } from '../sync-stream'
+import {
+  createStoreTranscriptCache,
+  createTranscriptStore,
+  type StoreTranscriptCache,
+  type TranscriptStore,
+  type TranscriptStoreBackend,
+} from '../transcript-store'
 import { decideLegacyAdoption, type LegacyIdentityEvidence } from './adoption'
 import { ReplicaGateError } from './failure'
 import { SyncProgressStore } from './progress'

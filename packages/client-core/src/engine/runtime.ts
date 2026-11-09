@@ -15,6 +15,8 @@ import {
  * else: construct the collaborators, run one lifecycle over them, and own the
  * single state choke point they all write through.
  *
+ *   ROOT             runtime-root/      (POD-6681) — replica, LiveStore, the
+ *                                        connection and outbox services
  *   TRANSPORT        socket-transport/  (POD-400) — socket, planes, PTY epoch/seq
  *   ACTIONS          actions.ts         (POD-402) — command dispatch + outbox
  *   ROUTER/UI-STATE  ui-state.ts        (POD-403) — the ONLY UI persistence
@@ -72,21 +74,21 @@ import {
   userPreferencesRowId,
 } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
-import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import { action, actionBound, reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
-import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
+import type { ConversationCache, ConversationCacheOptions } from '../conversation/cache'
 import { DraftStore } from '../conversation/draft-store'
-import { LiveFeed } from '../live/live-feed'
-import { LiveStore } from '../live/live-store'
-import type { OnlineEvents, OutboxEntry } from '../outbox'
+import type { LiveStore } from '../live/live-store'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
-import { hasDomWindow } from '../platform-globals'
-import { type ClientPrincipal, memberFencedSocketUrl } from '../principal'
+import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import { createRecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
-import type { FeedSinkPort, SocketHub } from '../socket-transport'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
+import type { OutboxOutcome } from '../runtime-root/outbox/outbox-service'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
+import { createRuntimeRoot, type RuntimeRoot, type RuntimeRootInit } from '../runtime-root/root'
+import type { SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
 import { openLegacyDeviceKeys } from '../ui/draft-storage'
 import { createUiKeys } from '../ui/keys'
@@ -105,7 +107,6 @@ import {
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
 import { createEngineActions, type EngineActions } from './actions'
-import { OutboxSettlements } from './chat-send'
 import {
   createKeyedInputs,
   type KeyedInputStats,
@@ -141,43 +142,6 @@ import {
   type StoreNotices,
   type StoreServerConfig,
 } from './types'
-import { domVisibility, type VisibilitySource } from './visibility'
-import {
-  type CreateEngineOutbox,
-  type CreateHub,
-  createEngineHub,
-  createEngineOutbox,
-  type EngineOutbox,
-  type OutboxKinds,
-  shouldParkDeadLetter,
-} from './wiring'
-
-/**
- * One outbox entry's outcome, for listeners outside the kernel (POD-4554: the
- * round-three receipts stream, keyed by mutation id). Observation only: it
- * fires AFTER the runtime's own handling of the same event, a throwing
- * listener is logged and skipped, and nothing a listener does reaches the
- * queue or the pool transaction log.
- *
- * - `applied`: the Authority applied the mutation (the drain's success). It
- *   says nothing about the echo: the wire row carries no mutation id.
- * - `rejected`: a definitive refusal took the entry out of the queue. `parked`
- *   says whether it went to the dead-letter recovery surface (authored text)
- *   or was discarded; `reason` is the normalized refusal when the queue knows it.
- * - `superseded`: the queue collapsed this still-queued entry into a later one
- *   with the same collapse key (POD-785). It is never sent and gets no other
- *   outcome. `entry` is absent when the queue could no longer see it.
- */
-export type OutboxOutcome =
-  | { readonly type: 'applied'; readonly mutationId: MutationId; readonly entry: OutboxEntry }
-  | {
-      readonly type: 'rejected'
-      readonly mutationId: MutationId
-      readonly entry: OutboxEntry
-      readonly parked: boolean
-      readonly reason?: OutboxRejectionReason
-    }
-  | { readonly type: 'superseded'; readonly mutationId: MutationId; readonly entry?: OutboxEntry }
 
 /**
  * The pool's transaction log as the runtime's actions reach it (POD-5432).
@@ -199,79 +163,18 @@ export interface PoolWriter {
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
 
-const LOCAL_ONLY_ONLINE_EVENTS: OnlineEvents = {
-  add: () => {},
-  remove: () => {},
-}
-
 /**
- * The replica factory, PARAMETERIZED BY PRINCIPAL.
- *
- * It takes the principal rather than closing over one so that the question
- * "whose store is this?" is asked at every construction, by the composition root
- * that can actually answer it (POD-1239 established the root; POD-404 makes the
- * principal an argument to it). A root handed a principal it did not open for
- * must THROW rather than return the store it has — refusing is the fail-closed
- * answer; returning someone else's slice is the failure this whole seam exists
- * to make impossible.
+ * What the old store is built from: the runtime root's init (POD-6681), with
+ * the error formatting and notices optional, plus the old store's own seams.
  */
-export type CreateReplicaForPrincipal = (principal: ClientPrincipal) => Replica
-
-export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
-  /**
-   * WHOSE CLIENT THIS IS. Supplied by the provider from the authenticated
-   * transport (ADR 3 D7) — never from the URL, storage, a payload or a name the
-   * user typed. See `src/principal.ts`.
-   */
-  principal: ClientPrincipal
-  config: StoreServerConfig
-  /** The app's typed tRPC client (web: AppRouter-typed; mobile: MobileTrpc). */
-  api: TApi
-  onFatalError: (message: string) => void
+export interface ClientRuntimeInit<TApi extends PodiumClientApi>
+  extends Omit<RuntimeRootInit<TApi>, 'formatError' | 'notices'> {
   /** App-flavored error formatting (web: formatAppError). */
   formatError?: (error: unknown, fallback: string) => string
   /** UI notices (web: sonner toasts). Default: silent. */
   notices?: StoreNotices
-  /**
-   * Replica factory — mobile injects the AsyncStorage-backed one, web the
-   * IndexedDB kernel assembly. Called ONCE, with this runtime's principal.
-   *
-   * REQUIRED since POD-1239: an engine that can build its own replica is a
-   * construction site outside every composition root, and the flag-off browser
-   * client used to adopt whatever ambient `localStorage` held.
-   */
-  createReplicaFn: CreateReplicaForPrincipal
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
-  /** Test seam: replaces SocketHub construction (runtime unit tests inject a fake). */
-  createHub?: CreateHub
-  /**
-   * WIRE v2 / kernel replica (POD-1223). Supplied together with a
-   * `createReplicaFn` that returns the kernel-backed facade: the platform layer
-   * builds the whole assembly (store, kernel Replica, feed sink) for ONE
-   * principal and hands the runtime its two ends. Absent ⇒ the shipped v1 path.
-   */
-  feed?: FeedSinkPort
-  /** Platform queue factory. Web injects the real kernel Outbox opened over IndexedDB. */
-  createOutboxFn?: CreateEngineOutbox
-  /**
-   * PLATFORM SEAMS (POD-2055 WP-C). Each has a browser default and each of
-   * those defaults is wrong on React Native, where `document` is missing,
-   * `window` has no DOM events and `navigator.onLine` does not exist. The
-   * composition root that knows the platform supplies the real ones.
-   */
-  /** Where visibility comes from. Default: `document.visibilityState`. */
-  visibility?: VisibilitySource
-  /** Connectivity transitions for the outbox. Default: the window's `online`. */
-  onlineEvents?: OnlineEvents
-  /** Connectivity probe for the outbox. Default: `navigator.onLine`. */
-  isOnline?: () => boolean
-  /** Liveness ping cadence. Default: the hub's own (2.5 s). Native passes 10 s. */
-  heartbeatIntervalMs?: number
-  /** Login carriage supplied by the authenticated platform owner. */
-  makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
-  /** Open the local runtime without contacting the configured authority. */
-  networkEnabled?: boolean
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
   workspacePruneGraceMs?: number
   /** Test seam: overrides DRAFT_SEND_DEBOUNCE_MS (POD-2045). */
@@ -292,12 +195,28 @@ export {
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
   readonly principal: ClientPrincipal
-  readonly replica: Replica
-  readonly hub: SocketHub
-  readonly outbox: EngineOutbox
-  /** Waiters on queued entries by id — how a chat send hears its outcome
-   *  (POD-4762). Created before the outbox, whose callbacks release them. */
-  private readonly outboxSettlements = new OutboxSettlements()
+  /**
+   * THE RUNTIME ROOT (POD-6681): this user's replica, LiveStore, conversation
+   * cache, connection and outbox. This old store drives its lifecycle and
+   * forwards its plumbing members to it until POD-5803 deletes the store.
+   */
+  readonly root: RuntimeRoot<TApi>
+  /** The root's replica. */
+  get replica(): Replica {
+    return this.root.replica
+  }
+  /** The root's socket (its connection service). */
+  get hub(): SocketHub {
+    return this.root.services.connection.hub
+  }
+  /** The root's queue of unsent writes (its outbox service). */
+  get outbox(): EngineOutbox {
+    return this.root.services.outbox.queue
+  }
+  /** The root's LiveStore (POD-5798). */
+  get live(): LiveStore {
+    return this.root.live
+  }
   readonly router: Router
   readonly ui: UiStore
   readonly deviceState: RoutedUiState
@@ -317,22 +236,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly notices: StoreNotices
   private readonly onFatalError: (message: string) => void
   private readonly formatError: (error: unknown, fallback: string) => string
-  private readonly httpOrigin: string
 
-  /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
-  private readonly visibility: VisibilitySource
-  /**
-   * THE LIVESTORE (POD-5798): this user's conditions (connection, machine online
-   * and load, quota and usage, unsent writes). Never saved; disposed at
-   * sign-out. Models and screens read it; only the live feed and the outbox
-   * write it.
-   */
+  /** Where this client learns whether it is on screen: the root's connection service owns it. */
+  private get visibility(): VisibilitySource {
+    return this.root.services.connection.visibility
+  }
   readonly palette = new PaletteViewModel()
   readonly autoContinueDialog = new AutoContinueDialogModel()
   readonly transcriptReveals = new TranscriptRevealActions()
-  readonly live: LiveStore
-  /** The service behind {@link live}: its topics, connection facts and per-frame apply. */
-  private readonly liveFeed: LiveFeed
 
   private readonly state: EngineState & ScreenState
   private stopNavigationWatch: (() => void) | undefined
@@ -350,7 +261,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
   private workspaceKey: WorkspaceKey
-  private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private sessionPhases: (() => readonly SessionPhaseChange[]) | undefined
   private sounds: ReturnType<typeof createNotificationSounds> | undefined
@@ -391,99 +301,20 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof (EngineState & ScreenState)>()
   readonly drafts: DraftStore
-  private conversationCache: ConversationCache | undefined
   private readonly networkEnabled: boolean
   /** One-time boot work, once per runtime, even across a StrictMode
    *  dispose/re-start cycle. */
   private booted = false
 
-  constructor(init: ClientRuntimeInit<TApi>) {
+  constructor(init: ClientRuntimeInit<TApi>, root: RuntimeRoot<TApi>) {
     this.principal = init.principal
+    this.root = root
     this.api = init.api
     this.notices = init.notices ?? NOOP_NOTICES
     this.onFatalError = init.onFatalError
     this.formatError = init.formatError ?? defaultFormatError
-    this.httpOrigin = init.config.httpOrigin
     this.networkEnabled = init.networkEnabled ?? true
-    // The runtime type is only half the guard — an untyped caller omitting the
-    // factory must fail LOUDLY here rather than quietly adopt ambient storage.
-    if (typeof init.createReplicaFn !== 'function') {
-      throw new Error(
-        'a client runtime requires createReplicaFn: the platform composition root builds the ' +
-          'replica for a NAMED principal and is responsible for establishing that its persisted ' +
-          'store belongs to that principal (POD-307 / POD-1239 / POD-404).',
-      )
-    }
-    // Persistent local replica (docs/spec/thin-client-replica.md), opened for
-    // THIS principal. Constructed synchronously so its persisted cursor can seed
-    // the hub's first changesSince; entity hydration happens async in start().
-    this.replica = init.createReplicaFn(init.principal)
     bindStoreStatsOwner(this.replica, this)
-    this.visibility = init.visibility ?? domVisibility()
-    this.hub = createEngineHub({
-      // The member fence (POD-6292): this socket is this principal's, and the
-      // server refuses it if the shared cookie jar now holds someone else's.
-      wsClientUrl: memberFencedSocketUrl(init.config.wsClientUrl, init.principal.userId),
-      api: this.api,
-      replica: this.replica,
-      onFatalError: (m) => this.onFatalError(m),
-      createHub: init.createHub,
-      makeSocket: init.makeSocket,
-      feed: init.feed,
-      ...(init.heartbeatIntervalMs !== undefined
-        ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
-        : {}),
-    })
-    // The store's metrics demand reaches the feed it was built before.
-    let feed: LiveFeed | undefined
-    this.live = new LiveStore({
-      onMetricsDemand: (id, watched) => feed?.watchMetrics(id, watched),
-      onUsageDemand: (watched) => feed?.watchUsage(watched),
-    })
-    const replica = this.replica
-    this.liveFeed = feed = new LiveFeed({
-      hub: this.hub,
-      // The machines whose condition is held: the `machine` records (POD-6644).
-      machines: {
-        ids: () => replica.rows('machines').map((machine) => String(machine.id)),
-        subscribe: (changed) =>
-          replica.subscribeAddressedBatch?.((batch) => {
-            if (batch.type === 'replace' || batch.rows.some((row) => row.kind === 'machines')) {
-              changed()
-            }
-          }) ?? (() => {}),
-      },
-      live: this.live,
-      userId: init.principal.userId,
-    })
-    this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
-      api: this.api,
-      replica: this.replica,
-      // Platform connectivity, when the root knows better than the browser
-      // defaults `createEngineOutbox` would reach for (native: NetInfo).
-      ...(this.networkEnabled
-        ? {
-            ...(init.onlineEvents !== undefined ? { onlineEvents: init.onlineEvents } : {}),
-            ...(init.isOnline !== undefined ? { isOnline: init.isOnline } : {}),
-          }
-        : { onlineEvents: LOCAL_ONLY_ONLINE_EVENTS, isOnline: () => false }),
-      notices: { error: (m) => this.notices.error(m), info: (m, d) => this.notices.info(m, d) },
-      // Overlay lifecycle (#263): drain success hands the entry's overlay to
-      // the awaiting-truth stage; a poison drop repaints without it.
-      onApplied: (entry) => this.onMutationApplied(entry),
-      onSettled: (mutationId, settlement) => this.outboxSettlements.settle(mutationId, settlement),
-      onDropped: (entry, reason) => this.onMutationDropped(entry, reason),
-      onSuperseded: (mutationId, entry) => {
-        if (this.destroyed) return
-        this.emitOutcome({ type: 'superseded', mutationId, ...(entry ? { entry } : {}) })
-      },
-      observingSupersede: () => this.outcomeListeners.size > 0,
-      // The queue-size subscription is not the dead-letter event: a definitive
-      // refusal can park before start() installs that subscription. Publish the
-      // recovery projection at the event's own boundary so a live park cannot
-      // remain durable-but-invisible.
-      onDeadLetter: () => this.publishOutbox(),
-    })
     const device = this.replica.deviceStorage()
     const localUi = openLegacyDeviceKeys(device)
     this.state = initialEngineState() as EngineState & ScreenState
@@ -603,11 +434,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.replica.getCursor() !== null || (this.replica.rowCount?.('checkouts') ?? 0) > 0,
     })
     this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
-    // Hydrate-first, like the entity slices: the outbox constructor has already
-    // restored its durable recovery home, so the first paint must show the
-    // parked writes without waiting for start() or a queue notification. The
-    // pending count follows at attach().
-    this.live.setOutbox({ pending: 0, deadLetters: this.outbox.deadLetters() })
     this.workspaceKey = workspaceKeyForState(this.state)
     // Drafts are hydrate-first for the same reason the entity slices are, and
     // with more at stake: this is the person's own unsent writing, and a first
@@ -649,8 +475,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The provider supplies addressed pool ports once, for this principal. */
   readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
     if (this.destroyed) throw new Error('The conversation owner has changed')
-    this.conversationCache ??= new ConversationCache(options)
-    return this.conversationCache
+    return this.root.ownConversations(options)
   }
 
   // ------------------------------------------------------------------ read seam
@@ -698,18 +523,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (!this.paneLink && !this.pendingPaneLink) this.followPaneLink(this.router.current())
     this.uiPersistence.start()
     this.urlMirror.start()
-    // The outbox publishes local recovery state; PoolTransactions owns paint.
-    offs.push(
-      this.outbox.subscribe(() => {
-        this.publishOutbox()
-      }),
-    )
-    this.outbox.attach()
-    this.publishOutbox()
-    // The live feed follows the server; a runtime without network has none, so
-    // every reading stays unknown (and a fixture may write them itself). The
-    // outbox counts above reach the store either way.
-    if (this.networkEnabled) this.liveFeed.start()
+    // THE ROOT (POD-6681): the outbox service attaches the queue and publishes
+    // its counts (PoolTransactions owns paint), the topics follow the server,
+    // and the connection service arms its listeners and dials on the next
+    // macrotask.
+    this.root.start()
     void this.replica.hydrate().catch((error) => {
       if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
     })
@@ -738,18 +556,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       offCheckouts?.()
       this.heldRepositories = undefined
     })
-    // Reconnect drains the outbox: the browser 'online' event (the outbox's own
-    // trigger) misses a server restart behind a healthy network, but the hub's
-    // heartbeat-derived health catches both.
-    let prevHealth = this.hub.connectionHealth().status
-    offs.push(
-      this.hub.on('connectionHealth', (h) => {
-        if (h.status === 'ok' && prevHealth !== 'ok') {
-          this.outbox.notifyConnected()
-        }
-        prevHealth = h.status
-      }),
-    )
     // Attention → web notification, but only while this page can't be seen —
     // a visible Podium window IS the notification.
     offs.push(
@@ -776,27 +582,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
-    // The SOURCE is injected (POD-2055 WP-C4): web reads the document, native
-    // reads AppState, and only the source knows which transition just happened.
+    // The connection service owns the source and runs this before it
+    // reconnects on the same change; it also reconnects when the network returns.
     offs.push(
-      this.visibility.subscribe(() => {
-        this.reactions.onVisibilityChange()
-        // A client that slept through its heartbeat deadline reconnects the
-        // moment it is looked at again, instead of waiting out up to 10s of
-        // backoff with the feed and every terminal dark.
-        if (this.networkEnabled && this.visibility.isVisible()) this.hub.connectNow()
-      }),
+      this.root.services.connection.onVisibilityChange(() => this.reactions.onVisibilityChange()),
     )
-    // The OS knows the network came back long before the backoff timer does.
-    // Feature-detected rather than assumed: React Native defines `window` as the
-    // global object, without DOM listeners on it (POD-2055 F4) — where this
-    // declines, the platform's own signal is injected instead (mobile: NetInfo).
-    if (this.networkEnabled && hasDomWindow()) {
-      const dom = window
-      const onOnline = (): void => this.hub.connectNow()
-      dom.addEventListener('online', onOnline)
-      offs.push(() => dom.removeEventListener('online', onOnline))
-    }
     this.reactions.onVisibilityChange()
     // A ghost tab restored from persistence needs no delta to be a ghost, so the
     // prune pass has to be armed at boot as well as reacted to — otherwise an
@@ -810,17 +600,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       ),
     )
 
-    if (this.networkEnabled) {
-      this.connectTimer = setTimeout(() => {
-        this.connectTimer = null
-        try {
-          this.hub.connect()
-        } catch (e) {
-          this.onFatalError(this.formatError(e, 'WebSocket connection failed'))
-        }
-      }, 0)
-    }
-
     if (!this.booted) {
       this.booted = true
       if (this.networkEnabled) {
@@ -831,23 +610,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  /** The outbox's counts, as a LiveStore condition (applied with the next frame). */
-  private publishOutbox(): void {
-    if (this.destroyed) return
-    this.liveFeed.setOutbox({ pending: this.outbox.size(), deadLetters: this.outbox.deadLetters() })
-  }
-
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
   @actionBound dispose(): void {
-    this.liveFeed.stop()
     this.started = false
     bindSwitchTraceUi(null)
-    if (this.connectTimer !== null) {
-      clearTimeout(this.connectTimer)
-      this.connectTimer = null
-    }
     this.reactions.dispose()
     this.dropPaneLink()
     this.drafts.stop()
@@ -860,8 +628,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.urlMirror.stopMirroring()
     this.uiPersistence.stopSaving()
-    this.outbox.dispose()
-    this.hub.dispose()
+    // Topics, the queue's drain and the socket, as before: last.
+    this.root.stop()
   }
 
   /**
@@ -882,8 +650,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.dispose()
       return
     }
-    this.conversationCache?.dispose()
-    this.conversationCache = undefined
+    this.root.releaseConversations()
     this.drafts.dispose()
     this.dispose()
     this.stopNavigationWatch?.()
@@ -900,8 +667,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.poolWriter?.dispose?.()
     this.poolWriter = null
     this.inputs.dispose()
-    this.liveFeed.dispose()
-    this.live.dispose()
+    // The root's sign-out: services, the frame queue and every reading.
+    this.root.disposeNow()
     this.ui.dispose()
     this.transcriptReveals.dispose()
   }
@@ -1492,46 +1259,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // -------------------------------------------------------------- outbox seams
 
-  /**
-   * An entry's reply came back. Announced only: nothing here keeps or retires the
-   * entry any more. It stays in the outbox, painting, until the replica holds the
-   * truth that covers it (ADR 12, POD-6277).
-   */
-  private onMutationApplied(entry: OutboxEntry): void {
-    if (this.destroyed) return
-    this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
-  }
-
-  private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {
-    if (this.destroyed) return
-    this.emitOutcome({
-      type: 'rejected',
-      mutationId: entry.mutationId,
-      entry,
-      parked: shouldParkDeadLetter(entry.kind, entry.input),
-      ...(reason ? { reason } : {}),
-    })
-  }
-
-  private readonly outcomeListeners = new Set<(outcome: OutboxOutcome) => void>()
-
-  /** Per-entry outbox outcomes (POD-4554). See {@link OutboxOutcome}. Bound so
-   *  it can be passed bare. */
-  readonly subscribeOutboxOutcomes = (listener: (outcome: OutboxOutcome) => void): (() => void) => {
-    this.outcomeListeners.add(listener)
-    return () => this.outcomeListeners.delete(listener)
-  }
-
-  private emitOutcome(outcome: OutboxOutcome): void {
-    for (const listener of [...this.outcomeListeners]) {
-      try {
-        listener(outcome)
-      } catch (err) {
-        // An observer must never wedge the drain that called us.
-        log.warn('outbox outcome listener threw', { err, type: outcome.type })
-      }
-    }
-  }
+  /** Per-entry outbox outcomes (POD-4554), from the root's outbox service.
+   *  See {@link OutboxOutcome}. Bound so it can be passed bare. */
+  readonly subscribeOutboxOutcomes = (listener: (outcome: OutboxOutcome) => void): (() => void) =>
+    this.root.services.outbox.subscribeOutcomes(listener)
 
   // ------------------------------------------------------------------- actions
 
@@ -1584,7 +1315,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       outbox: this.outbox,
       userId: this.principal.userId,
-      outboxSettlements: this.outboxSettlements,
+      outboxSettlements: this.root.services.outbox.settlements,
       router: this.router,
       notices: this.notices,
       state: () => this.state,
@@ -1631,18 +1362,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private buildStatics(actions: EngineActions<TApi>): EngineStatics<TApi> {
     return {
+      // Plumbing forwarded to the runtime root (POD-6681) until POD-6682.
       hub: this.hub,
-      trpc: this.api,
+      trpc: this.root.api,
       replica: this.replica,
       uiState: this.deviceState,
       readPosition: this.readPosition,
-      httpOrigin: this.httpOrigin,
+      httpOrigin: this.root.httpOrigin,
       // The ONE key resolver, published so no view re-derives it (POD-710).
-      recoverOutbox: {
-        retry: (id, satisfaction) => this.outbox.retry(id, satisfaction),
-        edit: (id, input) => this.outbox.edit(id, input),
-        discard: (id) => this.outbox.discard(id),
-      },
+      recoverOutbox: this.root.services.outbox.recovery,
       ...actions,
       navigateWorkspace: this.ui.navigateWorkspace,
       setView: this.ui.setView,
@@ -1713,5 +1441,16 @@ function readPositionSnapshotFromRows(
 export function createClientRuntime<TApi extends PodiumClientApi = PodiumClientApi>(
   init: ClientRuntimeInit<TApi>,
 ): ClientRuntime<TApi> {
-  return runInAction(() => new ClientRuntime(init))
+  // The runtime root first (POD-6681): the replica, the LiveStore, the socket
+  // and the queue, in that order, exactly as this store used to build them.
+  // Both in the one action the store was always built in.
+  const notices = init.notices ?? NOOP_NOTICES
+  return runInAction(() => {
+    const root = createRuntimeRoot<TApi>({
+      ...init,
+      formatError: init.formatError ?? defaultFormatError,
+      notices: { error: (m) => notices.error(m), info: (m, d) => notices.info(m, d) },
+    })
+    return new ClientRuntime(init, root)
+  })
 }

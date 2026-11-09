@@ -2,7 +2,7 @@
  * THE OUTBOX COMMANDS ON THE SYNC WRITE ENTRY POINT (POD-6350, plan Task 10).
  *
  * Every command the apps' outbox queues (`OUTBOX_COMMANDS` in client-core's
- * `engine/wiring.ts`) is registered on `sync.submit` here, by its family. The
+ * `runtime-root/outbox/wiring.ts`) is registered on `sync.submit` here, by its family. The
  * families own their target resolvers and handlers; this file only composes
  * them, and names the set so a test can hold it equal to the client's table.
  */

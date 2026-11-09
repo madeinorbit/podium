@@ -6,7 +6,7 @@
 
 import type { OverlayTarget } from '@podium/client-core/command-reducers'
 import { foldRowOverlays } from '@podium/client-core/command-reducers'
-import type { OutboxOutcome } from '@podium/client-core/engine'
+import type { OutboxOutcome } from '@podium/client-core/runtime-root'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import { createRecordsApi, issueSeqPending } from '@podium/client-core/records'
 import {

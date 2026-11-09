@@ -43,6 +43,7 @@ import {
   recordKinds,
   UNSET,
 } from '../records'
+import type { EngineOutbox, OutboxKinds } from '../runtime-root/outbox/wiring'
 import type { SocketHub } from '../socket-transport'
 import {
   issueActionEffect,
@@ -67,7 +68,6 @@ import {
 } from './chat-send'
 import { NAVIGATION_LOADING, resolvedWorkspaceKey } from './state'
 import type { Store, StoreNotices } from './types'
-import type { EngineOutbox, OutboxKinds } from './wiring'
 
 const log = createLogger('client-core:actions')
 

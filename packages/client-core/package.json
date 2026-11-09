@@ -125,6 +125,11 @@
       "types": "./src/engine/index.ts",
       "import": "./src/engine/index.ts"
     },
+    "./runtime-root": {
+      "@podium/source": "./src/runtime-root/index.ts",
+      "types": "./src/runtime-root/index.ts",
+      "import": "./src/runtime-root/index.ts"
+    },
     "./react": {
       "@podium/source": "./src/react/index.ts",
       "types": "./src/react/index.ts",

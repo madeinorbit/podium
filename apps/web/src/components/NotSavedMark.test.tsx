@@ -15,11 +15,11 @@ const copied = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/clipboard', () => ({ copyToClipboard: copied }))
 vi.mock('@/app/store', () => ({ useRuntimeSelector: (read: (state: object) => unknown) => read({ paneA: null }) }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return ({ recoverOutbox: {
+  useOutboxRecovery: () => ({
     retry: state.current!.outbox.retry.bind(state.current!.outbox),
     edit: state.current!.outbox.edit.bind(state.current!.outbox),
     discard: state.current!.outbox.discard.bind(state.current!.outbox),
-  } }) } }),
+  }),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => state.current!.pool,

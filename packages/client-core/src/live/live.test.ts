@@ -2,10 +2,14 @@ import type { HostMetricsWire } from '@podium/model'
 import { encode, type ServerMessage, type TopicKind } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import type { ConnectionHealth, ServerIdentity } from '../socket-transport/socket-hub'
 import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
 import type { TopicListener, TopicState } from '../socket-transport/subscriptions'
-import { LiveFeed, type LiveFeedHub, type LiveFeedMachines, type LiveFrameScheduler } from './live-feed'
+import {
+  LiveFeed,
+  type LiveFeedHub,
+  type LiveFeedMachines,
+  type LiveFrameScheduler,
+} from './live-feed'
 import { LiveStore } from './live-store'
 
 /**
@@ -72,10 +76,6 @@ class FakeMachines implements LiveFeedMachines {
 }
 
 class FakeHub implements LiveFeedHub {
-  connected = false
-  health: ConnectionHealth = { status: 'ok', rttMs: null, since: 0 }
-  identity: ServerIdentity | null = null
-  skew: number | null = null
   readonly held = new Map<string, TopicListener<unknown>>()
   private handlers = new Map<string, Set<(...args: unknown[]) => void>>()
   subscribeTopic<K extends TopicKind>(
@@ -92,15 +92,6 @@ class FakeHub implements LiveFeedHub {
   }
   state(key: string, state: TopicState<unknown>): void {
     this.held.get(key)?.onState?.(state)
-  }
-  connectionHealth(): ConnectionHealth {
-    return this.health
-  }
-  serverIdentity(): ServerIdentity | null {
-    return this.identity
-  }
-  clockSkewMs(): number | null {
-    return this.skew
   }
   on(event: string, handler: (...args: never[]) => void): () => void {
     let set = this.handlers.get(event)
@@ -286,50 +277,6 @@ describe('LiveFeed', () => {
     stop()
   })
 
-  it('marks every reading unknown when the connection is declared lost, keeping the last value', () => {
-    const { hub, frames, live, feed } = setup()
-    feed.start()
-    hub.state('account.quota:me', {
-      status: 'value',
-      value: { machines: [] },
-      position,
-    })
-    hub.connected = true
-    hub.emit('connectionHealth')
-    frames.flush()
-    expect(live.connection.state).toBe('online')
-    expect(live.quota.known).toBe(true)
-    hub.connected = false
-    hub.health = { status: 'down', rttMs: null, since: 3_000 }
-    hub.emit('connectionHealth')
-    frames.flush()
-    expect(live.connection).toMatchObject({ state: 'offline', since: 3_000 })
-    expect(live.quota).toEqual({ known: false, last: { machines: [] }, since: 3_000 })
-  })
-
-  it('carries ping, skew and the server identity, and a redeploy replaces the build', () => {
-    const { hub, frames, live, feed } = setup()
-    feed.start()
-    hub.connected = true
-    hub.health = { status: 'ok', rttMs: 12, since: 0 }
-    hub.skew = -40
-    hub.identity = { build: 'one', features: facts('x') }
-    hub.emit('serverIdentity', hub.identity)
-    frames.flush()
-    expect(live.connection).toMatchObject({
-      state: 'online',
-      pingMs: 12,
-      skewMs: -40,
-      serverBuild: 'one',
-      serverFeatures: facts('x'),
-    })
-    hub.identity = { build: 'two', features: facts('x', 'y') }
-    hub.emit('serverIdentity', hub.identity)
-    frames.flush()
-    expect(live.connection.serverBuild).toBe('two')
-    expect(live.connection.serverFeatures).toEqual(facts('x', 'y'))
-  })
-
   it('holds a machine metrics topic only while a reader watches it', () => {
     const { hub, frames, live, feed } = setup()
     feed.start()
@@ -382,14 +329,6 @@ describe('LiveFeed', () => {
     again()
   })
 
-  it('writes the outbox counts with the frame', () => {
-    const { frames, live, feed } = setup()
-    feed.setOutbox({ pending: 3, deadLetters: [] })
-    expect(live.outbox.pending).toBe(0)
-    frames.flush()
-    expect(live.outbox.pending).toBe(3)
-  })
-
   it('is inert after dispose, and the disposed store forgets its readings', () => {
     const { hub, frames, live, feed } = setup()
     feed.start()
@@ -404,8 +343,5 @@ describe('LiveFeed', () => {
     expect(hub.held.size).toBe(0)
     expect(live.isDisposed).toBe(true)
     expect(live.quota.known).toBe(false)
-    feed.setOutbox({ pending: 9, deadLetters: [] })
-    frames.flush()
-    expect(live.outbox.pending).toBe(0)
   })
 })

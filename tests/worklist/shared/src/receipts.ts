@@ -30,7 +30,7 @@
  * OWNERSHIP. Additive, round three (POD-4545).
  */
 
-import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/engine'
+import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/runtime-root'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { Replica } from '@podium/client-core/replica'
 import { parseIssueUserStateRowId } from '@podium/model'

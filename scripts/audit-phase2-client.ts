@@ -553,8 +553,8 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
  * The acceptance clause is "no residual path constructs transport, replica or
  * outbox outside the provider". That is a claim about CALL SITES, so it is
  * checked as one: there is exactly one chain — `react/provider.tsx` builds a
- * `ClientRuntime` per principal, and the runtime builds the hub and the outbox
- * for itself. A second site anywhere is a second principal boundary that nobody
+ * `ClientRuntime` per principal, the runtime builds its runtime root, and the
+ * root's connection and outbox services build the hub and the outbox (POD-6681). A second site anywhere is a second principal boundary that nobody
  * tears down on sign-out.
  *
  * WHY BY SYMBOL AND NOT BY "does this file import the engine".
@@ -562,8 +562,9 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
  * a file that quietly opens a socket or a queue of its own — not one that reads
  * a type. Conversely a MENTION is not a call (the lesson item 4 already learned
  * the hard way), so each pattern below requires call shape, and the DEFINITION
- * of each factory is excluded explicitly: `wiring.ts` declares `createEngineHub`
- * and `createEngineOutbox`, and declaring them is not calling them.
+ * of each factory is excluded explicitly: `connection/hub.ts` declares
+ * `createEngineHub` and `outbox/wiring.ts` declares `createEngineOutbox`, and
+ * declaring them is not calling them.
  *
  * The REPLICA half of the clause is item 4's job and stays there: a replica is
  * legitimately built at a platform composition root (client-core cannot know the
@@ -598,15 +599,26 @@ const CONSTRUCTION_RULES: readonly ConstructionRule[] = [
     what: 'constructs a client runtime outside the provider that owns the principal',
   },
   {
+    // The runtime root (POD-6681) holds the replica, socket and queue for one
+    // principal; until POD-5803 the old store's factory is its one caller.
+    call: /\b(?:createRuntimeRoot\s*\(|new\s+RuntimeRoot\s*\()/,
+    definition: /\b(?:export\s+)?(?:function\s+createRuntimeRoot|class\s+RuntimeRoot)\b/,
+    homes: [
+      'packages/client-core/src/engine/runtime.ts',
+      'packages/client-core/src/runtime-root/root.ts',
+    ],
+    what: 'constructs a runtime root outside the runtime that owns the principal',
+  },
+  {
     call: /\bcreateEngineHub\s*\(/,
     definition: /\b(?:export\s+)?function\s+createEngineHub\b/,
-    homes: ['packages/client-core/src/engine/runtime.ts'],
+    homes: ['packages/client-core/src/runtime-root/connection/connection-service.ts'],
     what: 'constructs the socket transport outside the principal-scoped runtime',
   },
   {
     call: /\bcreateEngineOutbox\s*\(/,
     definition: /\b(?:export\s+)?function\s+createEngineOutbox\b/,
-    homes: ['packages/client-core/src/engine/runtime.ts'],
+    homes: ['packages/client-core/src/runtime-root/outbox/outbox-service.ts'],
     what: 'constructs the outbox outside the principal-scoped runtime',
   },
 ]

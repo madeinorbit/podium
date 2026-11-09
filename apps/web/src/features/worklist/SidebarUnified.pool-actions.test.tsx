@@ -1,8 +1,5 @@
-import {
-  type ClientRuntime,
-  createEngineOutbox,
-  type OutboxOutcome,
-} from '@podium/client-core/engine'
+import { type ClientRuntime } from '@podium/client-core/engine'
+import { createEngineOutbox, type OutboxOutcome } from '@podium/client-core/runtime-root'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -457,7 +454,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       calls.push('focus')
     })
     const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store, ui }, focus)
+    const work = createPoolWorkActions(pool!, { outbox: runtime.outbox, access: store, ui }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(calls).toEqual([
       'trace',
@@ -666,7 +663,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     }
     const focus = vi.fn()
     const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store, ui }, focus)
+    const work = createPoolWorkActions(pool!, { outbox: runtime.outbox, access: store, ui }, focus)
     work.selectIssue('synthetic-3')
     expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: null }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')

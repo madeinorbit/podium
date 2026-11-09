@@ -7,7 +7,7 @@
  * send through. Stub runtimes only where the real one cannot be made to fail
  * on cue (an enqueue that throws) or to answer twice.
  */
-import type { OutboxOutcome } from '@podium/client-core/engine'
+import type { OutboxOutcome } from '@podium/client-core/runtime-root'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import {
   asIssueId,
