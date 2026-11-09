@@ -1,6 +1,8 @@
-/** Assemble the real layout read path over a seeded model pool. No shadow layout. */
+/** Assemble LayoutAccess over seeded userLayout models. A null seed leaves
+ * the layout detached until the first snapshot, like runtime pool attachment. */
 
 import { layoutRowId, type UserId } from '@podium/model'
+import { runInAction } from 'mobx'
 import { here } from '../../client-graph/src/lookup'
 import { MobxPool } from '../../client-graph/src/pool'
 import { createRecordsApi } from '../src/records'
@@ -14,20 +16,25 @@ export function layoutFixture(
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const layout = new LayoutAccess(userId, createRecordsApi(write))
   const read = (key: string) => here(pool.model('userLayout', layoutRowId(userId, key)))?.value
-  const detach = layout.attach(read)
-  pool.bindLayout({
-    read,
-    ready: (key) => typeof pool.model('userLayout', layoutRowId(userId, key)) !== 'symbol',
-    write: (key, value) => layout.set(key, value),
-  })
+  let detach = () => {}
   const seed = (snapshot: Readonly<Record<string, unknown>>) =>
-    pool.apply({
-      type: 'replace',
-      rows: Object.entries(snapshot).map(([key, value]) => ({
-        kind: 'userLayout',
-        id: layoutRowId(userId, key),
-        value: { userId, key, value },
-      })),
+    runInAction(() => {
+      pool.apply({
+        type: 'replace',
+        rows: Object.entries(snapshot).map(([key, value]) => ({
+          kind: 'userLayout',
+          id: layoutRowId(userId, key),
+          value: { userId, key, value },
+        })),
+      })
+      if (!pool.hasLayout) {
+        detach = layout.attach(read)
+        pool.bindLayout({
+          read,
+          ready: (key) => typeof pool.model('userLayout', layoutRowId(userId, key)) !== 'symbol',
+          write: (key, value) => layout.set(key, value),
+        })
+      }
     })
   if (initial !== null) seed(initial)
   return {

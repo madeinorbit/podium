@@ -143,8 +143,7 @@ function makeFetches() {
     },
   }
   const fetches = new BootFetches({
-    // Only the discovery surface is exercised here; the rest of the api and the
-    // layout controller are never touched by refreshRepos.
+    // refreshRepos touches only discovery; the other API surfaces stay unused.
     api: api as never,
     publish: (patch) => patches.push(patch),
   })

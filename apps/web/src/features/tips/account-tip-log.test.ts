@@ -63,7 +63,7 @@ function account(initial: Readonly<Record<string, unknown>> = {}) {
   return { data, device, deliver }
 }
 
-it('waits for the principal pool rows before recording or showing a tip', () => {
+it('waits for the principal layout to attach before recording or showing a tip', () => {
   const f = account(),
     d = f.device({ loaded: false })
   expect(d.rendered.ready).toBe(false)

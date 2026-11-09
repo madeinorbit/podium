@@ -279,9 +279,8 @@ export function recordWireInput(input: object): Record<string, unknown> {
 /**
  * WHERE A KIND'S ROW LIVES IN THE POOL: the overlay target and the target's row
  * id for a record id. Addressing, not display: a per-user row's feed id names
- * its user and entity, and the pool keys that row by the entity alone. `null`:
- * not a pool row (a layout key, which the layout controller paints from the
- * same outbox entry).
+ * its user and entity, and the pool keys that row by the entity alone. `null`
+ * marks a kind submitted directly, with no queued overlay.
  */
 export const RECORD_HOMES: {
   readonly [K in RecordKind]: {

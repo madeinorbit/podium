@@ -38,8 +38,8 @@ const INPUT = {
 describe('PoolTransactions coverage (POD-5431)', () => {
   it('maps every queued command kind through the shared reducers', () => {
     // The per-user marks and the layout keys became generic record edits
-    // (POD-6404), painted by the one record case (`records.test.ts`) and the
-    // layout controller. Pins, tab orders and personal settings followed
+    // (POD-6404), painted by the one record case (`records.test.ts`).
+    // Pins, tab orders and personal settings followed
     // (POD-6673): generic creates, edits and removes of their own records.
     const kinds = Object.keys(OUTBOX_COMMANDS)
     expect(kinds).toHaveLength(10)
