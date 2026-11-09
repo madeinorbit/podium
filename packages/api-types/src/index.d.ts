@@ -1,54 +1,29 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, SessionId, IssueJoinVia, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
+import { MachineId, IssueId, UserId, SessionId, IssueJoinVia, ArtifactId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ConvergenceState, ModelChoiceWire, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
-/**
- * The channels an INSTANCE can default its fleet to. Deliberately the same three
- * values as `UpdateChannel` in @podium/model, which is what a single machine may
- * pin — a fleet default and a per-machine override answer the same question at
- * two scopes, so they must range over the same answers (POD-1882). Restated here
- * rather than imported because @podium/runtime is the lower layer.
- */
-type FleetUpdateChannel = 'stable' | 'edge' | 'dev';
-/** Which machines this instance's updater may replace. See `config.updateScope`. */
-type UpdateScope = 'all' | 'fleet-only';
-/** Whether this instance mirrors daemon transcripts. See `config.transcriptLake`. */
-type TranscriptLakeMode = 'on' | 'off';
-/**
- * Which layer answered.
- *
- * `settings` is the persisted instance-tier settings row, and it exists for the
- * instance-scoped keys. Environment and config.json overrides sit above these
- * choices. Bootstrap and operator-only keys never read the settings row.
- */
-type SettingSource = 'env' | 'file' | 'settings' | 'default';
+declare const MachineFailureReason: z.ZodObject<{
+    code: z.ZodOptional<z.ZodString>;
+    message: z.ZodString;
+    source: z.ZodEnum<["machine", "coordinator"]>;
+    at: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    at: number;
+    source: "machine" | "coordinator";
+    code?: string | undefined;
+}, {
+    message: string;
+    at: number;
+    source: "machine" | "coordinator";
+    code?: string | undefined;
+}>;
+type MachineFailureReason = z.infer<typeof MachineFailureReason>;
 
-/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
-type ConsentState = 'on' | 'off' | 'absent';
-/** Why telemetry is force-disabled, for UI that must explain itself. */
-type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY';
-interface TelemetryState {
-    usage: ConsentState;
-    crash: ConsentState;
-    /** Present once any tier has been on (the server mints it then; never by an opt-out). */
-    installId?: string;
-    /** Epoch ms the clock started — set with installId (D5). */
-    since?: number;
-    /** Set ⇒ both tiers are forced off regardless of the stored values. */
-    suppressedBy?: SuppressionReason;
-    /** Where reports would be POSTed (resolved through the full precedence). */
-    endpoint: string;
-}
-
-interface PinState {
-    panels: string[];
-    worktrees: string[];
-    repos: string[];
-}
 /** The two task texts that keep a revision history (POD-6289). */
 type IssueTextField = 'description' | 'brief';
 /** One recorded text of a task's description or brief (POD-6289). */
@@ -162,24 +137,6 @@ interface SuperagentThreadRow {
     updatedAt: string;
     archived: boolean;
 }
-
-declare const MachineFailureReason: z.ZodObject<{
-    code: z.ZodOptional<z.ZodString>;
-    message: z.ZodString;
-    source: z.ZodEnum<["machine", "coordinator"]>;
-    at: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    at: number;
-    source: "machine" | "coordinator";
-    code?: string | undefined;
-}, {
-    message: string;
-    at: number;
-    source: "machine" | "coordinator";
-    code?: string | undefined;
-}>;
-type MachineFailureReason = z.infer<typeof MachineFailureReason>;
 
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
@@ -309,6 +266,27 @@ declare const logsSetDaemonLevelInput: z.ZodObject<{
 }>;
 type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
 type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
+
+/**
+ * The channels an INSTANCE can default its fleet to. Deliberately the same three
+ * values as `UpdateChannel` in @podium/model, which is what a single machine may
+ * pin — a fleet default and a per-machine override answer the same question at
+ * two scopes, so they must range over the same answers (POD-1882). Restated here
+ * rather than imported because @podium/runtime is the lower layer.
+ */
+type FleetUpdateChannel = 'stable' | 'edge' | 'dev';
+/** Which machines this instance's updater may replace. See `config.updateScope`. */
+type UpdateScope = 'all' | 'fleet-only';
+/** Whether this instance mirrors daemon transcripts. See `config.transcriptLake`. */
+type TranscriptLakeMode = 'on' | 'off';
+/**
+ * Which layer answered.
+ *
+ * `settings` is the persisted instance-tier settings row, and it exists for the
+ * instance-scoped keys. Environment and config.json overrides sit above these
+ * choices. Bootstrap and operator-only keys never read the settings row.
+ */
+type SettingSource = 'env' | 'file' | 'settings' | 'default';
 
 /**
  * The blob, COMPOSED from the three classified halves (POD-418). Key order is
@@ -937,6 +915,50 @@ interface SeatCoordinator {
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
+
+/**
+ * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
+ * harvested from the answering machine's transcripts.
+ *
+ * Two readers ask the same question, so it is answered here once:
+ * - `usage.summary`, a request (the CLI, and any caller without topics);
+ * - the `account.quota` topic (ADR 7 Amendment 2 D26, POD-5798), whose live
+ *   pass reads it for each account that holds the key.
+ *
+ * ALSO WRITES (POD-1858), on the same terms as `quota.summary`: the daemon
+ * returns the per-FILE half of the walk it just did, and it is folded into the
+ * per-task cost rows on the way out. No caller input reaches the fold and no
+ * second scan happens. Attributing the walk that already runs is the whole
+ * design of the cost read path, because a second walk of the same 4 GB would
+ * land on the daemon loop that carries PTY traffic.
+ *
+ * `sources` is STRIPPED before the answer is returned: it is an order of
+ * magnitude larger than the buckets and no client reads it. Best-effort: a
+ * failed fold never fails the usage read.
+ */
+
+interface UsageSummary {
+    hostname: string;
+    sampledAt?: string;
+    buckets: UsageBucketWire[];
+}
+
+/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
+type ConsentState = 'on' | 'off' | 'absent';
+/** Why telemetry is force-disabled, for UI that must explain itself. */
+type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY';
+interface TelemetryState {
+    usage: ConsentState;
+    crash: ConsentState;
+    /** Present once any tier has been on (the server mints it then; never by an opt-out). */
+    installId?: string;
+    /** Epoch ms the clock started — set with installId (D5). */
+    since?: number;
+    /** Set ⇒ both tiers are forced off regardless of the stored values. */
+    suppressedBy?: SuppressionReason;
+    /** Where reports would be POSTed (resolved through the full precedence). */
+    endpoint: string;
+}
 
 interface WaveMachine {
     id: string;
@@ -8184,25 +8206,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
-    "pins": {
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: PinState;
-            meta: unknown;
-        }>;
-        "set": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                kind: "panel" | "repo" | "worktree";
-                mutationId?: string | undefined;
-                pinned: boolean;
-            };
-            output: PinState;
-            meta: unknown;
-        }>;
-    };
     "quota": {
         "history": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
@@ -8216,23 +8219,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: Array<_podium_model.MachineQuotaWire>;
-            meta: unknown;
-        }>;
-    };
-    "readPosition": {
-        "advance": TRPC.TRPCMutationProcedure<{
-            input: {
-                lastEventId: number;
-                mutationId?: string | undefined;
-                seenAt?: null | string | undefined;
-                streamId: string;
-            };
-            output: _podium_model.ReadPositionSnapshot;
-            meta: unknown;
-        }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: void;
-            output: _podium_model.ReadPositionSnapshot;
             meta: unknown;
         }>;
     };
@@ -8652,14 +8638,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_settings_get;
             meta: unknown;
         }>;
-        "updatePersonal": TRPC.TRPCMutationProcedure<{
-            input: {
-                mutationId?: string | undefined;
-                values: Record<string, unknown>;
-            };
-            output: Output_settings_get;
-            meta: unknown;
-        }>;
         "viewer": TRPC.TRPCQueryProcedure<{
             input: void;
             output: {
@@ -8965,28 +8943,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
-    "tabs": {
-        "listOrders": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: {
-                [x: string]: string[];
-            };
-            meta: unknown;
-        }>;
-        "setOrder": TRPC.TRPCMutationProcedure<{
-            input: {
-                mutationId?: string | undefined;
-                sessionIds: string[];
-                worktree: string;
-            };
-            output: {
-                [x: string]: string[];
-            };
-            meta: unknown;
-        }>;
-    };
     "telemetry": {
         "preview": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
@@ -9090,11 +9046,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: {
-                buckets: _podium_model.UsageBucketWire[];
-                hostname: string;
-                sampledAt?: string;
-            };
+            output: UsageSummary;
             meta: unknown;
         }>;
     };

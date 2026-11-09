@@ -859,12 +859,13 @@
       "schema": "PongMessage",
       "variant": "full",
       "wire": {
-        "type": "pong"
+        "type": "pong",
+        "serverTime": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"pong\"}"
+      "encoded": "{\"type\":\"pong\",\"serverTime\":1}"
     },
     {
       "schema": "PresenceMessage",
@@ -2594,12 +2595,15 @@
         "type": "welcome",
         "wireVersion": 1,
         "clientId": "clientId",
-        "caps": ["caps[0]"]
+        "caps": ["caps[0]"],
+        "accountUser": "accountUser",
+        "serverBuild": "serverBuild",
+        "serverFeatures": ["serverFeatures[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"]}"
+      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"],\"accountUser\":\"accountUser\",\"serverBuild\":\"serverBuild\",\"serverFeatures\":[\"serverFeatures[0]\"]}"
     }
   ]
 }

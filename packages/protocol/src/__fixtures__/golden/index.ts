@@ -34,6 +34,7 @@ import serverTransfer from './server-transfer.json' with { type: 'json' }
 import shipping from './shipping.json' with { type: 'json' }
 import sync from './sync.json' with { type: 'json' }
 import terminal from './terminal.json' with { type: 'json' }
+import topics from './topics.json' with { type: 'json' }
 import transcript from './transcript.json' with { type: 'json' }
 import update from './update.json' with { type: 'json' }
 import workflows from './workflows.json' with { type: 'json' }
@@ -73,6 +74,7 @@ export const GOLDEN: Record<string, unknown> = {
   shipping: shipping,
   sync: sync,
   terminal: terminal,
+  topics: topics,
   transcript: transcript,
   update: update,
   workflows: workflows,

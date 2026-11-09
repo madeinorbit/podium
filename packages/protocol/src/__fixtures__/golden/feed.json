@@ -194,12 +194,8 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": [
-                "changes[0].value.configureFields[0]"
-              ],
-              "attachKinds": [
-                "engine"
-              ],
+              "configureFields": ["changes[0].value.configureFields[0]"],
+              "attachKinds": ["engine"],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -210,9 +206,7 @@
                     "input": true
                   }
                 ],
-                "artifacts": [
-                  "changes[0].value.offer.artifacts[0]"
-                ],
+                "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -318,18 +312,14 @@
               "type": "phase",
               "assignee": "changes[0].value.assignee",
               "legacyAssignee": "changes[0].value.legacyAssignee",
-              "labels": [
-                "changes[0].value.labels[0]"
-              ],
+              "labels": ["changes[0].value.labels[0]"],
               "estimateMin": 2,
               "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
               "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": [
-                "changes[0].value.blockedByNotes[0]"
-              ],
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
               "worktreePath": "changes[0].value.worktreePath",
               "branch": "changes[0].value.branch",
               "parentBranch": "changes[0].value.parentBranch",
@@ -341,9 +331,7 @@
               "needsHuman": false,
               "asked": {
                 "question": "changes[0].value.asked.question",
-                "options": [
-                  "changes[0].value.asked.options[0]"
-                ],
+                "options": ["changes[0].value.asked.options[0]"],
                 "at": "changes[0].value.asked.at",
                 "by": "changes[0].value.asked.by",
                 "attribution": {
@@ -377,13 +365,9 @@
                         "size": 2
                       }
                     ],
-                    "sourcePaths": [
-                      "changes[0].value.panel.artifacts[0].sourcePaths[0]"
-                    ],
+                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
                     "tracking": "untracked",
-                    "untrackedPaths": [
-                      "changes[0].value.panel.artifacts[0].untrackedPaths[0]"
-                    ]
+                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
                   }
                 ],
                 "deferred": [
@@ -552,9 +536,7 @@
                 "generation": 5,
                 "reasonCode": "policy:fixture-hold",
                 "headline": "changes[0].value.hold.headline",
-                "actions": [
-                  "policy:fixture-action"
-                ]
+                "actions": ["policy:fixture-action"]
               },
               "receiptId": "changes[0].value.receiptId"
             },
@@ -596,14 +578,10 @@
               "destination": "changes[0].value.destination",
               "trains": [
                 {
-                  "orderIds": [
-                    "changes[0].value.trains[0].orderIds[0]"
-                  ]
+                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
                 }
               ],
-              "blockedOrderIds": [
-                "changes[0].value.blockedOrderIds[0]"
-              ]
+              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
             },
             "originId": "changes[0].originId",
             "causationId": "changes[0].causationId",
@@ -921,12 +899,8 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": [
-                "changes[0].value.configureFields[0]"
-              ],
-              "attachKinds": [
-                "engine"
-              ],
+              "configureFields": ["changes[0].value.configureFields[0]"],
+              "attachKinds": ["engine"],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -937,9 +911,7 @@
                     "input": true
                   }
                 ],
-                "artifacts": [
-                  "changes[0].value.offer.artifacts[0]"
-                ],
+                "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -1414,12 +1386,8 @@
           "driverId": "value.driverId",
           "requestedDriverId": "value.requestedDriverId",
           "driverFamily": "server",
-          "configureFields": [
-            "value.configureFields[0]"
-          ],
-          "attachKinds": [
-            "engine"
-          ],
+          "configureFields": ["value.configureFields[0]"],
+          "attachKinds": ["engine"],
           "queuedMessageCount": 1,
           "offer": {
             "message": "value.offer.message",
@@ -1430,9 +1398,7 @@
                 "input": true
               }
             ],
-            "artifacts": [
-              "value.offer.artifacts[0]"
-            ],
+            "artifacts": ["value.offer.artifacts[0]"],
             "createdAt": "value.offer.createdAt"
           },
           "handoffTargetMachineId": "value.handoffTargetMachineId",
@@ -1523,18 +1489,14 @@
           "type": "phase",
           "assignee": "value.assignee",
           "legacyAssignee": "value.legacyAssignee",
-          "labels": [
-            "value.labels[0]"
-          ],
+          "labels": ["value.labels[0]"],
           "estimateMin": 2,
           "sortKey": "value.sortKey",
           "dueAt": "value.dueAt",
           "parentId": "value.parentId",
           "supersededBy": "value.supersededBy",
           "duplicateOf": "value.duplicateOf",
-          "blockedByNotes": [
-            "value.blockedByNotes[0]"
-          ],
+          "blockedByNotes": ["value.blockedByNotes[0]"],
           "worktreePath": "value.worktreePath",
           "branch": "value.branch",
           "parentBranch": "value.parentBranch",
@@ -1546,9 +1508,7 @@
           "needsHuman": false,
           "asked": {
             "question": "value.asked.question",
-            "options": [
-              "value.asked.options[0]"
-            ],
+            "options": ["value.asked.options[0]"],
             "at": "value.asked.at",
             "by": "value.asked.by",
             "attribution": {
@@ -1582,13 +1542,9 @@
                     "size": 2
                   }
                 ],
-                "sourcePaths": [
-                  "value.panel.artifacts[0].sourcePaths[0]"
-                ],
+                "sourcePaths": ["value.panel.artifacts[0].sourcePaths[0]"],
                 "tracking": "untracked",
-                "untrackedPaths": [
-                  "value.panel.artifacts[0].untrackedPaths[0]"
-                ]
+                "untrackedPaths": ["value.panel.artifacts[0].untrackedPaths[0]"]
               }
             ],
             "deferred": [
@@ -1712,9 +1668,7 @@
             "generation": 5,
             "reasonCode": "policy:fixture-hold",
             "headline": "value.hold.headline",
-            "actions": [
-              "policy:fixture-action"
-            ]
+            "actions": ["policy:fixture-action"]
           },
           "receiptId": "value.receiptId"
         },
@@ -1741,14 +1695,10 @@
           "destination": "value.destination",
           "trains": [
             {
-              "orderIds": [
-                "value.trains[0].orderIds[0]"
-              ]
+              "orderIds": ["value.trains[0].orderIds[0]"]
             }
           ],
-          "blockedOrderIds": [
-            "value.blockedOrderIds[0]"
-          ]
+          "blockedOrderIds": ["value.blockedOrderIds[0]"]
         },
         "originId": "originId",
         "causationId": "causationId",
@@ -2017,12 +1967,8 @@
           "driverId": "value.driverId",
           "requestedDriverId": "value.requestedDriverId",
           "driverFamily": "server",
-          "configureFields": [
-            "value.configureFields[0]"
-          ],
-          "attachKinds": [
-            "engine"
-          ],
+          "configureFields": ["value.configureFields[0]"],
+          "attachKinds": ["engine"],
           "queuedMessageCount": 1,
           "offer": {
             "message": "value.offer.message",
@@ -2033,9 +1979,7 @@
                 "input": true
               }
             ],
-            "artifacts": [
-              "value.offer.artifacts[0]"
-            ],
+            "artifacts": ["value.offer.artifacts[0]"],
             "createdAt": "value.offer.createdAt"
           },
           "handoffTargetMachineId": "value.handoffTargetMachineId",
@@ -2435,12 +2379,8 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": [
-                "changes[0].value.configureFields[0]"
-              ],
-              "attachKinds": [
-                "engine"
-              ],
+              "configureFields": ["changes[0].value.configureFields[0]"],
+              "attachKinds": ["engine"],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -2451,9 +2391,7 @@
                     "input": true
                   }
                 ],
-                "artifacts": [
-                  "changes[0].value.offer.artifacts[0]"
-                ],
+                "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
@@ -2554,18 +2492,14 @@
               "type": "phase",
               "assignee": "changes[0].value.assignee",
               "legacyAssignee": "changes[0].value.legacyAssignee",
-              "labels": [
-                "changes[0].value.labels[0]"
-              ],
+              "labels": ["changes[0].value.labels[0]"],
               "estimateMin": 2,
               "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
               "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": [
-                "changes[0].value.blockedByNotes[0]"
-              ],
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
               "worktreePath": "changes[0].value.worktreePath",
               "branch": "changes[0].value.branch",
               "parentBranch": "changes[0].value.parentBranch",
@@ -2577,9 +2511,7 @@
               "needsHuman": false,
               "asked": {
                 "question": "changes[0].value.asked.question",
-                "options": [
-                  "changes[0].value.asked.options[0]"
-                ],
+                "options": ["changes[0].value.asked.options[0]"],
                 "at": "changes[0].value.asked.at",
                 "by": "changes[0].value.asked.by",
                 "attribution": {
@@ -2613,13 +2545,9 @@
                         "size": 2
                       }
                     ],
-                    "sourcePaths": [
-                      "changes[0].value.panel.artifacts[0].sourcePaths[0]"
-                    ],
+                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
                     "tracking": "untracked",
-                    "untrackedPaths": [
-                      "changes[0].value.panel.artifacts[0].untrackedPaths[0]"
-                    ]
+                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
                   }
                 ],
                 "deferred": [
@@ -2773,9 +2701,7 @@
                 "generation": 5,
                 "reasonCode": "policy:fixture-hold",
                 "headline": "changes[0].value.hold.headline",
-                "actions": [
-                  "policy:fixture-action"
-                ]
+                "actions": ["policy:fixture-action"]
               },
               "receiptId": "changes[0].value.receiptId"
             },
@@ -2812,14 +2738,10 @@
               "destination": "changes[0].value.destination",
               "trains": [
                 {
-                  "orderIds": [
-                    "changes[0].value.trains[0].orderIds[0]"
-                  ]
+                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
                 }
               ],
-              "blockedOrderIds": [
-                "changes[0].value.blockedOrderIds[0]"
-              ]
+              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
             },
             "originId": "changes[0].originId",
             "causationId": "changes[0].causationId",
@@ -3121,12 +3043,8 @@
               "driverId": "changes[0].value.driverId",
               "requestedDriverId": "changes[0].value.requestedDriverId",
               "driverFamily": "server",
-              "configureFields": [
-                "changes[0].value.configureFields[0]"
-              ],
-              "attachKinds": [
-                "engine"
-              ],
+              "configureFields": ["changes[0].value.configureFields[0]"],
+              "attachKinds": ["engine"],
               "queuedMessageCount": 1,
               "offer": {
                 "message": "changes[0].value.offer.message",
@@ -3137,9 +3055,7 @@
                     "input": true
                   }
                 ],
-                "artifacts": [
-                  "changes[0].value.offer.artifacts[0]"
-                ],
+                "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
               "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",

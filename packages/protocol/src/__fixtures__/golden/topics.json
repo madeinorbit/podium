@@ -1,0 +1,1126 @@
+{
+  "family": "topics",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "AccountEventPayload",
+      "variant": "minimal",
+      "wire": {
+        "type": "attentionEvent",
+        "sessionId": "sessionId",
+        "title": "title",
+        "body": "body"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attentionEvent\",\"sessionId\":\"sessionId\",\"title\":\"title\",\"body\":\"body\"}"
+    },
+    {
+      "schema": "AccountEventPayload",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "attentionEvent",
+        "sessionId": "sessionId",
+        "title": "title",
+        "body": "body"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attentionEvent\",\"sessionId\":\"sessionId\",\"title\":\"title\",\"body\":\"body\"}"
+    },
+    {
+      "schema": "AccountEventPayload",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionOpenUrl",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "url": "https://example.test/url",
+        "intent": "link",
+        "callbackTarget": {
+          "host": "127.0.0.1",
+          "port": 2,
+          "path": "/callbackTarget.path"
+        },
+        "expiresAt": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrl\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"https://example.test/url\",\"intent\":\"link\",\"callbackTarget\":{\"host\":\"127.0.0.1\",\"port\":2,\"path\":\"/callbackTarget.path\"},\"expiresAt\":2}"
+    },
+    {
+      "schema": "AccountEventPayload",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "sessionOpenUrlResult",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "status": "dismissed",
+        "error": "error",
+        "httpStatus": 102,
+        "resolvedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"dismissed\",\"error\":\"error\",\"httpStatus\":102,\"resolvedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "AccountEventPayload",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "serverRelocation",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "publicUrl": "publicUrl",
+        "claimToken": "claimTokenxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverRelocation\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"publicUrl\":\"publicUrl\",\"claimToken\":\"claimTokenxxxxxxxxxxxxxxxxxxxxxx\"}"
+    },
+    {
+      "schema": "AccountEventPayload",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "setLogLevel",
+        "level": "trace",
+        "ttlMs": 5
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"setLogLevel\",\"level\":\"trace\",\"ttlMs\":5}"
+    },
+    {
+      "schema": "AccountQuotaPayload",
+      "variant": "minimal",
+      "wire": {
+        "machines": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machines\":[]}"
+    },
+    {
+      "schema": "AccountQuotaPayload",
+      "variant": "full",
+      "wire": {
+        "machines": [
+          {
+            "machineId": "machines[0].machineId",
+            "machineName": "machines[0].machineName",
+            "hostname": "machines[0].hostname",
+            "agents": [
+              {
+                "agent": "claude-code",
+                "status": "ok",
+                "account": {
+                  "email": "machines[0].agents[0].account.email",
+                  "plan": "machines[0].agents[0].account.plan"
+                },
+                "windows": [
+                  {
+                    "key": "machines[0].agents[0].windows[0].key",
+                    "label": "machines[0].agents[0].windows[0].label",
+                    "usedPercent": 1,
+                    "resetsAt": "machines[0].agents[0].windows[0].resetsAt",
+                    "windowMinutes": 1,
+                    "scopeModel": "machines[0].agents[0].windows[0].scopeModel"
+                  }
+                ],
+                "error": "machines[0].agents[0].error",
+                "fetchedAt": "machines[0].agents[0].fetchedAt"
+              }
+            ]
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machines\":[{\"machineId\":\"machines[0].machineId\",\"machineName\":\"machines[0].machineName\",\"hostname\":\"machines[0].hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"machines[0].agents[0].account.email\",\"plan\":\"machines[0].agents[0].account.plan\"},\"windows\":[{\"key\":\"machines[0].agents[0].windows[0].key\",\"label\":\"machines[0].agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"machines[0].agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"machines[0].agents[0].windows[0].scopeModel\"}],\"error\":\"machines[0].agents[0].error\",\"fetchedAt\":\"machines[0].agents[0].fetchedAt\"}]}]}"
+    },
+    {
+      "schema": "AccountUsagePayload",
+      "variant": "minimal",
+      "wire": null,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "null"
+    },
+    {
+      "schema": "AccountUsagePayload",
+      "variant": "full",
+      "wire": {
+        "hostname": "hostname",
+        "sampledAt": "sampledAt",
+        "buckets": [
+          {
+            "hour": "buckets[0].hour",
+            "model": "buckets[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"buckets\":[{\"hour\":\"buckets[0].hour\",\"model\":\"buckets[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
+    },
+    {
+      "schema": "HostProcessBreakdown",
+      "variant": "minimal",
+      "wire": {
+        "hostname": "hostname",
+        "sampledAt": "sampledAt",
+        "supported": true,
+        "memory": {
+          "totalBytes": 1,
+          "availableBytes": 1,
+          "swapTotalBytes": 1,
+          "swapFreeBytes": 1
+        },
+        "agents": [],
+        "projects": [],
+        "otherBytes": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"agents\":[],\"projects\":[],\"otherBytes\":1}"
+    },
+    {
+      "schema": "HostProcessBreakdown",
+      "variant": "full",
+      "wire": {
+        "hostname": "hostname",
+        "sampledAt": "sampledAt",
+        "supported": true,
+        "memory": {
+          "totalBytes": 1,
+          "availableBytes": 1,
+          "swapTotalBytes": 1,
+          "swapFreeBytes": 1
+        },
+        "disk": {
+          "path": "disk.path",
+          "totalBytes": 1,
+          "usedBytes": 1,
+          "availableBytes": 1
+        },
+        "agents": [
+          {
+            "sessionId": "agents[0].sessionId",
+            "bytes": 1,
+            "processCount": 1
+          }
+        ],
+        "projects": [
+          {
+            "root": "projects[0].root",
+            "bytes": 1,
+            "processCount": 1,
+            "topProcesses": [
+              {
+                "name": "projects[0].topProcesses[0].name",
+                "bytes": 1
+              }
+            ]
+          }
+        ],
+        "otherBytes": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"disk\":{\"path\":\"disk.path\",\"totalBytes\":1,\"usedBytes\":1,\"availableBytes\":1},\"agents\":[{\"sessionId\":\"agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1}"
+    },
+    {
+      "schema": "MachineConditionPayload",
+      "variant": "minimal",
+      "wire": {
+        "online": true,
+        "since": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"online\":true,\"since\":null}"
+    },
+    {
+      "schema": "MachineConditionPayload",
+      "variant": "full",
+      "wire": {
+        "online": true,
+        "since": "since"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"online\":true,\"since\":\"since\"}"
+    },
+    {
+      "schema": "MachineProcessesPayload",
+      "variant": "minimal",
+      "wire": {
+        "breakdown": {
+          "hostname": "breakdown.hostname",
+          "sampledAt": "breakdown.sampledAt",
+          "supported": true,
+          "memory": {
+            "totalBytes": 1,
+            "availableBytes": 1,
+            "swapTotalBytes": 1,
+            "swapFreeBytes": 1
+          },
+          "agents": [],
+          "projects": [],
+          "otherBytes": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"breakdown\":{\"hostname\":\"breakdown.hostname\",\"sampledAt\":\"breakdown.sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"agents\":[],\"projects\":[],\"otherBytes\":1}}"
+    },
+    {
+      "schema": "MachineProcessesPayload",
+      "variant": "full/arm0",
+      "wire": {
+        "breakdown": {
+          "hostname": "breakdown.hostname",
+          "sampledAt": "breakdown.sampledAt",
+          "supported": true,
+          "memory": {
+            "totalBytes": 1,
+            "availableBytes": 1,
+            "swapTotalBytes": 1,
+            "swapFreeBytes": 1
+          },
+          "disk": {
+            "path": "breakdown.disk.path",
+            "totalBytes": 1,
+            "usedBytes": 1,
+            "availableBytes": 1
+          },
+          "agents": [
+            {
+              "sessionId": "breakdown.agents[0].sessionId",
+              "bytes": 1,
+              "processCount": 1
+            }
+          ],
+          "projects": [
+            {
+              "root": "breakdown.projects[0].root",
+              "bytes": 1,
+              "processCount": 1,
+              "topProcesses": [
+                {
+                  "name": "breakdown.projects[0].topProcesses[0].name",
+                  "bytes": 1
+                }
+              ]
+            }
+          ],
+          "otherBytes": 1
+        },
+        "reclaim": {
+          "candidates": [
+            {
+              "issueId": "reclaim.candidates[0].issueId",
+              "title": "reclaim.candidates[0].title",
+              "worktreePath": "reclaim.candidates[0].worktreePath",
+              "closedAt": "reclaim.candidates[0].closedAt",
+              "machineId": "reclaim.candidates[0].machineId",
+              "present": true,
+              "protectedReason": "reclaim.candidates[0].protectedReason"
+            }
+          ],
+          "orphans": [
+            {
+              "path": "reclaim.orphans[0].path",
+              "branch": "reclaim.orphans[0].branch",
+              "headSha": "reclaim.orphans[0].headSha",
+              "machineId": "reclaim.orphans[0].machineId",
+              "repoPath": "reclaim.orphans[0].repoPath"
+            }
+          ],
+          "diagnostics": [
+            {
+              "repoPath": "reclaim.diagnostics[0].repoPath",
+              "machineId": "reclaim.diagnostics[0].machineId",
+              "reason": "reclaim.diagnostics[0].reason"
+            }
+          ],
+          "estimate": {
+            "status": "unknown",
+            "recoverableBytes": null,
+            "measuredAt": null,
+            "error": "reclaim.estimate.error"
+          }
+        },
+        "reclaimError": "reclaimError"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"breakdown\":{\"hostname\":\"breakdown.hostname\",\"sampledAt\":\"breakdown.sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"disk\":{\"path\":\"breakdown.disk.path\",\"totalBytes\":1,\"usedBytes\":1,\"availableBytes\":1},\"agents\":[{\"sessionId\":\"breakdown.agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"breakdown.projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"breakdown.projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1},\"reclaim\":{\"candidates\":[{\"issueId\":\"reclaim.candidates[0].issueId\",\"title\":\"reclaim.candidates[0].title\",\"worktreePath\":\"reclaim.candidates[0].worktreePath\",\"closedAt\":\"reclaim.candidates[0].closedAt\",\"machineId\":\"reclaim.candidates[0].machineId\",\"present\":true,\"protectedReason\":\"reclaim.candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"reclaim.orphans[0].path\",\"branch\":\"reclaim.orphans[0].branch\",\"headSha\":\"reclaim.orphans[0].headSha\",\"machineId\":\"reclaim.orphans[0].machineId\",\"repoPath\":\"reclaim.orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"reclaim.diagnostics[0].repoPath\",\"machineId\":\"reclaim.diagnostics[0].machineId\",\"reason\":\"reclaim.diagnostics[0].reason\"}],\"estimate\":{\"status\":\"unknown\",\"recoverableBytes\":null,\"measuredAt\":null,\"error\":\"reclaim.estimate.error\"}},\"reclaimError\":\"reclaimError\"}"
+    },
+    {
+      "schema": "MachineProcessesPayload",
+      "variant": "full/arm1",
+      "wire": {
+        "breakdown": {
+          "hostname": "breakdown.hostname",
+          "sampledAt": "breakdown.sampledAt",
+          "supported": false,
+          "memory": {
+            "totalBytes": 2,
+            "availableBytes": 2,
+            "swapTotalBytes": 2,
+            "swapFreeBytes": 2
+          },
+          "disk": {
+            "path": "breakdown.disk.path",
+            "totalBytes": 2,
+            "usedBytes": 2,
+            "availableBytes": 2
+          },
+          "agents": [
+            {
+              "sessionId": "breakdown.agents[0].sessionId",
+              "bytes": 2,
+              "processCount": 2
+            }
+          ],
+          "projects": [
+            {
+              "root": "breakdown.projects[0].root",
+              "bytes": 2,
+              "processCount": 2,
+              "topProcesses": [
+                {
+                  "name": "breakdown.projects[0].topProcesses[0].name",
+                  "bytes": 2
+                }
+              ]
+            }
+          ],
+          "otherBytes": 2
+        },
+        "reclaim": {
+          "candidates": [
+            {
+              "issueId": "reclaim.candidates[0].issueId",
+              "title": "reclaim.candidates[0].title",
+              "worktreePath": "reclaim.candidates[0].worktreePath",
+              "closedAt": "reclaim.candidates[0].closedAt",
+              "machineId": "reclaim.candidates[0].machineId",
+              "present": false,
+              "protectedReason": "reclaim.candidates[0].protectedReason"
+            }
+          ],
+          "orphans": [
+            {
+              "path": "reclaim.orphans[0].path",
+              "branch": "reclaim.orphans[0].branch",
+              "headSha": "reclaim.orphans[0].headSha",
+              "machineId": "reclaim.orphans[0].machineId",
+              "repoPath": "reclaim.orphans[0].repoPath"
+            }
+          ],
+          "diagnostics": [
+            {
+              "repoPath": "reclaim.diagnostics[0].repoPath",
+              "machineId": "reclaim.diagnostics[0].machineId",
+              "reason": "reclaim.diagnostics[0].reason"
+            }
+          ],
+          "estimate": {
+            "status": "measuring",
+            "recoverableBytes": null,
+            "measuredAt": null
+          }
+        },
+        "reclaimError": "reclaimError"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"breakdown\":{\"hostname\":\"breakdown.hostname\",\"sampledAt\":\"breakdown.sampledAt\",\"supported\":false,\"memory\":{\"totalBytes\":2,\"availableBytes\":2,\"swapTotalBytes\":2,\"swapFreeBytes\":2},\"disk\":{\"path\":\"breakdown.disk.path\",\"totalBytes\":2,\"usedBytes\":2,\"availableBytes\":2},\"agents\":[{\"sessionId\":\"breakdown.agents[0].sessionId\",\"bytes\":2,\"processCount\":2}],\"projects\":[{\"root\":\"breakdown.projects[0].root\",\"bytes\":2,\"processCount\":2,\"topProcesses\":[{\"name\":\"breakdown.projects[0].topProcesses[0].name\",\"bytes\":2}]}],\"otherBytes\":2},\"reclaim\":{\"candidates\":[{\"issueId\":\"reclaim.candidates[0].issueId\",\"title\":\"reclaim.candidates[0].title\",\"worktreePath\":\"reclaim.candidates[0].worktreePath\",\"closedAt\":\"reclaim.candidates[0].closedAt\",\"machineId\":\"reclaim.candidates[0].machineId\",\"present\":false,\"protectedReason\":\"reclaim.candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"reclaim.orphans[0].path\",\"branch\":\"reclaim.orphans[0].branch\",\"headSha\":\"reclaim.orphans[0].headSha\",\"machineId\":\"reclaim.orphans[0].machineId\",\"repoPath\":\"reclaim.orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"reclaim.diagnostics[0].repoPath\",\"machineId\":\"reclaim.diagnostics[0].machineId\",\"reason\":\"reclaim.diagnostics[0].reason\"}],\"estimate\":{\"status\":\"measuring\",\"recoverableBytes\":null,\"measuredAt\":null}},\"reclaimError\":\"reclaimError\"}"
+    },
+    {
+      "schema": "MachineProcessesPayload",
+      "variant": "full/arm2",
+      "wire": {
+        "breakdown": {
+          "hostname": "breakdown.hostname",
+          "sampledAt": "breakdown.sampledAt",
+          "supported": true,
+          "memory": {
+            "totalBytes": 3,
+            "availableBytes": 3,
+            "swapTotalBytes": 3,
+            "swapFreeBytes": 3
+          },
+          "disk": {
+            "path": "breakdown.disk.path",
+            "totalBytes": 3,
+            "usedBytes": 3,
+            "availableBytes": 3
+          },
+          "agents": [
+            {
+              "sessionId": "breakdown.agents[0].sessionId",
+              "bytes": 3,
+              "processCount": 3
+            }
+          ],
+          "projects": [
+            {
+              "root": "breakdown.projects[0].root",
+              "bytes": 3,
+              "processCount": 3,
+              "topProcesses": [
+                {
+                  "name": "breakdown.projects[0].topProcesses[0].name",
+                  "bytes": 3
+                }
+              ]
+            }
+          ],
+          "otherBytes": 3
+        },
+        "reclaim": {
+          "candidates": [
+            {
+              "issueId": "reclaim.candidates[0].issueId",
+              "title": "reclaim.candidates[0].title",
+              "worktreePath": "reclaim.candidates[0].worktreePath",
+              "closedAt": "reclaim.candidates[0].closedAt",
+              "machineId": "reclaim.candidates[0].machineId",
+              "present": true,
+              "protectedReason": "reclaim.candidates[0].protectedReason"
+            }
+          ],
+          "orphans": [
+            {
+              "path": "reclaim.orphans[0].path",
+              "branch": "reclaim.orphans[0].branch",
+              "headSha": "reclaim.orphans[0].headSha",
+              "machineId": "reclaim.orphans[0].machineId",
+              "repoPath": "reclaim.orphans[0].repoPath"
+            }
+          ],
+          "diagnostics": [
+            {
+              "repoPath": "reclaim.diagnostics[0].repoPath",
+              "machineId": "reclaim.diagnostics[0].machineId",
+              "reason": "reclaim.diagnostics[0].reason"
+            }
+          ],
+          "estimate": {
+            "status": "ready",
+            "recoverableBytes": 3,
+            "measuredAt": "reclaim.estimate.measuredAt"
+          }
+        },
+        "reclaimError": "reclaimError"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"breakdown\":{\"hostname\":\"breakdown.hostname\",\"sampledAt\":\"breakdown.sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":3,\"availableBytes\":3,\"swapTotalBytes\":3,\"swapFreeBytes\":3},\"disk\":{\"path\":\"breakdown.disk.path\",\"totalBytes\":3,\"usedBytes\":3,\"availableBytes\":3},\"agents\":[{\"sessionId\":\"breakdown.agents[0].sessionId\",\"bytes\":3,\"processCount\":3}],\"projects\":[{\"root\":\"breakdown.projects[0].root\",\"bytes\":3,\"processCount\":3,\"topProcesses\":[{\"name\":\"breakdown.projects[0].topProcesses[0].name\",\"bytes\":3}]}],\"otherBytes\":3},\"reclaim\":{\"candidates\":[{\"issueId\":\"reclaim.candidates[0].issueId\",\"title\":\"reclaim.candidates[0].title\",\"worktreePath\":\"reclaim.candidates[0].worktreePath\",\"closedAt\":\"reclaim.candidates[0].closedAt\",\"machineId\":\"reclaim.candidates[0].machineId\",\"present\":true,\"protectedReason\":\"reclaim.candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"reclaim.orphans[0].path\",\"branch\":\"reclaim.orphans[0].branch\",\"headSha\":\"reclaim.orphans[0].headSha\",\"machineId\":\"reclaim.orphans[0].machineId\",\"repoPath\":\"reclaim.orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"reclaim.diagnostics[0].repoPath\",\"machineId\":\"reclaim.diagnostics[0].machineId\",\"reason\":\"reclaim.diagnostics[0].reason\"}],\"estimate\":{\"status\":\"ready\",\"recoverableBytes\":3,\"measuredAt\":\"reclaim.estimate.measuredAt\"}},\"reclaimError\":\"reclaimError\"}"
+    },
+    {
+      "schema": "MachineProcessesWatchInput",
+      "variant": "minimal",
+      "wire": {
+        "roots": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"roots\":[]}"
+    },
+    {
+      "schema": "MachineProcessesWatchInput",
+      "variant": "full",
+      "wire": {
+        "roots": ["roots[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"roots\":[\"roots[0]\"]}"
+    },
+    {
+      "schema": "ReclaimInventoryPayload",
+      "variant": "minimal",
+      "wire": {
+        "candidates": [],
+        "orphans": [],
+        "diagnostics": [],
+        "estimate": {
+          "status": "unknown",
+          "recoverableBytes": null,
+          "measuredAt": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"candidates\":[],\"orphans\":[],\"diagnostics\":[],\"estimate\":{\"status\":\"unknown\",\"recoverableBytes\":null,\"measuredAt\":null}}"
+    },
+    {
+      "schema": "ReclaimInventoryPayload",
+      "variant": "full/arm0",
+      "wire": {
+        "candidates": [
+          {
+            "issueId": "candidates[0].issueId",
+            "title": "candidates[0].title",
+            "worktreePath": "candidates[0].worktreePath",
+            "closedAt": "candidates[0].closedAt",
+            "machineId": "candidates[0].machineId",
+            "present": true,
+            "protectedReason": "candidates[0].protectedReason"
+          }
+        ],
+        "orphans": [
+          {
+            "path": "orphans[0].path",
+            "branch": "orphans[0].branch",
+            "headSha": "orphans[0].headSha",
+            "machineId": "orphans[0].machineId",
+            "repoPath": "orphans[0].repoPath"
+          }
+        ],
+        "diagnostics": [
+          {
+            "repoPath": "diagnostics[0].repoPath",
+            "machineId": "diagnostics[0].machineId",
+            "reason": "diagnostics[0].reason"
+          }
+        ],
+        "estimate": {
+          "status": "unknown",
+          "recoverableBytes": null,
+          "measuredAt": null,
+          "error": "estimate.error"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"candidates\":[{\"issueId\":\"candidates[0].issueId\",\"title\":\"candidates[0].title\",\"worktreePath\":\"candidates[0].worktreePath\",\"closedAt\":\"candidates[0].closedAt\",\"machineId\":\"candidates[0].machineId\",\"present\":true,\"protectedReason\":\"candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"orphans[0].path\",\"branch\":\"orphans[0].branch\",\"headSha\":\"orphans[0].headSha\",\"machineId\":\"orphans[0].machineId\",\"repoPath\":\"orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"diagnostics[0].repoPath\",\"machineId\":\"diagnostics[0].machineId\",\"reason\":\"diagnostics[0].reason\"}],\"estimate\":{\"status\":\"unknown\",\"recoverableBytes\":null,\"measuredAt\":null,\"error\":\"estimate.error\"}}"
+    },
+    {
+      "schema": "ReclaimInventoryPayload",
+      "variant": "full/arm1",
+      "wire": {
+        "candidates": [
+          {
+            "issueId": "candidates[0].issueId",
+            "title": "candidates[0].title",
+            "worktreePath": "candidates[0].worktreePath",
+            "closedAt": "candidates[0].closedAt",
+            "machineId": "candidates[0].machineId",
+            "present": false,
+            "protectedReason": "candidates[0].protectedReason"
+          }
+        ],
+        "orphans": [
+          {
+            "path": "orphans[0].path",
+            "branch": "orphans[0].branch",
+            "headSha": "orphans[0].headSha",
+            "machineId": "orphans[0].machineId",
+            "repoPath": "orphans[0].repoPath"
+          }
+        ],
+        "diagnostics": [
+          {
+            "repoPath": "diagnostics[0].repoPath",
+            "machineId": "diagnostics[0].machineId",
+            "reason": "diagnostics[0].reason"
+          }
+        ],
+        "estimate": {
+          "status": "measuring",
+          "recoverableBytes": null,
+          "measuredAt": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"candidates\":[{\"issueId\":\"candidates[0].issueId\",\"title\":\"candidates[0].title\",\"worktreePath\":\"candidates[0].worktreePath\",\"closedAt\":\"candidates[0].closedAt\",\"machineId\":\"candidates[0].machineId\",\"present\":false,\"protectedReason\":\"candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"orphans[0].path\",\"branch\":\"orphans[0].branch\",\"headSha\":\"orphans[0].headSha\",\"machineId\":\"orphans[0].machineId\",\"repoPath\":\"orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"diagnostics[0].repoPath\",\"machineId\":\"diagnostics[0].machineId\",\"reason\":\"diagnostics[0].reason\"}],\"estimate\":{\"status\":\"measuring\",\"recoverableBytes\":null,\"measuredAt\":null}}"
+    },
+    {
+      "schema": "ReclaimInventoryPayload",
+      "variant": "full/arm2",
+      "wire": {
+        "candidates": [
+          {
+            "issueId": "candidates[0].issueId",
+            "title": "candidates[0].title",
+            "worktreePath": "candidates[0].worktreePath",
+            "closedAt": "candidates[0].closedAt",
+            "machineId": "candidates[0].machineId",
+            "present": true,
+            "protectedReason": "candidates[0].protectedReason"
+          }
+        ],
+        "orphans": [
+          {
+            "path": "orphans[0].path",
+            "branch": "orphans[0].branch",
+            "headSha": "orphans[0].headSha",
+            "machineId": "orphans[0].machineId",
+            "repoPath": "orphans[0].repoPath"
+          }
+        ],
+        "diagnostics": [
+          {
+            "repoPath": "diagnostics[0].repoPath",
+            "machineId": "diagnostics[0].machineId",
+            "reason": "diagnostics[0].reason"
+          }
+        ],
+        "estimate": {
+          "status": "ready",
+          "recoverableBytes": 3,
+          "measuredAt": "estimate.measuredAt"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"candidates\":[{\"issueId\":\"candidates[0].issueId\",\"title\":\"candidates[0].title\",\"worktreePath\":\"candidates[0].worktreePath\",\"closedAt\":\"candidates[0].closedAt\",\"machineId\":\"candidates[0].machineId\",\"present\":true,\"protectedReason\":\"candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"orphans[0].path\",\"branch\":\"orphans[0].branch\",\"headSha\":\"orphans[0].headSha\",\"machineId\":\"orphans[0].machineId\",\"repoPath\":\"orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"diagnostics[0].repoPath\",\"machineId\":\"diagnostics[0].machineId\",\"reason\":\"diagnostics[0].reason\"}],\"estimate\":{\"status\":\"ready\",\"recoverableBytes\":3,\"measuredAt\":\"estimate.measuredAt\"}}"
+    },
+    {
+      "schema": "TopicClientMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicSubscribe",
+        "key": "machine.condition:machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSubscribe\",\"key\":\"machine.condition:machineId\"}"
+    },
+    {
+      "schema": "TopicClientMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "topicSubscribe",
+        "key": "machine.condition:machineId",
+        "from": {
+          "epoch": "from.epoch",
+          "seq": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSubscribe\",\"key\":\"machine.condition:machineId\",\"from\":{\"epoch\":\"from.epoch\",\"seq\":1}}"
+    },
+    {
+      "schema": "TopicClientMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "topicUnsubscribe",
+        "key": "machine.condition:machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUnsubscribe\",\"key\":\"machine.condition:machineId\"}"
+    },
+    {
+      "schema": "TopicClosedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicClosed",
+        "key": "machine.condition:machineId",
+        "reason": "refused"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicClosed\",\"key\":\"machine.condition:machineId\",\"reason\":\"refused\"}"
+    },
+    {
+      "schema": "TopicClosedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicClosed",
+        "key": "machine.condition:machineId",
+        "reason": "refused"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicClosed\",\"key\":\"machine.condition:machineId\",\"reason\":\"refused\"}"
+    },
+    {
+      "schema": "TopicEventMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicEvent",
+        "key": "machine.condition:machineId",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicEvent\",\"key\":\"machine.condition:machineId\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicEventMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicEvent",
+        "key": "machine.condition:machineId",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicEvent\",\"key\":\"machine.condition:machineId\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicKeyField",
+      "variant": "minimal",
+      "wire": "machine.condition:machineId",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"machine.condition:machineId\""
+    },
+    {
+      "schema": "TopicKeyField",
+      "variant": "full",
+      "wire": "machine.condition:machineId",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"machine.condition:machineId\""
+    },
+    {
+      "schema": "TopicPosition",
+      "variant": "minimal",
+      "wire": {
+        "epoch": "epoch",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"epoch\":\"epoch\",\"seq\":1}"
+    },
+    {
+      "schema": "TopicPosition",
+      "variant": "full",
+      "wire": {
+        "epoch": "epoch",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"epoch\":\"epoch\",\"seq\":1}"
+    },
+    {
+      "schema": "TopicPublishMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicPublish",
+        "key": "machine.condition:machineId",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicPublish\",\"key\":\"machine.condition:machineId\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicPublishMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicPublish",
+        "key": "machine.condition:machineId",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicPublish\",\"key\":\"machine.condition:machineId\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicServerMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicSnapshot",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSnapshot\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1}}"
+    },
+    {
+      "schema": "TopicServerMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "topicSnapshot",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "reset": true,
+        "hasOlder": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSnapshot\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1},\"payload\":{\"unknownFixture\":\"payload\"},\"reset\":true,\"hasOlder\":true}"
+    },
+    {
+      "schema": "TopicServerMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "topicUpdate",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 2
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUpdate\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":2},\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicServerMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "topicEvent",
+        "key": "machine.condition:machineId",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicEvent\",\"key\":\"machine.condition:machineId\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicServerMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "topicClosed",
+        "key": "machine.condition:machineId",
+        "reason": "overflow"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicClosed\",\"key\":\"machine.condition:machineId\",\"reason\":\"overflow\"}"
+    },
+    {
+      "schema": "TopicSnapshotMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicSnapshot",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSnapshot\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1}}"
+    },
+    {
+      "schema": "TopicSnapshotMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicSnapshot",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "reset": true,
+        "hasOlder": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSnapshot\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1},\"payload\":{\"unknownFixture\":\"payload\"},\"reset\":true,\"hasOlder\":true}"
+    },
+    {
+      "schema": "TopicSubscribeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicSubscribe",
+        "key": "machine.condition:machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSubscribe\",\"key\":\"machine.condition:machineId\"}"
+    },
+    {
+      "schema": "TopicSubscribeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicSubscribe",
+        "key": "machine.condition:machineId",
+        "from": {
+          "epoch": "from.epoch",
+          "seq": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicSubscribe\",\"key\":\"machine.condition:machineId\",\"from\":{\"epoch\":\"from.epoch\",\"seq\":1}}"
+    },
+    {
+      "schema": "TopicUnsubscribeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicUnsubscribe",
+        "key": "machine.condition:machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUnsubscribe\",\"key\":\"machine.condition:machineId\"}"
+    },
+    {
+      "schema": "TopicUnsubscribeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicUnsubscribe",
+        "key": "machine.condition:machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUnsubscribe\",\"key\":\"machine.condition:machineId\"}"
+    },
+    {
+      "schema": "TopicUpdateMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicUpdate",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUpdate\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1}}"
+    },
+    {
+      "schema": "TopicUpdateMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicUpdate",
+        "key": "machine.condition:machineId",
+        "position": {
+          "epoch": "position.epoch",
+          "seq": 1
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicUpdate\",\"key\":\"machine.condition:machineId\",\"position\":{\"epoch\":\"position.epoch\",\"seq\":1},\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "TopicWatchMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "topicWatch",
+        "key": "machine.condition:machineId",
+        "on": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicWatch\",\"key\":\"machine.condition:machineId\",\"on\":true}"
+    },
+    {
+      "schema": "TopicWatchMessage",
+      "variant": "full",
+      "wire": {
+        "type": "topicWatch",
+        "key": "machine.condition:machineId",
+        "on": true,
+        "input": {
+          "unknownFixture": "input"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"topicWatch\",\"key\":\"machine.condition:machineId\",\"on\":true,\"input\":{\"unknownFixture\":\"input\"}}"
+    }
+  ]
+}
