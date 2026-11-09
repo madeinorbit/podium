@@ -37,6 +37,9 @@ export interface SessionDaemonLifecyclePorts {
   /** Its writes are the daemon's reports (`sessions.daemon`, POD-6601). */
   writer: SessionWriter
   sessions: Map<SessionId, Session>
+  /** Ownership and admission of parked runtime events do not restore a runtime. */
+  readSession?(sessionId: SessionId): Promise<Pick<Session, 'machineId' | 'status'> | undefined>
+  withSession?<T>(sessionId: SessionId, fn: () => Promise<T>): Promise<T>
   /** Sessions read by a durable key, parked ones from the database (POD-6160). */
   records?: Pick<SessionRecordReads, 'withResume'>
   bus: EventBus
@@ -1055,7 +1058,11 @@ export class SessionDaemonLifecycle {
         // notification and chat compatibility frames remain separate consumers
         // until their own vertical slices move; they no longer own board effects
         // for a session that declared the runtime contract.
-        const owner = this.sessions.get(msg.sessionId)
+        // Fine fragments are only useful for a resident runtime. Coarse
+        // events can carry durable evidence for a parked session.
+        const owner =
+          this.sessions.get(msg.sessionId) ??
+          (msg.type === 'runtimeEvent' ? await this.ports.readSession?.(msg.sessionId) : undefined)
         const runtimeEvents = this.ports.runtimeEvents
         if (msg.type === 'runtimeFineEvent') {
           if (owner?.machineId === machineId && runtimeEvents) {
@@ -1104,14 +1111,23 @@ export class SessionDaemonLifecycle {
           if (
             (result.kind === 'accepted' || result.kind === 'duplicate') &&
             msg.event.t === 'process' &&
-            msg.event.ev.ev === 'exited'
+            msg.event.ev.ev === 'exited' &&
+            owner?.status !== 'exited' &&
+            // Hibernation already parked the row. Only a resident terminal
+            // can still need stopOutput; an evicted one has nothing to stop.
+            (owner?.status !== 'hibernated' || this.sessions.has(msg.sessionId))
           ) {
-            await this.handleAgentExit({
-              type: 'agentExit',
-              sessionId: msg.sessionId,
-              code: msg.event.ev.code ?? 0,
-              observerGeneration: msg.event.observerGeneration,
-            })
+            const code = msg.event.ev.code ?? 0
+            const observerGeneration = msg.event.observerGeneration
+            const exit = () =>
+              this.handleAgentExit({
+                type: 'agentExit',
+                sessionId: msg.sessionId,
+                code,
+                observerGeneration,
+              })
+            if (this.ports.withSession) await this.ports.withSession(msg.sessionId, exit)
+            else await exit()
           }
           this.ports.toMachine(machineId, {
             type: 'runtimeEventAck',

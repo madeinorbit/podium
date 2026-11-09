@@ -257,6 +257,98 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
     expectGrantReads(counts, 0)
   })
 
+  it('rejects runtime state for an evicted stopped session with one row read', async () => {
+    await expectConstantStatements(
+      {
+        ...pin(
+          'stopped runtimeEvent',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'stopped-state',
+              event: {
+                t: 'state',
+                change: { kind: 'turn_completed' },
+                at: at(20),
+                provenance: 'bootstrap',
+                cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+                observerGeneration: 2,
+                turnEpoch: 1,
+              },
+            }),
+        ),
+        setup: async (size) => {
+          const f = await fixture(size)
+          await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0 })
+          await f.reg.modules.sessions.flushActivity()
+          f.reg.modules.sessions.residency.sweep()
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+          return f
+        },
+        check: (_result, f) => {
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+        },
+      },
+      1,
+    )
+  })
+
+  it('deduplicates a parked transcript with bounded row, checkpoint and drain reads', async () => {
+    const event = {
+      t: 'item' as const,
+      item: {
+        kind: 'complete' as const,
+        item: { id: 'item', role: 'assistant' as const, text: 'Done', ts: at(20) },
+      },
+      at: at(20),
+      provenance: 'live' as const,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 1 } },
+      observerGeneration: 1,
+      turnEpoch: 0,
+    }
+    await expectConstantStatements(
+      {
+        ...pin(
+          'parked runtime duplicate',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'duplicate',
+              event,
+            }),
+        ),
+        setup: async (size) => {
+          const f = await fixture(size, true)
+          await route(f, {
+            type: 'runtimeEvent',
+            sessionId: f.ids[0],
+            deliveryId: 'original',
+            event,
+          })
+          await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0 })
+          await f.reg.modules.sessions.flushActivity()
+          f.reg.modules.sessions.residency.sweep()
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+          return f
+        },
+        check: (_result, f) => {
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+        },
+      },
+      3,
+    )
+  })
+
   // Every busy session is written in one commit [POD-6175]: one many-row
   // upsert and the projection pass's read of queued messages (its grants read
   // left with POD-6288: tasks are shared). No

@@ -2,7 +2,6 @@ import { type AgentStateEvent, compareProviderCursor } from '@podium/harness/met
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { InteractionEvent } from '@podium/protocol'
-import type { SessionDurableState } from './session'
 import { isRuntimeFineEvent, type RuntimeEvent, type TurnEvent } from '@podium/protocol/daemon'
 import {
   type EventsRepository,
@@ -11,6 +10,7 @@ import {
   type RuntimeEventLogRecord,
 } from '../../store/events'
 import { withOwnOperation } from '../../store/executor/operation-scope'
+import type { SessionDurableState } from './session'
 
 const log = createLogger('server:runtime-event-gate')
 const BOARD_PROJECTOR = 'runtime.board.v1'
@@ -113,6 +113,15 @@ export interface RuntimeEventGatePorts {
     | 'saveRuntimeEventProjectionCursor'
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
+  /** Admission reads the row without restoring a parked runtime (POD-6713). */
+  readSession?(
+    sessionId: SessionId,
+  ): Promise<Pick<RuntimeEventSessionProjection, 'status'> | undefined>
+  /** Hold a runtime only for an admitted write or a pending projection effect. */
+  withSession?<T>(
+    sessionId: SessionId,
+    fn: (session: RuntimeEventSessionProjection | undefined) => Promise<T>,
+  ): Promise<T>
   persist(sessionId: SessionId, additionalWrite: () => void | Promise<void>): Promise<void>
   /** {@link persist} with the session's own durable write applied to the draft
    *  the commit persists [POD-3330]. The transaction body is handed that same
@@ -349,9 +358,12 @@ export class RuntimeEventGate {
     })
   }
 
-  private async recordUnlogged(sessionId: SessionId, event: RuntimeEvent): Promise<RuntimeEventGateResult> {
+  private async recordUnlogged(
+    sessionId: SessionId,
+    event: RuntimeEvent,
+  ): Promise<RuntimeEventGateResult> {
     if (isRuntimeFineEvent(event)) return { kind: 'fine-live-only' }
-    const session = this.ports.session(sessionId)
+    const session = this.ports.session(sessionId) ?? (await this.ports.readSession?.(sessionId))
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
     if (event.t === 'delivery') return await this.applyDelivery(sessionId, event)
     // A delayed provider completion or reattach snapshot describes the old
@@ -379,11 +391,13 @@ export class RuntimeEventGate {
       if (decision.kind === 'rejected') return decision
       if (decision.kind === 'duplicate') {
         if (decision.rebaseGeneration) {
-          await this.ports.persist(sessionId, async () => {
-            await this.ports.events.saveRuntimeEventCheckpoint({
-              ...current,
-              observerGeneration: event.observerGeneration,
-              updatedAt: new Date(this.ports.now()).toISOString(),
+          await this.withSession(sessionId, async () => {
+            await this.ports.persist(sessionId, async () => {
+              await this.ports.events.saveRuntimeEventCheckpoint({
+                ...current,
+                observerGeneration: event.observerGeneration,
+                updatedAt: new Date(this.ports.now()).toISOString(),
+              })
             })
           })
         }
@@ -392,86 +406,99 @@ export class RuntimeEventGate {
       }
     }
 
-    const next: RuntimeEventCheckpoint = {
-      sessionId,
-      observerGeneration: event.observerGeneration,
-      cursor: event.cursor,
-      // Auxiliary workspace/browser events carry the session's identity, not a
-      // turn's: their epoch is ordering only. Never regress the checkpoint's
-      // turnEpoch on a late auxiliary (origin epoch < current after the next
-      // turn started) — that would relabel old work as current and move the
-      // fence other arms read. Take the max so late results admit without
-      // moving the turn lifecycle at all.
-      turnEpoch:
-        event.t === 'workspace' || event.t === 'open-url'
-          ? Math.max(current?.turnEpoch ?? 0, event.turnEpoch)
-          : event.turnEpoch,
-      closedTurnEpoch: closesTurn(event) ? event.turnEpoch : (current?.closedTurnEpoch ?? null),
-      updatedAt: new Date(this.ports.now()).toISOString(),
-    }
-    let eventId = 0
-    let stateProjection: RuntimeStateProjection | undefined
-    let stoppedBeforeWrite = false
-    // BOTH SESSION WRITES LAND ON THE DRAFT THIS COMMIT PERSISTS [POD-3330].
-    // They used to be assigned onto the live session in the two statements
-    // above this one, where a durable failure left them standing and a
-    // concurrent writer could pick them up and commit them.
-    await this.ports.write(
-      sessionId,
-      (draft) => {
-        // Check again on the committed draft: checkpoint reads above yield,
-        // and an explicit stop can park the session while admission is pending.
-        stoppedBeforeWrite = event.t === 'state' &&
-          (draft.status === 'hibernated' || draft.status === 'exited')
-        if (stoppedBeforeWrite) return
-        if (event.t !== 'draft' && event.t !== 'metadata' && event.t !== 'transcript-reset') session.recordRuntimeActivity(event.at, draft)
-        /**
-         * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
-         *
-         * Recorded here rather than in the board projection because it is not a
-         * board effect and must not wait on the oplog drain: an exit frame can
-         * be milliseconds behind the kill, and a session that has already been
-         * stamped `exited` gets its cause corrected by this call. Persisted
-         * with the event in the same session-ledger write.
-         */
-        if (event.t === 'process' && event.ev.ev === 'oomKilled')
-          session.recordOomKill(event.at, draft)
-      },
-      async (draft) => {
-        if (stoppedBeforeWrite) return
-        if (event.t === 'state') {
-          stateProjection = this.ports.state?.({
-            sessionId,
-            change: event.change as AgentStateEvent,
-            at: event.at,
-            draft,
+    return await this.withSession<RuntimeEventGateResult>(sessionId, async (session) => {
+      if (!session) return { kind: 'rejected', reason: 'unknown-session' }
+      const next: RuntimeEventCheckpoint = {
+        sessionId,
+        observerGeneration: event.observerGeneration,
+        cursor: event.cursor,
+        // Auxiliary workspace/browser events carry the session's identity, not a
+        // turn's: their epoch is ordering only. Never regress the checkpoint's
+        // turnEpoch on a late auxiliary (origin epoch < current after the next
+        // turn started) — that would relabel old work as current and move the
+        // fence other arms read. Take the max so late results admit without
+        // moving the turn lifecycle at all.
+        turnEpoch:
+          event.t === 'workspace' || event.t === 'open-url'
+            ? Math.max(current?.turnEpoch ?? 0, event.turnEpoch)
+            : event.turnEpoch,
+        closedTurnEpoch: closesTurn(event) ? event.turnEpoch : (current?.closedTurnEpoch ?? null),
+        updatedAt: new Date(this.ports.now()).toISOString(),
+      }
+      let eventId = 0
+      let stateProjection: RuntimeStateProjection | undefined
+      let stoppedBeforeWrite = false
+      // BOTH SESSION WRITES LAND ON THE DRAFT THIS COMMIT PERSISTS [POD-3330].
+      // They used to be assigned onto the live session in the two statements
+      // above this one, where a durable failure left them standing and a
+      // concurrent writer could pick them up and commit them.
+      await this.ports.write(
+        sessionId,
+        (draft) => {
+          // Check again on the committed draft: checkpoint reads above yield,
+          // and an explicit stop can park the session while admission is pending.
+          stoppedBeforeWrite =
+            event.t === 'state' && (draft.status === 'hibernated' || draft.status === 'exited')
+          if (stoppedBeforeWrite) return
+          if (event.t !== 'draft' && event.t !== 'metadata' && event.t !== 'transcript-reset')
+            session.recordRuntimeActivity(event.at, draft)
+          /**
+           * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
+           *
+           * Recorded here rather than in the board projection because it is not a
+           * board effect and must not wait on the oplog drain: an exit frame can
+           * be milliseconds behind the kill, and a session that has already been
+           * stamped `exited` gets its cause corrected by this call. Persisted
+           * with the event in the same session-ledger write.
+           */
+          if (event.t === 'process' && event.ev.ev === 'oomKilled')
+            session.recordOomKill(event.at, draft)
+        },
+        async (draft) => {
+          if (stoppedBeforeWrite) return
+          if (event.t === 'state') {
+            stateProjection = this.ports.state?.({
+              sessionId,
+              change: event.change as AgentStateEvent,
+              at: event.at,
+              draft,
+            })
+          }
+          eventId = await this.ports.events.appendEvent(
+            {
+              ts: event.at,
+              kind: RUNTIME_EVENT_LOG_KIND,
+              subject: sessionId,
+              payload: event,
+            },
+            { announce: false },
+          )
+          // The session's turn state rides on the checkpoint row, in this same
+          // transaction (POD-6160 D2h): what a parked or restarted session shows.
+          await this.ports.events.saveRuntimeEventCheckpoint({
+            ...next,
+            turnState: draft.agentState ?? current?.turnState ?? null,
           })
-        }
-        eventId = await this.ports.events.appendEvent(
-          {
-            ts: event.at,
-            kind: RUNTIME_EVENT_LOG_KIND,
-            subject: sessionId,
-            payload: event,
-          },
-          { announce: false },
-        )
-        // The session's turn state rides on the checkpoint row, in this same
-        // transaction (POD-6160 D2h): what a parked or restarted session shows.
-        await this.ports.events.saveRuntimeEventCheckpoint({
-          ...next,
-          turnState: draft.agentState ?? current?.turnState ?? null,
-        })
-      },
-    )
-    if (stoppedBeforeWrite) return { kind: 'rejected', reason: 'session-not-running' }
-    this.readySessions.add(sessionId)
-    await this.ports.events.announceEvent(eventId)
-    if (stateProjection) {
-      await this.ports.stateChanged?.({ sessionId, ...stateProjection })
-    }
-    await this.scheduleBoardProjection()
-    return { kind: 'accepted', eventId }
+        },
+      )
+      if (stoppedBeforeWrite) return { kind: 'rejected', reason: 'session-not-running' }
+      this.readySessions.add(sessionId)
+      await this.ports.events.announceEvent(eventId)
+      if (stateProjection) {
+        await this.ports.stateChanged?.({ sessionId, ...stateProjection })
+      }
+      await this.scheduleBoardProjection()
+      return { kind: 'accepted', eventId }
+    })
+  }
+
+  private async withSession<T>(
+    sessionId: SessionId,
+    fn: (session: RuntimeEventSessionProjection | undefined) => Promise<T>,
+  ): Promise<T> {
+    return this.ports.withSession
+      ? await this.ports.withSession(sessionId, fn)
+      : await fn(this.ports.session(sessionId))
   }
 
   /**
@@ -585,7 +612,10 @@ export class RuntimeEventGate {
 
   private async drainBoardProjection(progress: ProjectionProgress): Promise<void> {
     for (;;) {
-      const batch = await this.ports.events.listRuntimeEventsAfter(progress.projected, PROJECTION_BATCH)
+      const batch = await this.ports.events.listRuntimeEventsAfter(
+        progress.projected,
+        PROJECTION_BATCH,
+      )
       for (const record of batch) {
         // One record is one operation of its own (POD-6189): its span, owner
         // check and publication read a row once. Never the operation of the
@@ -740,7 +770,34 @@ export class RuntimeEventGate {
   }
 
   /** `ports` counts its calls: see {@link countingPorts}. */
-  private async projectBoard(record: RuntimeEventLogRecord, ports: RuntimeEventGatePorts): Promise<void> {
+  private async projectBoard(
+    record: RuntimeEventLogRecord,
+    ports: RuntimeEventGatePorts,
+  ): Promise<void> {
+    // These projections use the mutable session. Replayed activity with no
+    // session effect, duplicates and rejections never restore it (POD-6713).
+    const event = record.event
+    const needsSession =
+      (event.t === 'metadata' && ports.metadata) ||
+      (event.t === 'binding' && ports.binding) ||
+      event.t === 'delivery' ||
+      (event.t === 'workspace' && event.ev.ev === 'cwd-changed' && ports.workspace) ||
+      (event.t === 'open-url' && ports.openUrl) ||
+      (event.t === 'turn' && event.ev.ev === 'started' && ports.turn)
+    if (needsSession && ports.withSession) {
+      await ports.withSession(
+        record.sessionId,
+        async () => await this.projectResidentBoard(record, ports),
+      )
+    } else {
+      await this.projectResidentBoard(record, ports)
+    }
+  }
+
+  private async projectResidentBoard(
+    record: RuntimeEventLogRecord,
+    ports: RuntimeEventGatePorts,
+  ): Promise<void> {
     const { event, id: eventId, sessionId } = record
     if (event.t === 'metadata') await ports.metadata?.(sessionId, event)
     if (event.t === 'binding') await ports.binding?.(sessionId, event)

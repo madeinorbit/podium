@@ -9,6 +9,7 @@ import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { RUNTIME_EVENT_LOG_KIND } from '../../store/events'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 
@@ -232,6 +233,12 @@ describe('stopSession [spec:SP-9904]', () => {
           }
         : {}),
     }
+    await reg.modules.sessions.flushActivity()
+    reg.modules.sessions.residency.sweep()
+    expect(reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+    const materialize = vi.spyOn(reg.modules.sessions.residency, 'acquire')
+    const readOffers = vi.spyOn(reg.sessionStore.sessions, 'offersOf')
+
     // The provider's timestamp is old; receipt and notification creation are fresh.
     clock = Date.parse('2026-09-30T15:14:56.000Z')
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -240,6 +247,23 @@ describe('stopSession [spec:SP-9904]', () => {
       deliveryId: 'terminal-after-stop',
       event: delayed,
     })
+    // Repeated late frames must stay on the cheap rejection path. The old
+    // ingress restored and immediately evicted the whole session each time.
+    for (let i = 0; i < 20; i++) {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId,
+        event: delayed,
+      })
+    }
+    expect(materialize).not.toHaveBeenCalled()
+    expect(readOffers).not.toHaveBeenCalled()
+    expect(reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+    expect(
+      daemon.filter(
+        (msg) => msg.type === 'runtimeEventAck' && msg.deliveryId === 'terminal-after-stop',
+      ),
+    ).toHaveLength(1)
     expect(effects).not.toHaveBeenCalled()
     expect(await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual(
       phases,
@@ -257,6 +281,211 @@ describe('stopSession [spec:SP-9904]', () => {
       outcome: 'rejected',
       rejectionReason: 'session-not-running',
     })
+  })
+
+  it('POD-6713: admits late evidence but never restores a parked session for runtime replays or rejections', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    await bindLive(reg, sessionId, '/r')
+    const item: RuntimeEvent = {
+      t: 'item',
+      item: {
+        kind: 'complete',
+        item: {
+          id: 'before-stop',
+          role: 'assistant',
+          text: 'Before stop',
+          ts: '2026-09-30T01:40:00.000Z',
+        },
+      },
+      at: '2026-09-30T01:40:00.000Z',
+      provenance: 'live',
+      cursor: { segmentId: 'parked-replay', components: { seq: 1 } },
+      observerGeneration: 1,
+      turnEpoch: 0,
+    }
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'before-stop',
+      event: item,
+    })
+    expect((await reg.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
+    await reg.modules.sessions.flushActivity()
+    reg.modules.sessions.residency.sweep()
+    expect(reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+    const checkpoint = await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)
+    const materialize = vi.spyOn(reg.modules.sessions.residency, 'acquire')
+    const recordFine = vi.spyOn(reg.modules.sessions.runtimeEventGate, 'record')
+    const readFine = vi.spyOn(reg.sessionStore.sessions, 'loadSession')
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeFineEvent',
+      sessionId,
+      event: { ...item, item: { kind: 'delta', itemId: 'preview', textDelta: 'late fragment' } },
+    })
+    expect(recordFine).not.toHaveBeenCalled()
+    expect(readFine).not.toHaveBeenCalled()
+    recordFine.mockRestore()
+    readFine.mockRestore()
+
+    for (let i = 0; i < 20; i++) {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId,
+        deliveryId: `duplicate-${i}`,
+        event: item,
+      })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId,
+        deliveryId: `stale-${i}`,
+        event: { ...item, observerGeneration: 3 },
+      })
+    }
+    expect(materialize).not.toHaveBeenCalled()
+    expect(reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+    expect(await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)).toEqual(checkpoint)
+    expect(await reg.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+    expect(
+      daemon.filter(
+        (msg) => msg.type === 'runtimeEventAck' && msg.deliveryId.startsWith('duplicate-'),
+      ),
+    ).toHaveLength(20)
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'duplicate-19',
+      outcome: 'committed',
+    })
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'stale-19',
+      outcome: 'rejected',
+      rejectionReason: 'observer-generation-jump',
+    })
+
+    // Transcript and process evidence that really is new still commits after
+    // parking. Its replay then stays on the no-materialization path.
+    const lateItem: RuntimeEvent = {
+      ...item,
+      cursor: { segmentId: 'parked-replay', components: { seq: 2 } },
+      item: {
+        kind: 'complete',
+        item: { id: 'after-stop', role: 'assistant', text: 'Late evidence', ts: item.at },
+      },
+    }
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'late-item',
+      event: lateItem,
+    })
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'late-item',
+      outcome: 'committed',
+    })
+    expect(await reg.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+    expect(materialize).toHaveBeenCalled()
+    materialize.mockClear()
+    reg.modules.sessions.residency.sweep()
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'late-item-replay',
+      event: lateItem,
+    })
+    expect(materialize).not.toHaveBeenCalled()
+    const transcript = await reg.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 10 },
+      { kind: 'user', id: await firstAdminMemberId(reg.sessionStore) },
+    )
+    expect(transcript.items.map((entry) => entry.text)).toContain('Late evidence')
+    expect((await reg.modules.sessions.sessionById(sessionId))?.status).toBe('hibernated')
+
+    // A real late exit is retained as evidence. Once committed, replaying it
+    // cannot restore a hibernated runtime just to stop its absent output.
+    const exit: RuntimeEvent = {
+      t: 'process',
+      ev: { ev: 'exited', code: 0, signal: null, classification: 'clean' },
+      at: item.at,
+      provenance: 'live',
+      cursor: { segmentId: 'parked-replay', components: { seq: 3 } },
+      observerGeneration: 1,
+      turnEpoch: 0,
+    }
+    reg.modules.sessions.residency.sweep()
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'late-exit',
+      event: exit,
+    })
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'late-exit',
+      outcome: 'committed',
+    })
+    expect(await reg.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect((await reg.modules.sessions.sessionById(sessionId))?.status).toBe('hibernated')
+    materialize.mockClear()
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'late-exit-replay',
+      event: exit,
+    })
+    expect(materialize).not.toHaveBeenCalled()
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'late-exit-replay',
+      outcome: 'committed',
+    })
+
+    // Simulate a crash after a metadata event committed but before its
+    // projection. A duplicate delivery must recover that pending effect even
+    // when the affected session has already been evicted.
+    reg.modules.sessions.residency.sweep()
+    const head = await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)
+    if (!head) throw new Error('missing runtime checkpoint')
+    const pending: RuntimeEvent = {
+      ...item,
+      t: 'metadata',
+      change: { kind: 'title', title: 'Recovered metadata', source: 'native' },
+      cursor: { segmentId: 'parked-replay', components: { seq: 4 } },
+    }
+    await reg.sessionStore.events.appendEvent({
+      kind: RUNTIME_EVENT_LOG_KIND,
+      ts: pending.at,
+      subject: sessionId,
+      payload: pending,
+    })
+    await reg.sessionStore.events.saveRuntimeEventCheckpoint({ ...head, cursor: pending.cursor })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'recover-projection',
+      event: lateItem,
+    })
+    await reg.modules.sessions.runtimeEventGate.replayBoardProjection()
+    expect((await reg.sessionStore.sessions.getSession(sessionId))?.title).toBe(
+      'Recovered metadata',
+    )
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'recover-projection',
+      outcome: 'committed',
+    })
+    materialize.mockClear()
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'recovered-replay',
+      event: lateItem,
+    })
+    expect(materialize).not.toHaveBeenCalled()
   })
 
   it('POD-4992: rejects a terminal state when stop wins during the checkpoint read', async () => {

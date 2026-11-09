@@ -917,9 +917,19 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         receipt: event.receipt,
       })
     },
-    delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
+    delivery: (sessionId, event) =>
+      bag.residency.withSession(
+        sessionId,
+        'runtime.delivery',
+        async () => await bag.inbox.deliveryOutcome(sessionId, event),
+      ),
     events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),
+    readSession: async (sessionId) => {
+      const row = await store.sessions.loadSession(sessionId)
+      return row && !row.deletedAt ? { status: row.status as Session['status'] } : undefined
+    },
+    withSession: (sessionId, fn) => bag.residency.withSession(sessionId, 'runtime.event', fn),
     persist: (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
       if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
@@ -1081,19 +1091,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // them at the accepted-event seam so live chat and restart hydration agree.
   // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
   bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
-    if (event.t === 'draft') {
-      await bag.state.handleNativeDraft(sessionId, event.text)
-      return
-    }
     const delta = runtimeTranscriptDeltaFromEvent(event)
-    if (!delta) return
-    const session = bag.sessions.get(sessionId)
-    if (!session) return
-    if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
-      await bag.repository.persist(bag.deps.writers.daemon, session)
-      bag.broadcastSessions()
-    }
-    await bag.daemonProjection.promptTitle(sessionId)
+    if (event.t !== 'draft' && !delta) return
+    await bag.residency.withSession(sessionId, 'runtime.transcript', async () => {
+      if (event.t === 'draft') {
+        await bag.state.handleNativeDraft(sessionId, event.text)
+        return
+      }
+      if (!delta) return
+      const session = bag.sessions.get(sessionId)
+      if (!session) return
+      if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
+        await bag.repository.persist(bag.deps.writers.daemon, session)
+        bag.broadcastSessions()
+      }
+      await bag.daemonProjection.promptTitle(sessionId)
+    })
   })
   /**
    * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.
@@ -1152,6 +1165,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
+    readSession: async (sessionId) => {
+      const row = await store.sessions.loadSession(sessionId)
+      return row && !row.deletedAt
+        ? { machineId: row.machineId, status: row.status as Session['status'] }
+        : undefined
+    },
+    withSession: (sessionId, fn) => bag.residency.withSession(sessionId, 'runtime.exit', fn),
     writer: bag.deps.writers.daemon,
     records: bag.records,
     initializeRuntimeMetadata: async (sessionId, machineId) => {

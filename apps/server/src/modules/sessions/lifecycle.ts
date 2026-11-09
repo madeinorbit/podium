@@ -134,7 +134,6 @@ import type { SessionLifecycleDeps, SessionRestorePlan } from './session-lifecyc
 
 /** Daemon frames that may concern a parked session (POD-6160 D2f). */
 const DAEMON_FRAMES_FOR_PARKED: ReadonlySet<string> = new Set([
-  'runtimeEvent',
   'runtimeQueueDrainAbandoned',
   'agentExit',
   'bind',
@@ -1067,8 +1066,8 @@ export class SessionLifecycle {
   }
   async onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
     // A frame that can concern a parked session holds it while it is handled
-    // (POD-6160 D2f): a runtime event the gate admits for a stopped session, a
-    // late exit, a reattach or kill result, a bind reviving it. A resident one
+    // (POD-6160 D2f): a late exit, a reattach or kill result, a bind reviving
+    // it. Runtime events acquire only after admission (POD-6713). A resident one
     // is held without an await, so a bind still reaches it before yielding.
     const sessionId = DAEMON_FRAMES_FOR_PARKED.has(msg.type)
       ? (msg as { sessionId?: SessionId }).sessionId

@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
-import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { SessionRegistry } from '../../server/src/relay'
+import { assignHostMachine } from '../../server/src/test-support/host-daemon'
 import { buildReport } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
@@ -63,6 +64,7 @@ class FakeSocket extends EventEmitter {
 describe('coarse runtime events across a daemon disconnect', () => {
   it('retains a disconnected coarse event, replays it after reconnect, and retires it on commit ack', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await assignHostMachine(registry.sessionStore)
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const runtimeOutbox = createRuntimeEventOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
@@ -160,7 +162,8 @@ describe('coarse runtime events across a daemon disconnect', () => {
       )
       await settled()
       const at = new Date(
-        Date.parse((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? '') + 1_000,
+        Date.parse((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? '') +
+          1_000,
       ).toISOString()
 
       connection.send({
@@ -281,6 +284,37 @@ describe('coarse runtime events across a daemon disconnect', () => {
           rejectionReason: 'unknown-session',
         },
       ])
+      // A stopped session's late bootstrap must retire from the outbox
+      // without restoring and immediately evicting its runtime (POD-6713).
+      await registry.gateway.routeDaemonFrame(machineId, { type: 'agentExit', sessionId, code: 0 })
+      await settled()
+      await registry.modules.sessions.flushActivity()
+      registry.modules.sessions.residency.sweep()
+      expect(registry.modules.sessions.sessions.has(sessionId)).toBe(false)
+      const materialize = vi.spyOn(registry.modules.sessions.residency, 'acquire')
+      connection.send({
+        type: 'runtimeEvent',
+        deliveryId: 'stopped-bootstrap',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'activity' },
+          at,
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'segment', components: { seq: 4 } },
+          observerGeneration: 3,
+          turnEpoch: 1,
+        },
+      })
+      await settled()
+      expect(runtimeOutbox.pending()).toEqual([])
+      expect(materialize).not.toHaveBeenCalled()
+      expect(receipts.at(-1)).toEqual({
+        deliveryId: 'stopped-bootstrap',
+        outcome: 'rejected',
+        rejectionReason: 'session-not-running',
+      })
+      expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
     } finally {
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       await connection?.close()
