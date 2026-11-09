@@ -28470,80 +28470,80 @@
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/catalogOnOpen/callback/values/flatMap:callback/at/roots",
       "rule": "consume:map",
-      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
+      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
       "gate": [
         "then:b67437359cc6d933009c18ccbe293383e757d58921df18c4fcc650a23e1bdee5"
       ],
       "origin": [
         "3a9380db9a6b18688d0b6fea0b0f24d76020d81151bb8099ce4a72315d8d6bff"
       ],
-      "fingerprint": "822bc8f95d2974cfd43821fed159df312f7822913ef309ee72f524c1b22ecd63",
+      "fingerprint": "aa97b851aa576c753ba3d2335467b0ba30d812a9b461fdfbad6df10548561c40",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5751",
       "trigger": "Picker open action; live repository metadata and membership updates.",
       "bound": "Repository choices present on open; usage reads run only once per opening.",
-      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/catalogOnOpen/callback/values/flatMap:callback/at/roots",
       "rule": "spread",
-      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
+      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
       "gate": [
         "then:b67437359cc6d933009c18ccbe293383e757d58921df18c4fcc650a23e1bdee5"
       ],
       "origin": [
         "3a9380db9a6b18688d0b6fea0b0f24d76020d81151bb8099ce4a72315d8d6bff"
       ],
-      "fingerprint": "8ff1507c88eb62fa7d05af65525c73ce24eaee4f3d8cdda8a5583ed4d9bdeb13",
+      "fingerprint": "b68b23c1bbf89e5f9a19a4aecdb501427c892ea58fb4db682823b8cda98ea6d1",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5751",
       "trigger": "Picker open action; live repository metadata and membership updates.",
       "bound": "Repository choices present on open; usage reads run only once per opening.",
-      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/roots",
       "rule": "consume:map",
-      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
+      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
       "gate": [
         "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
       ],
       "origin": [
         "913c7b630ca5536bda6ed202af5a24f9f154b161133f5fa6867ff0f50072be80"
       ],
-      "fingerprint": "92b8b7186cf833816f99a02a11bcb15e3fce9123f83dcd4deee6114da5d9b29d",
+      "fingerprint": "6bfa137336c6018c780b6e1ddefeec9c2f621d6a6c5ea6e1b5e81211f76ed730",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5751",
       "trigger": "Picker open action; live repository metadata and membership updates.",
       "bound": "Repository choices present on open; usage reads run only once per opening.",
-      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/roots",
       "rule": "spread",
-      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
+      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
       "gate": [
         "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
       ],
       "origin": [
         "913c7b630ca5536bda6ed202af5a24f9f154b161133f5fa6867ff0f50072be80"
       ],
-      "fingerprint": "9bac1ee040f48ad4898cd4a14305ae3044d9f528a9e684cc3b9f621074cae941",
+      "fingerprint": "b3ff6df1177c3209d1da1ed5358a200266d7a18acb363406478db30427a84dc9",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5751",
       "trigger": "Picker open action; live repository metadata and membership updates.",
       "bound": "Repository choices present on open; usage reads run only once per opening.",
-      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
@@ -35310,19 +35310,19 @@
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
-        "then:39ccc6873eeb062048b4ec1f193045af086c221f78f602cc27ff7d68c8ce70b9"
+        "then:1a334caa232cc0d148e1fc22096bcd5d8ac6752d300de5dff666c110919118e6"
       ],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "364b7b6f8c2edad1450210c934b320716ca33ce89b4d834057b33b1fc75be880",
+      "fingerprint": "11cb8ded4e9527253464a7ffb9059e898940b182d17fc039724c96df639b7afc",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
@@ -35331,19 +35331,19 @@
       "rule": "reader-summary",
       "tokens": "5d296c241bf7ee4da3462050366a36b17631abb4cbf3f6cef27cf77ee5758cce",
       "gate": [
-        "then:39ccc6873eeb062048b4ec1f193045af086c221f78f602cc27ff7d68c8ce70b9"
+        "then:1a334caa232cc0d148e1fc22096bcd5d8ac6752d300de5dff666c110919118e6"
       ],
       "origin": [
         "01a5da72dd655f3e1d2c89a8160270ffb8268b9e9c2e3b3fca51b06baf9860d8",
         "71bb9712123dccbe17ac6b43196683e45988758f807374dbf8d32f4d6ca69693"
       ],
-      "fingerprint": "8230af2df3e4f4ba4f0a8c02b93862e22d7202d770f9992adfac370a8e5cf039",
+      "fingerprint": "7051d887a81897347dc2cb81e6edca04d0976166372822963fe7cc911765c78c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
@@ -35369,7 +35369,7 @@
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/machines/computed:callback",
       "rule": "reader-summary",
-      "tokens": "3e5add818f2190ffb5066587a1432141cf84babe069ef4470273f5c3ecff1201",
+      "tokens": "eb242db5073a795ec5bf65ce6a329b6b64923f0572889eed0298e01b48de2151",
       "gate": [
         "else:3c5014aebe0374bed58976c8da15a440a9804025353a0b07d0ff02c3070d42db"
       ],
@@ -35377,13 +35377,13 @@
         "257e63cb72b3926d81735e7b826378cd53639ed3bc74aaba15e6fcdf3c774e35",
         "77275ca7cf481e6ceed3dd8b1d1f87a6d2ec380ca1884747ae113a50b8f77318"
       ],
-      "fingerprint": "9ddfe981136bf07d2ecbb3bfdf303c5fc78f47ddae3fd75106fc98dd49cb125d",
+      "fingerprint": "f9073bdd09255ed2fa0adfe308dec194e76d7a9803bc872419254faf0562462f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
@@ -35509,7 +35509,7 @@
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/machines/computed:callback",
       "rule": "helper-consumer",
-      "tokens": "923057df09240202a1318bb40a2a6a38e3f2db4867dd550e8622924bdad77784",
+      "tokens": "89c7c4f40381c4406db72b2fb2950622715294f062cfe19315fd40031429d694",
       "gate": [
         "else:3c5014aebe0374bed58976c8da15a440a9804025353a0b07d0ff02c3070d42db"
       ],
@@ -35517,20 +35517,20 @@
         "257e63cb72b3926d81735e7b826378cd53639ed3bc74aaba15e6fcdf3c774e35",
         "77275ca7cf481e6ceed3dd8b1d1f87a6d2ec380ca1884747ae113a50b8f77318"
       ],
-      "fingerprint": "127fe0e39623cb23d18ff87e5ce0eb2ca50884d9de3f81346383786969f89067",
+      "fingerprint": "c1e06e1b17c658808a7a67154cab3ba217dd18780820d7f58d4d8e6ef181f743",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/machines/computed:callback",
       "rule": "consume:sort",
-      "tokens": "6e1d84d6c9b1c6faa2f81991e5e2ee8b8b0f341973dae09905f60bd7ba3d2171",
+      "tokens": "7b196398ee34c3f67d66e40abd76754e2f727fced127eb7e8a9807695e884d57",
       "gate": [
         "else:3c5014aebe0374bed58976c8da15a440a9804025353a0b07d0ff02c3070d42db"
       ],
@@ -35538,32 +35538,32 @@
         "257e63cb72b3926d81735e7b826378cd53639ed3bc74aaba15e6fcdf3c774e35",
         "77275ca7cf481e6ceed3dd8b1d1f87a6d2ec380ca1884747ae113a50b8f77318"
       ],
-      "fingerprint": "c679c1c6c89d62738e5effa7d15ea940cd90d491f1edd965e079853a3ea0a71f",
+      "fingerprint": "301b03c275bebf9d7dca5a3cb7b5b35e57d81f1d7be6409cf2836be68a1b1a5f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/machines/computed:callback/facts/callback",
       "rule": "consume:flatMap",
-      "tokens": "c2a86e1a4fa6b4af457c6a05976734f8193af1a15a65be1a8281a68a725aca0a",
+      "tokens": "9404c3afc020a4c12c9edee39916254e4a9d3ff2ddf003f4318877e309791328",
       "gate": [],
       "origin": [
         "257e63cb72b3926d81735e7b826378cd53639ed3bc74aaba15e6fcdf3c774e35",
         "77275ca7cf481e6ceed3dd8b1d1f87a6d2ec380ca1884747ae113a50b8f77318"
       ],
-      "fingerprint": "51f804ace9637201bbd8daf30448acd85c661bd533d16d00d7a216251a466e76",
+      "fingerprint": "a49ef5b726743fdcb02584367946855d015000788b15cf7f567084db691e8036",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-6682: source formatting refreshed this fingerprint; this existing collection path and its reviewed classification are unchanged. No new bound is claimed.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
