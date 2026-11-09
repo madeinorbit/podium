@@ -1,4 +1,5 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
@@ -138,8 +139,9 @@ function corpusPool(scale: 1 | 4, cold = false) {
       summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
     })
     : new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  const ui = memoryUi()
+  const ui = observableFixtureKeys(memoryUi())
   attachPreferenceSource(pool, ui)
+  pool.sources.view('test.missionPreferences', () => ui)
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...rawSessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),

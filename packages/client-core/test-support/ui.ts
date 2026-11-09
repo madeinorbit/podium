@@ -15,6 +15,7 @@ import { observable, runInAction } from 'mobx'
 
 const refreshers = new WeakMap<object, () => void>()
 const disposers = new WeakMap<object, () => void>()
+const fixtureKeyPorts = new WeakMap<UiStore, RoutedUiState>()
 export function disposeFixtureUi(owner: object): void {
   disposers.get(owner)?.()
 }
@@ -87,6 +88,7 @@ export function fixtureUi(keys?: RoutedUiState, ports: Partial<UiStorePorts> = {
     ...ports,
   })
   const dispose = ui.dispose
+  fixtureKeyPorts.set(ui, port)
   Object.defineProperty(ui, 'dispose', { configurable: true, writable: true, value: () => { port.dispose(); dispose() } })
   return ui
 }
@@ -208,12 +210,13 @@ export function addFixtureUi(
     dispose()
   } })
   disposers.set(fake, ui.dispose)
-  fake.deviceState = keys
+  const deviceState = fixtureKeyPorts.get(ui)!
+  fake.deviceState = deviceState
   Object.defineProperties(fake, {
     ui: { configurable: true, enumerable: true, get: () => read(ui) },
     palette: { configurable: true, get: () => read(palette) },
     autoContinueDialog: { configurable: true, get: () => read(autoContinueDialog) },
   })
   fake.transcriptReveals ??= new TranscriptRevealActions()
-  return { ui, palette, autoContinueDialog, deviceState: keys }
+  return { ui, palette, autoContinueDialog, deviceState }
 }
