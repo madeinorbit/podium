@@ -8517,6 +8517,15 @@ a.ref-link--session::before {
   color: var(--text-faint);
   pointer-events: none;
 }
+@media (max-width: 767px) {
+  .settings-entity-trailing {
+    max-width: min(34vw, 10rem);
+    flex-wrap: wrap;
+  }
+  .settings-entity-trailing > [data-slot="badge"] {
+    flex-shrink: 1;
+  }
+}
 
 /* Row-family controls keep their shared columns inside the group. */
 .settings-row {
