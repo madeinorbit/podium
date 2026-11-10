@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { useAgeNow, useCountdown, useDeadlineNow } from '@/lib/clock-hooks'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { workspaceFetch } from '@/lib/workspace-request'
+import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
 import { Section, Subsection } from './shared'
 
@@ -691,6 +692,9 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
   revoke(session: MobileSessionView): Promise<void>
 }) {
   const isConfirming = confirming === session.sessionId
+  const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
+  const warnUnsynced = session.current && unsyncedChangeCount !== null && unsyncedChangeCount > 0
+  const awaitingSyncCount = session.current && unsyncedChangeCount === null
   return (
     <div className="py-3.5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -716,7 +720,9 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
             size="xs"
             variant="destructive"
             className="self-start sm:self-auto"
+            disabled={awaitingSyncCount}
             onClick={() => {
+              if (awaitingSyncCount) return
               confirm(session.sessionId)
             }}
           >
@@ -732,12 +738,23 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
           aria-label={`Confirm revoking ${session.deviceName}`}
           tabIndex={-1}
         >
-          <p className="settings-prose">
-            Revoke <strong>{session.deviceName}</strong>?{' '}
-            {session.current
-              ? 'This is the device you are using now, so it will be signed out immediately.'
-              : 'It will lose access immediately; your other devices stay signed in.'}
-          </p>
+          {warnUnsynced ? (
+            <>
+              <p className="settings-label">Sign out with unsynced changes?</p>
+              <p className="settings-prose mt-1">
+                {unsyncedChangeCount === 1
+                  ? "1 change on this device hasn't synced yet and will be lost."
+                  : `${unsyncedChangeCount} changes on this device haven't synced yet and will be lost.`}
+              </p>
+            </>
+          ) : (
+            <p className="settings-prose">
+              Revoke <strong>{session.deviceName}</strong>?{' '}
+              {session.current
+                ? 'This is the device you are using now, so it will be signed out immediately.'
+                : 'It will lose access immediately; your other devices stay signed in.'}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
@@ -745,9 +762,10 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
               variant="destructive"
               pending={revoking === session.sessionId}
               pendingLabel="Revoking…"
+              disabled={awaitingSyncCount}
               onClick={() => void revoke(session)}
             >
-              Revoke device
+              {warnUnsynced ? 'Sign out anyway' : 'Revoke device'}
             </Button>
             <Button
               type="button"
@@ -758,7 +776,7 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
                 confirm(null)
               }}
             >
-              Cancel
+              {warnUnsynced ? 'Wait' : 'Cancel'}
             </Button>
           </div>
           {revokeError && (

@@ -5,6 +5,7 @@ import type {
   MobilePairStatusResponse,
 } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ConnectedDevicesSection,
@@ -13,12 +14,19 @@ import {
   mobileServerUrl,
 } from './connected-devices'
 
+const sync = observable({ unsyncedChangeCount: 0 as number | null })
+vi.mock('../readers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../readers')>()),
+  useSettingsUnsyncedChangeCount: () => sync.unsyncedChangeCount,
+}))
+
 vi.mock('qrcode.react', () => ({
   QRCodeSVG: ({ value }: { value: string }) => <span data-testid="pairing-qr" data-value={value} />,
 }))
 
 afterEach(() => {
   cleanup()
+  sync.unsyncedChangeCount = 0
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -407,6 +415,65 @@ describe('ConnectedDevicesSection', () => {
       screen.getByText(/you are using now, so it will be signed out immediately/i),
     ).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(confirmation))
+  })
+
+  it('guards current-device revocation with the sign-out warning without blocking other devices', async () => {
+    const api = pairingApi()
+    const currentId = 'c'.repeat(24)
+    vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
+      mobileSession({ sessionId: currentId, current: true, deviceName: 'This browser' }),
+      mobileSession(),
+    ])
+    sync.unsyncedChangeCount = 2
+    render(<ConnectedDevicesSection api={api} />)
+    await screen.findByText('This browser')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0] as HTMLButtonElement)
+    expect(screen.getByText('Sign out with unsynced changes?')).toBeTruthy()
+    expect(
+      screen.getByText("2 changes on this device haven't synced yet and will be lost."),
+    ).toBeTruthy()
+    expect(api.auth.revokeMobileSession.mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Wait' }))
+    expect(api.auth.revokeMobileSession.mutate).not.toHaveBeenCalled()
+
+    act(() =>
+      runInAction(() => {
+        sync.unsyncedChangeCount = null
+      }),
+    )
+    const [current, other] = screen.getAllByRole<HTMLButtonElement>('button', { name: 'Revoke' })
+    if (!current || !other) throw new Error('Expected both device controls')
+    expect(current.disabled).toBe(true)
+    expect(other.disabled).toBe(false)
+    fireEvent.click(current)
+    expect(screen.queryByRole('group', { name: 'Confirm revoking This browser' })).toBeNull()
+    fireEvent.click(other)
+    expect(screen.getByText(/your other devices stay signed in/)).toBeTruthy()
+    expect(screen.queryByText('Sign out with unsynced changes?')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
+    await waitFor(() =>
+      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({
+        sessionId: 'a'.repeat(24),
+      }),
+    )
+    await waitFor(() => expect(screen.queryByText('Travel phone')).toBeNull())
+
+    act(() =>
+      runInAction(() => {
+        sync.unsyncedChangeCount = 1
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    expect(
+      screen.getByText("1 change on this device hasn't synced yet and will be lost."),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out anyway' }))
+    await waitFor(() =>
+      expect(api.auth.revokeMobileSession.mutate).toHaveBeenLastCalledWith({
+        sessionId: currentId,
+      }),
+    )
+    expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledTimes(2)
   })
 
   it('ignores a stale session load after a newer request has settled', async () => {
