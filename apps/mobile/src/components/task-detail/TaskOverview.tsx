@@ -13,7 +13,7 @@ import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
-import { ArtifactViewer } from '../ArtifactViewer'
+import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
 import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -255,8 +255,19 @@ export const ArtifactStrip = observer(function ArtifactStrip({
   const profile = useOptionalServerProfile()
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
   const [all, setAll] = useState(false)
+  const [openKey, setOpenKey] = useState<string | null>(null)
   const artifacts = issue.panel?.artifacts ?? []
   if (artifacts.length === 0) return null
+  // The viewer pages through every openable artifact ("2 of 3"), not just the
+  // five the strip draws, so a swipe reaches the rest.
+  const items: ArtifactViewerItem[] = artifacts
+    .map((artifact) => ({
+      key: `${artifact.path}@${artifact.addedAt}`,
+      artifact,
+      url: issueArtifactHref(issue, artifact, httpOrigin, workspace),
+    }))
+    .filter((item) => item.url !== null)
+  const openIndex = items.findIndex((item) => item.key === openKey)
   return (
     <View testID="task-artifacts">
       <GroupHeading
@@ -285,15 +296,22 @@ export const ArtifactStrip = observer(function ArtifactStrip({
           style={styles.card}
           contentContainerStyle={styles.strip}
         >
-          {artifacts.slice(0, STRIP).map((artifact) => (
-            <Thumbnail
-              key={`${artifact.addedAt}:${artifact.path}`}
-              artifact={artifact}
-              url={issueArtifactHref(issue, artifact, httpOrigin, workspace)}
-            />
-          ))}
+          {artifacts.slice(0, STRIP).map((artifact) => {
+            const key = `${artifact.path}@${artifact.addedAt}`
+            return (
+              <Thumbnail
+                key={key}
+                artifact={artifact}
+                url={issueArtifactHref(issue, artifact, httpOrigin, workspace)}
+                onOpen={() => setOpenKey(key)}
+              />
+            )
+          })}
         </ScrollView>
       )}
+      {openIndex >= 0 ? (
+        <ArtifactViewer items={items} index={openIndex} onClose={() => setOpenKey(null)} />
+      ) : null}
     </View>
   )
 })
@@ -301,13 +319,14 @@ export const ArtifactStrip = observer(function ArtifactStrip({
 const Thumbnail = observer(function Thumbnail({
   artifact,
   url,
+  onOpen,
 }: {
   artifact: IssuePanelArtifact
   url: string | null
+  onOpen: () => void
 }) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
-  const [open, setOpen] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
   const label = issueArtifactLabel(artifact)
   const image = url !== null && !broken && kind === 'image'
@@ -317,7 +336,7 @@ const Thumbnail = observer(function Thumbnail({
         accessibilityRole={url ? 'button' : undefined}
         accessibilityLabel={url ? `Open ${label}` : label}
         disabled={!url}
-        onPress={() => setOpen(true)}
+        onPress={onOpen}
         style={({ pressed }) => [styles.thumb, pressed && styles.buttonPressed]}
       >
         {image ? (
@@ -336,9 +355,6 @@ const Thumbnail = observer(function Thumbnail({
           </View>
         )}
       </PressableScale>
-      {open ? (
-        <ArtifactViewer artifact={artifact} url={url} onClose={() => setOpen(false)} />
-      ) : null}
     </>
   )
 })

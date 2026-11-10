@@ -10,7 +10,7 @@ import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
-import { ArtifactViewer } from '../ArtifactViewer'
+import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
 import { Icon } from '../Icon'
 import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -47,9 +47,19 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
 
+  const [openKey, setOpenKey] = useState<string | null>(null)
   const artifacts = only === 'deferred' ? [] : (issue.panel?.artifacts ?? [])
   const deferred = only === 'artifacts' ? [] : (issue.panel?.deferred ?? [])
   if (artifacts.length === 0 && deferred.length === 0) return null
+  // One viewer for the whole list, so it pages ("2 of 3") between artifacts.
+  const items: ArtifactViewerItem[] = artifacts
+    .map((artifact) => ({
+      key: `${artifact.path}@${artifact.addedAt}`,
+      artifact,
+      url: issueArtifactHref(issue, artifact, httpOrigin, workspace),
+    }))
+    .filter((item) => item.url !== null)
+  const openIndex = items.findIndex((item) => item.key === openKey)
 
   return (
     <View testID="issue-panel-sections">
@@ -63,8 +73,12 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
               key={`${a.addedAt}:${a.path}`}
               artifact={a}
               url={issueArtifactHref(issue, a, httpOrigin, workspace)}
+              onOpen={() => setOpenKey(`${a.path}@${a.addedAt}`)}
             />
           ))}
+          {openIndex >= 0 ? (
+            <ArtifactViewer items={items} index={openIndex} onClose={() => setOpenKey(null)} />
+          ) : null}
         </View>
       ) : null}
 
@@ -94,13 +108,14 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
 const ArtifactRow = observer(function ArtifactRow({
   artifact,
   url,
+  onOpen,
 }: {
   artifact: IssuePanelArtifact
   url: string | null
+  onOpen: () => void
 }) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
-  const [open, setOpen] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
   const label = issueArtifactLabel(artifact)
   const previewable = url !== null && !broken && (kind === 'image' || kind === 'video')
@@ -112,7 +127,7 @@ const ArtifactRow = observer(function ArtifactRow({
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Open ${label}`}
-          onPress={() => setOpen(true)}
+          onPress={onOpen}
           style={({ pressed }) => [styles.figure, pressed && styles.rowPressed]}
         >
           <Image
@@ -136,7 +151,7 @@ const ArtifactRow = observer(function ArtifactRow({
           accessibilityRole={canOpen ? 'button' : undefined}
           accessibilityLabel={canOpen ? `Open ${label}` : label}
           disabled={!canOpen}
-          onPress={canOpen ? () => setOpen(true) : undefined}
+          onPress={canOpen ? onOpen : undefined}
           style={({ pressed }) => [styles.fileRow, pressed && styles.rowPressed]}
         >
           <Icon as={kind === 'video' ? Play : FileText} size={15} color={color.textDim} />
@@ -148,9 +163,6 @@ const ArtifactRow = observer(function ArtifactRow({
           </Text>
         </PressableScale>
       )}
-      {open ? (
-        <ArtifactViewer artifact={artifact} url={url} onClose={() => setOpen(false)} />
-      ) : null}
     </>
   )
 })
