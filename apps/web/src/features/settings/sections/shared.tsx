@@ -1,15 +1,16 @@
-import { AUTO, modelOptions } from '@podium/client-core/agent-models'
-import type { MachineModel } from '@podium/client-graph'
+import { observer } from 'mobx-react-lite'
+import { useSettingsRowId } from '../settings-anchors'
 /**
  * Shared building blocks for the settings sections (P5d, issue #264): the
  * Section/Row layout primitives, the account/provider label helpers, and the
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { type AccountId, asAccountId } from '@podium/model/browser'
-import type { HarnessDescriptorWire } from '@podium/protocol'
+import {
+  type AccountId,
+  asAccountId,
+} from '@podium/model/browser'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
-import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
 import {
@@ -19,12 +20,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
-import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
+import type { HarnessDescriptorWire } from '@podium/protocol'
+import { AUTO, modelOptions } from '@podium/client-core/agent-models'
+import type { MachineModel } from '@podium/client-graph'
 import { useModelCatalogState } from '@/lib/use-model-catalog'
 import { useSettingsAuthorizedMachines } from '../readers'
-import { useSettingsRowId } from '../settings-anchors'
+import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
+import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 
 export function Section({
   title,
@@ -96,7 +99,6 @@ export function Row({
 
 /** One row from `accounts.list` — a native CLI login or a managed API key. */
 export type { AccountView } from '@podium/model'
-
 import type { AccountView } from '@podium/model'
 
 export function providerLabel(p: ApiProvider): string {
@@ -362,7 +364,7 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
     ? backend.accountId
     : fallbackAccountId && options.some((option) => option.id === fallbackAccountId)
       ? fallbackAccountId
-      : options[0]?.id || asAccountId('native:claude-code')
+      : (options[0]?.id || asAccountId('native:claude-code'))
   const selectedOption = options.find((option) => option.id === accountId)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedStatus =
@@ -423,8 +425,8 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
       </>
     ) : accountId === 'native:codex' ? (
       <>
-        Uses the ChatGPT login (<code>codex login</code>) on the machine the catalog names — no API
-        key; it uses your plan&apos;s included Codex capacity while limits allow.
+        Uses the ChatGPT login (<code>codex login</code>) on the machine the catalog names — no
+        API key; it uses your plan&apos;s included Codex capacity while limits allow.
       </>
     ) : isNative ? (
       <>
@@ -433,9 +435,9 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
       </>
     ) : codingHarnesses.length > 0 ? (
       <>
-        Podium runs {managedHarness ? harnessAgentLabel(managedHarness, undefined) : 'a'} harness
-        and injects the credential you connected under Accounts into its environment — so this
-        session runs on that account from any connected machine.
+        Podium runs {managedHarness ? harnessAgentLabel(managedHarness, undefined) : 'a'} harness and injects
+        the credential you connected under Accounts into its environment — so this session runs on
+        that account from any connected machine.
       </>
     ) : (
       <>
@@ -526,12 +528,8 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
         harness &&
         backend.model &&
         backend.model !== AUTO && (
-          <ModelAvailabilityWarning
-            harness={harness}
-            model={backend.model}
-            descriptors={descriptors}
-          />
-        )}
+        <ModelAvailabilityWarning harness={harness} model={backend.model} descriptors={descriptors} />
+      )}
       {showModelEffort && (
         <Row label={asDefault ? 'Default effort' : 'Effort'}>
           <EffortPicker

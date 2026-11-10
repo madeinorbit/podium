@@ -1,4 +1,5 @@
 import { observer } from 'mobx-react-lite'
+import { settingsRowId } from '../page-definitions'
 /**
  * Settings → Privacy [spec:SP-f933] — the web half of `podium telemetry`.
  *
@@ -16,11 +17,11 @@ import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { DiagnosticLoggingSubsection } from './diagnostic-logging'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
+import { DiagnosticLoggingSubsection } from './diagnostic-logging'
 import { Row, Section } from './shared'
 
 /** Inlined so the web bundle never imports @podium/telemetry (node:fs/crypto).
@@ -148,7 +149,12 @@ export const PrivacySection = observer(function PrivacySection({
 
       {state &&
         TIERS.map((tier) => (
-          <div key={tier.key} className="settings-row">
+          <div
+            key={tier.key}
+            id={settingsRowId('privacy', tier.name)}
+            className="settings-row"
+            tabIndex={-1}
+          >
             <div className="min-w-0">
               <span className="settings-label">{tier.name}</span>
               <p className="settings-prose mt-1">{tier.description}</p>

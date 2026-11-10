@@ -15524,9 +15524,7 @@ button.waterfall-fold:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-search-highlight {
-    animation: none;
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    animation: settings-search-flash 1400ms steps(1);
   }
 }
 @media (max-width: 759px) {

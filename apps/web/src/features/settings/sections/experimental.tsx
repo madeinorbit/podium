@@ -1,4 +1,5 @@
 import { observer } from 'mobx-react-lite'
+import { settingsRowId } from '../page-definitions'
 /**
  * Settings → Experimental [spec:SP-f4b9]: listed feature flags with user
  * toggles. Enablement edits patch the settings blob and ride Save.
@@ -57,7 +58,12 @@ export const ExperimentalSection = observer(function ExperimentalSection({
         const checked = flag.locked ? flag.enabled : (settings.experimental?.[flag.id] ?? false)
         const showDevBadge = Boolean(state?.devMode && isDevOnlyListed(flag, channel))
         return (
-          <div key={flag.id} className="settings-row">
+          <div
+            key={flag.id}
+            id={settingsRowId('experimental', flag.name)}
+            className="settings-row"
+            tabIndex={-1}
+          >
             <div className="min-w-0">
               <span className="settings-label inline-flex flex-wrap items-center gap-1.5">
                 {flag.name}

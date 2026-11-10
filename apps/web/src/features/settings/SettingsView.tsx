@@ -681,6 +681,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   return (
     <SettingsFrame
       page={tab}
+      selectedPage={settingsTab !== null}
       onPageChange={setSettingsTab}
       onClose={requestClose}
       viewer={adminViewer}

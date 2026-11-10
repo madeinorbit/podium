@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { SettingsPage } from '@podium/client-core/ui-state'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SETTINGS_PAGES, searchSettings } from './page-definitions'
 import { Row } from './sections/shared'
@@ -143,4 +145,75 @@ describe('settings search catalog', () => {
     for (const page of SETTINGS_PAGES)
       expect(searchSettings(page.label, [page]).length).toBeGreaterThan(0)
   })
+})
+
+it('waits for a lazy page before revealing its search target', async () => {
+  const pending = Promise.withResolvers<{ default: () => React.JSX.Element }>()
+  const Content = lazy(() => pending.promise)
+  function LazyHarness() {
+    const [page, setPage] = useState<SettingsPage>('agents')
+    return (
+      <SettingsFrame
+        page={page}
+        viewer={admin}
+        onPageChange={(next) => setPage(next ?? 'agents')}
+        onClose={vi.fn()}
+      >
+        {page === 'projects' && (
+          <Suspense fallback={<p>Loading project controls…</p>}>
+            <Content />
+          </Suspense>
+        )}
+      </SettingsFrame>
+    )
+  }
+  render(<LazyHarness />)
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Default parent branch' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Default parent branch Projects' }))
+  expect(screen.getByText('Loading project controls…')).toBeTruthy()
+  await act(async () =>
+    pending.resolve({
+      default: () => (
+        <SettingsPageSection id="workflow">
+          <Row label="Default parent branch">
+            <input />
+          </Row>
+        </SettingsPageSection>
+      ),
+    }),
+  )
+  await waitFor(() =>
+    expect(document.activeElement?.id).toBe('settings-workflow-default-parent-branch'),
+  )
+})
+
+it('keeps every static legacy Row label in the page catalog', () => {
+  const files: Record<string, string> = {
+    sessions: 'agents',
+    superagent: 'agents',
+    workllm: 'agents',
+    appearance: 'appearance',
+    tips: 'appearance',
+    notifications: 'notifications',
+    hibernation: 'machines',
+    workflow: 'projects',
+    network: 'access',
+    access: 'access',
+    privacy: 'privacy',
+    'diagnostic-logging': 'privacy',
+    updates: 'updates',
+  }
+  let counted = 0
+  for (const [file, pageId] of Object.entries(files)) {
+    const source = readFileSync(resolve(import.meta.dirname, 'sections', `${file}.tsx`), 'utf8')
+    const page = SETTINGS_PAGES.find((entry) => entry.key === pageId)!
+    for (const match of source.matchAll(/<Row\s+label="([^"]+)"/g)) {
+      counted += 1
+      expect(
+        page.rows.some((entry) => entry.rowLabel === match[1]),
+        `${file}: ${match[1]}`,
+      ).toBe(true)
+    }
+  }
+  expect(counted).toBeGreaterThan(40)
 })

@@ -1,4 +1,5 @@
 import type { SettingsPage } from '@podium/client-core/ui-state'
+import { FEATURES } from '@podium/protocol'
 import {
   Bell,
   Bot,
@@ -247,11 +248,11 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       row('appearance', 'Line height', 'Spacing between terminal lines.', 'terminal text leading'),
       row('appearance', 'Font family', 'The terminal typeface.', 'terminal monospace typography'),
       row('appearance', 'Background', 'Terminal background colour.', 'terminal color colour'),
-      section(
+      row(
         'appearance',
-        'Tips',
-        'Contextual help and dismissed tips.',
-        'reset restore guidance',
+        'Show tips',
+        'First Flights explains Podium as you go. Saved to your account; turning tips on keeps your progress.',
+        'reset restore guidance contextual help',
       ),
     ],
   },
@@ -373,7 +374,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     label: 'Projects',
     group: 'workspace',
     icon: Folder,
-    description: 'Repositories, their checkouts, and how tasks branch and land.',
+    description: 'The repositories Podium works in, and how tasks branch, land and get cleaned up.',
     keywords: 'repos repositories git workflow base parent branch merge',
     rows: [
       section(
@@ -458,6 +459,48 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'How browsers, phones and machines reach Podium.',
         'server url network public local tunnel cloudflare port hostname https',
       ),
+      section(
+        'network',
+        'Podium URL',
+        'The address phones, browsers and machines use to reach this server.',
+        'public url network tunnel own domain tailscale',
+      ),
+      row(
+        'network',
+        'Public URL',
+        'The server’s public address, when configured by the deployment.',
+        'network address',
+      ),
+      row(
+        'network',
+        'Tunnel',
+        'The current health of the workspace tunnel.',
+        'cloudflare restarting status',
+      ),
+      row(
+        'network',
+        'Connected to',
+        'The server this machine connects to.',
+        'worker daemon client url',
+      ),
+      row(
+        'network',
+        'Stable link (bookmark this)',
+        'Always opens this server, even after its address changes.',
+        'connect bookmark',
+      ),
+      row(
+        'network',
+        'Web app URL',
+        'Browsers and desktop apps are sent here for the interface; this server answers the API.',
+        'split hosting app url',
+      ),
+      row(
+        'network',
+        'Allowed browser origins',
+        'Sites allowed to sign in to this server from another origin.',
+        'cors security allow list',
+      ),
       row(
         'access',
         'Admission',
@@ -505,13 +548,13 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     description: 'What leaves this workspace. Prompts, code, paths and agent output never do.',
     keywords: 'telemetry diagnostics consent transcripts mirror',
     rows: [
-      section(
+      row(
         'privacy',
-        'Usage analytics',
+        'Anonymous usage reports',
         'Choose whether anonymous usage data leaves this workspace.',
         'telemetry consent install id opt out',
       ),
-      section(
+      row(
         'privacy',
         'Crash reports',
         'Choose whether to share crash diagnostics.',
@@ -522,6 +565,18 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'Mirror transcripts to this server',
         'Keeps a copy of each session’s transcript here so it stays searchable after the machine that ran it goes away.',
         'lake search storage retention copy',
+      ),
+      row(
+        'privacy',
+        'Detail level',
+        'Choose how much diagnostic detail Podium records and forwards to your server.',
+        'log level debug info warn error privacy',
+      ),
+      row(
+        'privacy',
+        'Temporary change',
+        'Returns to the boot logging level by itself. Nothing is saved.',
+        'logging diagnostic expiry reset',
       ),
     ],
   },
@@ -546,11 +601,59 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'See available versions and update machines.',
         'upgrade install rollback server daemon fleet',
       ),
-      section(
+      row(
         'updates',
-        'Diagnostic logging',
-        'Choose how much diagnostic detail Podium records.',
-        'log level debug info warn error',
+        'Fleet default channel',
+        'Machines follow this unless one has been pinned to its own source.',
+        'stable edge dev update channel',
+      ),
+      row(
+        'updates',
+        'Target version',
+        'The version this server is asking its places to run.',
+        'fleet current update',
+      ),
+      row(
+        'updates',
+        'Development release',
+        'A landed commit is proposed for the fleet first. Approval builds and publishes it; rollout remains the normal update offer.',
+        'approval dev release publish',
+      ),
+      row(
+        'updates',
+        'Update channels',
+        'Podium checks each channel daily. What it heard, and when.',
+        'stable edge versions',
+      ),
+      row(
+        'updates',
+        'Repair payload',
+        'Re-download the current server, daemon, and web payload through the normal fleet update path.',
+        'repair reinstall download',
+      ),
+      row(
+        'updates',
+        'Machines',
+        'Each machine’s reported version compared with the target. Podium never applies an update on its own.',
+        'fleet daemon version',
+      ),
+      row(
+        'updates',
+        'Recent updates',
+        'The last update operations this server ran, and how they ended.',
+        'history results completed',
+      ),
+      row(
+        'updates',
+        'Running version',
+        'The Podium version this workspace runs.',
+        'server daemon app release',
+      ),
+      row(
+        'updates',
+        'Update disk space',
+        'Disk space used by update artifacts.',
+        'storage cleanup downloads',
       ),
     ],
   },
@@ -559,9 +662,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     label: 'Labs',
     group: 'workspace',
     icon: FlaskConical,
-    description: 'Features that are still finding their shape. Turn one off to go back.',
+    description: 'Features still being built. They can change or disappear between versions.',
     keywords: 'experimental feature flags preview development',
     rows: [
+      ...FEATURES.filter((flag) => flag.visibility !== 'hidden').map((flag) =>
+        row('experimental', flag.name, flag.description, flag.id),
+      ),
       section(
         'experimental',
         'Experimental features',

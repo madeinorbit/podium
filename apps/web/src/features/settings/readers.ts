@@ -104,7 +104,7 @@ const readTab = (pool: MobxPool) => {
   return loaded(row) ? row.settingsTab : 'agents'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
-  return useWorklistPoolProjection(readTab, 'sessions')
+  return useWorklistPoolProjection(readTab, 'agents')
 }
 
 export function useSettingsSessionPresent(id: string | null): boolean {

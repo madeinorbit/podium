@@ -226,7 +226,7 @@ function MachinesPanelView({
     void pairing.mint()
   }
 
-  // Jump to Settings → Network to change the server's reachable URL.
+  // Jump to Settings → Access to change the server's reachable URL.
   const goChangeUrl = (): void => {
     setAddOpen(false)
     setSettingsTab('access')
@@ -680,7 +680,7 @@ function PairingCodeDisplay({
         {publicUrl && (
           // Which URL the join code points at — the #1 thing that goes wrong (a
           // throwaway tunnel URL). It sits above the command because it is what
-          // the command will dial. One click to change it in Settings → Network.
+          // the command will dial. One click to change it in Settings → Access.
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="settings-micro flex-none">Server URL this code points at</span>
             <code className="settings-value min-w-0 break-all">{publicUrl}</code>
@@ -1344,7 +1344,10 @@ const MachineRow = observer(function MachineRow({
 
             <ul className="settings-micro mt-1 space-y-0.5" aria-label="Recorded harness versions">
               {(machine.harnessVersions ?? []).map((row) => (
-                <li key={row.harness} title={`First seen ${row.firstSeen}`}>
+                <li
+                  key={row.harness}
+                  title={`First seen ${row.firstSeen}`}
+                >
                   <span className="font-mono">
                     {row.harness} {row.version}
                   </span>

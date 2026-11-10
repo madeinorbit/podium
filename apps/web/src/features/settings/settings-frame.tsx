@@ -38,7 +38,11 @@ interface FrameActions {
 }
 const FrameContext = createContext<FrameActions | null>(null)
 
-/** Page tasks open details/flows in the pane, with the rail and sheet intact. */
+/** Page tasks open details/flows in the pane, with the rail and sheet intact.
+ * `openTakeover({ title: 'Add project', content: <ProjectFlow /> })` replaces
+ * the pane; `closeTakeover()` returns to the page. Keep form state in the flow.
+ * Page actions render with `<SettingsPageActions><Button … /></SettingsPageActions>`.
+ */
 export function useSettingsFrame(): FrameActions {
   const frame = useContext(FrameContext)
   if (!frame) throw new Error('Settings page must be inside SettingsFrame')
@@ -48,8 +52,9 @@ export function useSettingsFrame(): FrameActions {
 /** Place a real page action (Add machine, Add project, Invite) in its header.
  * A portal keeps the handler and form state owned by the page. */
 export function SettingsPageActions({ children }: { children: ReactNode }) {
-  const { actionSlot } = useSettingsFrame()
-  return actionSlot ? createPortal(children, actionSlot) : null
+  const frame = useContext(FrameContext)
+  if (!frame) return <>{children}</>
+  return frame.actionSlot ? createPortal(children, frame.actionSlot) : null
 }
 
 export function SettingsTakeover({
@@ -110,6 +115,7 @@ function isTyping(target: EventTarget | null): boolean {
 
 export function SettingsFrame({
   page,
+  selectedPage,
   onPageChange,
   onClose,
   viewer,
@@ -118,6 +124,7 @@ export function SettingsFrame({
   children,
 }: {
   page: SettingsPage
+  selectedPage?: boolean
   onPageChange: (page: SettingsPage | null) => void
   onClose: () => void
   viewer: AdminViewer
@@ -132,10 +139,11 @@ export function SettingsFrame({
   const results = searchSettings(query, pages)
   const searching = query.trim().length > 0
   const [selectedResult, setSelectedResult] = useState(0)
-  const [phonePage, setPhonePage] = useState(() =>
-    // /settings starts at the rail on a phone; a deep link starts at its page.
-    /\/settings\/[^/]+\/?$/.test(window.location.pathname),
-  )
+  const [phonePage, setPhonePage] = useState(selectedPage ?? false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: browser history restores the page/rail screen too.
+  useEffect(() => {
+    if (selectedPage !== undefined) setPhonePage(selectedPage)
+  }, [selectedPage, page])
   const [flow, setFlow] = useState<(Takeover & { page: SettingsPage }) | null>(null)
   const takeover = flow?.page === page ? flow : null
   const [actionSlot, setActionSlot] = useState<HTMLDivElement | null>(null)
@@ -167,7 +175,7 @@ export function SettingsFrame({
     onPageChange(next)
   }
   const openResult = (result: SettingsSearchResult) => {
-    setJump(result)
+    setJump(result.targetId ? result : null)
     openPage(result.page.key)
   }
   const showRail = () => {
@@ -211,7 +219,11 @@ export function SettingsFrame({
     if (!scroll) return
     let frame = 0
     const reveal = () => {
-      const target = document.getElementById(jump.targetId)
+      const row = document.getElementById(jump.targetId)
+      const section = document.getElementById(settingsSectionId(jump.section))
+      // Conditional controls fall back to their section. A lazy section has
+      // no wrapper until its chunk lands, so it still gets the exact row.
+      const target = row ?? (section?.children.length ? section : null)
       if (!target || !scroll.contains(target)) return false
       frame = requestAnimationFrame(() => {
         target.scrollIntoView?.({ block: 'center', behavior: 'instant' })
@@ -234,18 +246,6 @@ export function SettingsFrame({
       if (reveal()) observer.disconnect()
     })
     observer.observe(scroll, { childList: true, subtree: true })
-    // A conditional row may be unavailable (for example an effort control for
-    // a harness without effort). Once its section is ready, land on that section.
-    const section = document.getElementById(settingsSectionId(jump.section))
-    if (section && section.children.length > 0) {
-      frame = requestAnimationFrame(() => {
-        if (!reveal()) {
-          section.scrollIntoView?.({ block: 'center' })
-          section.focus({ preventScroll: true })
-          setJump(null)
-        }
-      })
-    }
     return () => {
       observer.disconnect()
       cancelAnimationFrame(frame)

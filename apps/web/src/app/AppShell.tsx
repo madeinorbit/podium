@@ -43,6 +43,7 @@ import { expireSignedInRuntime } from '@/lib/account-context'
 import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { useSettingsShortcut } from '@/lib/hooks/use-settings-shortcut'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -877,16 +878,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.key === ','
-      ) {
-        event.preventDefault()
-        setView('settings')
-        return
-      }
-      if (
         commandPaletteEnabled &&
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
@@ -899,7 +890,9 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen, setView])
+  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
+
+  useSettingsShortcut(() => setView('settings'))
 
   const menuHost = (
     <DesktopMenuHost
