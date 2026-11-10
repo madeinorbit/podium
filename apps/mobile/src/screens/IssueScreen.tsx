@@ -316,6 +316,9 @@ const IssueContent = observer(function IssueContent({
 
   return (
     <Screen
+      // Content scrolls under the transparent bar (POD-2387); the ScrollView
+      // insets itself below it.
+      underHeader
       title={issueDisplayRef(issue)}
       // The desktop header's breadcrumb, at phone width: repo, then the parent's
       // ref when there is one. A nested task whose only mention of its parent
@@ -337,6 +340,7 @@ const IssueContent = observer(function IssueContent({
           outside: they are modal layers and place themselves. */}
       <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"

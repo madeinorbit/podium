@@ -176,7 +176,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.hairline,
-    backgroundColor: color.engraved,
+    // engraved is systemBackground now (POD-2387); the recess needs a fill.
+    backgroundColor: color.surface,
     overflow: 'hidden',
     marginBottom: space.xl,
   },
