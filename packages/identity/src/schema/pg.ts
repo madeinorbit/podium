@@ -8,7 +8,18 @@
  * `account`, `verification`). The library's `user` is an account and its
  * `account` is a login method.
  */
-import { bigint, boolean, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import {
+  bigint,
+  boolean,
+  index,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
 
 /** An account: a person who can sign in. `email` holds the account identifier. */
 export const user = pgTable('user', {
@@ -138,6 +149,70 @@ export const identityOneTimeCode = pgTable(
   ],
 )
 
+/**
+ * "Account A is member M of workspace W with role R", with a status (section
+ * 1.3). One row per member for ever.
+ */
+export const identityMembership = pgTable(
+  'identity_membership',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    /** Equal to `users.id` in the workspace database. */
+    memberId: text('member_id').notNull(),
+    /** Null while invited, and when the account of an ended membership was deleted. */
+    accountId: text('account_id').references(() => user.id, { onDelete: 'set null' }),
+    role: text('role').notNull(),
+    status: text('status').notNull(),
+    /** The workspace revision at this membership's last change. */
+    version: integer('version').notNull(),
+    invitedEmail: text('invited_email'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at').notNull(),
+    updatedAt: timestamp('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.memberId] }),
+    // An account is at most one live member of a workspace.
+    uniqueIndex('identity_membership_live_account_idx')
+      .on(table.workspaceId, table.accountId)
+      .where(sql`account_id is not null and status in ('active', 'disabled')`),
+    // The workspaces of an account; the membership of a device sign-in's account.
+    index('identity_membership_account_idx').on(table.accountId),
+    // Catch-up reads the changes above a version, in order.
+    index('identity_membership_version_idx').on(table.workspaceId, table.version),
+  ],
+)
+
+/** The counter every membership change of a workspace steps (section 1.4). */
+export const identityWorkspaceRevision = pgTable('identity_workspace_revision', {
+  workspaceId: text('workspace_id').primaryKey(),
+  revision: integer('revision').notNull(),
+})
+
+/** A single-use, expiring token for a membership in the invited state (section 1.5). */
+export const identityInvitation = pgTable(
+  'identity_invitation',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    memberId: text('member_id').notNull(),
+    /** SHA-256, hex, of the token. */
+    tokenHash: text('token_hash').notNull().unique(),
+    /** When set, accepting requires an account with this address. */
+    email: text('email'),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at').notNull(),
+    consumedAt: timestamp('consumed_at'),
+    revokedAt: timestamp('revoked_at'),
+  },
+  (table) => [
+    // The invitations of one membership, and the pending ones of a workspace.
+    index('identity_invitation_member_idx').on(table.workspaceId, table.memberId),
+    index('identity_invitation_expires_idx').on(table.expiresAt),
+  ],
+)
+
 /** The tables this package reads and writes, by one name in both dialects. */
 export const pgIdentityTables = {
   user,
@@ -146,4 +221,7 @@ export const pgIdentityTables = {
   verification,
   rateLimit,
   oneTimeCode: identityOneTimeCode,
+  membership: identityMembership,
+  workspaceRevision: identityWorkspaceRevision,
+  invitation: identityInvitation,
 }

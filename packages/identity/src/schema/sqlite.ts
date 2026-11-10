@@ -9,7 +9,7 @@
  * as `Date`. Boolean defaults are SQL literals, as everywhere in the server schema.
  */
 import { sql } from 'drizzle-orm'
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 const time = (name: string) => integer(name, { mode: 'timestamp_ms' })
 
@@ -120,6 +120,71 @@ export const identityOneTimeCode = sqliteTable(
   ],
 )
 
+/**
+ * "Account A is member M of workspace W with role R", with a status (section
+ * 1.3). One row per member for ever. A self-hosted database holds one
+ * workspace, the constant `local`.
+ */
+export const identityMembership = sqliteTable(
+  'identity_membership',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    /** Equal to `users.id`. */
+    memberId: text('member_id').notNull(),
+    /** Null while invited, and when the account of an ended membership was deleted. */
+    accountId: text('account_id').references(() => identityUser.id, { onDelete: 'set null' }),
+    role: text('role').notNull(),
+    status: text('status').notNull(),
+    /** The workspace revision at this membership's last change. */
+    version: integer('version').notNull(),
+    invitedEmail: text('invited_email'),
+    createdBy: text('created_by'),
+    createdAt: time('created_at').notNull(),
+    updatedAt: time('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.memberId] }),
+    // An account is at most one live member of a workspace.
+    uniqueIndex('identity_membership_live_account_idx')
+      .on(table.workspaceId, table.accountId)
+      .where(sql`account_id is not null and status in ('active', 'disabled')`),
+    // The workspaces of an account; the membership of a device sign-in's account.
+    index('identity_membership_account_idx').on(table.accountId),
+    // Catch-up reads the changes above a version, in order.
+    index('identity_membership_version_idx').on(table.workspaceId, table.version),
+  ],
+)
+
+/** The counter every membership change of a workspace steps (section 1.4). */
+export const identityWorkspaceRevision = sqliteTable('identity_workspace_revision', {
+  workspaceId: text('workspace_id').primaryKey(),
+  revision: integer('revision').notNull(),
+})
+
+/** A single-use, expiring token for a membership in the invited state (section 1.5). */
+export const identityInvitation = sqliteTable(
+  'identity_invitation',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    memberId: text('member_id').notNull(),
+    /** SHA-256, hex, of the token. */
+    tokenHash: text('token_hash').notNull().unique(),
+    /** When set, accepting requires an account with this address. */
+    email: text('email'),
+    expiresAt: time('expires_at').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: time('created_at').notNull(),
+    consumedAt: time('consumed_at'),
+    revokedAt: time('revoked_at'),
+  },
+  (table) => [
+    // The invitations of one membership, and the pending ones of a workspace.
+    index('identity_invitation_member_idx').on(table.workspaceId, table.memberId),
+    index('identity_invitation_expires_idx').on(table.expiresAt),
+  ],
+)
+
 /** The tables this package reads and writes, by one name in both dialects. */
 export const sqliteIdentityTables = {
   user: identityUser,
@@ -127,4 +192,7 @@ export const sqliteIdentityTables = {
   session: identitySession,
   verification: identityVerification,
   oneTimeCode: identityOneTimeCode,
+  membership: identityMembership,
+  workspaceRevision: identityWorkspaceRevision,
+  invitation: identityInvitation,
 }

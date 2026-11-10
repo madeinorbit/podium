@@ -95,10 +95,13 @@
  */
 export {
   identityAccount,
+  identityInvitation,
+  identityMembership,
   identityOneTimeCode,
   identitySession,
   identityUser,
   identityVerification,
+  identityWorkspaceRevision,
 } from '@podium/identity/schema/sqlite'
 
 import type {
@@ -1146,6 +1149,13 @@ export const users = sqliteTable(
      *  authorized under rights that have since changed, and is refused when it
      *  is dispatched. NULL: the member's authority never changed. */
     authzChangedAt: text('authz_changed_at'),
+    /**
+     * The version of the membership last applied to this row (POD-6745,
+     * docs/design/people-and-sign-in.md sections 1.8 and 2.6). A membership
+     * whose version is not above it changes nothing, so applying one twice,
+     * or an older one after a newer one, is harmless.
+     */
+    membershipVersion: integer('membership_version').notNull().default(0),
   },
   (table) => [
     uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),
