@@ -425,7 +425,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'workflow',
         'When a closed task’s worktree is old',
         'Keep, suggest cleanup, or delete old worktrees. Uncommitted changes are never touched.',
-        'gc garbage collect cleanup disk off propose auto',
+        'gc garbage collection collect cleanup disk off propose auto',
       ),
       row('workflow', 'Old means', 'Days after closing a task.', 'worktree cleanup retention age'),
       row(

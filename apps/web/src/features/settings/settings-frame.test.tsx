@@ -50,10 +50,10 @@ function Harness({ onClose = vi.fn() }: { onClose?: () => void }) {
           <PageActions />
           <SettingsPageSection id="workflow">
             <Row
-              label="Default parent branch"
+              label="Default base branch"
               description="New tasks branch from this in repositories without their own base branch."
             >
-              <input aria-label="Default parent branch" />
+              <input aria-label="Default base branch" />
             </Row>
           </SettingsPageSection>
         </>
@@ -66,14 +66,14 @@ describe('settings frame', () => {
   it('searches row help and keywords across pages, then focuses and highlights the row once', async () => {
     render(<Harness />)
     const input = screen.getByRole('searchbox', { name: 'Search settings' })
-    fireEvent.change(input, { target: { value: 'without their own' } })
+    fireEvent.change(input, { target: { value: 'unless the project sets' } })
     expect(screen.getByRole('heading', { name: 'Results' })).toBeTruthy()
-    const result = screen.getByRole('button', { name: 'Default parent branch Projects' })
+    const result = screen.getByRole('button', { name: 'Default base branch Projects' })
     fireEvent.click(result)
     await waitFor(() =>
-      expect(document.activeElement?.id).toBe('settings-workflow-default-parent-branch'),
+      expect(document.activeElement?.id).toBe('settings-workflow-default-base-branch'),
     )
-    const target = document.getElementById('settings-workflow-default-parent-branch')!
+    const target = document.getElementById('settings-workflow-default-base-branch')!
     expect(target.classList.contains('settings-search-highlight')).toBe(true)
     fireEvent.animationEnd(target)
     expect(target.classList.contains('settings-search-highlight')).toBe(false)
@@ -94,7 +94,7 @@ describe('settings frame', () => {
     fireEvent.keyDown(input, { key: 'ArrowUp' })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() =>
-      expect(document.activeElement?.id).toBe('settings-workflow-default-parent-branch'),
+      expect(document.activeElement?.id).toBe('settings-workflow-default-base-branch'),
     )
     expect(close).not.toHaveBeenCalled()
   })
@@ -128,7 +128,7 @@ describe('settings frame', () => {
   it('does not steal slash from an editor', async () => {
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
-    const input = screen.getByRole('textbox', { name: 'Default parent branch' })
+    const input = screen.getByRole('textbox', { name: 'Default base branch' })
     act(() => input.focus())
     fireEvent.keyDown(input, { key: '/' })
     expect(document.activeElement).toBe(input)
@@ -138,13 +138,15 @@ describe('settings frame', () => {
 describe('settings search catalog', () => {
   it('indexes labels, help and keywords independently of the rendered page', () => {
     expect(
-      searchSettings('garbage collection', SETTINGS_PAGES).some((r) => r.label === 'Worktree GC'),
+      searchSettings('garbage collection', SETTINGS_PAGES).some(
+        (r) => r.label === 'When a closed task’s worktree is old',
+      ),
     ).toBe(true)
     expect(
       searchSettings('run queue', SETTINGS_PAGES).some((r) => r.label === 'Load per core'),
     ).toBe(true)
     expect(
-      searchSettings('telegram chat', SETTINGS_PAGES).some((r) => r.label === 'Telegram chat'),
+      searchSettings('telegram chat', SETTINGS_PAGES).some((r) => r.label === 'Telegram'),
     ).toBe(true)
     for (const page of SETTINGS_PAGES)
       expect(searchSettings(page.label, [page]).length).toBeGreaterThan(0)
@@ -178,14 +180,14 @@ it('waits for a lazy page before revealing its search target', async () => {
     )
   }
   render(<LazyHarness />)
-  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Default parent branch' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Default parent branch Projects' }))
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'parent branch' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Default base branch Projects' }))
   expect(screen.getByText('Loading project controls…')).toBeTruthy()
   await act(async () =>
     resolvePage({
       default: () => (
         <SettingsPageSection id="workflow">
-          <Row label="Default parent branch">
+          <Row label="Default base branch">
             <input />
           </Row>
         </SettingsPageSection>
@@ -193,7 +195,7 @@ it('waits for a lazy page before revealing its search target', async () => {
     }),
   )
   await waitFor(() =>
-    expect(document.activeElement?.id).toBe('settings-workflow-default-parent-branch'),
+    expect(document.activeElement?.id).toBe('settings-workflow-default-base-branch'),
   )
 })
 
