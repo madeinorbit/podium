@@ -1,4 +1,5 @@
 import {
+  formatCostRounded,
   formatUsd,
   type MachineOperationsView,
   type TaskCostRowView,
@@ -15,6 +16,7 @@ import {
   Meter,
   type MeterTone,
   rowDivider,
+  SEPARATOR,
   SectionHeader,
 } from '../components/instruments'
 import { color, font, mono, sans, space } from '../theme/theme'
@@ -91,6 +93,7 @@ export function PulseBody(props: PulseBodyProps) {
         <HeroBlock hero={hero} cold={cold} />
         <View style={styles.stats}>
           <Stat
+            first
             label="Per active day"
             value={
               cold || summary.costPerActiveDayUsd === null
@@ -199,15 +202,8 @@ export function PulseBody(props: PulseBodyProps) {
   )
 }
 
-/** Whole dollars under the trace: seven columns at 11pt have no room for cents. */
-function compactUsd(n: number): string {
-  if (n <= 0) return '$0'
-  if (n < 10) return `$${n.toFixed(2)}`
-  return `$${Math.round(n).toLocaleString('en-US')}`
-}
-
 function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
-  const daysLabel = hero.days.map((d) => `${d.weekday} ${compactUsd(d.costUsd)}`).join(', ')
+  const daysLabel = hero.days.map((d) => `${d.weekday} ${formatCostRounded(d.costUsd)}`).join(', ')
   return (
     <View style={styles.hero}>
       <Text style={styles.heroKey}>API-equivalent cost · {hero.spanLabel}</Text>
@@ -229,7 +225,7 @@ function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
           {hero.days.map((day) => (
             <View key={day.key} style={styles.day}>
               <Text style={styles.dayName}>{day.weekday}</Text>
-              <Text style={styles.dayCost}>{cold ? '—' : compactUsd(day.costUsd)}</Text>
+              <Text style={styles.dayCost}>{cold ? '—' : formatCostRounded(day.costUsd)}</Text>
             </View>
           ))}
         </View>
@@ -238,9 +234,13 @@ function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
   return (
-    <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`}>
+    <View
+      style={[styles.stat, !first && styles.statDivided]}
+      accessible
+      accessibilityLabel={`${label}: ${value}`}
+    >
       <Text style={styles.statLabel} numberOfLines={1}>
         {label}
       </Text>
@@ -304,17 +304,19 @@ function TaskRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${ref} ${task.title}, ${formatUsd(task.windowCostUsd)}`}
+      accessibilityLabel={`${ref} ${task.title}, ${formatCostRounded(task.windowCostUsd)}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.task, !first && rowDivider, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.task, pressed && styles.pressed]}
     >
+      {/* Separator starts at the title column, as list rows inset theirs. */}
+      {first ? null : <View style={styles.taskDivider} />}
       <Text style={styles.taskRef} numberOfLines={1}>
         {ref}
       </Text>
       <Text style={styles.taskTitle} numberOfLines={1}>
         {task.title}
       </Text>
-      <Text style={styles.taskCost}>{formatUsd(task.windowCostUsd)}</Text>
+      <Text style={styles.taskCost}>{formatCostRounded(task.windowCostUsd)}</Text>
     </Pressable>
   )
 }
@@ -448,6 +450,9 @@ function capitalise(text: string): string {
   return text ? `${text[0]?.toUpperCase()}${text.slice(1)}` : text
 }
 
+const TASK_REF_WIDTH = 64
+const TASK_TITLE_X = CARD_INSET + TASK_REF_WIDTH + space.sm
+
 const tabular = { fontVariant: ['tabular-nums' as const] }
 
 const styles = StyleSheet.create({
@@ -507,9 +512,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: CARD_INSET,
     paddingVertical: space.sm,
     gap: 2,
+  },
+  statDivided: {
     borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: color.hairline,
-    marginLeft: -StyleSheet.hairlineWidth,
+    borderLeftColor: SEPARATOR,
   },
   statLabel: {
     ...sans(400),
@@ -575,15 +581,23 @@ const styles = StyleSheet.create({
     color: color.dangerText,
   },
   task: {
-    minHeight: 44,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: CARD_INSET,
   },
+  taskDivider: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: TASK_TITLE_X,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: SEPARATOR,
+  },
   taskRef: {
     ...mono(400),
-    width: 64,
+    width: TASK_REF_WIDTH,
     color: color.textFaint,
     fontSize: font.micro,
   },

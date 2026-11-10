@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { color, font, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronDown, ChevronRight } from './icons'
@@ -12,6 +12,13 @@ import { ChevronDown, ChevronRight } from './icons'
  * on what wants attention — the signal for a window that is out, red for a
  * machine that is full.
  */
+
+/**
+ * Row separators inside a card. iOS draws its own `separator` colour; the web
+ * and Android builds keep the dark palette, whose hairline token is nearly the
+ * card colour, so they use the board's white-at-10% instead.
+ */
+export const SEPARATOR = Platform.OS === 'ios' ? color.hairline : 'rgba(255, 255, 255, 0.1)'
 
 /** The board's card corner. Our own surface, so the redesign's 8, not a system shape. */
 export const CARD_RADIUS = 8
@@ -176,7 +183,7 @@ export function SectionHeader({
 /** Hairline between rows inside a card, starting at the card inset. */
 export const rowDivider = {
   borderTopWidth: StyleSheet.hairlineWidth,
-  borderTopColor: color.hairline,
+  borderTopColor: SEPARATOR,
 } as const
 
 const styles = StyleSheet.create({
@@ -216,7 +223,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
+    backgroundColor: SEPARATOR,
   },
   bars: {
     flexDirection: 'row',
