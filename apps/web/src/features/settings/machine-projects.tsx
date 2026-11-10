@@ -10,7 +10,7 @@ import { compareShallow } from 'mobx'
 import { useCallback } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
-import { Subsection } from './sections/shared'
+import { EntityRow, Section } from './sections/shared'
 
 export class MachineProjectsView {
   readonly repositories: SettingsRepositories
@@ -51,53 +51,51 @@ export const MachineProjects = observer(function MachineProjects({
   const create = useCallback((pool: MobxPool) => new MachineProjectsView(pool, machine), [machine])
   const view = useOpeningView(useWorklistPool(), create)
   return (
-    <Subsection title="Projects on this machine">
-      {onFind && (
-        <div className="mb-3 flex justify-end">
+    <Section
+      title="Projects on this machine"
+      list
+      action={
+        onFind && (
           <Button type="button" variant="ghost" size="sm" onClick={onFind}>
             <Search size={14} aria-hidden="true" />
             Find repositories
           </Button>
+        )
+      }
+    >
+      {!view?.repositories.loaded ? (
+        <p className="settings-list-note settings-prose" role="status">
+          Loading projects…
+        </p>
+      ) : view.projects.length === 0 ? (
+        <div className="settings-list-note">
+          <p className="settings-label">No projects here yet</p>
+          <p className="settings-prose mt-1">Look for git repositories on this machine.</p>
         </div>
+      ) : (
+        view.projects.map((repo) => <MachineProject key={repo.key} view={view.row(repo)} />)
       )}
-      <div className="settings-list">
-        {!view?.repositories.loaded ? (
-          <p className="settings-list-note settings-prose" role="status">
-            Loading projects…
-          </p>
-        ) : view.projects.length === 0 ? (
-          <div className="settings-list-note">
-            <p className="settings-label">No projects here yet</p>
-            <p className="settings-prose mt-1">Look for git repositories on this machine.</p>
-          </div>
-        ) : (
-          view.projects.map((repo) => <MachineProject key={repo.key} view={view.row(repo)} />)
-        )}
-      </div>
-    </Subsection>
+    </Section>
   )
 })
 
 const MachineProject = observer(function MachineProject({ view }: { view: ProjectOnMachine }) {
-  const repo = view.repo
   return (
-    <div className="settings-list-row flex min-w-0 items-start gap-3">
-      <FolderGit2 size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <div className="min-w-0">
-        <p className="settings-label">
-          {repo.name}
-          {repo.prefix && (
-            <span className="settings-micro ml-2 font-mono text-muted-foreground">
-              {repo.prefix}
-            </span>
-          )}
-        </p>
-        {view.checkouts.map((checkout) => (
-          <p key={checkout.scan.id} className="settings-prose mt-1 break-all font-mono">
-            {checkout.path}
-          </p>
-        ))}
-      </div>
-    </div>
+    <EntityRow
+      leading={
+        view.repo.prefix ? (
+          <span className="font-mono">{view.repo.prefix}</span>
+        ) : (
+          <FolderGit2 size={16} aria-hidden="true" />
+        )
+      }
+      title={view.repo.name}
+      subtitle={view.checkouts.map((checkout) => (
+        <div key={checkout.scan.id} className="break-all">
+          {checkout.path}
+        </div>
+      ))}
+      monoSubtitle
+    />
   )
 })

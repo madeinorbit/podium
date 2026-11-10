@@ -17,7 +17,7 @@ import { MachineProjects } from './machine-projects'
 import { MachineRemove } from './machine-remove'
 import { SettingsMachine } from './machine-view'
 import { useSettingsMachine } from './readers'
-import { harnessAgentLabel, Row, TextRow } from './sections/shared'
+import { harnessAgentLabel, Row, Section, TextRow } from './sections/shared'
 import { useSettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
 
@@ -110,7 +110,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           Only the person who looks after this machine or an admin can change it.
         </p>
       )}
-      <div className="settings-list">
+      <Section>
         <TextRow
           label="Name"
           description="A name you can recognise in the workspace."
@@ -223,7 +223,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
             </ul>
           )}
         </Row>
-      </div>
+      </Section>
       {machine.unowned !== true && !machine.revokedAt && (
         <MachineCustody machineId={machine.id} transferable={view.canManage} trpc={trpc} />
       )}

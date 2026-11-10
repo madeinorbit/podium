@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { hostMemoryView } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
-import { ChevronRight, Server } from 'lucide-react'
+import { Server } from 'lucide-react'
 import { usePoolHostAggregate } from '@/app/header-data'
 import { Badge } from '@/components/ui/badge'
 import { useClock } from '@/lib/clock-hooks'
@@ -9,6 +9,7 @@ import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 import { useMemberRoster } from '@/lib/member-roster'
 import { cn } from '@/lib/utils'
 import type { SettingsMachine } from './machine-view'
+import { EntityRow } from './sections/shared'
 
 export const MachineCustodianName = observer(function MachineCustodianName({
   view,
@@ -88,39 +89,35 @@ export const MachineListRow = observer(function MachineListRow({
     .filter(Boolean)
     .join(' · ')
   return (
-    <button
-      type="button"
-      data-pressable
-      onClick={onOpen}
-      aria-label={`Open ${machine.name}`}
-      className="settings-list-row flex w-full items-center gap-3 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-    >
-      <Server size={18} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="settings-label break-words">{machine.name}</span>
+    <EntityRow
+      leading={<Server size={18} aria-hidden="true" />}
+      title={machine.name}
+      pills={
+        <>
           {role && (
             <Badge variant="outline" className="font-normal">
               {role}
             </Badge>
           )}
           {machine.unowned === true && <Badge variant="warning">Nobody looks after it</Badge>}
-        </span>
-        <span className="settings-prose mt-1 block">
-          {machine.unowned === true ? (
-            'Agents cannot run here until an admin adopts it'
-          ) : (
-            <>
-              Looked after by <MachineCustodianName view={view} />
-            </>
-          )}
-        </span>
-        <MachineSummary view={view} />
-      </span>
-      <span className="flex max-w-[45%] shrink-0 items-center gap-2">
-        <MachineStatus view={view} />
-        <ChevronRight size={15} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-      </span>
-    </button>
+        </>
+      }
+      subtitle={
+        <>
+          <span className="settings-prose block">
+            {machine.unowned === true ? (
+              'Agents cannot run here until an admin adopts it'
+            ) : (
+              <>
+                Looked after by <MachineCustodianName view={view} />
+              </>
+            )}
+          </span>
+          <MachineSummary view={view} />
+        </>
+      }
+      trailing={<MachineStatus view={view} />}
+      onClick={onOpen}
+    />
   )
 })

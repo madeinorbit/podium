@@ -101,7 +101,13 @@ function client(over: Record<string, unknown> = {}) {
   } as unknown as import('@/app/trpc').Trpc
 }
 function open(name = 'Build box') {
-  fireEvent.click(screen.getByRole('button', { name: `Open ${name}` }))
+  fireEvent.click(screen.getByRole('button', { name }))
+}
+function machineRow(name = 'Build box') {
+  const button = screen.getByRole('button', { name })
+  const row = button.closest<HTMLElement>('.settings-list-row')
+  if (!row) throw new Error('Machine row is missing')
+  return row
 }
 function detail(name = 'Build box') {
   return within(screen.getByRole('region', { name }))
@@ -135,9 +141,7 @@ describe('machine list and detail routing', () => {
     client()
     state.machines = [machine()]
     render()
-    expect(screen.getByRole('button', { name: 'Open Build box' }).textContent).toContain(
-      'Looked after by you',
-    )
+    expect(machineRow('Build box').textContent).toContain('Looked after by you')
     expect(screen.getByText(/0 sessions.*memory/)).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     open()
@@ -145,7 +149,7 @@ describe('machine list and detail routing', () => {
     expect(screen.getByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     fireEvent.click(detail().getByRole('button', { name: 'Machines' }))
-    expect(screen.getByRole('button', { name: 'Open Build box' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Build box' })).toBeTruthy()
   })
   it('members see only machines they look after or can use, with other machines read-only', () => {
     client()
@@ -168,7 +172,7 @@ describe('machine list and detail routing', () => {
     ]
     render(false)
     expect(screen.getByText('The computers you look after or may run agents on.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Open Visibility only' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Visibility only' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Add machine' })).toBeNull()
     open('Shared')
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
@@ -216,7 +220,7 @@ describe('add machine choices', () => {
     render()
     fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Access' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Access' }))
     expect(state.setSettingsTab).toHaveBeenCalledWith('access')
   })
 })
@@ -255,7 +259,7 @@ describe('machine actions', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove machine' })).toBeNull())
     expect(mutate).toHaveBeenCalledTimes(2)
     expect(mutate).toHaveBeenLastCalledWith({ id: 'm-1' })
-    expect(screen.getByRole('button', { name: 'Open Build box' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Build box' })).toBeTruthy()
   })
   it('requires an eligible replacement and preserves refusal for retry', async () => {
     const mutate = vi
@@ -373,29 +377,13 @@ describe('machine presence and service states', () => {
       }),
     ]
     render()
+    expect(within(machineRow('Healthy')).getByText('Online')).toBeTruthy()
+    expect(within(machineRow('Agents off')).getByText('Online · Agent hosting off')).toBeTruthy()
+    expect(within(machineRow('Agent degraded')).getByText('Online · Degraded: agents')).toBeTruthy()
     expect(
-      within(screen.getByRole('button', { name: 'Open Healthy' })).getByText('Online'),
+      within(machineRow('Server degraded')).getByText('Online · Degraded: server'),
     ).toBeTruthy()
-    expect(
-      within(screen.getByRole('button', { name: 'Open Agents off' })).getByText(
-        'Online · Agent hosting off',
-      ),
-    ).toBeTruthy()
-    expect(
-      within(screen.getByRole('button', { name: 'Open Agent degraded' })).getByText(
-        'Online · Degraded: agents',
-      ),
-    ).toBeTruthy()
-    expect(
-      within(screen.getByRole('button', { name: 'Open Server degraded' })).getByText(
-        'Online · Degraded: server',
-      ),
-    ).toBeTruthy()
-    expect(
-      within(screen.getByRole('button', { name: 'Open Offline box' })).getByText(
-        /Offline · Last seen/,
-      ),
-    ).toBeTruthy()
+    expect(within(machineRow('Offline box')).getByText(/Offline · Last seen/)).toBeTruthy()
     open('Agents off')
     expect(detail('Agents off').getByText('Disabled on this machine')).toBeTruthy()
     fireEvent.click(detail('Agents off').getByRole('button', { name: 'Machines' }))
@@ -701,7 +689,7 @@ describe('retained adoption, removal and replacement behavior', () => {
     open()
     fireEvent.click(detail().getByRole('button', { name: 'Remove' }))
     fireEvent.click(detail().getByRole('button', { name: 'Remove machine' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Build box' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Build box' })).toBeTruthy())
     state.machines = [
       machine({
         revokedAt: '2026-09-17T12:00:00.000Z',
@@ -710,7 +698,7 @@ describe('retained adoption, removal and replacement behavior', () => {
       }),
     ]
     view.refresh()
-    const retained = within(screen.getByRole('button', { name: 'Open Build box' }))
+    const retained = within(machineRow('Build box'))
     expect(retained.getByText('Removed')).toBeTruthy()
     expect(retained.queryByText(/Offline · Last seen/)).toBeNull()
     open()

@@ -18,6 +18,13 @@ afterEach(() => {
 
 const UNSHARE = { mutate: vi.fn() }
 
+async function sharingSection() {
+  const heading = await screen.findByRole('heading', { name: 'Who else can run agents here' })
+  const section = heading.closest('section')
+  if (!section) throw new Error('Machine sharing section is missing')
+  return section
+}
+
 function seed(grants?: unknown[]) {
   vi.stubGlobal(
     'fetch',
@@ -67,7 +74,7 @@ test('gives use only after the inline shared-machine warning is acknowledged', a
     />,
   )
   expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Add someone' }))
   expect(screen.getByText(SHARED_MACHINE_ACCOUNT_WARNING).textContent).toBe(
     SHARED_MACHINE_ACCOUNT_WARNING,
   )
@@ -90,7 +97,7 @@ test('gives use only after the inline shared-machine warning is acknowledged', a
 })
 
 test('offers no grant without custody authority', async () => {
-  seed()
+  seed([BOB_USE])
   render(
     <MachineCustody
       machineId="m-1"
@@ -99,6 +106,7 @@ test('offers no grant without custody authority', async () => {
     />,
   )
   expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
+  expect(await screen.findByText('Bob')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Add someone' })).toBeNull()
 })
 
@@ -123,7 +131,7 @@ test('lists who else has access and removes a grant', async () => {
       trpc={{ machines: { share: { mutate: vi.fn() }, unshare: { mutate: unshare } } }}
     />,
   )
-  const list = await screen.findByRole('list', { name: 'Who else can run agents here' })
+  const list = await sharingSection()
   await waitFor(() => expect(list.textContent).toContain('Bob'))
   fireEvent.click(screen.getByRole('button', { name: 'Remove Bob: can run agents' }))
   await waitFor(() =>
@@ -164,6 +172,6 @@ test('shows no grant removal without custody authority', async () => {
     />,
   )
   expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
-  expect(screen.getByRole('list', { name: 'Who else can run agents here' })).toBeTruthy()
+  expect(await screen.findByText('Bob')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull()
 })

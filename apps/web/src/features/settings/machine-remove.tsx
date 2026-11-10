@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/select'
 import { MachineReplacementOptions, type SettingsMachine } from './machine-view'
 import { useSettingsMachines } from './readers'
-import { ConfirmInline, Row, Subsection } from './sections/shared'
+import { ConfirmInline, Row, Section } from './sections/shared'
 import { useSettingsFrame } from './settings-frame'
 import { useSettingsTrpc } from './stable-access'
 
@@ -29,7 +29,7 @@ export const MachineRemove = observer(function MachineRemove({ view }: { view: S
   if (!view.canManage) return null
   const machine = view.machine
   return (
-    <Subsection title="Remove">
+    <Section title="Remove">
       {view.canReplace && (
         <>
           <Row
@@ -162,6 +162,6 @@ export const MachineRemove = observer(function MachineRemove({ view }: { view: S
           }}
         />
       )}
-    </Subsection>
+    </Section>
   )
 })

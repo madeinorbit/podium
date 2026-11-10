@@ -12,6 +12,7 @@ import { MachineListRow } from './machine-list'
 import { ActiveServerMove } from './machine-server-move'
 import { MachinesSettings } from './machine-view'
 import { useSettingsMachines } from './readers'
+import { Section } from './sections/shared'
 import { SettingsPageActions, useSettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
 
@@ -29,7 +30,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
   const alreadyPaired = machines.some((machine) => machine.id === thisMachineId)
 
   return (
-    <section aria-label="Machines">
+    <>
       {admin && (
         <SettingsPageActions>
           <Button
@@ -54,7 +55,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
       )}
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
       <ActiveServerMove canRecover={admin} />
-      <div className="settings-list">
+      <Section list>
         {view.visible.map((machine) => (
           <MachineListRow
             key={machine.id}
@@ -78,7 +79,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
             </p>
           </div>
         )}
-      </div>
-    </section>
+      </Section>
+    </>
   )
 })
