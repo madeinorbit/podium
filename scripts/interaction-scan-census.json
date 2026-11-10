@@ -979,20 +979,38 @@
     },
     {
       "file": "apps/mobile/src/screens/SettingsScreen.tsx",
-      "holder": "SettingsScreenBody/SettingsScreenBody/deviceFeed",
+      "holder": "SettingsHome/SettingsHome/deviceFeed",
       "rule": "reader-summary",
       "tokens": "faf3825aa22424b09ee7b505893d56e869cf94e62f8fd0ee64bbc247fde34461",
       "gate": [],
       "origin": [
         "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
       ],
-      "fingerprint": "85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c",
+      "fingerprint": "fe9a1ffbe5a05c2a63e64e6dc0b7c89558db9d4dd46a0a9ce240db732a5594c1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SettingsScreen/deviceFeed",
+      "trigger": "Invocation of SettingsScreen/deviceFeed (the Connected devices count row)",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Same feed as the pushed Connected devices screen, split from Predecessor: 85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
+      "holder": "SettingsDevices/SettingsDevices/deviceFeed",
+      "rule": "reader-summary",
+      "tokens": "faf3825aa22424b09ee7b505893d56e869cf94e62f8fd0ee64bbc247fde34461",
+      "gate": [],
+      "origin": [
+        "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
+      ],
+      "fingerprint": "9298427a770c861573e09de6d805315728a89db349a99c5a16ad370b33e76188",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of SettingsDevicesScreen/deviceFeed",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
