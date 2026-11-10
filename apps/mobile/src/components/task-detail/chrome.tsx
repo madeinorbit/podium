@@ -1,20 +1,10 @@
-import { ChevronRight } from '../icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { alpha } from '../../theme/mix'
-import {
-  color,
-  font,
-  leading,
-  mono,
-  monoLabel,
-  radius,
-  sans,
-  space,
-  spring,
-} from '../../theme/theme'
+import { color, font, leading, monoLabel, radius, sans, space, spring } from '../../theme/theme'
 import { Icon } from '../Icon'
+import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
 
 /**
@@ -51,10 +41,10 @@ export function SectionHeading({
   right?: ReactNode
 }) {
   return (
-    <View style={styles.heading}>
-      <Text style={styles.machine}>{label}</Text>
+    <View style={styles.heading} accessibilityRole="header">
+      <Text style={styles.title}>{label}</Text>
       {count ? <Text style={styles.count}>{count}</Text> : null}
-      <View style={styles.rule} />
+      <View style={styles.spacer} />
       {right}
     </View>
   )
@@ -113,12 +103,12 @@ export function Disclosure({
         scaleTo={0.995}
         style={({ pressed }) => [styles.discHead, pressed && styles.discHeadPressed]}
       >
-        <Animated.View style={{ transform: [{ rotate }] }}>
-          <Icon as={ChevronRight} size={13} color={color.textFaint} />
+        <Animated.View style={[styles.chevron, { transform: [{ rotate }] }]}>
+          <Icon as={ChevronRight} size={14} color={color.textFaint} />
         </Animated.View>
-        <Text style={styles.machine}>{label}</Text>
-        {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-        {count ? <Text style={[styles.count, styles.countRight]}>{count}</Text> : null}
+        <Text style={styles.title}>{label}</Text>
+        {count ? <Text style={styles.count}>{count}</Text> : null}
+        {hint ? <Text style={[styles.hint, styles.countRight]}>{hint}</Text> : null}
       </PressableScale>
       {open ? <View style={styles.discBody}>{children}</View> : null}
     </View>
@@ -241,10 +231,16 @@ const styles = StyleSheet.create({
     ...monoLabel(),
     color: color.label,
   },
+  // Section names: the iOS board's sentence-case group header, 13pt semibold.
+  title: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.tiny,
+  },
   count: {
-    ...mono(600),
+    ...sans(400),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: 12,
   },
   countRight: {
     marginLeft: 'auto',
@@ -254,25 +250,26 @@ const styles = StyleSheet.create({
     color: color.textMicro,
     fontSize: font.micro,
   },
+  // On the card axis: 12pt in, the chevron in a 14pt gutter, the name after it.
   heading: {
+    minHeight: 28,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingBottom: space.sm,
+    paddingLeft: space.md + 14 + space.sm,
+    paddingRight: space.md,
+    marginTop: space.lg,
+    marginBottom: space.xs,
   },
-  rule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
+  spacer: { flex: 1 },
+  chevron: { width: 14, alignItems: 'center' },
   discHead: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.sm,
-    marginHorizontal: -space.sm,
-    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    borderRadius: 6,
   },
   discHeadPressed: {
     backgroundColor: alpha(color.surface, 0.7),

@@ -745,7 +745,7 @@ const styles = StyleSheet.create({
   },
   // The reference half of the page sits a group's breath below the sessions.
   reference: {
-    paddingTop: space.xl,
+    paddingTop: space.sm,
   },
   question: {
     paddingBottom: space.md,

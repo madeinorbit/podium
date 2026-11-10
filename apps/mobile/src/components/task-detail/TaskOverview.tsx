@@ -15,7 +15,7 @@ import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts
 import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
 import { ArtifactViewer } from '../ArtifactViewer'
 import { Icon } from '../Icon'
-import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
+import { ChevronDown, ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
 import { Disclosure } from './chrome'
@@ -87,6 +87,9 @@ export function GroupHeading({
 }) {
   return (
     <View style={styles.heading} accessibilityRole="header">
+      <View style={styles.headingGutter}>
+        <Icon as={ChevronDown} size={14} color={color.textFaint} />
+      </View>
       <Text style={styles.headingLabel}>{label}</Text>
       {count !== undefined ? <Text style={styles.headingCount}>{count}</Text> : null}
       <View style={styles.spacer} />
@@ -125,6 +128,9 @@ export const TaskSummary = observer(function TaskSummary({
   const notes = issue.activityNotes?.trim()
   const offer = lead?.offer && lead.offer.createdAt !== answered ? lead.offer : null
   const headline = offer?.message.split('\n')[0]?.trim()
+  // Nothing to say and nothing asked: the session row below already opens the
+  // chat, so the card is left out. With no session it stays as the way to post.
+  if (!notes && !headline && lead) return null
 
   const send = async (prompt: string) => {
     if (!lead || !offer) return
@@ -146,7 +152,13 @@ export const TaskSummary = observer(function TaskSummary({
         </Text>
       ) : null}
       {
-        <View style={styles.buttons}>
+        <View
+          style={[
+            styles.buttons,
+            !offer?.actions.length && styles.buttonsTrailing,
+            !(notes || headline) && styles.buttonsAlone,
+          ]}
+        >
           {offer?.actions.map((action, index) => (
             <PressableScale
               // Offer actions carry no id, and the list is fixed per offer.
@@ -177,15 +189,17 @@ export const TaskSummary = observer(function TaskSummary({
               accessibilityLabel={lead ? 'Open chat' : 'Comment'}
               accessibilityHint={lead ? undefined : 'Post on this task, or @mention an agent'}
               onPress={() => (lead ? onOpenSession(lead.sessionId) : setCommenting(true))}
+              hitSlop={6}
               style={({ pressed }) => [
                 styles.button,
-                offer?.actions.length ? styles.buttonSquare : styles.buttonGrow,
+                notes || headline ? styles.buttonSquare : styles.buttonGrow,
                 pressed && styles.buttonPressed,
               ]}
             >
               <Icon as={MessagesSquare} size={16} color={color.text} />
-              {offer?.actions.length ? null : (
-                <Text style={styles.buttonText}>{lead ? 'Open chat' : 'Comment'}</Text>
+              {/* Alone in the card (no session, nothing said): name the act. */}
+              {notes || headline ? null : (
+                <Text style={styles.buttonText}>Comment on this task</Text>
               )}
             </PressableScale>
           }
@@ -430,6 +444,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
   },
+  headingGutter: { width: 14, alignItems: 'center' },
   headingLabel: { ...sans(600), color: color.textDim, fontSize: font.tiny },
   headingCount: { ...sans(400), color: color.textFaint, fontSize: 12 },
   headingAction: { minHeight: 28, justifyContent: 'center' },
@@ -466,6 +481,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: color.surfacePressed,
   },
+  buttonsTrailing: { justifyContent: 'flex-end' },
+  buttonsAlone: { paddingTop: space.md },
   buttonGrow: { flex: 1 },
   buttonSquare: { width: 44, paddingHorizontal: 0 },
   buttonPrimary: { backgroundColor: color.accentTint },

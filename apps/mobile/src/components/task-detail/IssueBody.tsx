@@ -61,7 +61,8 @@ export const StatusStrip = observer(function StatusStrip({
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts = [
-    ...(isClosed(issue) ? [`Closed · ${issue.closedReason}`] : []),
+    // The header's stage pill already says Closed when the strip rides under it.
+    ...(isClosed(issue) && !exceptionsOnly ? [`Closed · ${issue.closedReason}`] : []),
     ...(created && !exceptionsOnly ? [`created ${created}`] : []),
     ...(updated && !exceptionsOnly ? [`updated ${updated}`] : []),
   ]
@@ -150,8 +151,9 @@ export const IssueDescription = observer(function IssueDescription({
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief) return null
+  // A fold among folds now: no section gap of its own.
   return (
-    <View style={styles.section}>
+    <View>
       <Disclosure
         label="Brief"
         hint="written for the agent"
