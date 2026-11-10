@@ -8,15 +8,25 @@ import { RecordRequest } from './requested-records'
  * responses before they can enter the device pool. */
 export class SettingsDevices extends RecordRequest<'device'> {
   private pendingRead: Promise<void> | undefined
+  private answeredAt: number | undefined
   constructor(pool: MobxPool) {
     super(pool, 'device', (row) => row.sessionId)
   }
-  ensure(read: () => Promise<readonly PoolRows['device'][]>): Promise<void> {
-    return this.pendingRead ?? (this.answer === undefined ? this.refresh(read) : Promise.resolve())
+  ensure(read: () => Promise<readonly PoolRows['device'][]>, maxAgeMs = Infinity): Promise<void> {
+    return (
+      this.pendingRead ??
+      (this.answer === undefined ||
+      this.error !== null ||
+      this.answeredAt === undefined ||
+      Date.now() - this.answeredAt >= maxAgeMs
+        ? this.refresh(read)
+        : Promise.resolve())
+    )
   }
   refresh(read: () => Promise<readonly PoolRows['device'][]>): Promise<void> {
     if (this.pendingRead) return this.pendingRead
     const pending = this.read(read).finally(() => {
+      if (this.answer !== undefined && this.error === null) this.answeredAt = Date.now()
       if (this.pendingRead === pending) this.pendingRead = undefined
     })
     this.pendingRead = pending

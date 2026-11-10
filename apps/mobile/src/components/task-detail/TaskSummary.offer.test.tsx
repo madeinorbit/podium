@@ -125,6 +125,7 @@ it('uses shared sendOffer dismissal and restores the offer after delivery fails'
     drafts: { get: () => '', set: () => {} },
     createDeliveryId: () => 'delivery',
     deliver,
+    optimisticDismissOffer: false,
   })
   host.conversation = {
     session: { sessionId },
@@ -137,7 +138,12 @@ it('uses shared sendOffer dismissal and restores the offer after delivery fails'
     render(
       <TaskOfferSummary
         issue={{ activityNotes: 'Ready' } as IssueViewModel}
-        lead={lead('A')}
+        lead={{
+          ...lead('A'),
+          get offer() {
+            return context.offer
+          },
+        }}
         onOpenSession={() => {}}
         onComment={() => {}}
       />,

@@ -5,7 +5,7 @@ import { TaskSummary } from './TaskOverview'
 
 type Props = Omit<ComponentProps<typeof TaskSummary>, 'offer' | 'onAccept'>
 
-/** The task page borrows chat's conversation and its send/offer state. */
+/** Read the shared session's offer; borrow chat's send owner without opening history. */
 export function TaskOfferSummary(props: Props) {
   return props.lead ? (
     <SessionSummary key={props.lead.sessionId} {...props} lead={props.lead} />
@@ -17,11 +17,15 @@ export function TaskOfferSummary(props: Props) {
 const SessionSummary = observer(function SessionSummary(
   props: Props & { lead: NonNullable<Props['lead']> },
 ) {
-  const conversation = useSessionConversation({ session: props.lead })
+  const conversation = useSessionConversation({
+    session: props.lead,
+    enabled: Boolean(props.lead.offer),
+    activateTranscript: false,
+  })
   return (
     <TaskSummary
       {...props}
-      offer={conversation?.offer ?? null}
+      offer={conversation ? conversation.offer : (props.lead.offer ?? null)}
       onAccept={async (sessionId, prompt, createdAt) => {
         if (
           !conversation ||

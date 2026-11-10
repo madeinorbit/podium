@@ -1,6 +1,10 @@
 import { issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
-import { type IssueNavigationModel, readoutModel, sessionTitle } from '@podium/client-core/values'
+import {
+  type IssueNavigationModel,
+  readoutModel,
+  sessionDisplayName,
+} from '@podium/client-core/values'
 import { here } from '@podium/client-graph/lookup'
 import {
   FULL_DECK_FILTERS,
@@ -275,59 +279,76 @@ const DeckRows = observer(function DeckRows({
   onOpenTask: (id: string) => void
   onOpenTaskMenu: (id: string) => void
 }) {
-  const blocks: { phase: FullDeckTask | null; tasks: FullDeckTask[] }[] = []
+  const blocks: { phase: FullDeckTask | null; tasks: FullDeckTask[]; phaseStart: boolean }[] = []
   for (const id of rowIds) {
     const task = full.task(id)
-    if (settled(() => task.kind) === 'phase') blocks.push({ phase: task, tasks: [] })
+    if (settled(() => task.kind) === 'phase')
+      blocks.push({ phase: task, tasks: [], phaseStart: true })
     else {
       const last = blocks[blocks.length - 1]
       const phaseId = settled(() => task.phaseId)
       const phase = typeof phaseId === 'string' ? full.task(phaseId) : null
       if (last && last.phase?.id === phase?.id) last.tasks.push(task)
-      else blocks.push({ phase, tasks: [task] })
+      else blocks.push({ phase, tasks: [task], phaseStart: false })
     }
   }
   return (
     <>
-      {blocks.map(({ phase, tasks }) => (
-        <Fragment key={`${phase?.id ?? 'loose'}-${tasks[0]?.id ?? 'heading'}`}>
-          {phase ? <PhaseHeading phase={phase} /> : null}
-          {tasks.length > 0 ? (
-            <View style={styles.group} testID={`deck-group-${phase?.id ?? 'loose'}`}>
-              {tasks.map((task, row) => {
-                const shape = settled(() => ({
-                  depth: task.depth,
-                  base: phase ? phase.depth + 1 : 0,
-                  seats: task.open ? task.sessionIds : [],
-                }))
-                const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
-                const seats = shape === LOADING ? [] : shape.seats
-                return (
-                  <Fragment key={task.id}>
-                    <TaskLine
-                      task={task}
-                      indent={indent}
-                      first={row === 0}
-                      onPress={() => onOpenTask(task.id)}
-                      onLongPress={() => onOpenTaskMenu(task.id)}
+      {blocks.map(({ phase, tasks, phaseStart }) => {
+        const phaseSeats =
+          phase && phaseStart ? settled(() => (phase.open ? phase.sessionIds : [])) : []
+        const seats = phaseSeats === LOADING ? [] : phaseSeats
+        return (
+          <Fragment key={`${phase?.id ?? 'loose'}-${tasks[0]?.id ?? 'heading'}`}>
+            {phase ? <PhaseHeading phase={phase} /> : null}
+            {tasks.length > 0 || seats.length > 0 ? (
+              <View style={styles.group} testID={`deck-group-${phase?.id ?? 'loose'}`}>
+                {phase &&
+                  seats.map((id) => (
+                    <AgentLine
+                      key={id}
+                      task={phase}
+                      sessionId={id}
+                      indent={0}
+                      current={id === currentSessionId}
+                      onPress={() => onOpenSession(id)}
                     />
-                    {seats.map((id) => (
-                      <AgentLine
-                        key={id}
+                  ))}
+                {tasks.map((task, row) => {
+                  const shape = settled(() => ({
+                    depth: task.depth,
+                    base: phase ? phase.depth + 1 : 0,
+                    seats: task.open ? task.sessionIds : [],
+                  }))
+                  const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
+                  const seats = shape === LOADING ? [] : shape.seats
+                  return (
+                    <Fragment key={task.id}>
+                      <TaskLine
                         task={task}
-                        sessionId={id}
                         indent={indent}
-                        current={id === currentSessionId}
-                        onPress={() => onOpenSession(id)}
+                        first={row === 0 && seats.length === 0}
+                        onPress={() => onOpenTask(task.id)}
+                        onLongPress={() => onOpenTaskMenu(task.id)}
                       />
-                    ))}
-                  </Fragment>
-                )
-              })}
-            </View>
-          ) : null}
-        </Fragment>
-      ))}
+                      {seats.map((id) => (
+                        <AgentLine
+                          key={id}
+                          task={task}
+                          sessionId={id}
+                          indent={indent}
+                          current={id === currentSessionId}
+                          onPress={() => onOpenSession(id)}
+                        />
+                      ))}
+                    </Fragment>
+                  )
+                })}
+              </View>
+            ) : null}
+          </Fragment>
+        )
+      })}
     </>
   )
 })
@@ -413,6 +434,7 @@ const TaskLine = observer(function TaskLine({
             accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
             accessibilityState={{ expanded: open }}
             hitSlop={8}
+            style={styles.foldToggle}
             onPress={() => task.deck.toggleFold(task.id)}
           >
             <Icon as={open ? ChevronDown : ChevronRight} size={16} color={color.textDim} />
@@ -587,7 +609,7 @@ const ProposalLine = observer(function ProposalLine({
 /** The coordinator seat reads "Coordinator"; everyone else by their name. */
 function seatName(task: FullDeckTask, sessionId: string, session: SessionModel): string {
   if (task.seat(sessionId) === 'coordinator') return 'Coordinator'
-  return sessionTitle(session as unknown as SessionView)
+  return sessionDisplayName(session as unknown as SessionView)
 }
 
 function sessionModelLabel(session: SessionModel): string | null {
@@ -622,7 +644,7 @@ function SessionGlyph({ word }: { word: SessionWord }): ReactNode {
 }
 
 /** Rows: 12 inset, 14 status column, 8 gap — every title starts at x=34. */
-const GUTTER = 14
+const GUTTER = 16
 const INSET = space.md
 const ROW_H = 44
 
@@ -726,6 +748,7 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: color.tertiaryFill },
   gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
+  foldToggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   lineBody: {
     flex: 1,
     minWidth: 0,

@@ -31,7 +31,7 @@ export function useConnectedDevices(): ConnectedDevicesFeed {
         if (!request || demo) return
         if (initial) {
           initial = false
-          void request.ensure(() => readConnectedDevices(profile.httpOrigin, bearer))
+          void request.ensure(() => readConnectedDevices(profile.httpOrigin, bearer), 15_000)
         } else reload()
       })
     }, [reload, request, demo, profile.httpOrigin, bearer]),

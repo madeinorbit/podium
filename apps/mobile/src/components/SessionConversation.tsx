@@ -225,6 +225,8 @@ export function useSessionConversation(props: {
   session: SessionView | SessionModel
   initialPendingText?: string
   deferInitialTranscript?: boolean
+  activateTranscript?: boolean
+  enabled?: boolean
 }) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
@@ -391,7 +393,11 @@ export function useSessionConversation(props: {
         },
         { hidePendingQuestion: true },
       ),
-    { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
+    {
+      warmLimit: PHONE_WARM_CONVERSATIONS,
+      enabled: props.enabled !== false && pool !== null && readiness.ready,
+      activateTranscript: props.activateTranscript,
+    },
   )
   // The reply to an agent's question goes to the asker over the existing
   // messages.show/reply calls, exactly as the web composer sends it (POD-2380).

@@ -1170,12 +1170,12 @@
       "file": "apps/mobile/src/screens/SettingsScreen.tsx",
       "holder": "SettingsHome/SettingsHome/deviceFeed",
       "rule": "reader-summary",
-      "tokens": "a9c52d152ad4eadd998063e142c1ba35e177e0c91f61f9e8c0179dc22b0dbadb",
+      "tokens": "9a154cb13d4702077803796db6d59bff38405827ba5c1cb19883cfd240ed5f52",
       "gate": [],
       "origin": [
         "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
       ],
-      "fingerprint": "e5589d7fc122c8b7568a7f9ff65c3033ff9eb54ce393c9d86fb4e4219d23f549",
+      "fingerprint": "4225ddadd7da3fb8670b555fd3399e70c1cce979a1ed3f8f4732e98fd496681c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1188,12 +1188,12 @@
       "file": "apps/mobile/src/screens/SettingsScreen.tsx",
       "holder": "SettingsDevices/SettingsDevices/deviceFeed",
       "rule": "reader-summary",
-      "tokens": "a9c52d152ad4eadd998063e142c1ba35e177e0c91f61f9e8c0179dc22b0dbadb",
+      "tokens": "9a154cb13d4702077803796db6d59bff38405827ba5c1cb19883cfd240ed5f52",
       "gate": [],
       "origin": [
         "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
       ],
-      "fingerprint": "d71a9639443463a02ac7bc04eeed4ef4165f6e478925d8556e79ccf5435753e8",
+      "fingerprint": "687f71326f2aa99791e9a3f66ef05c5de2e6358cf20a48cbabd5d1f6061b51f7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36306,7 +36306,7 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/view",
       "rule": "reader-summary",
-      "tokens": "9839a8381aa6797b5fb52e2995eded3845d09283a5ce4aebd7fb841eb9c6a849",
+      "tokens": "ee13fecccf5f0dfe0181b5bb681a6a3774cda25629532df8495d389f69f96ea5",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36319,7 +36319,7 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "9e2e7c77f18713194d6f7e2f02f90b5c1f28fbb1a88a3c3b0063af77b9ac5916",
+      "fingerprint": "309eec84f89b7f4657d01c52b58eb9f195135a1324f68f5885a64bcb512f370c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",
@@ -36332,7 +36332,7 @@
       "file": "apps/mobile/src/components/task-detail/TaskOfferSummary.tsx",
       "holder": "SessionSummary/SessionSummary/conversation",
       "rule": "reader-summary",
-      "tokens": "be0c13109e49cc2df6ac6b55204dcc81a75f83c1dd700c70af802a3583dded11",
+      "tokens": "c5a8a37be8e5e4419466a22261acb7ff6bdb8334d1bcd00b2c540858cc625555",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36345,7 +36345,7 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "bb5f70427225f68793873f2213b7d1fdb78362bfffe2ad1ef232a79191d4e416",
+      "fingerprint": "fa2cdf4fa2156d5b322f2bc90fca15c8490517506d9bf42d0171b003900f1a3c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",

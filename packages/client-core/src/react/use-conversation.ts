@@ -1,7 +1,7 @@
 import type { SessionId } from '@podium/model'
 import { useLayoutEffect, useRef, useState } from 'react'
-import { ConversationService, type ConversationOptions } from '../conversation/model'
 import type { DraftStore } from '../conversation/draft-store'
+import { type ConversationOptions, ConversationService } from '../conversation/model'
 import { useStoreHandle } from './provider'
 
 const factories = new WeakMap<object, Map<SessionId, () => ConversationService>>()
@@ -10,7 +10,7 @@ const factories = new WeakMap<object, Map<SessionId, () => ConversationService>>
 export function useConversation<T extends ConversationService = ConversationService>(
   sessionId: SessionId | undefined,
   createOptions: (drafts: DraftStore) => ConversationOptions | T,
-  options: { warmLimit?: number; enabled?: boolean } = {},
+  options: { warmLimit?: number; enabled?: boolean; activateTranscript?: boolean } = {},
 ): T | undefined {
   const owner = useStoreHandle()
   const create = useRef(createOptions)
@@ -26,7 +26,10 @@ export function useConversation<T extends ConversationService = ConversationServ
   useLayoutEffect(() => {
     if (!enabled || sessionId === undefined) return
     let byId = factories.get(owner)
-    if (!byId) factories.set(owner, (byId = new Map()))
+    if (!byId) {
+      byId = new Map()
+      factories.set(owner, byId)
+    }
     const factory = () => {
       const value = create.current(owner.drafts)
       return value instanceof ConversationService ? value : new ConversationService(value)
@@ -41,13 +44,13 @@ export function useConversation<T extends ConversationService = ConversationServ
         return factory()
       },
     })
-    const lease = cache.acquire(sessionId)
+    const lease = cache.acquire(sessionId, { activateTranscript: options.activateTranscript })
     setHeld({ owner, id: sessionId, conversation: lease.conversation })
     return () => {
       lease.release()
       if (registered.get(sessionId) === factory) registered.delete(sessionId)
     }
-  }, [owner, sessionId, enabled, options.warmLimit])
+  }, [owner, sessionId, enabled, options.warmLimit, options.activateTranscript])
   return enabled && held?.owner === owner && held.id === sessionId
     ? (held.conversation as T)
     : undefined

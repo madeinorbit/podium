@@ -23,14 +23,20 @@ export class ConversationCache {
 
   constructor(private readonly options: ConversationCacheOptions) {}
 
-  acquire(sessionId: SessionId): { conversation: ConversationService; release: () => void } {
+  acquire(
+    sessionId: SessionId,
+    options: { activateTranscript?: boolean } = {},
+  ): { conversation: ConversationService; release: () => void } {
     if (this.disposed) throw new Error('The conversation owner has been disposed')
     let entry = this.entries.get(sessionId)
     if (!entry) {
       entry = { conversation: this.options.create(sessionId), refs: 0 }
       this.entries.set(sessionId, entry)
-      void entry.conversation.start()
     }
+    // Offer summaries share sending without opening history. A later chat
+    // lease activates this same owner; a summary never deactivates live chat.
+    if (options.activateTranscript === false) entry.conversation.sends.start()
+    else void entry.conversation.start()
     this.warm.delete(sessionId)
     entry.refs++
     const held = entry

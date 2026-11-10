@@ -531,7 +531,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     paddingHorizontal: space.sm,
     borderRadius: radius.sm,
-    backgroundColor: color.surface,
+    backgroundColor: color.tertiaryFill,
   },
   chipPressed: {
     backgroundColor: color.surfacePressed,

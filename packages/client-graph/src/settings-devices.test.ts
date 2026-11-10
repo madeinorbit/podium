@@ -1,5 +1,5 @@
 import type { MobileClientSession } from '@podium/protocol'
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { SettingsDevices } from './settings-devices'
 
@@ -75,5 +75,51 @@ it('allows a failed opening to retry', async () => {
   await devices.ensure(async () => [device('retry')])
   expect(devices.answer).toEqual(['retry'])
   expect(devices.error).toBeNull()
+  pool.dispose()
+})
+
+afterEach(() => vi.useRealTimers())
+it('refreshes an expired focus answer once, keeps fresh returns, and joins concurrent routes', async () => {
+  vi.useFakeTimers()
+  const { pool, devices } = fixture()
+  const first = vi.fn(async () => [device('first')])
+  await devices.ensure(first, 15_000)
+  vi.advanceTimersByTime(14_999)
+  await devices.ensure(first, 15_000)
+  expect(first).toHaveBeenCalledTimes(1)
+  vi.advanceTimersByTime(1)
+  let resolve!: (rows: MobileClientSession[]) => void
+  const read = vi.fn(
+    () =>
+      new Promise<MobileClientSession[]>((done) => {
+        resolve = done
+      }),
+  )
+  const refresh = devices.ensure(read, 15_000)
+  expect(devices.ensure(read, 15_000)).toBe(refresh)
+  expect(devices.refresh(read)).toBe(refresh)
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(devices.answer).toEqual(['first'])
+  resolve([device('next')])
+  await refresh
+  await devices.ensure(read, 15_000)
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(devices.answer).toEqual(['next'])
+  pool.dispose()
+})
+
+it('does not freshen an old answer when refresh fails', async () => {
+  vi.useFakeTimers()
+  const { pool, devices } = fixture()
+  await devices.ensure(async () => [device('old')], 15_000)
+  vi.advanceTimersByTime(15_000)
+  await devices.ensure(async () => {
+    throw new Error('offline')
+  }, 15_000)
+  expect(devices.answer).toEqual(['old'])
+  const retry = vi.fn(async () => [device('retry')])
+  await devices.ensure(retry, 15_000)
+  expect(retry).toHaveBeenCalledOnce()
+  expect(devices.answer).toEqual(['retry'])
   pool.dispose()
 })

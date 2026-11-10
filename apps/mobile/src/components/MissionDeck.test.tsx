@@ -244,3 +244,88 @@ it('expands and folds a working leaf seat without opening its task', async () =>
   await act(async () => fireEvent.click(screen.getByLabelText('Collapse Quiet subtask')))
   expect(screen.queryByTestId('deck-agent')).toBeNull()
 })
+
+it.each([
+  true,
+  false,
+])('shows phase lead and helpers under the fold, with children=%s', async (children) => {
+  const phase = issue({
+    id: asIssueId('phase'),
+    parentId: root.id,
+    type: 'phase',
+    title: 'Phase crew',
+    coordinatorSessionId: asSessionId('phase-lead'),
+  })
+  const child = issue({ id: asIssueId('child'), parentId: phase.id, title: 'Phase task' })
+  const { props } = await mount(
+    [root, phase, ...(children ? [child] : [])],
+    [
+      agent('phase-lead', phase.id, 'Phase lead', 'working'),
+      agent('phase-helper', phase.id, 'Phase helper', 'idle'),
+      { ...agent('archived', phase.id, 'Archived helper'), archived: true },
+    ],
+    'phase-helper',
+  )
+  // Phases are open by default. The shared seat rule omits archived sessions.
+  const seats = screen.getAllByTestId('deck-agent')
+  expect(seats).toHaveLength(2)
+  if (!seats[0] || !seats[1]) throw new Error('Missing phase seats')
+  fireEvent.click(seats[0])
+  expect(props.onOpenSession).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sessionId: 'phase-lead' }),
+  )
+  fireEvent.click(seats[1])
+  expect(props.onOpenSession).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sessionId: 'phase-helper' }),
+  )
+  expect(seats[1].getAttribute('aria-label')).toContain(', open')
+  await act(async () => fireEvent.click(screen.getByTestId('deck-phase')))
+  expect(screen.queryByTestId('deck-agent')).toBeNull()
+  expect(screen.queryByText('Phase task')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByTestId('deck-phase')))
+  expect(screen.getAllByTestId('deck-agent')).toHaveLength(2)
+})
+
+it('uses the desktop session label for an unnamed worktree boot title', async () => {
+  await mount(
+    [root],
+    [
+      {
+        ...agent('boot', root.id, 'issue-165-ade-comparison-platform'),
+        name: undefined,
+        cwd: '/repo/issue-165-ade-comparison-platform',
+      },
+    ],
+  )
+  expect(screen.getByText('New session')).toBeTruthy()
+  expect(screen.queryByText('issue-165-ade-comparison-platform')).toBeNull()
+})
+
+it('draws each phase crew once when an outer phase resumes after a nested phase', async () => {
+  const outer = issue({ id: asIssueId('outer'), parentId: root.id, type: 'phase', title: 'Outer' })
+  const nested = issue({
+    id: asIssueId('nested'),
+    parentId: outer.id,
+    type: 'phase',
+    title: 'Nested',
+    seq: 2,
+    sortKey: 'a',
+  })
+  const after = issue({
+    id: asIssueId('after'),
+    parentId: outer.id,
+    title: 'After nested',
+    seq: 3,
+    sortKey: 'b',
+  })
+  await mount(
+    [root, outer, nested, after],
+    [
+      agent('outer-helper', outer.id, 'Outer helper'),
+      agent('nested-helper', nested.id, 'Nested helper'),
+    ],
+  )
+  expect(screen.getAllByText('Outer helper')).toHaveLength(1)
+  expect(screen.getAllByText('Nested helper')).toHaveLength(1)
+  expect(screen.getByText('After nested')).toBeTruthy()
+})

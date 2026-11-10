@@ -23,7 +23,11 @@ function fixture(warmLimit = 3) {
   })
   const live = new Set<SessionId>(),
     created = new Map<SessionId, number>(),
-    unsubscribed = vi.fn()
+    unsubscribed = vi.fn(),
+    read = vi.fn(async () => ({
+      items: [{ id: 'first', role: 'assistant' as const, text: 'first' }],
+      hasMore: false,
+    }))
   const cache = new ConversationCache({
     warmLimit,
     create: (sessionId) => {
@@ -34,10 +38,7 @@ function fixture(warmLimit = 3) {
         readSession: () => ({ status: 'live' }),
         transcript: {
           source: {
-            read: async () => ({
-              items: [{ id: 'first', role: 'assistant', text: 'first' }],
-              hasMore: false,
-            }),
+            read,
             subscribe: () => {
               live.add(sessionId)
               return () => {
@@ -57,6 +58,7 @@ function fixture(warmLimit = 3) {
     live,
     created,
     unsubscribed,
+    read,
     dispose: () => {
       cache.dispose()
       drafts.dispose()
@@ -170,4 +172,39 @@ describe('ConversationCache live resource ownership', () => {
     expect(DESKTOP_WARM_CONVERSATIONS).toBe(3)
     expect(PHONE_WARM_CONVERSATIONS).toBe(2)
   })
+})
+
+it('defers summary history, then starts exactly one stream when chat acquires the same owner', async () => {
+  const f = fixture()
+  const summary = f.cache.acquire(a, { activateTranscript: false })
+  await settle()
+  expect(f.read).not.toHaveBeenCalled()
+  expect(f.live.size).toBe(0)
+  const chat = f.cache.acquire(a)
+  const otherSummary = f.cache.acquire(a, { activateTranscript: false })
+  await settle()
+  expect(chat.conversation).toBe(summary.conversation)
+  expect(otherSummary.conversation).toBe(chat.conversation)
+  expect(f.read).toHaveBeenCalledTimes(1)
+  expect(f.live.size).toBe(1)
+  summary.release()
+  otherSummary.release()
+  await settle()
+  expect(f.live.size).toBe(1)
+  chat.release()
+  f.dispose()
+})
+
+it('evicts a summary without ever activating history and can reopen it as chat', async () => {
+  const f = fixture(0)
+  const summary = f.cache.acquire(a, { activateTranscript: false })
+  summary.release()
+  await settle()
+  expect(f.read).not.toHaveBeenCalled()
+  const chat = f.cache.acquire(a)
+  await settle()
+  expect(chat.conversation).not.toBe(summary.conversation)
+  expect(f.read).toHaveBeenCalledTimes(1)
+  chat.release()
+  f.dispose()
 })

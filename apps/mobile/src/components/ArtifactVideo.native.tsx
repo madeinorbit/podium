@@ -1,5 +1,5 @@
-import { VideoView, useVideoPlayer } from 'expo-video'
-import type { ComponentProps } from 'react'
+import { useVideoPlayer, VideoView } from 'expo-video'
+import { type ComponentProps, useLayoutEffect } from 'react'
 import { StyleSheet } from 'react-native'
 import { authenticatedVideoSource } from '../client/authenticated-assets'
 
@@ -12,9 +12,9 @@ export function ArtifactVideo({
   bearer: string | null
   label: string
 }) {
-  const player = useVideoPlayer(authenticatedVideoSource(url, bearer), (instance) =>
-    instance.play(),
-  )
+  const player = useVideoPlayer(authenticatedVideoSource(url, bearer))
+  // Stop audio in layout cleanup, before Expo releases the player on unmount.
+  useLayoutEffect(() => () => player.pause(), [player])
 
   return (
     <VideoView

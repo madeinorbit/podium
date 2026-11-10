@@ -115,8 +115,42 @@ describe('session card view model', () => {
   })
 })
 
-
 it('falls back to the agent kind for a POSIX root cwd and displays invalid Windows spelling safely', () => {
-  expect(sessionTitle(session({ sessionId: asSessionId('root'), cwd: '/', title: ' ' }))).toBe('claude-code')
-  expect(sessionTitle(session({ sessionId: asSessionId('bad'), cwd: String.raw`C:\repo\...`, title: ' ' }))).toBe('...')
+  expect(sessionTitle(session({ sessionId: asSessionId('root'), cwd: '/', title: ' ' }))).toBe(
+    'claude-code',
+  )
+  expect(
+    sessionTitle(
+      session({ sessionId: asSessionId('bad'), cwd: String.raw`C:\repo\...`, title: ' ' }),
+    ),
+  ).toBe('...')
+})
+
+it('keeps desktop names, normalizes live titles, and labels boot worktrees as new sessions', async () => {
+  const { sessionDisplayName, normalizeTitle } = await import('./session-card')
+  expect(
+    sessionDisplayName(
+      session({ sessionId: asSessionId('display'), name: ' Named ', title: '✻ Live task' }),
+    ),
+  ).toBe('Named')
+  expect(
+    sessionDisplayName(
+      session({ sessionId: asSessionId('display'), name: undefined, title: '✻ Live task' }),
+    ),
+  ).toBe('Live task')
+  expect(
+    sessionDisplayName(
+      session({
+        sessionId: asSessionId('display'),
+        name: undefined,
+        title: 'issue-165-work',
+        cwd: '/repo/issue-165-work',
+      }),
+    ),
+  ).toBe('New session')
+  expect(
+    sessionDisplayName(session({ sessionId: asSessionId('display'), name: undefined, title: ' ' })),
+  ).toBe('New session')
+  expect(normalizeTitle(' ✻ ● Live task ')).toBe('Live task')
+  expect(normalizeTitle('~/src/podium')).toBe('~/src/podium')
 })
