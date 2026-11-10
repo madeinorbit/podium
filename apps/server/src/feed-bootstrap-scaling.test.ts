@@ -46,8 +46,8 @@ import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { issueRowFixture } from './test-support/issue-row'
 import type { SessionStore } from './store'
+import { issueRowFixture } from './test-support/issue-row'
 import { statementBudget } from './test-support/statement-budget'
 import type { WriteContexts } from './write-contexts'
 
@@ -351,7 +351,7 @@ const OTHER_OWNER = asUserId('usr_someone_else')
  *  the owner check. No durable issue row is written on purpose: an absent row is
  *  the same miss a row owned by another user produces, by the same line. */
 async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
-  const { ledger, store } = internals(reg)
+  const { store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
   for (const id of ids) {
     await store.grants.upsert({
@@ -367,15 +367,18 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
+  // Straight onto the log: an issue record is otherwise built from its row
+  // (compare at save, POD-6769), and this probe wants log entries with no row.
   return (
-    await internals(reg)
-      .writes.system('conversations.discovery')
-      .capture(
-        ids.map(
-          (id) =>
-            ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec,
-        ),
-      )
+    await store.sync.appendChanges(
+      ids.map((id) => ({
+        entity: 'issueProjection',
+        entityId: id,
+        op: 'upsert' as const,
+        payload: JSON.stringify({ id }),
+      })),
+      Date.parse('2026-01-01T00:00:00.000Z'),
+    )
   ).length
 }
 
