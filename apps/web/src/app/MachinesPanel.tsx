@@ -20,8 +20,6 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { updateStatus } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
 
-export { MachinesPanel } from '@/features/settings/MachinesPanel'
-
 /** One machine's server-side convergence, as the fleet read model reports it. */
 export interface MachineConvergence {
   reason?: FailureReason

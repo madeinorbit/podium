@@ -39,8 +39,6 @@ vi.mock('@/lib/workspace-request', async (importOriginal) => ({
   workspaceFetch: async () => ({ ok: false }),
 }))
 
-vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
-
 import { observer } from '@podium/client-graph/react'
 import { MachineUpdateControls, useFleetConvergence } from '@/app/MachinesPanel'
 import { resetUpdateStatus } from '@/lib/update-status'
