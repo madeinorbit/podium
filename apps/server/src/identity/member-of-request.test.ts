@@ -138,6 +138,26 @@ describe('memberOfRequest', () => {
     })
   })
 
+  it('refuses a malformed or unknown bearer even when a valid cookie comes with it', async () => {
+    const cookie = cookieOf(await signIn('alice@example.test', 'alice pw 1'))
+    const memberOfRequest = resolver()
+    // Control: the cookie alone is Alice.
+    expect(
+      await memberOfRequest(request('https://podium.example.test/trpc/x', { cookie })),
+    ).toMatchObject({ kind: 'member', memberId: alice })
+    for (const bearer of ['garbage', 'not.signed', 'Zm9v.YmFy']) {
+      const resolution = await memberOfRequest(
+        request('https://podium.example.test/trpc/x', {
+          cookie,
+          authorization: `Bearer ${bearer}`,
+        }),
+      )
+      // The request named its credential; a bad one is not rescued by the cookie.
+      expect(resolution).toEqual({ kind: 'unauthenticated' })
+      expect(refusalAnswer(resolution as MemberRefusal).status).toBe(401)
+    }
+  })
+
   it('answers 400 https_required over plain HTTP from another machine, whatever it carries', async () => {
     const cookie = cookieOf(await signIn('alice@example.test', 'alice pw 1'))
     const resolution = await resolver()(request('http://192.168.1.20:18787/trpc/x', { cookie }))

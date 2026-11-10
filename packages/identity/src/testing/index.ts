@@ -589,6 +589,17 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         expect(chosen.kind === 'device-sign-in' && chosen.deviceSignIn.id).toBe(
           byBearer.deviceSignInId,
         )
+        // A bearer that is malformed, unsigned or unknown is never rescued by
+        // a valid cookie beside it: the request named its credential.
+        for (const bad of ['garbage', rawToken(byBearer), `${rawToken(byBearer)}.AAAA`]) {
+          const rescued = await core.credentials.resolve(
+            new Request('https://unused.invalid/', {
+              headers: { cookie: cookiePair(byCookie), authorization: `Bearer ${bad}` },
+            }),
+            https(),
+          )
+          expect(rescued.kind === 'device-sign-in').toBe(false)
+        }
         // No credential at all.
         expect(
           (await core.credentials.resolve(new Request('https://unused.invalid/'), https())).kind,
