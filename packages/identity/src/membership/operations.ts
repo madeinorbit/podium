@@ -18,7 +18,7 @@ import {
   normaliseEmail,
   sha256Hex,
 } from '../secrets'
-import { accountByEmail, accountById, deleteSignInsOfAccount } from '../statements'
+import { accountByEmail, accountById, deleteSignInsOfAccount, insertCode } from '../statements'
 import {
   type Account,
   type AccountOperations,
@@ -30,6 +30,7 @@ import {
   type MembershipView,
 } from '../types'
 import type { BoundWorkspace, MembershipEngine } from './engine'
+import { type LegacyLinkImporter, legacyLinkImport } from './legacy-link'
 import {
   anyMembership,
   consumeInvitation,
@@ -71,7 +72,7 @@ export function membershipOperations(
   engine: MembershipEngine,
   workspace: BoundWorkspace,
   accounts: AccountOperations,
-): MembershipOperations {
+): MembershipOperations & LegacyLinkImporter {
   const { runtime } = engine
   const { workspaceId } = workspace
   const rows = workspace.binding.rows
@@ -239,6 +240,63 @@ export function membershipOperations(
       return await viewOf(memberId)
     },
 
+    async [legacyLinkImport](link) {
+      if (!/^[0-9a-f]{64}$/.test(link.tokenHash)) return false
+      return await change(async () => {
+        if (!(link.expiresAt.getTime() > runtime.now().getTime())) return false
+        if (link.kind === 'password-reset') {
+          await insertCode(db()).run({
+            id: link.id,
+            purpose: 'password-reset',
+            accountId: link.accountId,
+            codeHash: link.tokenHash,
+            receiverChallenge: null,
+            device: null,
+            createdBy: link.createdBy,
+            now: link.createdAt,
+            expiresAt: link.expiresAt,
+          })
+          return true
+        }
+
+        const actor = { system: 'upgrade' } as const
+        const email = invitedAddress(link.email ?? undefined)
+        const memberId = link.memberId ?? runtime.config.newMemberId()
+        const existing = link.memberId === null ? undefined : await membership(memberId)
+        if (existing && existing.status !== 'invited') return refuse('not-allowed')
+        if (!existing) {
+          if (link.memberId !== null && !(await rows.exists?.(memberId)))
+            return refuse('not-allowed')
+          await engine.write(
+            {
+              workspaceId,
+              memberId,
+              accountId: null,
+              role: link.role,
+              status: 'invited',
+              invitedEmail: email,
+              createdBy: link.createdBy,
+            },
+            'insert',
+            actor,
+          )
+        } else if (existing.invitedEmail === null && email !== null) {
+          await engine.write({ ...existing, invitedEmail: email }, 'update', actor, false)
+        }
+        await insertInvitation(db()).run({
+          id: link.id,
+          workspaceId,
+          memberId,
+          tokenHash: link.tokenHash,
+          email,
+          expiresAt: link.expiresAt,
+          createdBy: link.createdBy,
+          now: link.createdAt,
+        })
+        return true
+      })
+    },
+
     async invite(input) {
       const email = invitedAddress(input.email)
       const days = input.expiresInDays ?? DEFAULT_INVITATION_DAYS
@@ -275,7 +333,12 @@ export function membershipOperations(
             (existing.status === 'disabled' && existing.accountId === null)
           ) {
             // The membership keeps its row and its member id.
-            await engine.write({ ...facts, memberId }, 'update', input.actor, existing.authorizationVersion !== 0)
+            await engine.write(
+              { ...facts, memberId },
+              'update',
+              input.actor,
+              existing.authorizationVersion !== 0,
+            )
           } else {
             return refuse('not-allowed')
           }
@@ -332,7 +395,12 @@ export function membershipOperations(
         const row = await membership(invitation.memberId)
         // A membership that waited for this invitation has no way in any more.
         if (row?.status === 'invited') {
-          await engine.write({ ...row, status: 'removed' }, 'update', input.actor, row.authorizationVersion !== 0)
+          await engine.write(
+            { ...row, status: 'removed' },
+            'update',
+            input.actor,
+            row.authorizationVersion !== 0,
+          )
         }
       })
     },

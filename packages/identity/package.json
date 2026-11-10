@@ -26,6 +26,11 @@
       "types": "./src/testing/index.ts",
       "import": "./src/testing/index.ts"
     },
+    "./upgrade": {
+      "@podium/source": "./src/upgrade.ts",
+      "types": "./src/upgrade.ts",
+      "import": "./src/upgrade.ts"
+    },
     "./library": {
       "@podium/source": "./src/library.ts",
       "types": "./src/library.ts",

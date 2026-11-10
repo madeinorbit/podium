@@ -12,6 +12,7 @@
  * in a hosted workspace.
  */
 import { buildIdentity } from '../core'
+import { sha256Hex } from '../secrets'
 import {
   type AccountRef,
   type Actor,
@@ -26,6 +27,7 @@ import {
   type MemberWrite,
   type WorkspaceIdentity,
 } from '../types'
+import { importLegacyLink } from '../upgrade'
 import type { MemberRowState, OpenedDatabase, SuiteHarness, SuiteRunner } from './index'
 
 export const MEMBERSHIP_SUITE_CASES = [
@@ -40,6 +42,7 @@ export const MEMBERSHIP_SUITE_CASES = [
   'local accounts end with their membership and sign in only with an active one; shared accounts do neither',
   'the same-machine rule admits the sole active member and nobody else',
   'disable then enable between two catch-ups still moves the member generation',
+  'imports legacy links by hash, redeems each once and refuses expired links',
 ] as const
 
 const WORKSPACE = 'local'
@@ -237,6 +240,65 @@ export function membershipCases(context: MembershipCasesContext): void {
         context.record(name)
       })
     }
+
+    test(11, async () => {
+      const createdAt = clock()
+      const expiresAt = new Date(createdAt.getTime() + DAY)
+      const inviteToken = 'a'.repeat(43)
+      const resetToken = 'b'.repeat(43)
+      const expiredToken = 'c'.repeat(43)
+      const source = { createdAt, expiresAt, createdBy: alice.memberId }
+      const invitation = {
+        ...source,
+        id: 'legacy-invitation',
+        kind: 'invitation' as const,
+        tokenHash: sha256Hex(inviteToken),
+        memberId: null,
+        role: 'member' as const,
+        email: 'bob@example.test',
+      }
+      expect(await importLegacyLink(workspace, invitation)).toBe(true)
+      expect(
+        await importLegacyLink(workspace, {
+          ...invitation,
+          id: 'legacy-expired',
+          tokenHash: sha256Hex(expiredToken),
+          expiresAt: createdAt,
+        }),
+      ).toBe(false)
+      expect(await refusedWith(() => workspace.memberships.inspectInvitation(expiredToken))).toBe(
+        'invitation-invalid',
+      )
+      expect(await workspace.memberships.inspectInvitation(inviteToken)).toEqual({
+        email: invitation.email,
+        expiresAt,
+        needsAccount: true,
+      })
+      const account = await accountFor('Bob', BOB_PASSWORD)
+      const accept = () => workspace.memberships.accept({ token: inviteToken, account })
+      const bob = await accept()
+      expect((await viewOf(bob.memberId)).role).toBe('member')
+      expect(await refusedWith(accept)).toBe('invitation-invalid')
+
+      expect(
+        await importLegacyLink(workspace, {
+          ...source,
+          id: 'legacy-reset',
+          kind: 'password-reset',
+          tokenHash: sha256Hex(resetToken),
+          accountId: bob.accountId,
+        }),
+      ).toBe(true)
+      expect(await core.codes.inspectPasswordReset(resetToken)).toEqual({
+        email: invitation.email,
+        expiresAt,
+      })
+      const reset = () =>
+        core.codes.redeemPasswordReset({ code: resetToken, password: 'Bob’s new password' })
+      expect((await reset())?.accountId).toBe(bob.accountId)
+      expect(await reset()).toBe(undefined)
+      await aliceUnchanged()
+    })
 
     // 14 ------------------------------------------------------------------
     test(0, async () => {
