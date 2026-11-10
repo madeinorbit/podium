@@ -8,6 +8,7 @@
  * is a static sketch; check it in the simulator.
  *
  *   ?reply=1   the composer replying to the asker (board ChatReply)
+ *   ?offer=1   the agent's offer as a tile at the end of the feed (board ChatAsk)
  */
 import type { TranscriptItem } from '@podium/model'
 import { createRoot } from 'react-dom/client'
@@ -16,11 +17,22 @@ import { Composer } from '../src/components/Composer'
 import { ComposerReplyHeader } from '../src/components/ComposerReplyHeader'
 import { Icon } from '../src/components/Icon'
 import { ChevronDown } from '../src/components/icons'
+import { SessionActionCard } from '../src/components/SessionActionCard'
 import { TranscriptList } from '../src/components/TranscriptList'
 import { color, font, mono } from '../src/theme/theme'
 
 const params = new URLSearchParams(window.location.search)
 const replying = params.get('reply') === '1'
+const offering = params.get('offer') === '1'
+const offer = {
+  createdAt: '2026-11-10T10:11:00Z',
+  message:
+    'Login screen ready to merge\nTwo states verified on iPhone 17 Pro. One call left: keep the wordmark or drop it.',
+  actions: [
+    { label: 'Merge', prompt: 'merge' },
+    { label: 'Send back', prompt: 'send back', input: true },
+  ],
+}
 const t = (m: number, s = 0) => new Date(Date.UTC(2026, 10, 10, 10, m, s)).toISOString()
 const now = new Date(Date.now() - 42_000).toISOString()
 
@@ -140,7 +152,16 @@ function App() {
         onAnswer={async () => {}}
         mailReply={mailReply as never}
         onQuote={() => {}}
-        tail={{ label: 'Working', tone: 'working', since: now }}
+        tail={offering ? undefined : { label: 'Working', tone: 'working', since: now }}
+        footer={
+          offering ? (
+            <SessionActionCard
+              offer={offer as never}
+              onAction={async () => {}}
+              onDismiss={async () => {}}
+            />
+          ) : undefined
+        }
         bottomInset={140}
       />
       <View style={styles.composer}>

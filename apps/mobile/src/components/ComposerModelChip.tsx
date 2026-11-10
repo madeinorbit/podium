@@ -19,7 +19,7 @@ import {
 } from '@podium/client-core/values'
 import { observer } from 'mobx-react-lite'
 import { useCallback } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Alert, StyleSheet, Text, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { color, font, mono } from '../theme/theme'
 import { ComposerModelMenu, type ComposerModelMenuProps } from './ComposerModelMenu'
@@ -50,8 +50,8 @@ export type ModelChipSession = Pick<
  * The same rule decides both faces: a running session whose live driver lists
  * `model` in `configureFields` opens a native menu of models with an Effort
  * submenu, and each pick sends `sessions.configure` with only the field that
- * changed. Every other session shows the same words as a readout whose
- * accessibility hint says why it cannot change here.
+ * changed. Every other session shows the same chip, and a tap (or its
+ * accessibility hint) says why it cannot change here.
  */
 export const ComposerModelChip = observer(function ComposerModelChip({
   session,
@@ -154,16 +154,26 @@ export const ComposerModelChip = observer(function ComposerModelChip({
   // Not in the machine's catalog: still a name, not an id.
   const model = raw && listed === raw ? compactModelId(raw) : listed
   const text = chipText(model, rawEffort ? effortLabel(agentKind, rawEffort) : undefined)
+  const reason = modelReadoutReason(session, verdict)
+  // The same chip shape as the live menu (board ChatReply: name · effort and a
+  // chevron). It cannot change here, so a tap says why instead of opening a
+  // menu of choices that would be refused.
   return (
-    <Text
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`Model and effort: ${text}`}
+      accessibilityHint={reason}
       testID="session-model"
-      accessibilityLabel={text}
-      accessibilityHint={modelReadoutReason(session, verdict)}
-      style={[styles.text, styles.readout]}
-      numberOfLines={1}
+      onPress={() => Alert.alert(text, reason)}
+      hitSlop={8}
+      scaleTo={0.97}
+      style={styles.chip}
     >
-      {text}
-    </Text>
+      <Text style={styles.text} numberOfLines={1}>
+        {text}
+      </Text>
+      <Icon as={ChevronDown} size={11} color={color.textMicro} />
+    </PressableScale>
   )
 })
 
@@ -188,8 +198,5 @@ const styles = StyleSheet.create({
     color: color.textDim,
     fontSize: font.micro,
     lineHeight: 16,
-  },
-  readout: {
-    paddingVertical: 8,
   },
 })

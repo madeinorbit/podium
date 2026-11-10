@@ -893,7 +893,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   askLayer: {
-    backgroundColor: color.engraved,
+    backgroundColor: color.bg,
   },
   /** Claims the feed remainder so the floating composer stays anchored. */
   empty: {

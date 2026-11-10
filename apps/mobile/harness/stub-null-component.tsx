@@ -8,3 +8,5 @@ export default Null
 export const getAssetByID = () => undefined
 export const DOMWebView = Null
 export const parse = () => []
+export const OfferArtifactStrip = Null
+export const followPodiumLink = () => {}

@@ -5,7 +5,6 @@ import type { ComponentProps } from 'react'
 import type { View as RNView } from 'react-native'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { poolRouteFixture } from '../../test/pool-routes'
-import { STAGE_COLOR, STAGE_UNKNOWN } from '../theme/stage'
 import { color } from '../theme/theme'
 
 let issues: IssueViewModel[] = []
@@ -43,13 +42,9 @@ function issue(seq: number, stage: IssueViewModel['stage']): IssueViewModel {
   } as IssueViewModel
 }
 
-function inkOf(label: RegExp): string {
-  return getComputedStyle(screen.getByLabelText(label)).color
-}
-
-/** The hex token as react-native-web normalises it into computed style. */
-function rgb(hex: string): string {
-  const n = Number.parseInt(hex.replace('#', ''), 16)
+/** A hex token as react-native-web normalises it into computed style. */
+function inkOfToken(token: unknown): string {
+  const n = Number.parseInt(String(token).replace('#', ''), 16)
   return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, 1.00)`
 }
 
@@ -58,7 +53,7 @@ beforeEach(() => {
 })
 
 describe('RefChip', () => {
-  it.each(ALL_ISSUE_STATUSES)('renders the %s status from the live reference model', (status) => {
+  it.each(ALL_ISSUE_STATUSES)('announces the %s status from the live reference model', (status) => {
     issues = [
       {
         ...issue(2050, isIssueStage(status) ? status : 'done'),
@@ -66,45 +61,34 @@ describe('RefChip', () => {
       },
     ]
     const { container, unmount } = render(<RefChip token="POD-2050" refKind="issue" prefix="POD" />)
-    const glyph = container.querySelector(`[aria-label="${ISSUE_STATUS_LABELS[status]}"]`)
-    expect(glyph).toBeTruthy()
     const chip = container.querySelector('[aria-label*="task POD-2050"]')
     expect(chip?.getAttribute('aria-label')).toContain(ISSUE_STATUS_LABELS[status])
     unmount()
   })
-  it('paints a resolved ref in its live workflow stage [POD-724]', () => {
-    render(<RefChip token="POD-529" refKind="issue" prefix="POD" onPress={vi.fn()} />)
 
-    expect(inkOf(/In Progress task POD-529/i)).toBe(rgb(STAGE_COLOR.in_progress))
-    // …and carries the stage's shape, not only its colour.
-    expect(screen.getByLabelText('In Progress')).toBeTruthy()
-  })
-
-  it('leaves a ref with no live row muted rather than guessing [POD-676]', () => {
-    // A parseable token whose row has not arrived (or is not visible to this
-    // principal) must not borrow a stage colour, and must never take the brand
-    // accent — that would read as "waiting on you".
+  it('draws every ref as a quiet inline word in the label colour [POD-2380]', () => {
+    const onPress = vi.fn()
     const { container } = render(
-      <RefChip token="POD-9999" refKind="issue" prefix="POD" onPress={vi.fn()} />,
+      <>
+        <RefChip token="POD-529" refKind="issue" prefix="POD" onPress={onPress} />
+        <RefChip token="POD-9999" refKind="issue" prefix="POD" />
+        <RefChip token="POD-529-A" refKind="session" prefix="POD" />
+      </>,
     )
-
-    expect(inkOf(/POD-9999 is unavailable/i)).toBe(rgb(STAGE_UNKNOWN))
-    expect(inkOf(/POD-9999 is unavailable/i)).not.toBe(rgb(color.accent))
-    // …and SAYS unresolved rather than only going quiet: `backlog` is muted
-    // too, so grey alone left the two states one indistinguishable colour.
-    expect(container.querySelector('[aria-label="Unknown"]')).toBeTruthy()
-  })
-
-  it('never paints a session ref with a workflow stage', () => {
-    // Scoped to this render's own container, not `screen`: renders in this file
-    // accumulate in the document, so a document-wide query would find the
-    // previous test's glyph.
-    const { container } = render(<RefChip token="POD-529-A" refKind="session" prefix="POD" />)
-
-    expect(inkOf(/Session POD-529-A/i)).toBe(rgb(color.textDim))
-    // A session ref is not a task whose state we failed to learn, so it gets no
-    // unknown glyph — that would claim a gap that is not there.
+    for (const label of [
+      /In Progress task POD-529/i,
+      /POD-9999 is unavailable/i,
+      /Session POD-529-A/i,
+    ]) {
+      const node = screen.getByLabelText(label)
+      expect(getComputedStyle(node).color).toBe(inkOfToken(color.text))
+      expect(getComputedStyle(node).textDecorationLine).not.toBe('underline')
+    }
+    // No stage glyph (the old ring), no unresolved glyph.
+    expect(container.querySelector('[aria-label="In Progress"]')).toBeNull()
     expect(container.querySelector('[aria-label="Unknown"]')).toBeNull()
+    screen.getByLabelText(/In Progress task POD-529/i).click()
+    expect(onPress).toHaveBeenCalledWith('POD-529')
   })
 
   it('leaves a ref-shaped token from an unknown prefix as prose', () => {

@@ -320,14 +320,26 @@ export function Composer({
   // float the composer that far above the keyboard. (Web never reports a
   // keyboard here — the visual-viewport root owns that geometry.)
   const chrome = keyboardVisible ? 0 : bottomInset > 0 ? bottomInset : insets.bottom
-  const voiceStatus = composerVoiceStatus(voice)
+  // ON iOS THE MIC IS ALWAYS THERE (board Chat): dictation is part of how a
+  // message is finished. Where the private speech model is not available
+  // (simulator, older iOS, still downloading) a tap says why on the status
+  // line instead of the control vanishing. Web keeps hiding it without a
+  // speech API, since nothing there could ever make it work.
+  const showVoice = voice.supported || Platform.OS === 'ios'
+  const [voiceNote, setVoiceNote] = useState<string | null>(null)
+  const voiceStatus = composerVoiceStatus(voice) || (voiceNote ?? '')
 
   const changeText = (next: string) => {
+    if (voiceNote) setVoiceNote(null)
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
     writeText(next)
   }
 
   const startVoice = () => {
+    if (!voice.supported) {
+      setVoiceNote(voice.statusMessage ?? 'Dictation is not available on this device.')
+      return
+    }
     // A completed session remains visible until the next draft boundary. Move
     // its finalized text into the typed base before starting the new session.
     writeText(committedText)
@@ -416,7 +428,7 @@ export function Composer({
             />
           ) : null}
           {onStop ? <StopTurnButton onPress={onStop} /> : null}
-          {voice.supported ? (
+          {showVoice ? (
             <VoiceButton
               starting={voice.starting}
               listening={voice.listening}

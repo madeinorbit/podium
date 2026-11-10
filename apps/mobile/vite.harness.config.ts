@@ -82,12 +82,16 @@ export default async () => {
         // The chat harness (POD-2380) draws the real TranscriptList, whose
         // long-press sheet and shared-file rows reach gesture-handler, screens
         // and the webview; no captured state opens them.
-        ...['ActionSheet', 'SharedFiles', 'PendingFiles'].map((name) => ({
+        ...['ActionSheet', 'SharedFiles', 'PendingFiles', 'OfferArtifactStrip'].map((name) => ({
           find: new RegExp(`^\\./${name}$`),
           replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
         })),
         {
           find: /^@react-native\/assets-registry\/registry$/,
+          replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
+        },
+        {
+          find: /^\.\.\/lib\/podium-link$/,
           replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
         },
         {

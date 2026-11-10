@@ -1781,7 +1781,8 @@ const styles = StyleSheet.create({
   listFrame: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: color.engraved,
+    // The page colour (board Chat: black in dark): the transcript is the page.
+    backgroundColor: color.bg,
   },
   footer: {
     marginTop: space.xs,
@@ -1865,19 +1866,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 4,
     paddingVertical: space.xs,
-    backgroundColor: color.engraved,
+    backgroundColor: color.bg,
   },
+  // Board Chat's .you: card colour, card radius 8, 8/12 inset, no outline.
   userCard: {
-    maxWidth: '80%',
-    backgroundColor: color.surfaceHigh,
-    borderColor: color.border,
+    maxWidth: '84%',
+    backgroundColor: color.card,
+    borderColor: color.clear,
     borderWidth: StyleSheet.hairlineWidth,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 5,
-    borderBottomLeftRadius: 14,
-    paddingHorizontal: space.lg - 1,
-    paddingVertical: space.sm + 2,
+    borderRadius: 8,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   userCardPending: {
     opacity: 0.7,
