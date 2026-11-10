@@ -379,7 +379,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'hibernation',
         'Pause sooner when load is above',
         'Per CPU core. Empty turns load pressure off.',
-        'cpu threshold pressure',
+        'cpu threshold pressure run queue',
       ),
       row(
         'hibernation',

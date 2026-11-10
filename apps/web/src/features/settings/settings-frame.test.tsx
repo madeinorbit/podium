@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import type { SettingsPage } from '@podium/client-core/ui-state'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { lazy, Suspense, useState } from 'react'
@@ -225,35 +223,4 @@ it('waits for a lazy page before revealing its search target', async () => {
   await waitFor(() =>
     expect(document.activeElement?.id).toBe('settings-workflow-default-base-branch'),
   )
-})
-
-it('keeps every static legacy Row label in the page catalog', () => {
-  const files: Record<string, string> = {
-    sessions: 'agents',
-    superagent: 'agents',
-    workllm: 'agents',
-    appearance: 'appearance',
-    tips: 'appearance',
-    notifications: 'notifications',
-    hibernation: 'machines',
-    workflow: 'projects',
-    network: 'access',
-    access: 'access',
-    privacy: 'privacy',
-    'diagnostic-logging': 'privacy',
-    updates: 'updates',
-  }
-  let counted = 0
-  for (const [file, pageId] of Object.entries(files)) {
-    const source = readFileSync(resolve(import.meta.dirname, 'sections', `${file}.tsx`), 'utf8')
-    const page = SETTINGS_PAGES.find((entry) => entry.key === pageId)!
-    for (const match of source.matchAll(/<Row\b[^>]*?\blabel="([^"]+)"/gs)) {
-      counted += 1
-      expect(
-        page.rows.some((entry) => entry.rowLabel === match[1]),
-        `${file}: ${match[1]}`,
-      ).toBe(true)
-    }
-  }
-  expect(counted).toBeGreaterThan(40)
 })

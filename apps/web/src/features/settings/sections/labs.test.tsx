@@ -92,7 +92,7 @@ describe('LabsSection', () => {
 
     const toggle = screen.getByRole('switch', { name: 'Headless agents' })
     expect(toggle.getAttribute('aria-checked')).toBe(String(enabled))
-    expect((toggle as HTMLButtonElement).disabled).toBe(true)
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText('Set by config file')).toBeTruthy()
     fireEvent.click(toggle)
     expect(patch).not.toHaveBeenCalled()

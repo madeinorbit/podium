@@ -118,12 +118,12 @@ describe('Settings rail — the admin area', () => {
     expect(
       screen.getByRole('navigation', { name: 'Settings sections' }).querySelector('[aria-current]'),
     ).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Audit log' })).toBeNull()
     expect(fetchMock.mock.calls.some(([url]) => url.includes('/auth/admin/audit'))).toBe(false)
     expect(screen.getByText('Checking administrator access…')).toBeTruthy()
 
     await act(async () => read.resolve(Response.json({ sections: ['audit'] })))
-    expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Audit log' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Audit log' }).getAttribute('aria-current')).toBe(
       'page',
     )
@@ -143,7 +143,7 @@ describe('Settings rail — the admin area', () => {
         'page',
       ),
     )
-    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Audit log' })).toBeNull()
   })
 
   it('Alice, an admin, sees all thirteen Personal and Workspace pages', async () => {
@@ -197,7 +197,7 @@ describe('Settings rail — the admin area', () => {
     storeState.settingsTab = 'audit'
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('navigation', { name: 'Settings sections' })
-    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Audit log' })).toBeNull()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-current')).toBe(
         'page',
@@ -214,7 +214,7 @@ describe('Settings rail — the admin area', () => {
     expect(
       screen.getByRole('navigation', { name: 'Settings sections' }).querySelector('[aria-current]'),
     ).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Audit log' })).toBeNull()
 
     const retry = pendingResponse()
     fetchMock.mockImplementation(async (url: string) =>
@@ -228,7 +228,7 @@ describe('Settings rail — the admin area', () => {
     expect(railGroups()).toEqual(['Personal', 'Workspace'])
 
     await act(async () => retry.resolve(Response.json({ sections: ['audit'] })))
-    expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Audit log' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Audit log' }).getAttribute('aria-current')).toBe(
       'page',
     )

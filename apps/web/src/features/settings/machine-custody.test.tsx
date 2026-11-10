@@ -1,6 +1,7 @@
 import '@/test-support/mock-request-pool.test.fixture'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import { useWorklistPool as fixturePool } from '@/app/store-worklist-pool'
 import { MachineCustody } from './machine-custody'
@@ -83,7 +84,7 @@ test('gives use only after the inline shared-machine warning is acknowledged', a
   expect(give).toHaveProperty('disabled', true)
   fireEvent.click(give)
   expect(mutate).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByLabelText('I understand we will share this machine’s account'))
+  await userEvent.click(screen.getByText('I understand we will share this machine’s account'))
   fireEvent.click(screen.getByRole('button', { name: 'Let them run agents here' }))
   await waitFor(() =>
     expect(mutate).toHaveBeenCalledExactlyOnceWith({

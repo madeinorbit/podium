@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@/test-support/mock-request-pool.test.fixture'
 import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { Profiler, type ReactNode, useRef, useState, useSyncExternalStore } from 'react'
@@ -245,7 +246,7 @@ describe('personal AI accounts', () => {
     trpc.accounts.useOnMyMachines.mutate.mockResolvedValue({ ok: true })
     render(<Harness />)
     const toggle = await screen.findByRole('switch', {
-      name: 'Use on all my machines (alice@example.com)',
+      name: /Use on all my machines.*alice@example\.com/,
     })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     expect(screen.getByText(/Not copied to Laptop/)).toBeTruthy()
@@ -323,9 +324,7 @@ describe('personal AI accounts', () => {
       }),
     )
     await waitFor(() =>
-      expect((flow().getByRole('switch', { name: 'Ana' }) as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
+      expect(flow().getByRole('switch', { name: 'Ana' }).getAttribute('aria-disabled')).not.toBe('true'),
     )
     fireEvent.click(flow().getByRole('switch', { name: 'Ana' }))
     await waitFor(() =>
@@ -357,7 +356,7 @@ describe('personal AI accounts', () => {
     expect(await screen.findByText(/Ana’s key/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add your own' }))
     fireEvent.click(flow().getByRole('button', { name: 'Add' }))
-    const input = flow().getByLabelText('Anthropic API key') as HTMLInputElement
+    const input = flow().getByLabelText('Anthropic API key', { selector: 'input' }) as HTMLInputElement
     expect(input.type).toBe('password')
     expect(input.value).toBe('')
     fireEvent.change(input, { target: { value: 'sk-new-personal-key' } })
@@ -379,7 +378,7 @@ describe('personal AI accounts', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add key' }))
     expect(flow().getByText(/claude setup-token/)).toBeTruthy()
     fireEvent.click(flow().getByRole('button', { name: 'Add' }))
-    fireEvent.change(flow().getByLabelText('Claude subscription token'), {
+    fireEvent.change(flow().getByLabelText('Claude subscription token', { selector: 'input' }), {
       target: { value: 'sk-ant-oat01-token' },
     })
     fireEvent.click(flow().getByRole('button', { name: 'Save' }))
@@ -404,7 +403,7 @@ describe('personal AI accounts', () => {
     const send = flow().getByRole('button', { name: 'Send to Foreign' }) as HTMLButtonElement
     expect(send.disabled).toBe(true)
     expect(trpc.accounts.send.mutate).not.toHaveBeenCalled()
-    fireEvent.click(flow().getByRole('checkbox', { name: /I understand we will share/ }))
+    await userEvent.click(flow().getByText(/^I understand we will share/))
     fireEvent.click(send)
     await waitFor(() =>
       expect(trpc.accounts.send.mutate).toHaveBeenCalledWith({
@@ -467,12 +466,12 @@ describe('personal AI accounts', () => {
     render(<Harness />)
     fireEvent.click(await screen.findByRole('button', { name: 'Add key' }))
     fireEvent.click(flow().getByRole('button', { name: 'Add' }))
-    fireEvent.change(flow().getByLabelText('Anthropic API key'), {
+    fireEvent.change(flow().getByLabelText('Anthropic API key', { selector: 'input' }), {
       target: { value: 'invalid-key' },
     })
     fireEvent.click(flow().getByRole('button', { name: 'Save' }))
     expect(await flow().findByText('Bad credential')).toBeTruthy()
-    expect((flow().getByLabelText('Anthropic API key') as HTMLInputElement).type).toBe('password')
+    expect((flow().getByLabelText('Anthropic API key', { selector: 'input' }) as HTMLInputElement).type).toBe('password')
     expect(flow().getByRole('button', { name: 'Save' })).toBeTruthy()
     expect(frame.closeTakeover).not.toHaveBeenCalled()
   })

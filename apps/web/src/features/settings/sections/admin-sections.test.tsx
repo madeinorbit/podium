@@ -33,7 +33,9 @@ function serve(answers: Record<string, unknown>) {
 
 async function chooseFilter(name: string, option: string) {
   fireEvent.click(screen.getByRole('combobox', { name }))
-  fireEvent.click(await screen.findByRole('option', { name: option }))
+  const item = await screen.findByRole('option', { name: option })
+  fireEvent.pointerDown(item, { pointerType: 'mouse', button: 0 })
+  fireEvent.click(item)
 }
 
 const alice = { kind: 'member', id: 'alice', name: 'Alice' }

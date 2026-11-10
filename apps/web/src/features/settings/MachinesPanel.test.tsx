@@ -198,7 +198,7 @@ describe('add machine choices', () => {
     const mint = state.trpc.machines.pairingCode.mutate
     expect(mint).not.toHaveBeenCalled()
     fireEvent.click(
-      screen.getByRole('switch', { name: 'Copy agent logins from your other machines' }),
+      screen.getByRole('switch', { name: /^Copy agent logins from your other machines/ }),
     )
     expect(mint).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
@@ -206,7 +206,7 @@ describe('add machine choices', () => {
       expect(mint).toHaveBeenCalledWith({ copyAgentCredentials: false, podiumManaged: false }),
     )
     expect(await screen.findByText('podium join ABCD-EFGH')).toBeTruthy()
-    expect(screen.getByRole('switch')).toHaveProperty('disabled', true)
+    expect(screen.getByRole('switch').getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: 'Change choice' }))
     expect(screen.queryByText('podium join ABCD-EFGH')).toBeNull()
     expect(mint).toHaveBeenCalledTimes(1)

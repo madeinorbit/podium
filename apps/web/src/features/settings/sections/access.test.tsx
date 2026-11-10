@@ -1,5 +1,6 @@
 import '@/test-support/mock-core-store-handle'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import type { AdminViewer } from '../admin-viewer'
@@ -167,7 +168,7 @@ describe('Access', () => {
     const disable = screen.getByRole('button', { name: 'Turn off sign-in' })
     expect((disable as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'the password' } })
-    fireEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByText(/^I understand that anyone who can reach/))
     fireEvent.click(disable)
     await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('false'))
     expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
@@ -192,7 +193,7 @@ describe('Access', () => {
     render(<AccessSection />)
     fireEvent.click(await screen.findByRole('switch', { name: 'Require sign-in' }))
     expect(screen.queryByLabelText('Your password')).toBeNull()
-    fireEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByText(/^I understand that anyone who can reach/))
     fireEvent.click(screen.getByRole('button', { name: 'Turn off sign-in' }))
     await waitFor(() =>
       expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({

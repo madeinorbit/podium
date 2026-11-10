@@ -14,6 +14,11 @@ test('person companions match sign-ins and machine custody by member id', async 
     rows: [
       {
         kind: 'machine',
+        id: 'mine',
+        value: { id: 'mine', name: 'My machine', custodian: 'anna' },
+      },
+      {
+        kind: 'machine',
         id: 'theirs',
         value: { id: 'theirs', name: 'Their machine', custodian: 'admin' },
       },
