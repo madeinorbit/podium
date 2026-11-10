@@ -29689,7 +29689,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Projects, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29708,7 +29708,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Projects, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29727,7 +29727,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Projects, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29745,7 +29745,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Projects, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29764,7 +29764,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Projects, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."

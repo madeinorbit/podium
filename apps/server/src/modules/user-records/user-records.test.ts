@@ -331,14 +331,14 @@ describe('records.userPreferences', () => {
     const o = await makeOracle()
     const env = envelope(
       'records.userPreferences.edit',
-      { id, patch: { 'sidebar.groupByRepo': true } },
+      { id, patch: { 'sidebar.repoSort': 'alphabetical' } },
       'u-r',
     )
     await expectAppliedOnPath(o, env, { writes: true })
     const replay = await submit(o, env)
     expect(replay.outcome === 'applied' && replay.replayed).toBe(true)
 
-    for (const path of ['apiKeys.openai', 'gitWorkflow.mergeStyle']) {
+    for (const path of ['apiKeys.openai', 'gitWorkflow.defaultParentBranch']) {
       const reply = await submit(
         o,
         envelope('records.userPreferences.edit', { id, patch: { [path]: 'x' } }, `u-${path}`),

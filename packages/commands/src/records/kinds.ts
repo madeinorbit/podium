@@ -612,7 +612,7 @@ const preferenceLeafFields: Record<string, RecordField> = Object.fromEntries(
 export const USER_PREFERENCES_RECORD = defineSyncedKind({
   kind: 'userPreferences',
   title: 'personal settings',
-  wire: UserPreferencesWire,
+  wire: UserPreferencesWire.innerType(),
   ref: rowRef(parseUserPreferencesRowId, 'a user preferences row id'),
   conflict: 'single-writer',
   fields: {
@@ -1078,7 +1078,7 @@ const instanceLeafFields: Record<string, RecordField> = Object.fromEntries(
 export const INSTANCE_PREFERENCES_RECORD = defineSyncedKind({
   kind: 'instancePreferences',
   title: 'instance settings',
-  wire: InstancePreferencesWire,
+  wire: InstancePreferencesWire.innerType(),
   ref: rowRef(parseInstancePreferencesRowId, 'the instance preferences row id'),
   conflict: 'field-LWW',
   fields: instanceLeafFields,

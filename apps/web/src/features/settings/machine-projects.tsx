@@ -12,7 +12,7 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { EntityRow, Section } from './sections/shared'
 
-export class MachineProjectsView {
+class MachineProjectsView {
   readonly repositories: SettingsRepositories
   readonly row = companion((repo: SettingsRepository) => new ProjectOnMachine(repo, this.machine))
   constructor(

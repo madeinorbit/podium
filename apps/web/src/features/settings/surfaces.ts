@@ -4,18 +4,8 @@ import type { SettingsPage } from '@podium/client-core/ui-state'
 
 export const SETTINGS_SURFACES = ['personal', 'workspace'] as const
 export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
-export const SURFACE_COPY = {
-  personal: { label: 'Personal' },
-  workspace: { label: 'Workspace' },
-} as const
-
 export const TAB_PATHS = {
-  agents: [
-    'roles.coding',
-    'autoContinue.enabled',
-    'roles.superagent',
-    'roles.background',
-  ],
+  agents: ['roles.coding', 'autoContinue.enabled', 'roles.superagent', 'roles.background'],
   accounts: [],
   notifications: [
     'notifications.web',

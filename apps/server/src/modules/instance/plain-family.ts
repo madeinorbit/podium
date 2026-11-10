@@ -69,7 +69,7 @@ const instanceService = (state: {
       : undefined,
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
-    // POD-5921: Settings → Network shows the bookmarkable link beside the address.
+    // POD-5921: Settings → Access shows the bookmarkable link beside the address.
     tunnelHealth: state.tunnelHealth,
     stableLink: state.connect?.stableLink ? () => state.connect?.stableLink?.() : undefined,
     // POD-4179: setup.complete records the host machine's grantee.

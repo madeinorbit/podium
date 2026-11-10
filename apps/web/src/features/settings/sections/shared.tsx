@@ -140,27 +140,6 @@ export function EntityRow({
   )
 }
 
-/** A named group INSIDE a section (Terminal, Reset settings, …). One step below
- *  `Section`'s heading — it used to be a step ABOVE it at 13px, so a subgroup
- *  outranked the section that contained it. */
-export function Subsection({
-  title,
-  hint,
-  children,
-}: {
-  title: string
-  hint?: React.ReactNode
-  children: React.ReactNode
-}): JSX.Element {
-  return (
-    <div className="mt-6 border-hairline-soft/70 border-t pt-5">
-      <h4 className="settings-h2 mb-1">{title}</h4>
-      {hint && <p className="settings-prose mb-3.5">{hint}</p>}
-      {children}
-    </div>
-  )
-}
-
 /** Supply the existing synced settings object, never a copy of its values.
  * `setting` binds a row to its command permission, pending write and refusal.
  * Page tasks should pass the dotted leaf (or list of leaves) they edit. */
@@ -893,12 +872,6 @@ export function harnessAgentLabel(
 
 export function clampInt(raw: string, min: number, max: number, fallback: number): number {
   const n = Number.parseInt(raw, 10)
-  if (Number.isNaN(n)) return fallback
-  return Math.min(max, Math.max(min, n))
-}
-
-export function clampNumber(raw: string, min: number, max: number, fallback: number): number {
-  const n = Number.parseFloat(raw)
   if (Number.isNaN(n)) return fallback
   return Math.min(max, Math.max(min, n))
 }

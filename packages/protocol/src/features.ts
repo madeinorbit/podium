@@ -90,7 +90,7 @@ export const FEATURES = [
   {
     // POD-1882. Controls that exist to develop PODIUM ITSELF, not to run it:
     // the Development update channel in Settings → Updates and the per-machine
-    // update-source selectors in Settings → Machines. `stable` visibility on
+    // update-source selectors in Settings → Updates. `stable` visibility on
     // purpose — a developer's install is usually a released build, so the flag
     // has to be listable there or it could never be turned on. Off by default,
     // and turning it off never discards a stored per-machine override.

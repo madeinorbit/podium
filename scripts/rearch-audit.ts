@@ -1413,8 +1413,7 @@ export const CHECKS: AuditCheck[] = [
           site.file !== 'packages/client-core/src/ui-state.ts' ||
           ![
             "panelMode: 'podium.panelMode',",
-            "panelModeDefault: 'podium.panelModeDefault',",
-          ].includes(site.text),
+              ].includes(site.text),
       ),
   },
   {

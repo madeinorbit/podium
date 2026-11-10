@@ -40,7 +40,6 @@ async function harness(opts: {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: opts.defaultParentBranch,
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -237,7 +236,7 @@ describe('starting an issue whose parent branch is missing (POD-2065)', () => {
     const message = await h.svc.gitWorkflow.start(w.id).catch((e: Error) => e.message)
     expect(message).toContain("is the instance's default parent branch")
     expect(message).toContain(
-      "set this repository's base branch (sidebar project menu → Base branch, or Settings → Repositories)",
+      "set this repository's base branch (sidebar project menu → Base branch, or Settings → Projects)",
     )
     expect(message).toMatch(/podium issue update --id \S+ --parent-branch main\./)
     // git refused the add, so nothing was built and no session was spawned.

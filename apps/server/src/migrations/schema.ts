@@ -916,7 +916,7 @@ export const machines = sqliteTable(
      * Durable authority choice for this machine's next target. NULLABLE and null is
      * MEANINGFUL (POD-1882): null = this machine follows the FLEET DEFAULT channel
      * (config.updateChannel), which is what Settings → Updates sets. A value here is
-     * an operator's explicit per-machine pin, made in Settings → Machines, and it
+     * an operator's explicit per-machine pin, made in Settings → Updates, and it
      * survives the Podium-development flag being switched back off — the selector
      * hides, the pin does not move.
      */

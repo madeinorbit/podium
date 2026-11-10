@@ -144,7 +144,7 @@ export function describeApplyOutcome(
 }
 
 /** Request answers belong to the Updates view; batch and row Apply share them. */
-export class MachineUpdateAction {
+class MachineUpdateAction {
   @observable accessor applying = false
   @observable accessor changingChannel = false
   @observable accessor error: string | null = null

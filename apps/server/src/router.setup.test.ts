@@ -213,7 +213,7 @@ describe('setup tRPC', () => {
     })
     expect(publicUrlChanged).toHaveBeenCalledTimes(2)
   })
-  it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
+  it('info reports the current mode + publicUrl (for Settings → Access)', async () => {
     // appVersion is the baked build version ('dev' from source) [POD-838].
     const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
     // Every layered value carries the LAYER that answered (PDM-26), so a control

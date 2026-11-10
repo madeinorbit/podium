@@ -97,7 +97,7 @@ export function LoginScreen({
         setError(
           revoked
             ? `✗ Could not save this session: ${detail}`
-            : `✗ Session storage and remote revocation failed. Revoke this phone from Settings → Connected devices: ${detail}`,
+            : `✗ Session storage and remote revocation failed. Revoke this phone from Settings → Account: ${detail}`,
         )
       }
     } finally {

@@ -78,7 +78,7 @@ describe('records.instancePreferences', () => {
       o,
       envelope(
         'records.instancePreferences.edit',
-        { id: ID, patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.mergeStyle': 'pr' } },
+        { id: ID, patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.defaultParentBranch': 'release' } },
         'i-1',
       ),
       { writes: true },
@@ -96,11 +96,11 @@ describe('records.instancePreferences', () => {
     )
     const stored = await o.store.settings.getSettings()
     expect(stored.hibernation.memoryPct).toBe(90)
-    expect(stored.gitWorkflow.mergeStyle).toBe('pr')
+    expect(stored.gitWorkflow.defaultParentBranch).toBe('release')
     expect(stored.experimental).toEqual({ 'git-panel': true })
     expect(await recordOn(o, ME)).toMatchObject({
       'hibernation.memoryPct': 90,
-      'gitWorkflow.mergeStyle': 'pr',
+      'gitWorkflow.defaultParentBranch': 'release',
       experimental: { 'git-panel': true },
     })
 

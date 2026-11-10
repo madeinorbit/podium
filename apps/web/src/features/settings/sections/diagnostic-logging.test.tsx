@@ -1,5 +1,5 @@
 /**
- * Settings → Privacy → Diagnostic detail (POD-1920, POD-1946).
+ * Settings → Updates → Troubleshooting → Log detail (POD-1920, POD-1946).
  *
  * The behaviours that matter: the picker drives the SAME knob a server-pushed
  * raise does (so the two can never disagree), the row says which level is in

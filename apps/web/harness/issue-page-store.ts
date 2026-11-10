@@ -53,7 +53,7 @@ const uiState = {
 
 const trpc = {
   features: { state: { query: async () => null } },
-  settings: { get: { query: async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } }) } },
+  settings: { get: { query: async () => ({ gitWorkflow: { } }) } },
   issues: {
     events: { query: async () => [] },
     comments: { query: async () => [] },

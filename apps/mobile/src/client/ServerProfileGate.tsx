@@ -244,7 +244,7 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
 function alertUnrevokedPhoneSession(): void {
   Alert.alert(
     'Phone session still active',
-    'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+    'A superseded phone session could not be revoked. Revoke it from Settings → Account on the server.',
   )
 }
 
@@ -897,7 +897,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           throw new Error(
             revoked
               ? `Could not save this phone session: ${detail}`
-              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Connected devices: ${detail}`,
+              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Account: ${detail}`,
           )
         }
         throw cause
@@ -1632,7 +1632,7 @@ function ActivationFailureView({
           <Text style={styles.setupBody}>
             Podium cannot safely contact or trust this server, so its remote mobile session may
             remain active. The saved bearer will not be sent. Revoke the session later from Settings
-            → Connected devices on another signed-in client.
+            → Account on another signed-in client.
           </Text>
           <PrimaryButton
             label={forgetting ? 'Forgetting…' : 'Forget locally'}

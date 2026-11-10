@@ -605,8 +605,8 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
           expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
         })
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
-        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.mergeStyle': 'ask' }, at)
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe('ask')
+        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.defaultParentBranch': 'next' }, at)
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe('next')
         await store.settings.userPreferences.clear(user, 'sidebar.repoSort')
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).not.toBe('custom')
       })
@@ -618,9 +618,9 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
       const user = (await store.users.earliestAdmin())!.id as UserId
       await withOperation(async () => {
         const first = await store.settings.getSettingsFor(user)
-        const stored = first.gitWorkflow.mergeStyle
-        first.gitWorkflow.mergeStyle = stored === 'ask' ? 'pr' : 'ask'
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe(stored)
+        const stored = first.gitWorkflow.defaultParentBranch
+        first.gitWorkflow.defaultParentBranch = stored === 'next' ? 'release' : 'next'
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe(stored)
       })
     })
   })

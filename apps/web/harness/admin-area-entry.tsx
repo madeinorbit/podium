@@ -210,7 +210,7 @@ const LABEL: Record<string, string> = {
   access: 'Access',
   machines: 'Machines',
   audit: 'Audit',
-  security: 'Profile & security',
+  security: 'Account',
 }
 const groups = SETTINGS_SURFACES.map((surface) => ({
   surface,

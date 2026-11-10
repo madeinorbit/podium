@@ -89,7 +89,7 @@ const fakeTrpc = {
   settings: {
     get: {
       query: vi.fn(async () => ({
-        sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+        sidebar: { repoSort: 'lastUsed', repoOrder: [], },
       })),
     },
   },

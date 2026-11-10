@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test'
 import { gotoWorkspace, RELAY } from './_harness'
 
 /**
- * Runtime verification of Settings → Experimental [spec:SP-f4b9] against the
+ * Runtime verification of Settings → Labs [spec:SP-f4b9] against the
  * real Live UI on the harness relay. The harness runs from source, so the
  * server is in dev mode (PODIUM_APP_VERSION unset ⇒ 'dev'): the edge-visible
  * `shipping` flag must be listed, toggleable, and persist through Save +

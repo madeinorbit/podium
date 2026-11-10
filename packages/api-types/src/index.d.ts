@@ -354,27 +354,21 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar: z.ZodDefault<z.ZodObject<{
         repoSort: z.ZodDefault<z.ZodEnum<["alphabetical", "lastUsed", "custom"]>>;
         repoOrder: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        groupByRepo: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     }, {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     }>>;
     gitWorkflow: z.ZodDefault<z.ZodObject<{
         defaultParentBranch: z.ZodDefault<z.ZodString>;
-        mergeStyle: z.ZodDefault<z.ZodEnum<["ff-only", "pr", "ask"]>>;
         autoRebaseBeforeMerge: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     }, {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     }>>;
     issues: z.ZodDefault<z.ZodObject<{
@@ -500,7 +494,6 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar: {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     };
     autoContinue: {
         enabled: boolean;
@@ -523,7 +516,6 @@ declare const PodiumSettings: z.ZodObject<{
     };
     gitWorkflow: {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     };
     steward: {
@@ -590,7 +582,6 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar?: {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     } | undefined;
     autoContinue?: {
         enabled?: boolean | undefined;
@@ -613,7 +604,6 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     gitWorkflow?: {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     } | undefined;
     steward?: {

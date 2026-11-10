@@ -2774,25 +2774,23 @@
       "wire": {},
       "parseAdded": {
         "defaultParentBranch": "",
-        "mergeStyle": "ff-only",
         "autoRebaseBeforeMerge": true
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true}"
+      "encoded": "{\"defaultParentBranch\":\"\",\"autoRebaseBeforeMerge\":true}"
     },
     {
       "schema": "GitWorkflowPolicy",
       "variant": "full",
       "wire": {
         "defaultParentBranch": "defaultParentBranch",
-        "mergeStyle": "ff-only",
         "autoRebaseBeforeMerge": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"defaultParentBranch\":\"defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true}"
+      "encoded": "{\"defaultParentBranch\":\"defaultParentBranch\",\"autoRebaseBeforeMerge\":true}"
     },
     {
       "schema": "GitWorktreeWire",
@@ -3823,7 +3821,6 @@
         },
         "gitWorkflow": {
           "defaultParentBranch": "",
-          "mergeStyle": "ff-only",
           "autoRebaseBeforeMerge": true
         },
         "issues": {
@@ -3842,7 +3839,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{},\"deployment\":{}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{},\"deployment\":{}}"
     },
     {
       "schema": "InstancePreferences",
@@ -3859,7 +3856,6 @@
         },
         "gitWorkflow": {
           "defaultParentBranch": "gitWorkflow.defaultParentBranch",
-          "mergeStyle": "ff-only",
           "autoRebaseBeforeMerge": true
         },
         "issues": {
@@ -3891,7 +3887,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1}}"
     },
     {
       "schema": "InstancePreferencesWire",
@@ -3914,7 +3910,6 @@
         "hibernation.idleShellMinutes": 1,
         "hibernation.backstopMinutes": 60,
         "gitWorkflow.defaultParentBranch": "gitWorkflow.defaultParentBranch",
-        "gitWorkflow.mergeStyle": "ff-only",
         "gitWorkflow.autoRebaseBeforeMerge": true,
         "issues.assistantEnabled": true,
         "steward.enabled": true,
@@ -3935,7 +3930,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation.enabled\":true,\"hibernation.memoryPct\":50,\"hibernation.loadPerCore\":1,\"hibernation.maxIdleSessions\":1,\"hibernation.idleMinutes\":1,\"hibernation.idleShellMinutes\":1,\"hibernation.backstopMinutes\":60,\"gitWorkflow.defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"gitWorkflow.mergeStyle\":\"ff-only\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{\"experimental.key\":true},\"worktreeGc.mode\":\"off\",\"worktreeGc.afterDays\":1,\"transcripts.mirror\":true,\"deployment.authOpenMode\":true,\"deployment.updateChannel\":\"stable\",\"deployment.connectEnabled\":true,\"deployment.telemetryUsage\":\"on\",\"deployment.telemetryCrash\":\"on\",\"deployment.telemetryInstallId\":\"deployment.telemetryInstallId\",\"deployment.telemetrySince\":1}"
+      "encoded": "{\"hibernation.enabled\":true,\"hibernation.memoryPct\":50,\"hibernation.loadPerCore\":1,\"hibernation.maxIdleSessions\":1,\"hibernation.idleMinutes\":1,\"hibernation.idleShellMinutes\":1,\"hibernation.backstopMinutes\":60,\"gitWorkflow.defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{\"experimental.key\":true},\"worktreeGc.mode\":\"off\",\"worktreeGc.afterDays\":1,\"transcripts.mirror\":true,\"deployment.authOpenMode\":true,\"deployment.updateChannel\":\"stable\",\"deployment.connectEnabled\":true,\"deployment.telemetryUsage\":\"on\",\"deployment.telemetryCrash\":\"on\",\"deployment.telemetryInstallId\":\"deployment.telemetryInstallId\",\"deployment.telemetrySince\":1}"
     },
     {
       "schema": "IntegrationSecrets",
@@ -8357,8 +8352,7 @@
         },
         "sidebar": {
           "repoSort": "lastUsed",
-          "repoOrder": [],
-          "groupByRepo": false
+          "repoOrder": []
         },
         "autoContinue": {
           "enabled": false,
@@ -8372,7 +8366,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[],\"groupByRepo\":false},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"}}"
     },
     {
       "schema": "PersonalPreferences",
@@ -8410,8 +8404,7 @@
         },
         "sidebar": {
           "repoSort": "alphabetical",
-          "repoOrder": ["sidebar.repoOrder[0]"],
-          "groupByRepo": true
+          "repoOrder": ["sidebar.repoOrder[0]"]
         },
         "autoContinue": {
           "enabled": true,
@@ -8426,7 +8419,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"],\"groupByRepo\":true},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -15391,25 +15384,23 @@
       "wire": {},
       "parseAdded": {
         "repoSort": "lastUsed",
-        "repoOrder": [],
-        "groupByRepo": false
+        "repoOrder": []
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"repoSort\":\"lastUsed\",\"repoOrder\":[],\"groupByRepo\":false}"
+      "encoded": "{\"repoSort\":\"lastUsed\",\"repoOrder\":[]}"
     },
     {
       "schema": "Sidebar",
       "variant": "full",
       "wire": {
         "repoSort": "alphabetical",
-        "repoOrder": ["repoOrder[0]"],
-        "groupByRepo": true
+        "repoOrder": ["repoOrder[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"repoOrder[0]\"],\"groupByRepo\":true}"
+      "encoded": "{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"repoOrder[0]\"]}"
     },
     {
       "schema": "SpawnedByRef",
@@ -17438,7 +17429,6 @@
         "roles.shipwright.harness": "claude-code",
         "sidebar.repoSort": "alphabetical",
         "sidebar.repoOrder": ["sidebar.repoOrder[0]"],
-        "sidebar.groupByRepo": true,
         "autoContinue.enabled": true,
         "autoContinue.promptDismissed": true,
         "notifications.web": true,
@@ -17448,7 +17438,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"sidebar.groupByRepo\":true,\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\"}"
+      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\"}"
     },
     {
       "schema": "UserRole",

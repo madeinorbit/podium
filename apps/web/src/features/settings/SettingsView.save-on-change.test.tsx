@@ -10,7 +10,7 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
 const storeState = {
   trpc: {} as import('@/app/trpc').Trpc,
   setInstancePreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
-  settingsTab: 'sessions',
+  settingsTab: 'agents',
   setPreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
@@ -57,7 +57,7 @@ beforeEach(() => {
   demand.metrics.mockClear()
   demand.idleCap.mockClear()
   onClose.mockClear()
-  storeState.settingsTab = 'sessions'
+  storeState.settingsTab = 'agents'
   // An admin's viewer: the instance tabs below are in the admin area (POD-6299).
   vi.stubGlobal(
     'fetch',
@@ -171,7 +171,7 @@ describe('Settings save on change', () => {
   })
 
   it('keeps typing local, commits once on Enter, and restores only that leaf with Undo', async () => {
-    storeState.settingsTab = 'hibernation'
+    storeState.settingsTab = 'machines'
     const pool = useWorklistPool()!
     const update = vi.fn(async (values: Record<string, unknown>) => {
       const current = instancePreferences(pool)!
@@ -207,7 +207,7 @@ describe('Settings save on change', () => {
   })
 
   it('reverts a refused control and puts the reason on its row', async () => {
-    storeState.settingsTab = 'hibernation'
+    storeState.settingsTab = 'machines'
     storeState.setInstancePreferences = vi.fn(async () => {
       throw new Error('This setting is locked by the deployment.')
     })

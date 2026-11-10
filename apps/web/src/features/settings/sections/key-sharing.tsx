@@ -14,6 +14,7 @@
 
 import type { MemberRoster } from '@podium/client-graph/member-roster'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
+import { UserRound } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -21,7 +22,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsTrpc } from '../stable-access'
-import { Row } from './shared'
+import { EntityRow, Row, Section } from './shared'
 
 type Mode = 'private' | 'everyone' | 'people'
 
@@ -36,7 +37,7 @@ function nameOf(directory: MemberRoster | null, id: string): string | undefined 
 }
 
 /** "Ana", "Ana and Ben", "Ana, Ben and 2 others": names when known, else a count. */
-export function peopleSummary(directory: MemberRoster | null, users: readonly string[]): string {
+function peopleSummary(directory: MemberRoster | null, users: readonly string[]): string {
   const names = users.flatMap((id) => nameOf(directory, id) ?? [])
   const unnamed = users.length - names.length
   if (names.length === 0) return unnamed === 1 ? '1 person' : `${unnamed} people`
@@ -177,38 +178,48 @@ export const KeySharing = observer(function KeySharing({
         </p>
       )}
       {mode === 'people' && (
-        <>
+        <Section list>
           {known.map((member) => (
-            <Row key={member.id} label={nameOf(directory, member.id) ?? 'Member'}>
-              <Switch
-                aria-label={nameOf(directory, member.id) ?? 'Member'}
-                checked={picked.includes(member.id)}
-                disabled={busy}
-                onCheckedChange={(checked) =>
-                  void save(
-                    'people',
-                    checked ? [...picked, member.id] : picked.filter((id) => id !== member.id),
-                  )
-                }
-              />
-            </Row>
+            <EntityRow
+              key={member.id}
+              leading={<UserRound size={16} aria-hidden="true" />}
+              title={nameOf(directory, member.id) ?? 'Member'}
+              trailing={
+                <Switch
+                  aria-label={nameOf(directory, member.id) ?? 'Member'}
+                  checked={picked.includes(member.id)}
+                  disabled={busy}
+                  onCheckedChange={(checked) =>
+                    void save(
+                      'people',
+                      checked ? [...picked, member.id] : picked.filter((id) => id !== member.id),
+                    )
+                  }
+                />
+              }
+            />
           ))}
           {extra.map((id) => (
-            <Row key={id} label={nameOf(directory, id) ?? id}>
-              <Switch
-                aria-label={nameOf(directory, id) ?? id}
-                checked
-                disabled={busy}
-                onCheckedChange={() =>
-                  void save(
-                    'people',
-                    picked.filter((user) => user !== id),
-                  )
-                }
-              />
-            </Row>
+            <EntityRow
+              key={id}
+              leading={<UserRound size={16} aria-hidden="true" />}
+              title={nameOf(directory, id) ?? id}
+              trailing={
+                <Switch
+                  aria-label={nameOf(directory, id) ?? id}
+                  checked
+                  disabled={busy}
+                  onCheckedChange={() =>
+                    void save(
+                      'people',
+                      picked.filter((user) => user !== id),
+                    )
+                  }
+                />
+              }
+            />
           ))}
-        </>
+        </Section>
       )}
     </>
   )
@@ -230,66 +241,3 @@ export class StoredKeys extends RequestAnswer<readonly StoredKey[]> {
     this.close()
   }
 }
-
-/**
- * Every OTHER member's stored keys, for an admin to manage their sharing. Drawn
- * only when the admin viewer offers People; the server refuses `accounts.keys`
- * below the admin floor regardless. The viewer's
- * own keys are not repeated here: their rows above carry the control.
- */
-export const MembersKeys = observer(function MembersKeys({
-  directory,
-  labelOf,
-  group,
-}: {
-  directory: MemberRoster
-  labelOf: (key: { id: string; provider: string }) => string
-  group: (children: React.ReactNode) => JSX.Element
-}): JSX.Element | null {
-  const trpc = useSettingsTrpc()
-  const [keys] = useState(() => new StoredKeys())
-  const reload = (): Promise<void> => keys.load(() => trpc.accounts.keys.query({}))
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one read per opening; Save reloads.
-  useEffect(() => {
-    void reload()
-    return () => keys.dispose()
-  }, [keys])
-
-  const me = directory.currentMemberId
-  const others = (keys.answer ?? []).filter((key) => key.owner !== me)
-  if (keys.error) {
-    return group(<p className="py-2.5 settings-prose text-destructive">{keys.error}</p>)
-  }
-  if (!keys.answer) return null
-  return group(
-    others.length === 0 ? (
-      <p className="py-2.5 settings-prose">No other member has stored a key.</p>
-    ) : (
-      others.map((key) => {
-        const label = labelOf(key)
-        const ownerName = nameOf(directory, key.owner) ?? key.owner
-        return (
-          <div key={`${key.owner}-${key.id}`} className="pt-2.5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="settings-prose">
-                <span className="font-medium text-foreground">{ownerName}</span> · {label}
-              </span>
-              {key.identity && (
-                <span className="font-mono text-[12px] text-muted-foreground">{key.identity}</span>
-              )}
-            </div>
-            <KeySharing
-              accountId={key.id}
-              label={`${ownerName}'s ${label}`}
-              sharing={key.sharing}
-              owner={key.owner}
-              directory={directory}
-              currentMemberId={me}
-              onChanged={() => void reload()}
-            />
-          </div>
-        )
-      })
-    ),
-  )
-})

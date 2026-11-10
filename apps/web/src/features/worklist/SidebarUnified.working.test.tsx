@@ -157,7 +157,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   // The selector-store hook (refactor) reads slices off the same store shape.

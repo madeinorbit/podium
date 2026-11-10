@@ -1,4 +1,4 @@
-// Harness config for Settings → Repositories (POD-6267). Same shape as
+// Harness config for Settings → Projects (POD-6267). Same shape as
 // vite.updates-harness.config.ts: the real section, the real stylesheet, and the
 // section's pool, write and branch-menu imports aliased to fixtures.
 import { fileURLToPath } from 'node:url'

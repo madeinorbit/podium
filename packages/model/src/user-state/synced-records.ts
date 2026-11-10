@@ -36,6 +36,7 @@ import {
 } from '../ids'
 import { joinKeyParts, splitKeyParts } from '../ids/keys'
 import { PersonalPreferences } from '../settings/preferences'
+import { withoutRetiredSettingsFields } from '../settings/retired-record-fields'
 import { PinKind, perUserKeyOfString } from './session-state'
 
 const ROW_SEP = '\n'
@@ -128,12 +129,14 @@ export const USER_PREFERENCE_LEAVES: ReadonlyMap<string, z.ZodTypeAny> = (() => 
 })()
 
 /** The record: the owner, then each leaf path the person has chosen. */
-export const UserPreferencesWire = z
-  .object({
-    userId: UserIdField,
-    ...Object.fromEntries([...USER_PREFERENCE_LEAVES].map(([path, s]) => [path, s.optional()])),
-  })
-  .strict()
+export const UserPreferencesWire = withoutRetiredSettingsFields(
+  z
+    .object({
+      userId: UserIdField,
+      ...Object.fromEntries([...USER_PREFERENCE_LEAVES].map(([path, s]) => [path, s.optional()])),
+    })
+    .strict(),
+)
 export type UserPreferencesWire = { readonly userId: UserId } & Readonly<Record<string, unknown>>
 
 /** One record per person: its feed id is the user id. */

@@ -97,15 +97,6 @@ export interface NetworkCheck {
 }
 
 /** Save-bar state exposed by the embedded Network settings form. */
-export interface NetworkSaveController {
-  dirty: boolean
-  saving: boolean
-  error: string | null
-  savedAt: number
-  save: () => Promise<void>
-  discard: () => void
-}
-
 /** What the form starts from: the state this instance is ALREADY in, resolved before a
  *  single field is rendered. See `networkStepInitialState`. */
 export interface NetworkStepInitialState {
@@ -151,18 +142,11 @@ interface NetworkStepProps {
   onChecked?: (check: NetworkCheck) => void
   /** Which host mode this box is; sent to setup.complete. Omitted (embedded) preserves it. */
   mode?: 'all-in-one' | 'server'
-  /** When set, this step does NOT commit: it hands the collected payload up so a
-   *  later step can commit the whole wizard in one call. Absent = commit
-   *  immediately (the embedded Settings use). */
-  onCollected?: (payload: SetupCompleteInput) => void
-  /** Settings owns the shared save bar. When supplied, the embedded form reports
-   *  its draft here and omits its private save controls. */
-  onSaveStateChange?: (state: NetworkSaveController | null) => void
 }
 
 /** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
  *  https URL, then persist it via setup.complete. Used both by first-run setup (full page) and,
- *  with `embedded`, inside Settings → Machines when the server has no publicUrl yet.
+ *  with `embedded`, inside Settings → Access’s Change address flow.
  *
  *  NOTHING IS RENDERED UNTIL THE CURRENT CONFIG IS KNOWN, and the split into a loader plus an
  *  inner form is what buys that: every field below is a `useState` INITIALISER over the resolved
@@ -217,8 +201,6 @@ function NetworkStepForm({
   addressOnly = false,
   onChecked,
   mode,
-  onCollected,
-  onSaveStateChange,
   initial,
 }: NetworkStepProps & { initial: NetworkStepInitialState }): ReactNode {
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -238,7 +220,6 @@ function NetworkStepForm({
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [savedAt, setSavedAt] = useState(0)
   // THE ADVISORY PROBE (POD-4535): null = no opinion yet (or no opinion at all),
   // 'checking' while the cloud is asked, 'failed' holding the hint the operator
   // may overrule. Never an error: a failed probe blocks nothing.
@@ -246,20 +227,6 @@ function NetworkStepForm({
     { status: 'checking' } | { status: 'failed'; message: string } | null
   >(null)
   const hasPassword = initial.hasPassword
-  const initialAuthMode = initial.hasPassword ? 'keep' : 'password'
-  const [baseline, setBaseline] = useState(() => ({
-    option: initial.option,
-    url: initial.url,
-    authMode: initialAuthMode as 'password' | 'open' | 'keep',
-    password: '',
-    ackNoPassword: false,
-  }))
-  const dirty =
-    option !== baseline.option ||
-    url !== baseline.url ||
-    authMode !== baseline.authMode ||
-    password !== baseline.password ||
-    ackNoPassword !== baseline.ackNoPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
   const urlWarning = quickTunnelWarning(url)
 
@@ -302,7 +269,7 @@ function NetworkStepForm({
       setErr('')
       // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
       // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
-      // could never type again — and made Settings → Security and Settings → Network disagree
+      // could never type again — and made Settings → Account and Settings → Access disagree
       // about what identical keystrokes mean. Empty is still empty; whitespace is a character.
       if (!addressOnly && authMode === 'password' && !password) {
         setErr('Enter a login password or choose no-password mode.')
@@ -359,13 +326,6 @@ function NetworkStepForm({
         setBusy(true)
         if (force) setReach(null)
       }
-      // Deferred commit: hand the payload to the caller, which sends ONE
-      // setup.complete for the whole wizard. Nothing is written yet.
-      if (onCollected) {
-        setBusy(false)
-        onCollected(payload)
-        return
-      }
       try {
         await trpc.setup.complete.mutate(payload)
         // A PASSWORD LOCKS THIS DEVICE OUT OF THE WRITE IT JUST MADE (POD-1148). `complete`
@@ -373,7 +333,7 @@ function NetworkStepForm({
         // the open-mode synthetic-admin fallback stops applying, so the very next request —
         // `onSaved()` → the caller's reload → setup.info — 401s, and the URL write that already
         // committed is reported to the user as a failure. Take the cookie the guard now wants,
-        // exactly as Settings → Security does after `auth.setPassword`. Unchecked on purpose:
+        // exactly as Settings → Account does after `auth.setPassword`. Unchecked on purpose:
         // a login hiccup must not turn a write that SUCCEEDED into an error message.
         if (payload.password !== undefined) {
           await workspaceFetch(`${httpOrigin}/auth/login`, {
@@ -384,8 +344,6 @@ function NetworkStepForm({
           }).catch(() => {})
         }
         setSaved(true)
-        setSavedAt(Date.now())
-        setBaseline({ option, url, authMode, password, ackNoPassword })
         onSaved()
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e))
@@ -402,43 +360,12 @@ function NetworkStepForm({
       initial.url,
       mode,
       onChecked,
-      onCollected,
       onSaved,
       option,
       password,
       trpc,
       url,
     ],
-  )
-
-  const discard = useCallback((): void => {
-    setOption(baseline.option)
-    setUrl(baseline.url)
-    setAuthMode(baseline.authMode)
-    setPassword(baseline.password)
-    setAckNoPassword(baseline.ackNoPassword)
-    setErr('')
-    setReach(null)
-    setSaved(false)
-    setSavedAt(0)
-  }, [baseline])
-
-  useEffect(() => {
-    onSaveStateChange?.({
-      dirty,
-      saving: busy,
-      error: err || null,
-      savedAt,
-      save: finish,
-      discard,
-    })
-  }, [busy, dirty, discard, err, finish, onSaveStateChange, savedAt])
-
-  useEffect(
-    () => () => {
-      onSaveStateChange?.(null)
-    },
-    [onSaveStateChange],
   )
 
   return (
@@ -692,58 +619,54 @@ function NetworkStepForm({
           )}
         </fieldset>
       )}
-      {err && !onSaveStateChange && (
+      {err && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
         </p>
       )}
-      {!onSaveStateChange && (
-        <p role="status" className="min-h-4 text-[12px] text-success">
-          {saved ? 'Network settings saved.' : ''}
-        </p>
-      )}
-      {!onSaveStateChange && (
-        <div className="flex items-center justify-between gap-2">
-          {onBack ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-              {addressOnly ? 'Cancel' : 'Back'}
+      <p role="status" className="min-h-4 text-[12px] text-success">
+        {saved ? 'Network settings saved.' : ''}
+      </p>
+      <div className="flex items-center justify-between gap-2">
+        {onBack ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            {addressOnly ? 'Cancel' : 'Back'}
+          </Button>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          {onSkip && (
+            <Button type="button" variant="outline" size="sm" onClick={onSkip}>
+              Skip for now
             </Button>
-          ) : (
-            <span />
           )}
-          <div className="flex items-center gap-2">
-            {onSkip && (
-              <Button type="button" variant="outline" size="sm" onClick={onSkip}>
-                Skip for now
-              </Button>
-            )}
-            <Button
-              type="button"
-              disabled={
-                busy ||
-                !url.trim() ||
-                (!addressOnly &&
-                  (authMode === 'password'
-                    ? !password
-                    : authMode === 'open'
-                      ? !ackNoPassword
-                      : false))
-              }
-              onClick={() => void finish()}
-            >
-              {reach?.status === 'checking'
-                ? 'Checking…'
-                : busy
-                  ? 'Saving…'
-                  : addressOnly
-                    ? 'Check and save'
-                    : embedded
-                      ? 'Save network settings'
-                      : 'Finish'}
-            </Button>
-          </div>
+          <Button
+            type="button"
+            disabled={
+              busy ||
+              !url.trim() ||
+              (!addressOnly &&
+                (authMode === 'password'
+                  ? !password
+                  : authMode === 'open'
+                    ? !ackNoPassword
+                    : false))
+            }
+            onClick={() => void finish()}
+          >
+            {reach?.status === 'checking'
+              ? 'Checking…'
+              : busy
+                ? 'Saving…'
+                : addressOnly
+                  ? 'Check and save'
+                  : embedded
+                    ? 'Save network settings'
+                    : 'Finish'}
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   )
 }

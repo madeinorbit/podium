@@ -243,9 +243,9 @@ describe('a preference patch is gated on the classified path — and can say YES
 
   it('accepts a real instance path on the instance command', () => {
     const parsed = settingsUpdateInstanceInput.safeParse({
-      values: { 'gitWorkflow.mergeStyle': 'pr' },
+      values: { 'gitWorkflow.defaultParentBranch': 'release' },
     })
-    expect(parsed.success && parsed.data.patch).toEqual({ 'gitWorkflow.mergeStyle': 'pr' })
+    expect(parsed.success && parsed.data.patch).toEqual({ 'gitWorkflow.defaultParentBranch': 'release' })
   })
 
   it('REFUSES a path nothing classifies — the fail-closed branch', () => {
@@ -267,7 +267,7 @@ describe('a preference patch is gated on the classified path — and can say YES
 
   it('REFUSES an instance path on the personal command, and vice versa', () => {
     expect(
-      settingsUpdatePersonalInput.safeParse({ values: { 'gitWorkflow.mergeStyle': 'pr' } }).success,
+      settingsUpdatePersonalInput.safeParse({ values: { 'gitWorkflow.defaultParentBranch': 'release' } }).success,
     ).toBe(false)
     expect(
       settingsUpdateInstanceInput.safeParse({ values: { 'roles.coding.model': 'opus' } }).success,

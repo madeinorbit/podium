@@ -731,7 +731,7 @@ describe('pairing supersedes handoff intent', () => {
     expect(seams.logout).toHaveBeenCalledWith('https://pair.example', 'token-c', undefined)
     expect(seams.alert).toHaveBeenCalledWith(
       'Phone session still active',
-      'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+      'A superseded phone session could not be revoked. Revoke it from Settings → Account on the server.',
     )
     expect(JSON.stringify(seams.alert.mock.calls)).not.toContain('token-c')
     expect(pendingMobileHandoffSnapshot()).toMatchObject({

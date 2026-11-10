@@ -27,7 +27,7 @@ The server supplies the existing `meta['settings']` row for instance choices:
 `updateChannel`, `transcriptLake`, `connectEnabled`, `telemetryUsage`,
 `telemetryCrash`, and file-only `authOpenMode`, `telemetryInstallId`, and `telemetrySince`. Environment and file overrides
 both lock their Settings controls. Settings writes the database; operator and
-installer flows own the file. Settings → Network is read-only.
+installer flows own the file. Settings → Access shows the current address and offers Change…; it uses the setup command to update the deployment.
 
 `LAYERED_SCOPES` inventories every layered key. Ports, agent home, mode and server/app
 URLs are bootstrap. Feed, origin allowlists, auth mode/sign-in URL, update scope and

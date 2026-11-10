@@ -154,7 +154,7 @@ const server = Bun.serve({
       return new Response(file, { headers: { 'cache-control': 'no-store' } })
     const html = (await Bun.file(`${root}/dist-${dist}/index.html`).text()).replace(
       '<head>',
-      `<head><script>localStorage.setItem('podium.panelMode','chat');localStorage.setItem('podium.panelModeDefault','chat');window.__fixtureErrors=[];addEventListener('error',e=>window.__fixtureErrors.push(e.message));addEventListener('unhandledrejection',e=>window.__fixtureErrors.push(String(e.reason)));const started=performance.now();Date.now=()=>${manifest.fixedNow ?? 1789905600000}+Math.floor(performance.now()-started);</script>`,
+      `<head><script>localStorage.setItem('podium.panelMode','chat');window.__fixtureErrors=[];addEventListener('error',e=>window.__fixtureErrors.push(e.message));addEventListener('unhandledrejection',e=>window.__fixtureErrors.push(String(e.reason)));const started=performance.now();Date.now=()=>${manifest.fixedNow ?? 1789905600000}+Math.floor(performance.now()-started);</script>`,
     )
     return new Response(html, {
       headers: { 'content-type': 'text/html', 'cache-control': 'no-store' },

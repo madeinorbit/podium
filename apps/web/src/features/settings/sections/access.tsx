@@ -12,7 +12,7 @@ import { SettingsPageSection } from '../settings-anchors'
 import { useSettingsTrpc } from '../stable-access'
 import { InstanceLoginSection } from './instance-login'
 import { AdvancedNetworkRows, NetworkSection } from './network'
-import { Row, Section } from './shared'
+import { EntityRow, Row, Section } from './shared'
 
 /** `/auth/admin/access`: a bounded request answer, never a second member profile. */
 export interface AccessAnswer {
@@ -166,10 +166,10 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
       </SettingsPageSection>
       <SettingsPageSection id="access">
         <Section
+          list
           title="Signed in now"
           hint="Every sign-in that has not expired. Ending one signs that device out at once."
-        >
-          <div className="mb-3 flex justify-end">
+          action={
             <fieldset
               aria-label="Filter sign-ins"
               className="inline-flex rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
@@ -190,9 +190,10 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
                 </Button>
               ))}
             </fieldset>
-          </div>
+          }
+        >
           {answer.error && (
-            <div className="mb-3">
+            <div className="settings-list-note">
               <p role="alert" className="settings-prose text-destructive">
                 Couldn’t refresh sign-ins. {answer.error}
               </p>
@@ -203,7 +204,7 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
           )}
           {!data ? (
             !answer.error && (
-              <p role="status" className="settings-prose">
+              <p role="status" className="settings-list-note settings-prose">
                 Loading sign-ins…
               </p>
             )
@@ -212,13 +213,13 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
               {visible.length ? (
                 visible.map(signInRow)
               ) : (
-                <p className="settings-prose">
+                <p className="settings-list-note settings-prose">
                   {filter === 'phones'
                     ? 'No phones are signed in in this list.'
                     : 'No browsers, desktops or phones are signed in in this list.'}
                 </p>
               )}
-              <p className="settings-prose mt-3">
+              <p className="settings-list-note settings-prose">
                 Showing {data.signIns.length} of {total} sign-ins
                 {total > data.signIns.length ? ', latest expiry first' : ''}.
                 {filter === 'phones' && ` ${visible.length} phones in this list.`} Upstream links
@@ -268,49 +269,51 @@ function SignInRow({
           : Laptop
   const device = signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind
   return (
-    <div className="flex items-start gap-3 py-3">
-      <Icon size={18} aria-hidden="true" className="mt-1 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <div className="settings-label flex flex-wrap items-baseline gap-x-2">
-          <span>{signIn.memberName}</span>
-          <span className="settings-prose">
+    <EntityRow
+      leading={<Icon size={18} aria-hidden="true" />}
+      title={signIn.memberName}
+      subtitle={
+        <>
+          <span>
             {device}
             {signIn.platform ? ` · ${signIn.platform}` : ''}
           </span>
-        </div>
-        <p className="settings-prose mt-1">
-          Signed in {day(signIn.createdAt)} · Last seen {day(signIn.lastSeenAt)}
-        </p>
-        <p className="settings-micro mt-1 text-muted-foreground">Expires {day(signIn.expiresAt)}</p>
-        {error && (
-          <p className="settings-prose mt-1 text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
-      {signIn.id ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          aria-label={`Sign out ${signIn.memberName}’s ${device}`}
-          disabled={revoking !== null}
-          pending={revoking === signIn.id}
-          pendingLabel="Signing out…"
-          onClick={() => {
-            if (signIn.id) void onRevoke(signIn.id)
-          }}
-        >
-          Sign out
-        </Button>
-      ) : (
-        <span
-          className="settings-micro text-muted-foreground"
-          title="This older sign-in has no public ID. Use Sign out everywhere in Members."
-        >
-          Use Members
-        </span>
-      )}
-    </div>
+          <span className="mt-1 block">
+            Signed in {day(signIn.createdAt)} · Last seen {day(signIn.lastSeenAt)}
+          </span>
+          <span className="settings-micro mt-1 block">Expires {day(signIn.expiresAt)}</span>
+          {error && (
+            <span className="mt-1 block text-destructive" role="alert">
+              {error}
+            </span>
+          )}
+        </>
+      }
+      trailing={
+        signIn.id ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label={`Sign out ${signIn.memberName}’s ${device}`}
+            disabled={revoking !== null}
+            pending={revoking === signIn.id}
+            pendingLabel="Signing out…"
+            onClick={() => {
+              if (signIn.id) void onRevoke(signIn.id)
+            }}
+          >
+            Sign out
+          </Button>
+        ) : (
+          <span
+            className="settings-micro text-muted-foreground"
+            title="This older sign-in has no public ID. Use Sign out everywhere in Members."
+          >
+            Use Members
+          </span>
+        )
+      }
+    />
   )
 }

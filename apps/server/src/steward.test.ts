@@ -45,7 +45,7 @@ async function harness(
   const sessions = opts.sessions ?? []
   const settings = normalizeSettings({
     steward: { enabled: opts.enabled ?? true },
-    gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+    gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
     sessionDefaults: { agent: 'claude-code' },
   })
   // Incrementing clock: a pinned constant made same-batch comments share

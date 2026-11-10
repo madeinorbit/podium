@@ -56,14 +56,14 @@ import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 export { SETTINGS_GROUPS, SETTINGS_TABS } from './page-definitions'
 export type SettingsTab = SettingsPage
 
-// Account connection and login controls are only needed on the Accounts tab.
+// Account connection and login controls are only needed on the AI accounts page.
 const AccountsSection = lazy(() =>
   throughRestarts(() => import('./sections/accounts')).then((module) => ({
     default: module.AccountsSection,
   })),
 )
 // The repository table, its prefix editor and the grouping model behind it are
-// only needed on the Repos tab, and keep the Settings chunk inside its budget.
+// only needed on the Projects page, and keep the Settings chunk inside its budget.
 const ReposSection = lazy(() =>
   throughRestarts(() => import('./sections/repos')).then((module) => ({
     default: module.ReposSection,
@@ -126,9 +126,8 @@ interface SectionContext {
   clearSecret: (key: ServerSecretKey) => Promise<void>
 }
 
-/** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
- *  sections edit the shared blob via `patch`; instant-save sections pull what
- *  they need from the store hook. Network owns a separate staged config draft. */
+/** The page-to-section lookup. Controls edit their own settings leaves; the
+ * address flow owns its explicit setup form. */
 const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
   agents: ({ settings, accounts, patch }) => (
     <AgentsSection settings={settings} accounts={accounts} patch={patch} />
@@ -239,10 +238,9 @@ function IdleSessionLimits({ settings, patch }: Pick<SectionContext, 'settings' 
 }
 
 /**
- * Settings — a full main-content surface (not a modal), split into sections via a
- * side nav. Each control writes its changed leaves through the settings
+ * Settings — a bounded sheet with Personal and Workspace pages. Each control writes its changed leaves through the settings
  * command plan and the synced record writers.
- * Each tab's section lives in ./sections/<tab>
+ * Each page’s sections live in ./sections
  * and renders through the SECTION_VIEWS lookup. The Telegram connect flow's
  * state (and its poll) stays here so it survives switching tabs.
  */

@@ -292,7 +292,6 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: DEFAULT_HARNESS_AGENT },

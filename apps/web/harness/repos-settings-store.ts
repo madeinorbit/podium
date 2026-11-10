@@ -1,5 +1,5 @@
 /**
- * SETTINGS → REPOSITORIES, REAL, WITH NO SERVER (POD-6267).
+ * SETTINGS → Projects, REAL, WITH NO SERVER (POD-6267).
  *
  * The section reads the shared pool through `useWorklistPool` and writes
  * through `useSettingsTrpc`; `vite.repos-settings-harness.config.ts` points both

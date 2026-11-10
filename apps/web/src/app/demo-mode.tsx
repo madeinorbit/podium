@@ -76,7 +76,7 @@ export function demoTrpc(): Trpc {
       get: {
         query: async () => ({
           sessionDefaults: { agent: 'codex' },
-          sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+          sidebar: { repoSort: 'lastUsed', repoOrder: [], },
         }),
       },
     },

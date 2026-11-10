@@ -186,7 +186,7 @@ export class InstanceService {
   // ---- setup ----
 
   /**
-   * Current deployment identity, for Settings → Network.
+   * Current deployment identity, for Settings → Access.
    *
    * Every layered value is reported with the LAYER that answered (PDM-26), so a
    * control can render disabled and say which variable is holding it rather than
@@ -364,7 +364,7 @@ export class InstanceService {
     // the string as typed and `auth.setPassword` hashes it as given. Trimming only here meant a
     // password pasted with a leading or trailing space — the ordinary password-manager case —
     // was stored as a string its owner could never enter again, and made this command and
-    // Settings → Security store DIFFERENT credentials for identical keystrokes. Trimming at
+    // Settings → Account store DIFFERENT credentials for identical keystrokes. Trimming at
     // login instead would be worse: it would silently rewrite what people already have and
     // break any password that legitimately contains whitespace. Empty is still no password.
     const password = input.password

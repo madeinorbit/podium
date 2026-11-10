@@ -17,7 +17,7 @@ import { installSetupEnrollmentParent } from './test-support/setup-enrollment-pa
  *   - `complete()` trimmed the password before hashing it. Nothing else in the product trims —
  *     the login route verifies the raw body and `auth.setPassword` hashes the raw string — so a
  *     password pasted with a leading or trailing space was stored as a string its owner could
- *     never type again, and Settings → Network and Settings → Security stored DIFFERENT
+ *     never type again, and Settings → Access and Settings → Account stored DIFFERENT
  *     credentials for identical keystrokes.
  *   - The password is written LAST in `complete()`, and the instant it lands
  *     `credentialsRequired()` flips and the one-member open-mode admission closes.

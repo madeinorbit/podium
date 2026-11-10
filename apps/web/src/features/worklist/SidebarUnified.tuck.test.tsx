@@ -133,7 +133,7 @@ vi.mock('@/app/store', () => {
     markIssueRead: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),
     setIssueTucked,
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   return {

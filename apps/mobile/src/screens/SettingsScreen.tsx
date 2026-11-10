@@ -111,7 +111,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
       } catch {
         Alert.alert(
           'Remote logout failed',
-          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Connected devices on the server.',
+          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Account on the server.',
           [
             { text: 'Keep signed in', style: 'cancel' },
             {
@@ -122,7 +122,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                   if (Platform.OS !== 'web') {
                     Alert.alert(
                       'Removed locally',
-                      'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                      'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                     )
                   }
                 })
@@ -187,7 +187,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                 } catch {
                   Alert.alert(
                     'Remote revocation failed',
-                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Connected devices on the server.',
+                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Account on the server.',
                     [
                       { text: 'Keep server', style: 'cancel' },
                       {
@@ -197,7 +197,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                           void removeLocally().then(() =>
                             Alert.alert(
                               'Removed locally',
-                              'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                              'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                             ),
                           )
                         },
@@ -271,7 +271,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           desktop or server surfaces.
         </Text>
 
-        <SectionHeader label="Connected devices" />
+        <SectionHeader label="Where you’re signed in" />
         <View style={styles.panel}>
           {deviceFeed.loading && devices.length === 0 ? (
             <Row label="Devices" value="loading…" />
@@ -288,7 +288,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         </View>
         <Text style={styles.hintCompact}>
           This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
-          in Connected devices on the desktop.
+          in Settings → Account on the desktop.
         </Text>
 
         {Platform.OS !== 'web' ? (

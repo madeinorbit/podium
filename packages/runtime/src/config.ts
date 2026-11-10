@@ -273,7 +273,7 @@ export const PodiumConfig = z.object({
    * The FLEET DEFAULT update channel (desktop is always stable). Default 'stable'.
    * It governs this instance's own self-update AND every joined machine that has
    * not pinned an override of its own (POD-1882). `dev` is a Podium-development
-   * channel: reachable only while Settings → Experimental has "Podium development"
+   * channel: reachable only while Settings → Labs has "Podium development"
    * on, but honoured here whatever the UI is currently showing.
    */
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),

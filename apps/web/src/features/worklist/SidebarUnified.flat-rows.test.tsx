@@ -200,7 +200,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
     markIssueRead: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),

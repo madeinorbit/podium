@@ -97,7 +97,7 @@ vps1. Expect, within ~15 s of `recorded`: a toast "Podium moved to <new host>. Y
 log in there." and then the login page at the new address (same path). The cookie does not
 move; logging in again is expected.
 
-Settings → Network on vps1 shows the same link as "Stable link (bookmark this)".
+Settings → Access on vps1 shows the same link as "Stable link (bookmark this)".
 
 ## 6. Connect unreachable from the joined machine (vps2)
 

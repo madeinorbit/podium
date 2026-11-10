@@ -41,7 +41,7 @@ export class IssueAssistantDigestModule {
   /**
    * The last background-LLM failure's actionable text (POD-4805): a refused
    * server-AI call must say why somewhere the operator looks — the server log
-   * (one warn line at the catch below) and Settings → Background LLM /
+   * (one warn line at the catch below) and Settings → Agents → Background model /
    * Accounts (read through the accounts hub). Undefined until the first
    * failure. Never an issue field: `refreshAssistant` stays non-throwing and
    * leaves prior state intact.

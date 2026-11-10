@@ -6,7 +6,7 @@ import {
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import type { HarnessAgent } from '@podium/runtime'
-import { KeyRound, Users } from 'lucide-react'
+import { KeyRound, Laptop, Users } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -233,6 +233,7 @@ const KeyMachines = observer(function KeyMachines({
   }
   return (
     <Section
+      list
       title="Someone else’s machines"
       hint="Your key already runs on machines you look after. On a machine someone else looks after, it runs only if you send it there."
     >
@@ -243,34 +244,45 @@ const KeyMachines = observer(function KeyMachines({
       )}
       {machines.map((machine) => (
         <div key={machine.id}>
-          <Row label={machine.name} error={error} pending={busy}>
-            <Switch
-              aria-label={`Send key to ${machine.name}`}
-              checked={sent.some((other) => other.id === machine.id)}
-              disabled={busy}
-              onCheckedChange={(enabled) => {
-                setNote(null)
-                setError(null)
-                if (enabled) {
-                  setSending(machine.id)
-                  return
-                }
-                setSending(null)
-                setBusy(true)
-                void trpc.accounts.unsend
-                  .mutate({ id: account.id, machineId: machine.id })
-                  .then((result) => {
-                    setNote(result.removed ? result.note : null)
-                    onChanged()
-                    toast('Key removed from machine')
-                  })
-                  .catch((error: unknown) =>
-                    setError(error instanceof Error ? error.message : String(error)),
-                  )
-                  .finally(() => setBusy(false))
-              }}
-            />
-          </Row>
+          <EntityRow
+            leading={<Laptop size={16} aria-hidden="true" />}
+            title={machine.name}
+            subtitle={
+              error ? (
+                <span role="alert" className="text-destructive">
+                  {error}
+                </span>
+              ) : undefined
+            }
+            trailing={
+              <Switch
+                aria-label={`Send key to ${machine.name}`}
+                checked={sent.some((other) => other.id === machine.id)}
+                disabled={busy}
+                onCheckedChange={(enabled) => {
+                  setNote(null)
+                  setError(null)
+                  if (enabled) {
+                    setSending(machine.id)
+                    return
+                  }
+                  setSending(null)
+                  setBusy(true)
+                  void trpc.accounts.unsend
+                    .mutate({ id: account.id, machineId: machine.id })
+                    .then((result) => {
+                      setNote(result.removed ? result.note : null)
+                      onChanged()
+                      toast('Key removed from machine')
+                    })
+                    .catch((error: unknown) =>
+                      setError(error instanceof Error ? error.message : String(error)),
+                    )
+                    .finally(() => setBusy(false))
+                }}
+              />
+            }
+          />
           {sending === machine.id && (
             <ConfirmInline
               sentence={SHARED_MACHINE_ACCOUNT_WARNING}

@@ -29,7 +29,6 @@ function deps(store: SessionStore): IssueDeps {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },

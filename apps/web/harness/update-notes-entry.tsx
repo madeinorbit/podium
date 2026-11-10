@@ -23,7 +23,7 @@ const NOTES = `**One flight deck for the whole mission, a calmer chat, and a ser
 - **Quote into chat.** Select text in a reply or a review finding and add it to your next message as a quote.
 - **Attachments that stay.** Files and images you attach are stored on the server and saved with the task. They work with every agent and survive a reload.
 - **A calmer workspace.** The sidebar lists only your tasks, grouped by repository, on web and phone. Markdown opens in a full-height reading view with an outline and reading progress.
-- **Repositories.** Settings → Repos lists each repository once, by one name. You can set the branch that new tasks start from and land on. A landed task shows as landed.
+- **Repositories.** Settings → Projects lists each repository once, by one name. You can set the branch that new tasks start from and land on. A landed task shows as landed.
 - **Telegram.** Attach a Telegram chat to one of your sessions with \`/attach\`, and talk to that session from your phone. \`/detach\` returns the chat to the superagent.
 - **First Flights.** New users get short tips the first time something appears: the first prompt, the first offer, the first artifact and the first proposal.
 - **Less memory, faster start.** The server no longer keeps a copy of all your data in memory. In our benchmark of a large workspace it used about 330 MB instead of about 1.2 GB, memory stopped growing with the data, and it started 8–52% faster.
@@ -63,8 +63,8 @@ const commits = [
   ['aa56615', 'Say the server is unreachable instead of WebKit’s parse error'],
   ['afc4cf7', 'Give the composer’s model chip a foot row of its own'],
   ['94a059b', 'Drop the web bundle byte ceilings'],
-  ['294a28e', 'Pass the Podium default branch into the Repos tab'],
-  ['33d5c7c', 'Load the Repos settings tab on demand'],
+  ['294a28e', 'Pass the Podium default branch into the Projects page'],
+  ['33d5c7c', 'Load the Projects settings page on demand'],
   ['3df42bf', 'Name Repos settings rows by the server-decided repo name'],
 ].map(([sha, summary]) => ({ sha: sha ?? '', summary: summary ?? '' }))
 const notes = {

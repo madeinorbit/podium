@@ -79,7 +79,7 @@ async function setup(size: number): Promise<Fixture> {
   const sessions: SessionMeta[] = []
   const settings = normalizeSettings({
     steward: { enabled: true },
-    gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+    gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
     sessionDefaults: { agent: 'claude-code' },
   })
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')

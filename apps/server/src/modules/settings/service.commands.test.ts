@@ -387,10 +387,10 @@ describe('the preference patch applies by path and validates by model', () => {
   it('applies several paths across nested objects in one call', async () => {
     const saved = await service.updatePreferences(USER, {
       'sidebar.repoSort': 'alphabetical',
-      'gitWorkflow.mergeStyle': 'pr',
+      'gitWorkflow.defaultParentBranch': 'release',
     })
     expect(saved.sidebar.repoSort).toBe('alphabetical')
-    expect(saved.gitWorkflow.mergeStyle).toBe('pr')
+    expect(saved.gitWorkflow.defaultParentBranch).toBe('release')
   })
 
   it('REFUSES a value the model rejects — the parse is the value gate', async () => {
@@ -400,9 +400,9 @@ describe('the preference patch applies by path and validates by model', () => {
       service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' }),
     ).rejects.toThrow()
     await expect(
-      service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' }),
+      service.updatePreferences(USER, { 'gitWorkflow.autoRebaseBeforeMerge': 'yes' }),
     ).rejects.toThrow()
-    expect((await service.getSettingsFor(USER)).gitWorkflow.mergeStyle).toBe('ff-only')
+    expect((await service.getSettingsFor(USER)).gitWorkflow.autoRebaseBeforeMerge).toBe(true)
   })
 
   it('cannot be used to write a secret — it goes through the blob guard', async () => {

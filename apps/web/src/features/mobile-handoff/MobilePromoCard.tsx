@@ -24,7 +24,7 @@ import {
  * Dismisses in one click until tips are turned back on in Appearance. The answer is stored
  * per user (see `useMobilePromoDismissed`), so turning it down once turns it
  * down everywhere; the code stays reachable from the status strip and from
- * Settings → Connected devices, which is where a paired phone is managed anyway.
+ * Settings → Account, which is where a paired phone is managed anyway.
  */
 export function MobilePromoCard(): JSX.Element | null {
   const trpc = useRequestClient<Trpc>()

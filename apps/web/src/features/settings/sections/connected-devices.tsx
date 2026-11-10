@@ -39,7 +39,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
 import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
 import { useSettingsRowId } from '../settings-anchors'
-import { ConfirmInline, EntityRow, ThisDeviceTag } from './shared'
+import { ConfirmInline, EntityRow, Section, ThisDeviceTag } from './shared'
 
 /**
  * Narrow view of the server contract consumed by this screen. Keeping it here
@@ -657,123 +657,125 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
       <section
         ref={sessionsRegionRef}
         aria-label="Where you’re signed in"
-        className="settings-list outline-none"
+        className="outline-none"
         tabIndex={-1}
       >
-        {sessions === null && !request?.error && (
-          <p className="settings-prose p-4" role="status">
-            Loading devices…
-          </p>
-        )}
-        {request?.error && (
-          <div className="flex flex-wrap items-center gap-2 p-4">
-            <p role="alert" className="settings-prose text-destructive">
-              Couldn’t load your signed-in devices.
+        <Section list>
+          {sessions === null && !request?.error && (
+            <p className="settings-prose p-4" role="status">
+              Loading devices…
             </p>
-            <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
-              Try again
+          )}
+          {request?.error && (
+            <div className="flex flex-wrap items-center gap-2 p-4">
+              <p role="alert" className="settings-prose text-destructive">
+                Couldn’t load your signed-in devices.
+              </p>
+              <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {sessions?.length === 0 && (
+            <p className="settings-prose p-4">No devices are signed in to your account.</p>
+          )}
+          {sessions?.map((session) => (
+            <div key={session.sessionId}>
+              <EntityRow
+                leading={<DeviceIcon kind={session.kind} />}
+                title={session.deviceName}
+                pills={session.current && <ThisDeviceTag />}
+                subtitle={
+                  <>
+                    {displayPlatform(session)} · Last active{' '}
+                    <MobileDeviceActivity session={session} />
+                  </>
+                }
+                trailing={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    id={session.current ? signOutRowId : undefined}
+                    disabled={revoking !== null || (session.current && checkingChanges)}
+                    pending={revoking === session.sessionId}
+                    pendingLabel="Signing out…"
+                    onClick={() => {
+                      if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
+                      else void signOut(session)
+                    }}
+                  >
+                    Sign out
+                  </Button>
+                }
+              />
+              {confirming === session.sessionId && (
+                <div className="px-4">
+                  <ConfirmInline
+                    sentence={
+                      session.current && warnUnsynced ? (
+                        unsyncedWarning
+                      ) : (
+                        <>
+                          Sign out <strong>{session.deviceName}</strong>?
+                        </>
+                      )
+                    }
+                    actionLabel={
+                      session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
+                    }
+                    destructive
+                    pending={revoking !== null || (session.current && checkingChanges)}
+                    error={error}
+                    onCancel={() => changeConfirmation(null)}
+                    onConfirm={() => signOut(session)}
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
+            <p className="settings-prose flex items-center gap-2">
+              <LogOut size={15} aria-hidden="true" />
+              Lost a device? Sign out of all of them at once.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              id={allRowId}
+              disabled={checkingChanges || revoking !== null}
+              onClick={() => changeConfirmation('all')}
+            >
+              Sign out everywhere
             </Button>
           </div>
-        )}
-        {sessions?.length === 0 && (
-          <p className="settings-prose p-4">No devices are signed in to your account.</p>
-        )}
-        {sessions?.map((session) => (
-          <div key={session.sessionId}>
-            <EntityRow
-              leading={<DeviceIcon kind={session.kind} />}
-              title={session.deviceName}
-              pills={session.current && <ThisDeviceTag />}
-              subtitle={
-                <>
-                  {displayPlatform(session)} · Last active{' '}
-                  <MobileDeviceActivity session={session} />
-                </>
-              }
-              trailing={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  id={session.current ? signOutRowId : undefined}
-                  disabled={revoking !== null || (session.current && checkingChanges)}
-                  pending={revoking === session.sessionId}
-                  pendingLabel="Signing out…"
-                  onClick={() => {
-                    if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
-                    else void signOut(session)
-                  }}
-                >
-                  Sign out
-                </Button>
-              }
-            />
-            {confirming === session.sessionId && (
-              <div className="px-4">
-                <ConfirmInline
-                  sentence={
-                    session.current && warnUnsynced ? (
-                      unsyncedWarning
-                    ) : (
+          {confirming === 'all' && (
+            <div className="px-4">
+              <ConfirmInline
+                sentence={
+                  <>
+                    {warnUnsynced && (
                       <>
-                        Sign out <strong>{session.deviceName}</strong>?
+                        {unsyncedWarning}
+                        <br />
                       </>
-                    )
-                  }
-                  actionLabel={
-                    session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
-                  }
-                  destructive
-                  pending={revoking !== null || (session.current && checkingChanges)}
-                  error={error}
-                  onCancel={() => changeConfirmation(null)}
-                  onConfirm={() => signOut(session)}
-                />
-              </div>
-            )}
-          </div>
-        ))}
-        <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
-          <p className="settings-prose flex items-center gap-2">
-            <LogOut size={15} aria-hidden="true" />
-            Lost a device? Sign out of all of them at once.
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            id={allRowId}
-            disabled={checkingChanges || revoking !== null}
-            onClick={() => changeConfirmation('all')}
-          >
-            Sign out everywhere
-          </Button>
-        </div>
-        {confirming === 'all' && (
-          <div className="px-4">
-            <ConfirmInline
-              sentence={
-                <>
-                  {warnUnsynced && (
-                    <>
-                      {unsyncedWarning}
-                      <br />
-                    </>
-                  )}
-                  Sign out on every device, this one included?
-                </>
-              }
-              actionLabel={
-                warnUnsynced ? 'Sign out everywhere anyway' : 'Confirm sign out everywhere'
-              }
-              destructive
-              pending={checkingChanges || revoking !== null}
-              error={error}
-              onCancel={() => changeConfirmation(null)}
-              onConfirm={signOutEverywhere}
-            />
-          </div>
-        )}
+                    )}
+                    Sign out on every device, this one included?
+                  </>
+                }
+                actionLabel={
+                  warnUnsynced ? 'Sign out everywhere anyway' : 'Confirm sign out everywhere'
+                }
+                destructive
+                pending={checkingChanges || revoking !== null}
+                error={error}
+                onCancel={() => changeConfirmation(null)}
+                onConfirm={signOutEverywhere}
+              />
+            </div>
+          )}
+        </Section>
       </section>
     </section>
   )

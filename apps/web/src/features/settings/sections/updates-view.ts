@@ -41,18 +41,6 @@ export interface ChannelCheck {
   outcome: { status: 'ok' } | { status: 'unavailable'; reason: string }
 }
 
-export interface ChannelStatusRow {
-  channel: FleetChannel
-  label: string
-  /** Prose. Never a server precondition string (§6.3). */
-  status: string
-  tone: 'ok' | 'warning'
-  /** "checked 2 h ago" — the cadence, said out loud (§9.2). */
-  checked: string
-  /** The absolute instant, for the title attribute. */
-  checkedAtLabel?: string
-}
-
 /**
  * Reasons that say nothing more than "there is no target here". They are the
  * internal preconditions §6.3 bans from the surface: a channel with nothing on
@@ -90,66 +78,6 @@ export function sourceUnavailableProse(sourceLabel: string, reason: string | nul
 /** The same sentence for a named channel — the form Settings → Updates needs. */
 export function channelUnavailableProse(channel: FleetChannel, reason: string | null): string {
   return sourceUnavailableProse(CHANNEL_LABELS[channel], reason)
-}
-
-export function describeChannelStatus(
-  channel: FleetChannel,
-  outcome: ChannelCheck['outcome'] | undefined,
-  targetVersion: string | null | undefined,
-): { status: string; tone: 'ok' | 'warning' } {
-  const label = CHANNEL_LABELS[channel]
-  if (outcome && outcome.status === 'unavailable') {
-    return { status: channelUnavailableProse(channel, outcome.reason), tone: 'warning' }
-  }
-  if (targetVersion) {
-    return {
-      status: `Podium ${formatDisplayedVersion(targetVersion)} is published on ${label}.`,
-      tone: 'ok',
-    }
-  }
-  // Checked, and it answered — but this server has no machine on the channel to
-  // resolve a concrete version through, so saying one would be inventing it.
-  if (outcome) return { status: `A build is published on ${label}.`, tone: 'ok' }
-  return { status: `${label} has not been checked yet.`, tone: 'warning' }
-}
-
-/** "checked 2 h ago" (§9.2). Absent is ordinary: a channel may never have been asked. */
-function describeChecked(checkedAt: number | undefined, now: number): string {
-  if (checkedAt === undefined) return 'never checked'
-  return `checked ${relativeTime(new Date(checkedAt).toISOString(), now)}`
-}
-
-/**
- * The channel rows, in the order the user chooses between them.
- *
- * `targetByChannel` is the SERVER's per-machine resolution read back, not a
- * second computation of it: every machine carries the version its own selected
- * authority advertises, so a channel some machine is on already has its answer
- * on the wire. A channel nobody is on has no version, and the copy above says
- * so rather than borrowing another channel's.
- */
-export function channelStatusRows(input: {
-  channels: readonly FleetChannel[]
-  checks: readonly ChannelCheck[]
-  targetByChannel: Partial<Record<FleetChannel, string | null>>
-  now: number
-}): ChannelStatusRow[] {
-  return input.channels.map((channel) => {
-    const check = input.checks.find((candidate) => candidate.channel === channel)
-    const { status, tone } = describeChannelStatus(
-      channel,
-      check?.outcome,
-      input.targetByChannel[channel],
-    )
-    return {
-      channel,
-      label: CHANNEL_LABELS[channel],
-      status,
-      tone,
-      checked: describeChecked(check?.checkedAt, input.now),
-      ...(check ? { checkedAtLabel: new Date(check.checkedAt).toLocaleString() } : {}),
-    }
-  })
 }
 
 /**

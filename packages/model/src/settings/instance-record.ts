@@ -29,6 +29,7 @@
 
 import { z } from 'zod'
 import { InstancePreferences } from './preferences'
+import { withoutRetiredSettingsFields } from './retired-record-fields'
 
 type ZodDef = { typeName?: string; innerType?: z.ZodTypeAny }
 const defOf = (schema: z.ZodTypeAny): ZodDef => schema._def as ZodDef
@@ -65,13 +66,15 @@ export const INSTANCE_PREFERENCE_LEAVES: ReadonlyMap<string, z.ZodTypeAny> = (()
 })()
 
 /** The record: each instance leaf path, flat. */
-export const InstancePreferencesWire = z
-  .object(
-    Object.fromEntries(
-      [...INSTANCE_PREFERENCE_LEAVES].map(([path, schema]) => [path, schema.optional()]),
-    ),
-  )
-  .strict()
+export const InstancePreferencesWire = withoutRetiredSettingsFields(
+  z
+    .object(
+      Object.fromEntries(
+        [...INSTANCE_PREFERENCE_LEAVES].map(([path, schema]) => [path, schema.optional()]),
+      ),
+    )
+    .strict(),
+)
 export type InstancePreferencesWire = Readonly<Record<string, unknown>>
 
 /** One record per instance: its feed id is this constant. */

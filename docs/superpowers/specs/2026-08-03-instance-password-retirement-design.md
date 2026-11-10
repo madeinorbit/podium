@@ -22,7 +22,7 @@ second reason was a product decision, recorded below.
 >
 > "No login at all" is a real supported regime — it is the loopback / all-in-one default — and the
 > operator must be able to get back to it. But it is not a per-user verb: one user cannot turn off
-> login for the instance. So Settings → Security splits in two. *Your password* is a per-user
+> login for the instance. So Settings → Account splits in two. *Your password* is a per-user
 > action available to everyone; *Instance login* is an admin-only instance policy.
 >
 > This is the per-feature call `docs/multi-user-readiness.md` leaves deferred, decided here for

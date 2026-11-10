@@ -363,7 +363,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
             needsUpdate ? (
               <div className="hp-dim-line text-warning">
                 Update available: {machine?.inventory?.podiumVersion} → {updateTargetVersion} —
-                apply it from Settings → Machines
+                apply it from Settings → Updates
               </div>
             ) : undefined
           }

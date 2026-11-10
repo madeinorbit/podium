@@ -172,11 +172,13 @@ describe('online, the commands are issued — one per tier, one per secret', () 
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      gitWorkflow: { ...base.gitWorkflow, mergeStyle: 'pr' as const },
+      gitWorkflow: { ...base.gitWorkflow, defaultParentBranch: 'release' },
     }
     await save(trpc, base, next, { online: true })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
-    expect(updateInstance).toHaveBeenCalledWith({ values: { 'gitWorkflow.mergeStyle': 'pr' } })
+    expect(updateInstance).toHaveBeenCalledWith({
+      values: { 'gitWorkflow.defaultParentBranch': 'release' },
+    })
   })
 
   it('sends NOTHING when nothing changed', async () => {

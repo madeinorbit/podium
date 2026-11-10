@@ -74,7 +74,6 @@ export const LAYOUT_EXACT_KEYS = [
   'rightPanel',
   /** Per-session terminal presentation: chat vs native map. */
   'panelMode',
-  /** Default panel mode for new sessions. */
   /** Sidebar chrome layout variant (e.g. unified). */
   'sidebarLayout',
   /** Legacy sidebar sub-tab when present. */
@@ -127,6 +126,8 @@ const EXACT_SET: ReadonlySet<string> = new Set(LAYOUT_EXACT_KEYS)
  * or a dynamic key under an allowed prefix.
  */
 export function isLayoutKey(key: string): boolean {
+  // LEGACY(remove-after: 2027-02): accept stored panelModeDefault layout rows; removing this rejects pre-redesign records.
+  if (key === 'panelModeDefault') return true
   if (EXACT_SET.has(key)) return true
   for (const prefix of LAYOUT_KEY_PREFIXES) {
     if (key.startsWith(`${prefix}.`) && key.length > prefix.length + 1) return true

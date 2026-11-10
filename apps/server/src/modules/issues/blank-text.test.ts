@@ -24,7 +24,6 @@ async function harness() {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },

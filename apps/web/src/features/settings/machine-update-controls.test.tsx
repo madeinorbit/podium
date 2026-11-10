@@ -56,7 +56,7 @@ function render(ui: ReactElement) {
   }
 }
 
-/** Settings → Experimental "Podium development" (POD-1882). */
+/** Settings → Labs "Podium development" (POD-1882). */
 let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 

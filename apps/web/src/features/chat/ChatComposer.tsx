@@ -962,7 +962,7 @@ export const ChatComposer = observer(function ChatComposer({
  *
  * QUIET BY DEFAULT. Both pills read `auto` until someone chooses otherwise, and
  * `auto` is not a placeholder — it is the real, correct answer: "whatever
- * Settings → Superagent says". A person who never touches this row is not
+ * Settings → Agents → Superagent says". A person who never touches this row is not
  * missing a decision, and the row's ink says so by staying at Dim.
  *
  * The model menu lists every connector Podium can run, not just the Settings

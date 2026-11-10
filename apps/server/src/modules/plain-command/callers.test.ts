@@ -22,7 +22,7 @@
  *    on the operator's own credential;
  *  - agents and the daemon: none of the 29 today. The agent rows below pin what
  *    one would get;
- *  - `accounts.share` (POD-6360): Settings → Accounts, the owner on their own key
+ *  - `accounts.share` (POD-6360): Settings → AI accounts, the owner on their own key
  *    and an admin on any key (POD-6390);
  *  - `accounts.unsend` (POD-6699): the owner taking back a sent key, or an admin
  *    taking it back for them;
@@ -130,14 +130,14 @@ const CALLERS: readonly {
   { command: 'logs.forward', who: 'member', caller: 'web+mobile log transport', expect: 'ok' },
   { command: 'logs.crash', who: 'member', caller: 'web+mobile+desktop crash report', expect: 'ok' },
   { command: 'perf.report', who: 'member', caller: 'web switch traces', expect: 'ok' },
-  { command: 'auth.setPassword', who: 'member', caller: 'Settings → Security', expect: 'ok' },
+  { command: 'auth.setPassword', who: 'member', caller: 'Settings → Account', expect: 'ok' },
   { command: 'auth.setDisplayName', who: 'member', caller: 'Settings → Account', expect: 'ok' },
-  { command: 'auth.setEmail', who: 'member', caller: 'Settings → Security', expect: 'ok' },
+  { command: 'auth.setEmail', who: 'member', caller: 'Settings → Account', expect: 'ok' },
   // Hidden from members in the UI (`canManageInstance`); the service did not refuse.
   {
     command: 'auth.setLoginRequired',
     who: 'member',
-    caller: 'Settings → Security (admin-only UI)',
+    caller: 'Settings → Account (admin-only UI)',
     expect: 'lost',
   },
   // Every user manages their OWN harness accounts (user decision 2026-11-04):
@@ -147,13 +147,13 @@ const CALLERS: readonly {
   {
     command: 'accounts.connect',
     who: 'member',
-    caller: 'Settings → Accounts, own key',
+    caller: 'Settings → AI accounts, own key',
     expect: 'ok',
   },
   {
     command: 'accounts.disconnect',
     who: 'member',
-    caller: 'Settings → Accounts, own key',
+    caller: 'Settings → AI accounts, own key',
     expect: 'ok',
   },
   {
@@ -204,7 +204,7 @@ const CALLERS: readonly {
   {
     command: 'accounts.login',
     who: 'member',
-    caller: 'Settings → Accounts, own account',
+    caller: 'Settings → AI accounts, own account',
     expect: 'ok',
   },
   {
@@ -224,18 +224,18 @@ const CALLERS: readonly {
   {
     command: 'logs.setLevel',
     who: 'member',
-    caller: 'Settings → Diagnostic logging',
+    caller: 'Settings → Updates → Troubleshooting',
     expect: 'lost',
   },
   { command: 'setup.setChannel', who: 'member', caller: 'Settings → Updates', expect: 'lost' },
   // Already refused for members, by the service or the settings gate:
   { command: 'setup.activate', who: 'member', caller: 'setup activation', expect: 'floor' },
-  { command: 'settings.setSecret', who: 'member', caller: 'Settings → Secrets', expect: 'floor' },
-  { command: 'settings.clearSecret', who: 'member', caller: 'Settings → Secrets', expect: 'floor' },
+  { command: 'settings.setSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
+  { command: 'settings.clearSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
   {
     command: 'settings.secretPresence',
     who: 'member',
-    caller: 'Settings → Secrets',
+    caller: 'Settings → AI accounts → API keys',
     expect: 'floor',
   },
   {

@@ -65,7 +65,7 @@ export class MissingManagedKeyError extends SpawnAccountRefusal {
   constructor(readonly accountId: AccountId) {
     super(
       `No ${managedKeyName(accountId)} is available to you: this agent's role uses one, and you ` +
-        'have not connected your own (Settings → Accounts) and nobody shares one with you. An ' +
+        'have not connected your own (Settings → AI accounts) and nobody shares one with you. An ' +
         'admin can share theirs.',
     )
   }
@@ -110,7 +110,7 @@ export async function resolveAccountEnv(
     throw new SpawnAccountRefusal(
       `"${await machineName()}" is someone else's machine: its native CLI logins are theirs, and ` +
         "Podium never runs your agents on another person's login or replaces it with yours. " +
-        'Send one of your own connections to this machine in Settings → Accounts and select it, ' +
+        'Send one of your own connections to this machine in Settings → AI accounts and select it, ' +
         'or run on a machine you look after.',
     )
   }
@@ -125,8 +125,8 @@ export async function resolveAccountEnv(
     throw new SpawnAccountRefusal(
       `Before your first run on "${await machineName()}": ${SHARED_MACHINE_ACCOUNT_WARNING} ` +
         (row.ownerUserId === target.ownerUserId
-          ? `To run there, send your ${providerLabel(accountId)} connection to it in Settings → Accounts.`
-          : 'The owner of the shared connection must send it to this machine in Settings → Accounts.'),
+          ? `To run there, send your ${providerLabel(accountId)} connection to it in Settings → AI accounts.`
+          : 'The owner of the shared connection must send it to this machine in Settings → AI accounts.'),
     )
   }
   const env = credentialEnv({

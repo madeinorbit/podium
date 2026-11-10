@@ -484,7 +484,7 @@ export class HeadlessService {
           ok: false,
           error:
             `The ${managedKeyName(accountId)} gives ${input.agent} no credential to run with; ` +
-            'select another account for this role in Settings → Accounts.',
+            'select another account for this role in Settings → AI accounts.',
         }
       }
     }

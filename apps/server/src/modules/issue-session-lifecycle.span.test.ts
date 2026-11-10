@@ -74,7 +74,6 @@ describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: 'main',
-            mergeStyle: 'ff-only',
             autoRebaseBeforeMerge: true,
           },
           sessionDefaults: { agent: 'claude-code' },

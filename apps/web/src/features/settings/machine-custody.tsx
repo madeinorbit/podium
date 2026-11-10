@@ -41,7 +41,7 @@ export interface MachineShareApi {
 }
 
 /** Use grants are distinct from custody and from visibility-only grants. */
-export class MachineSharing {
+class MachineSharing {
   constructor(
     readonly machine: MachineModel,
     private readonly roster: RosterFacts | undefined,

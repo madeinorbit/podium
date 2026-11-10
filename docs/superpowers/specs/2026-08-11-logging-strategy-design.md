@@ -112,7 +112,7 @@ reloads is at its default again. That was the judgement call — a raise that
 survives a reload buys convenience and costs the one failure this feature is
 written to avoid, a client left verbose because the row outlived everybody's
 memory of why it was written. The same knob is exposed to the person sitting
-at the client (Settings → Privacy → Diagnostic detail) for installs where
+at the client (Settings → Updates → Troubleshooting → Log detail) for installs where
 nobody has a shell.
 
 ### Sinks and per-sink thresholds

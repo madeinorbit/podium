@@ -1,7 +1,7 @@
 # POD-1946 — the diagnostic level, shown and settable, verified in a browser
 
 **Date:** 2026-08-12 · follows [POD-1935](POD-1935-web-client-forwarding.md) in
-the logging epic (POD-1897) · acceptance: *"Settings → Privacy → Diagnostic
+the logging epic (POD-1897) · acceptance: *"Settings → Updates → Troubleshooting → Log
 detail says which level this client is running at right now — boot default vs a
 temporary change and when it lifts — and lets you pick any level, with
 reset-to-default kept."* This is UI, so the target is the pane in a real

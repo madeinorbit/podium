@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading
 
-- **Provider accounts become personal.** A managed account (an API key or a Claude setup-token under Settings → Accounts) now belongs to one person: nobody else sees it or runs with it, admins included. Podium does not know which machine an existing account came from, so on upgrade every existing managed account goes to the earliest admin. On a one-person instance that is you, and nothing changes. On an instance with several people, everyone else connects their own.
+- **Provider accounts become personal.** A managed account (an API key or a Claude setup-token under Settings → AI accounts) now belongs to one person: nobody else sees it or runs with it, admins included. Podium does not know which machine an existing account came from, so on upgrade every existing managed account goes to the earliest admin. On a one-person instance that is you, and nothing changes. On an instance with several people, everyone else connects their own.
 - **Copying CLI logins to your other machines is now your choice, per account.** Each Claude or Codex login Podium finds on your machines has a box: "Use on all my machines". Ticked, Podium copies it to every machine you look after, now and in future, and never over a different login already there. An upgrade ticks it for every login already on your machines, so copying carries on as before. On a new install the box starts unticked, so nothing is copied until you tick it.
 
 ## [0.3.1] - 2026-11-06

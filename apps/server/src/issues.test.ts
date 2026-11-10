@@ -63,7 +63,6 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -577,7 +576,6 @@ describe('IssueService unread (#124)', () => {
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
-            mergeStyle: 'ff-only',
             autoRebaseBeforeMerge: true,
           },
           sessionDefaults: { agent: 'claude-code' },
@@ -691,7 +689,6 @@ describe('IssueService tuck-away (POD-333)', () => {
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
-            mergeStyle: 'ff-only',
             autoRebaseBeforeMerge: true,
           },
           sessionDefaults: { agent: 'claude-code' },
@@ -3382,7 +3379,6 @@ describe('IssueService assistant', () => {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -3432,7 +3428,6 @@ describe('IssueService assistant', () => {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -3495,7 +3490,6 @@ describe('IssueService assistant', () => {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -3517,7 +3511,7 @@ describe('IssueService assistant', () => {
     try {
       const wire = await svc.gitWorkflow.refreshAssistant(c.id)
       expect(wire.activityNotes).toBeUndefined()
-      const expected = 'no API key configured for openrouter — connect one in Settings → Accounts'
+      const expected = 'no API key configured for openrouter — connect one in Settings → AI accounts'
       const warns = logs.at('warn')
       expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
       expect(warns.map((r) => r.err?.message)).toContain(expected)
@@ -3525,7 +3519,7 @@ describe('IssueService assistant', () => {
       logs.restore()
     }
     expect(svc.gitWorkflow.backgroundLastError()).toBe(
-      'no API key configured for openrouter — connect one in Settings → Accounts',
+      'no API key configured for openrouter — connect one in Settings → AI accounts',
     )
   })
 
@@ -3551,7 +3545,6 @@ describe('IssueService assistant', () => {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },

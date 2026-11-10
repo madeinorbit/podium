@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { useSettingsMachines } from './readers'
 import { useSettingsTrpc } from './stable-access'
 
-export function ServerMoveProgress({
+function ServerMoveProgress({
   operation,
   targetName,
 }: {

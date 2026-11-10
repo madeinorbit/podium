@@ -212,7 +212,7 @@ export function ModelPicker({
 
 /**
  * Superagent prompt-box model menu: every connector's models in one list.
- * `auto` means "whatever Settings → Superagent says". A concrete pick names
+ * `auto` means "whatever Settings → Agents → Superagent says". A concrete pick names
  * both the harness and the model so the next turn can switch connectors.
  */
 export function AllConnectorsModelPicker({

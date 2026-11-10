@@ -1,4 +1,4 @@
-// Harness config for Settings → Accounts & Keys (POD-6390). Same shape as
+// Harness config for Settings → AI accounts (POD-6390). Same shape as
 // vite.repos-settings-harness.config.ts: the real section and stylesheet, with
 // the section's pool, tRPC and member-directory imports aliased to a fixture.
 import { fileURLToPath } from 'node:url'

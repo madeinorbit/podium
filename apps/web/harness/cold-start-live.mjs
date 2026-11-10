@@ -139,7 +139,7 @@ try {
     }
     await page.addInitScript(()=>{
       localStorage.setItem('podium.panelMode','chat')
-      localStorage.setItem('podium.panelModeDefault','chat')
+      
       performance.mark('comparison:navigation-start',{startTime:0})
       window.__comparisonStartup=false
       const observer=new MutationObserver(()=>{

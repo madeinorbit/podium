@@ -467,7 +467,9 @@ function migrateIdleShellMinutes(
 /** JSON null can spell an unset optional harness in preference rows or patches.
  *  Normalize it to absence, preserving the rest of every role and leaving
  *  other invalid values for the settings schema to reject. */
-function normalizeRoleHarnessAbsence(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+function normalizeRoleHarnessAbsence(
+  raw: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   if (!raw.roles || typeof raw.roles !== 'object' || Array.isArray(raw.roles)) return undefined
   const roles = { ...(raw.roles as Record<string, unknown>) }
   let changed = false
@@ -587,9 +589,10 @@ export function resolveSpawnDefaults(
 ): { agentKind: string } {
   const requested = override?.agentKind ?? 'auto'
   return {
-    agentKind: requested !== 'auto' && requested !== ''
-      ? requested
-      : resolveRole(settings, 'coding').harness,
+    agentKind:
+      requested !== 'auto' && requested !== ''
+        ? requested
+        : resolveRole(settings, 'coding').harness,
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * SETTINGS → ACCOUNTS & KEYS, WITH NO SERVER (POD-6390).
+ * SETTINGS → AI accounts, WITH NO SERVER (POD-6390).
  *
  * `vite.accounts-settings-harness.config.ts` points the section's pool, tRPC and
  * member-directory imports here. The pool is a real `MobxPool`; `accounts.list`,

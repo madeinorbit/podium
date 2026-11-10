@@ -123,7 +123,9 @@ describe('the classification is TOTAL over the split shapes', () => {
     expect(classifySettingsPath('notifications.telegramChatId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.superagent.accountId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.shipwright.accountId')?.tier).toBe('personal-preference')
-    expect(classifySettingsPath('gitWorkflow.mergeStyle')?.tier).toBe('instance-preference')
+    expect(classifySettingsPath('gitWorkflow.defaultParentBranch')?.tier).toBe(
+      'instance-preference',
+    )
     expect(classifySettingsPath('experimental')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('hibernation.memoryPct')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('apiKeys.anthropic')?.tier).toBe('server-secret')
@@ -235,7 +237,7 @@ describe('unknown paths: honest lookup, closed answer', () => {
     // unconditionally would pass every refusal assertion above and be useless.
     expect(settingsPathMayReplicate('sidebar.repoSort')).toBe(true)
     expect(settingsPathMayEnqueue('sidebar.repoSort')).toBe(true)
-    expect(settingsPathMayReplicate('gitWorkflow.mergeStyle')).toBe(true)
+    expect(settingsPathMayReplicate('gitWorkflow.defaultParentBranch')).toBe(true)
   })
 
   it('refuses replication and enqueue for EVERY server secret, and for no preference', () => {

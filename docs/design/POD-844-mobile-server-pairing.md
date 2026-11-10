@@ -32,7 +32,7 @@ On native only, do not construct `AuthGate`, tRPC, the socket, or a replica unti
 
 - Primary: **Scan QR code**
 - Secondary: **Enter server address**
-- Help: **Where is my code?** → “On your computer, open Settings → Connected devices → Pair a phone.”
+- Help: **Where is my code?** → “On your computer, open Settings → Account → Pair a phone.”
 
 Camera permission is requested only after the scan button is tapped. The scanner recognizes only a versioned Podium pairing URL, gives haptic feedback on a valid scan, and immediately closes the camera. The primary QR uses the server's HTTPS `/mobile#pair=…` URL so the stock camera also works without an installed app. The existing `podium` custom scheme remains a secondary “Open in app” bridge, not the credential's primary container, because custom schemes are not exclusively owned on either mobile platform. Any deep-link route must consume the payload and call router `replace()` immediately so the secret does not remain in navigation state.
 
@@ -58,7 +58,7 @@ Native Settings gets a **Servers** section rather than a read-only server row:
 - **Add server** returns to the same scan/manual sheet.
 - Tapping a profile switches it. The app tears down the current socket/client/replica and remounts them for the selected profile.
 - Rename, reconnect, remove, and log out are per profile.
-- Removing a reachable profile first revokes that phone's session, then erases only that profile/account's local replica. If the server is unreachable, the app explains that local removal cannot revoke the server-side session and links to the server's Connected devices screen.
+- Removing a reachable profile first revokes that phone's session, then erases only that profile/account's local replica. If the server is unreachable, the app explains that local removal cannot revoke the server-side session and links to the server's Account page.
 
 Persist non-secret profile metadata and the selected profile in AsyncStorage. Give every local profile a random immutable `profileId`, and namespace replica state by `profileId + userId`; `userId` alone is not sufficient because two unrelated Podium servers commonly use the same account ID. Store each native bearer token in `expo-secure-store` (iOS Keychain / Android Keystore), keyed by `profileId`, never in profile JSON or AsyncStorage. Removing one profile must call the existing principal-scoped erase paths (`store.erasePrincipal` plus namespace erase); it must never delete the shared `podium-replica.db` file, which contains other profiles too.
 
@@ -145,7 +145,7 @@ The design assumes the Podium server and the already authenticated browser are t
 | Server logs, telemetry, sync, or error reporting capture the secret | Pairing payloads, codes, claim secrets, QR images, and completion responses are classified as secret, never replicated/enqueued, redacted at boundaries, and kept only in memory until completion/expiry. |
 | Pairing request is replayed | Code is random, typed, expiring, single-claim, and single-completion. Uniform failures avoid useful state oracles; claim endpoints are rate-limited. |
 | Long-lived credential leaks from QR | Impossible by construction: the durable session does not exist until approval. Native receives it once over HTTPS into Keychain/Keystore; web receives only an HttpOnly cookie. |
-| Phone is lost | Connected devices lists the named mobile session with last activity and supports one-row remote revocation. Server-side revocation immediately invalidates HTTP and socket access. |
+| Phone is lost | Account → Where you’re signed in lists the named mobile session with last activity and supports one-row remote revocation. Server-side revocation immediately invalidates HTTP and socket access. |
 | Phone connects to two servers with the same `userId` | Local data is partitioned by local `profileId + userId`; switching remounts the entire client stack. No cache or outbox crosses profiles. |
 | Malicious QR points at an attacker's Podium | The app prominently names the origin and treats each profile as a separate trust boundary. It never transfers existing profiles, cookies, cached data, or queued work to a newly paired server. |
 
@@ -252,7 +252,7 @@ This is sequencing, not permission to begin implementation.
 3. **Server auth:** add independently throttled start/claim/status/approve/deny/complete endpoints; bind grants to the minting `userId`; widen the client credential resolver to cookie-or-bearer; add `label='mobile'` session metadata, renewal, listing, and one-row remote revocation. Publish the canonical origin and existing `/version` identity in payload/preflight.
 4. **Native profile bootstrap:** add a persisted server-profile repository and a launch boundary that must resolve a selected profile before `AuthGate` or `MobileClientProvider` mounts. Remove loopback as the native no-config fallback. Keep web-mobile's page-origin path unchanged and preserve `?server=` only as an ephemeral development/test override.
 5. **Replica isolation:** use `profileId + userId` at the existing principal namespace seam. Switching profiles must fully dispose and remount auth, tRPC, socket hub, replica, and logging destinations. Profile removal uses row/namespace erasure and never deletes the shared database file.
-6. **Pairing UI:** add the native scanner (`expo-camera`, camera permission descriptions, and no web import), a web QR renderer dependency, HTTPS fragment/custom-scheme consumption, manual URL preflight, claim/phrase/polling/approval states, server-restart expiry, and precise recovery/version-mismatch screens. Add Settings → Servers on native and Settings → Connected devices → Pair a phone on web.
+6. **Pairing UI:** add the native scanner (`expo-camera`, camera permission descriptions, and no web import), a web QR renderer dependency, HTTPS fragment/custom-scheme consumption, manual URL preflight, claim/phrase/polling/approval states, server-restart expiry, and precise recovery/version-mismatch screens. Add Settings → Servers on native and Settings → Account → Pair a phone on web.
 7. **Transport policy:** configure iOS local-network usage and narrow ATS declaration, Android's corresponding network policy, and error classification for ATS, DNS/reachability, server mismatch, and version mismatch. Add server-side readiness grading and tailored Tailscale/reverse-proxy instructions.
 8. **Verification:** hermetic tests cover token typing/expiry/single-use, approval binding, exact phrase vectors, uniform refusals, independent throttles, redaction, renewal, per-device revocation, open-mode URL-only QR, profile isolation, web page-origin behavior, `?server=` preservation, and transport classification. Per repository guidance, drive only the smallest real camera/deep-link and native bearer/WebSocket boundaries once on each affected platform.
 

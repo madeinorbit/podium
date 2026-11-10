@@ -56,7 +56,7 @@ async function fixture(size: number): Promise<Fixture> {
     ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
-        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+        gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),

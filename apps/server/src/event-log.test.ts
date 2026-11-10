@@ -27,7 +27,6 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },

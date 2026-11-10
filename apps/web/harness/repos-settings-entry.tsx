@@ -1,5 +1,5 @@
 /**
- * SETTINGS → REPOSITORIES, REAL, IN A BROWSER (POD-6267).
+ * SETTINGS → Projects, REAL, IN A BROWSER (POD-6267).
  *
  * Mounts the SHIPPING `ReposSection` inside the settings pane's own classes, at
  * the sheet's form width, on the sheet's card ground, so spacing and type read

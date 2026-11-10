@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { SETTINGS_CLASSIFICATION, settingsPathsInTier } from './classification'
-import { SETTINGS_SECRET_PATHS, findSecretMaterial, scrubSecretMaterial } from './scrub'
+import { findSecretMaterial, SETTINGS_SECRET_PATHS, scrubSecretMaterial } from './scrub'
 
 describe('the path list is the shipped classification, not a copy of it', () => {
   it('is exactly the server-secret tier', () => {
@@ -49,12 +49,12 @@ describe('it FINDS material — at every depth a store can hold it', () => {
   it('removes a secret at the root of a settings blob, and says where', () => {
     const before = {
       apiKeys: { openai: 'sk-root-openai', anthropic: 'sk-root-anthropic' },
-      sidebar: { groupByRepo: true },
+      sidebar: { repoSort: 'alphabetical' },
     }
     const { value, removed } = scrubSecretMaterial(before)
 
     expect([...removed].sort()).toEqual(['apiKeys.anthropic', 'apiKeys.openai'])
-    expect(value).toEqual({ apiKeys: {}, sidebar: { groupByRepo: true } })
+    expect(value).toEqual({ apiKeys: {}, sidebar: { repoSort: 'alphabetical' } })
     // The key is GONE, not blanked: `''` is the legacy "not configured"
     // spelling, so a blanked key is indistinguishable from one that never held
     // anything — and it leaves an address for a later write to fill.

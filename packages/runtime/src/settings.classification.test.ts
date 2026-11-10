@@ -183,8 +183,8 @@ describe('the composed blob still parses exactly as before', () => {
         backstopMinutes: 2880,
       },
       notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
-      sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
-      gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+      sidebar: { repoSort: 'lastUsed', repoOrder: [] },
+      gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
       issues: { assistantEnabled: true },
       steward: { enabled: true },
       autoContinue: { enabled: false, promptDismissed: false },
@@ -233,7 +233,7 @@ describe('the composed blob still parses exactly as before', () => {
     expect(() => normalizeSettings({ hibernation: { idleMinutes: 0 } })).toThrow()
     expect(() => normalizeSettings({ hibernation: { loadPerCore: 0.1 } })).toThrow()
     expect(() => normalizeSettings({ hibernation: { loadPerCore: 9 } })).toThrow()
-    expect(() => normalizeSettings({ gitWorkflow: { mergeStyle: 'rebase' } })).toThrow()
+    expect(() => normalizeSettings({ gitWorkflow: { autoRebaseBeforeMerge: 'yes' } })).toThrow()
     expect(() => normalizeSettings({ sidebar: { repoSort: 'random' } })).toThrow()
     // …and the valid neighbours still pass, so the refusals above are not a
     // schema that rejects everything.
@@ -245,8 +245,9 @@ describe('the composed blob still parses exactly as before', () => {
     expect(normalizeSettings({ hibernation: { loadPerCore: null } }).hibernation.loadPerCore).toBe(
       null,
     )
-    expect(normalizeSettings({ gitWorkflow: { mergeStyle: 'pr' } }).gitWorkflow.mergeStyle).toBe(
-      'pr',
-    )
+    expect(
+      normalizeSettings({ gitWorkflow: { defaultParentBranch: 'release' } }).gitWorkflow
+        .defaultParentBranch,
+    ).toBe('release')
   })
 })
