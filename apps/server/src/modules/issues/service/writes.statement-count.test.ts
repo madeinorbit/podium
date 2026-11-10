@@ -92,7 +92,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // POD-6765 stored the git observation: one read of it per issue write.
       // POD-6767 split the body headers into a record of their own, built
       // before and after like the issue's: 13 -> 22.
-      22,
+      // POD-6770: the git observation compares at save too. Its one declared
+      // read becomes a build before the write and one after: 22 -> 23.
+      23,
     )
   })
 
@@ -103,7 +105,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // POD-6769: compare at save, as for `crud.create` (+5), and POD-6765's
       // read of the stored git observation (+1), and the body headers'
       // two builds (POD-6767): 8 -> 16.
-      16,
+      // POD-6770: the git observation is built before and after, where it
+      // was read once: 16 -> 17.
+      17,
     )
   })
 
