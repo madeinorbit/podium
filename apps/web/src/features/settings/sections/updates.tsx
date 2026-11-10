@@ -490,7 +490,8 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
             actions={actions}
           />
         ))}
-        {admin && machineIds.length === 0 &&
+        {admin &&
+          machineIds.length === 0 &&
           fleetMachines.map((machine) => (
             <EntityRow
               key={machine.id}

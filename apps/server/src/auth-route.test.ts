@@ -20,6 +20,7 @@ import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
 vi.mock('../../mobile/node_modules/react-native', () => ({ Platform: { OS: 'ios' } }))
+
 import { MemberInvites } from './member-invites'
 
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
@@ -102,7 +103,9 @@ describe('auth-route', () => {
     expect(cookie).toBeTruthy()
 
     required = true
-    const status = await app.request('/auth/status', { headers: { cookie: `podium_session=${cookie}` } })
+    const status = await app.request('/auth/status', {
+      headers: { cookie: `podium_session=${cookie}` },
+    })
     expect(await status.json()).toMatchObject({ needsAuth: true, authed: true })
   })
 

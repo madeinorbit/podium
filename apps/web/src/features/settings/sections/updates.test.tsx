@@ -1002,9 +1002,11 @@ describe('Updates permissions and batch actions', () => {
     expect(screen.getByTestId(`update-machine-${firstMachine.id}`)).toBeTruthy()
     expect(screen.queryByTestId('update-machine-another-owner')).toBeNull()
     fireEvent.click(batch)
-    await waitFor(() => expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledExactlyOnceWith({
-      id: firstMachine.id,
-    }))
+    await waitFor(() =>
+      expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledExactlyOnceWith({
+        id: firstMachine.id,
+      }),
+    )
   })
 
   it('updates every waiting online manageable machine, with row outcomes for partial failure', async () => {
