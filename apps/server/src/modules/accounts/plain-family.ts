@@ -69,6 +69,7 @@ export const ACCOUNT_PLAIN_FAMILY = definePlainFamily({
     settings: state.modules.settings,
     nativeLogin: state.modules.nativeLogin,
     loginPropagation: state.modules.loginPropagation,
+    audit: state.store.settingsAudit,
     callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
     machineStanding: async () => await state.privateAccess.machineStanding(),
     callerUserId: state.caller.userId,

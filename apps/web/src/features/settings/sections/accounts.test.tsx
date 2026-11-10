@@ -12,6 +12,7 @@ const trpc = {
     disconnect: { mutate: vi.fn() },
     login: { mutate: vi.fn() },
     send: { mutate: vi.fn() },
+    unsend: { mutate: vi.fn() },
     useOnMyMachines: { mutate: vi.fn() },
     share: { mutate: vi.fn() },
     keys: { query: vi.fn() },
@@ -359,6 +360,35 @@ describe('AccountsSection', () => {
       }),
     )
     expect(await screen.findByText(/Also runs on alice-desk, someone else's machine/)).toBeTruthy()
+  })
+
+  // POD-6699: a send can be taken back from the row, and the row says that
+  // sessions already running there keep the key until they restart.
+  it('removes a connection from a machine it was sent to', async () => {
+    const alice = { id: asMachineId('machine-alice'), name: 'alice-desk' }
+    const connected: AccountView = {
+      ...API_KEY_ROW,
+      identity: 'sk-a…f9x2',
+      status: 'connected',
+      credentialSource: 'stored',
+      sentTo: [alice],
+      sendableTo: [],
+    }
+    serveList([connected], [{ ...connected, sentTo: [], sendableTo: [alice] }])
+    const note =
+      'The next run on "alice-desk" no longer gets this key. Sessions already running on "alice-desk" keep it until they restart.'
+    trpc.accounts.unsend.mutate.mockResolvedValue({ ok: true, removed: true, note })
+    render(<AccountsSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Remove .* from alice-desk$/ }))
+    await waitFor(() =>
+      expect(trpc.accounts.unsend.mutate).toHaveBeenCalledWith({
+        id: 'managed:anthropic',
+        machineId: 'machine-alice',
+      }),
+    )
+    expect(await screen.findByText(note)).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText(/Also runs on alice-desk/)).toBeNull())
   })
 
   // POD-6301 (D11): one unticked box per detected account; ticking it asks the

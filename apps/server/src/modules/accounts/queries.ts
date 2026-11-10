@@ -11,7 +11,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
-import { asUserId, type MachineId } from '@podium/model'
+import { asAccountId, asUserId, type MachineId } from '@podium/model'
 import { z } from 'zod'
 import { accountViews } from '../../accounts'
 import { SHARED_WITH_EVERYONE } from '../../store/accounts'
@@ -105,6 +105,7 @@ export const ACCOUNT_QUERIES = {
       keptOn.set(key, [...(keptOn.get(key) ?? []), transfer.machineId])
     }
     const nameOf = new Map(serviceMachines.map((machine) => [machine.id, machine.name]))
+    const sends = await state.accounts.sendsOf(viewer)
     const sharedMachines = [...standing]
       .filter(([, s]) => s === 'use')
       .map(([id]) => ({ id, name: nameOf.get(id) ?? id }))
@@ -121,12 +122,19 @@ export const ACCOUNT_QUERIES = {
       ).map(async (account) => {
         if (account.source === 'managed') {
           if (account.credentialSource !== 'stored') return account
-          // Where the viewer's own connection may run beyond their own machines.
-          const sent = new Set(await state.accounts.sentTo(viewer, account.id))
+          // Where the viewer's own connection may run beyond their own machines,
+          // and every send recorded for it (POD-6699), usable there or not.
+          const recorded = sends.get(asAccountId(account.id)) ?? []
+          const sent = new Set(recorded.map((send) => send.machineId))
           return {
             ...account,
             sentTo: sharedMachines.filter((machine) => sent.has(machine.id)),
             sendableTo: sharedMachines.filter((machine) => !sent.has(machine.id)),
+            sends: recorded.map((send) => ({
+              id: send.machineId,
+              name: nameOf.get(send.machineId) ?? send.machineId,
+              sentAt: send.sentAt,
+            })),
           }
         }
         if (!account.harness) return account

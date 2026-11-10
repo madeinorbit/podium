@@ -1,6 +1,6 @@
 /**
  * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.share ·
- * accounts.login · accounts.send · accounts.useOnMyMachines`.
+ * accounts.login · accounts.send · accounts.unsend · accounts.useOnMyMachines`.
  *
  * Credentials belong to the connecting member. Another member may use a managed
  * key only through an explicit share; foreign-machine sends still require the
@@ -382,6 +382,62 @@ export const accountsSendContract = {
 } as const satisfies CommandContract<typeof accountsSendInput>
 
 /**
+ * `accounts.unsend` (POD-6699): take back a send. The connection stops being
+ * injected into the next run on that machine; a session already running there
+ * keeps the key it was started with until it restarts, and the result says so.
+ */
+export const accountsUnsendInput = z.object({
+  id: AccountIdField,
+  machineId: MachineIdField,
+  /** Whose connection. Omitted: the caller's own. Another user's needs an admin. */
+  owner: UserIdField.optional(),
+})
+
+export const accountsUnsendContract = {
+  name: 'accounts.unsend',
+  version: 1,
+  visibility: ACCOUNT_VISIBILITY,
+  input: accountsUnsendInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Withdraws a credential from another person’s machine: the reverse of `send`, and it only ' +
+      'narrows where the key may be injected. The key’s owner may do it, or an admin for them, ' +
+      'which the target check decides as for `share`. An agent may not. No confirmation: nothing ' +
+      'is destroyed, and sending again (with the warning) restores it.',
+  },
+  exposure: SERVED_ON,
+  delivery: ACCOUNT_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'The input names an account id, a machine and an owner; the result is `{ ok, removed, note }`. ' +
+      'No secret crosses, and the credential is not read.',
+  } satisfies RedactionPolicy,
+  ownership: {
+    creates: [],
+    note: 'Deletes one send record of an existing credential. Mints no entity.',
+  },
+  attribution: ACCOUNT_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A member naming another owner is refused before any read, and a key that does not exist ' +
+      'answers the same "no such key". A machine the key was never sent to is a no-op.',
+  } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent per (connection, machine); taking back a send that is not there changes nothing',
+} as const satisfies CommandContract<typeof accountsUnsendInput>
+
+/**
  * `accounts.useOnMyMachines` — THE D11 CHECKBOX (POD-6301; design §2.5, §4.6;
  * September addendum §4-5). One native login, named by harness and identity
  * fingerprint, is ticked or unticked for "use this connection on all machines I
@@ -449,6 +505,7 @@ export const ACCOUNT_CONTRACTS = {
   share: accountsShareContract,
   login: accountsLoginContract,
   send: accountsSendContract,
+  unsend: accountsUnsendContract,
   useOnMyMachines: accountsUseOnMyMachinesContract,
 } as const
 

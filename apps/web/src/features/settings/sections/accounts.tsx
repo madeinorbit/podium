@@ -342,6 +342,27 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   const sentTo = account.sentTo ?? []
   const sendableTo = account.sendableTo ?? []
 
+  // POD-6699: take a send back. The next run there no longer gets the key; a
+  // session already running there keeps it until it restarts, which the server
+  // says and the row repeats.
+  const [unsentNote, setUnsentNote] = useState<string | null>(null)
+  const unsend = async (machineId: string): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = (await trpc.accounts.unsend.mutate({ id: account.id, machineId })) as {
+        note?: string
+      }
+      setUnsentNote(result.note ?? null)
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const disconnect = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
@@ -443,10 +464,32 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
         )}
       </Row>
       {own && sentTo.length > 0 ? (
-        <p className="max-w-[62ch] pb-2.5 settings-prose">
-          Also runs on {sentTo.map((machine) => machine.name).join(', ')}, someone else's{' '}
-          {sentTo.length === 1 ? 'machine' : 'machines'} you sent it to.
-        </p>
+        <div className="max-w-[62ch] pb-2.5 settings-prose">
+          <p>
+            Also runs on {sentTo.map((machine) => machine.name).join(', ')}, someone else's{' '}
+            {sentTo.length === 1 ? 'machine' : 'machines'} you sent it to.
+          </p>
+          <ul className="mt-1 space-y-1">
+            {sentTo.map((machine) => (
+              <li key={machine.id} className="flex items-center gap-2">
+                <span>{machine.name}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label={`Remove ${label} from ${machine.name}`}
+                  onClick={() => void unsend(machine.id)}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {own && unsentNote ? (
+        <p className="max-w-[62ch] pb-2.5 settings-prose">{unsentNote}</p>
       ) : null}
       {sending ? (
         <div

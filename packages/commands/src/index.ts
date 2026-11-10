@@ -37,6 +37,8 @@ export {
   accountsSendInput,
   accountsShareContract,
   accountsShareInput,
+  accountsUnsendContract,
+  accountsUnsendInput,
   accountsUseOnMyMachinesContract,
   accountsUseOnMyMachinesInput,
 } from './accounts/contracts'

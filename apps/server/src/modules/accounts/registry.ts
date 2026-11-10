@@ -34,6 +34,7 @@ import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { SHARED_WITH_EVERYONE } from '../../store/accounts'
+import type { SettingsAuditRepository } from '../../store/settings-audit'
 import type { PlainTargetCheck } from '../plain-command/entry'
 
 /** Exactly what the account family reaches, named. */
@@ -56,6 +57,9 @@ export interface AccountState {
    *  or `use` (someone else's it was given use of). See `PrivateResourceAccess`. */
   readonly machineStanding: () => Promise<ReadonlyMap<MachineId, 'custody' | 'use'>>
   readonly now?: (() => Date) | undefined
+  /** The settings audit trail, where a taken-back send is recorded (POD-6699).
+   *  Optional so existing test states stay valid; absent, nothing is recorded. */
+  readonly audit?: Pick<SettingsAuditRepository, 'append'> | undefined
   /**
    * The viewer's usable server-AI login (POD-4750): which native login the
    * server-side LLM would spend for the CALLER's background role, and on which
@@ -99,7 +103,7 @@ export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out
 export const callersOwnAccount: PlainTargetCheck = (principal) => principal.kind === 'user'
 
 /**
- * `accounts.share`: the key's owner, or an admin. A signed-in user may change the
+ * `accounts.share` and `accounts.unsend`: the key's owner, or an admin. A signed-in user may change the
  * sharing of their own key; naming another owner needs the admin role.
  */
 export const ownerOrAdmin: PlainTargetCheck = (principal, input) => {
@@ -196,6 +200,47 @@ export const ACCOUNT_COMMANDS_TRPC = {
       )
       return { ok: true as const, sent: true as const, warning: SHARED_MACHINE_ACCOUNT_WARNING }
     }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['send']['input']>, unknown>,
+  },
+  unsend: {
+    contract: ACCOUNT_CONTRACTS.unsend,
+    targetPermitted: ownerOrAdmin,
+    handler: (async (state, input) => {
+      const owner = input.owner ?? asUserId(state.callerUserId)
+      if (!(await state.accounts.getFor(owner, input.id))) throw noSuchKey()
+      const caller = asUserId(state.callerUserId)
+      const removed = await state.accounts.unmarkSent(
+        owner,
+        input.id,
+        input.machineId,
+        async () => {
+          // The target check admits only a signed-in user, so the actor and the
+          // human it acts for are both the caller (an admin acting for the owner
+          // is still the actor; the owner is in the detail).
+          await state.audit?.append({
+            command: 'accounts.unsend',
+            outcome: 'applied',
+            actorKind: 'user',
+            actorId: caller,
+            onBehalfOf: caller,
+            detail: { id: input.id, owner, machineId: input.machineId },
+            redactedPaths: [],
+            createdAt: (state.now?.() ?? new Date()).toISOString(),
+          })
+        },
+      )
+      if (!removed) return { ok: true as const, removed: false as const }
+      const machineName =
+        (await state.machines.getMachine(input.machineId))?.name ?? input.machineId
+      return {
+        ok: true as const,
+        removed: true as const,
+        // Spawn reads the sends afresh (account-env.ts); what has already been
+        // spawned holds the key in its environment.
+        note:
+          `The next run on "${machineName}" no longer gets this key. Sessions already running on ` +
+          `"${machineName}" keep it until they restart.`,
+      }
+    }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['unsend']['input']>, unknown>,
   },
   useOnMyMachines: {
     contract: ACCOUNT_CONTRACTS.useOnMyMachines,

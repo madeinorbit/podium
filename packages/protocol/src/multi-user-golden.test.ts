@@ -14,7 +14,7 @@ const fields: Array<{ family: string; schema: string; paths: string[]; variants?
   {
     family: 'model',
     schema: 'AccountView',
-    paths: ['sentTo', 'sendableTo', 'useOnMyMachines', 'keptOn'],
+    paths: ['sentTo', 'sendableTo', 'sends', 'useOnMyMachines', 'keptOn'],
   },
   { family: 'model', schema: 'IssueAggregate', paths: ['legacyAssignee'] },
   {

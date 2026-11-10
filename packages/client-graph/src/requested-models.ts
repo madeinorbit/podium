@@ -94,6 +94,7 @@ registerModels(
         // Where the viewer's own managed connection runs beyond their machines (POD-6300)
         sentTo: 'object',
         sendableTo: 'object',
+        sends: 'object',
         // The D11 box on a native login, and where a different login was kept (POD-6301)
         useOnMyMachines: 'boolean',
         keptOn: 'object',
@@ -113,6 +114,7 @@ registerModels(
         'loginAttempt',
         'sentTo',
         'sendableTo',
+        'sends',
         'useOnMyMachines',
         'keptOn',
       ],

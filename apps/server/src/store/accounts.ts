@@ -287,6 +287,33 @@ const sentMachines = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Every send of the owner's connections, in one read for the Accounts list. */
+const sendsOfOwner = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      accountKey: accounts.accountKey,
+      machineId: accountMachineSends.machineId,
+      sentAt: accountMachineSends.sentAt,
+    })
+    .from(accounts)
+    .innerJoin(accountMachineSends, eq(accountMachineSends.accountId, accounts.id))
+    .where(ownerIs())
+    .prepare(),
+)
+
+const deleteSend = prepared((db: StoreDrizzle) =>
+  db
+    .delete(accountMachineSends)
+    .where(
+      and(
+        eq(accountMachineSends.accountId, param(accountMachineSends.accountId, 'accountId')),
+        eq(accountMachineSends.machineId, param(accountMachineSends.machineId, 'machineId')),
+      ),
+    )
+    .returning({ machineId: accountMachineSends.machineId })
+    .prepare(),
+)
+
 const insertSend = prepared((db: StoreDrizzle) =>
   db
     .insert(accountMachineSends)
@@ -579,6 +606,38 @@ export class AccountsRepository {
       const row = await ownAccount(this.db).get({ ownerUserId, accountKey: asAccountId(id) })
       if (row) await insertSend(this.db).run({ accountId: row.id, machineId, sentAt })
     })
+  }
+
+  /** Take back one send (POD-6699). True when a send was recorded and is now
+   *  gone; false when the owner has no such connection or never sent it there.
+   *  `onRemoved` runs in the same transaction, for the audit row. */
+  async unmarkSent(
+    ownerUserId: UserId,
+    id: string,
+    machineId: MachineId,
+    onRemoved?: () => Promise<void>,
+  ): Promise<boolean> {
+    return await this.createOrJoinTransaction(async () => {
+      const row = await ownAccount(this.db).get({ ownerUserId, accountKey: asAccountId(id) })
+      if (!row) return false
+      const removed = (await deleteSend(this.db).all({ accountId: row.id, machineId })).length > 0
+      if (removed) await onRemoved?.()
+      return removed
+    })
+  }
+
+  /** Every send of the owner's connections, by public account id (POD-6699). */
+  async sendsOf(
+    ownerUserId: UserId,
+  ): Promise<Map<AccountId, Array<{ machineId: MachineId; sentAt: string }>>> {
+    const byAccount = new Map<AccountId, Array<{ machineId: MachineId; sentAt: string }>>()
+    for (const row of await sendsOfOwner(this.db).all({ owner: ownerUserId })) {
+      if (!row.accountKey) continue
+      const list = byAccount.get(row.accountKey) ?? []
+      list.push({ machineId: row.machineId, sentAt: row.sentAt })
+      byAccount.set(row.accountKey, list)
+    }
+    return byAccount
   }
 
   /** The machines the owner sent this connection to. */

@@ -102,6 +102,13 @@
             "name": "sendableTo[0].name"
           }
         ],
+        "sends": [
+          {
+            "id": "sends[0].id",
+            "name": "sends[0].name",
+            "sentAt": "sends[0].sentAt"
+          }
+        ],
         "useOnMyMachines": true,
         "keptOn": [
           {
@@ -113,7 +120,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"kind\":\"api-key\",\"harness\":\"claude-code\",\"identity\":\"identity\",\"machines\":[\"machines[0]\"],\"identityFingerprint\":\"identityFingerprint\",\"status\":\"connected\",\"serverAi\":{\"machineId\":\"serverAi.machineId\",\"machineName\":\"serverAi.machineName\",\"lastError\":\"serverAi.lastError\"},\"credentialSource\":\"stored\",\"sharing\":{\"everyone\":true,\"users\":[\"sharing.users[0]\"]},\"sharedBy\":\"sharedBy\",\"loginRequired\":true,\"loginMachines\":[{\"id\":\"loginMachines[0].id\",\"name\":\"loginMachines[0].name\"}],\"loginAttempt\":{\"sessionId\":\"loginAttempt.sessionId\",\"machineId\":\"loginAttempt.machineId\",\"machineName\":\"loginAttempt.machineName\",\"status\":\"running\",\"error\":\"loginAttempt.error\"},\"sentTo\":[{\"id\":\"sentTo[0].id\",\"name\":\"sentTo[0].name\"}],\"sendableTo\":[{\"id\":\"sendableTo[0].id\",\"name\":\"sendableTo[0].name\"}],\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"keptOn[0].id\",\"name\":\"keptOn[0].name\"}]}"
+      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"kind\":\"api-key\",\"harness\":\"claude-code\",\"identity\":\"identity\",\"machines\":[\"machines[0]\"],\"identityFingerprint\":\"identityFingerprint\",\"status\":\"connected\",\"serverAi\":{\"machineId\":\"serverAi.machineId\",\"machineName\":\"serverAi.machineName\",\"lastError\":\"serverAi.lastError\"},\"credentialSource\":\"stored\",\"sharing\":{\"everyone\":true,\"users\":[\"sharing.users[0]\"]},\"sharedBy\":\"sharedBy\",\"loginRequired\":true,\"loginMachines\":[{\"id\":\"loginMachines[0].id\",\"name\":\"loginMachines[0].name\"}],\"loginAttempt\":{\"sessionId\":\"loginAttempt.sessionId\",\"machineId\":\"loginAttempt.machineId\",\"machineName\":\"loginAttempt.machineName\",\"status\":\"running\",\"error\":\"loginAttempt.error\"},\"sentTo\":[{\"id\":\"sentTo[0].id\",\"name\":\"sentTo[0].name\"}],\"sendableTo\":[{\"id\":\"sendableTo[0].id\",\"name\":\"sendableTo[0].name\"}],\"sends\":[{\"id\":\"sends[0].id\",\"name\":\"sends[0].name\",\"sentAt\":\"sends[0].sentAt\"}],\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"keptOn[0].id\",\"name\":\"keptOn[0].name\"}]}"
     },
     {
       "schema": "ActorRef",

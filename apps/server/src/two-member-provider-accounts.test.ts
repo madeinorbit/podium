@@ -57,6 +57,7 @@ type View = {
   source: string
   sentTo?: Array<{ id: string }>
   sendableTo?: Array<{ id: string }>
+  sends?: Array<{ id: string; name: string; sentAt: string }>
   loginAttempt?: { sessionId: string; machineId: string }
   machines?: string[]
   harness?: string
@@ -327,5 +328,81 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
     for (const account of (await list('bob')).filter((row) => row.source === 'native')) {
       expect(account.machines ?? []).not.toContain(f.machines.alice)
     }
+  })
+})
+
+describe('POD-6699: a sent connection can be taken back', () => {
+  const unsend = { id: 'managed:anthropic', machineId: '' as string }
+  const sends = async () => (await view('bob', 'managed:anthropic'))?.sends
+  const unsendAudits = async () =>
+    (await store().settingsAudit.list(1000)).filter((row) => row.command === 'accounts.unsend')
+
+  it('the list names every machine the connection was sent to, with when', async () => {
+    unsend.machineId = f.machines.alice
+    expect(await sends()).toEqual([
+      { id: f.machines.alice, name: f.machines.alice, sentAt: expect.any(String) },
+    ])
+  })
+
+  it('only its owner or an admin may take it back', async () => {
+    // Bob is a member: naming another owner is refused before anything is read.
+    await expect(
+      (await trpc('bob')).accounts.unsend.mutate({ ...unsend, owner: MEMBERS.alice.id }),
+    ).rejects.toThrow()
+    // A key he does not have says only that.
+    await expect(
+      (await trpc('bob')).accounts.unsend.mutate({ ...unsend, id: 'managed:openrouter' }),
+    ).rejects.toThrow(/no such stored key/)
+    expect(await sends()).toHaveLength(1)
+    expect(await unsendAudits()).toEqual([])
+  })
+
+  it('Bob takes it back: running sessions keep it, the next run there is refused', async () => {
+    const result = await (await trpc('bob')).accounts.unsend.mutate(unsend)
+    expect(result).toEqual({
+      ok: true,
+      removed: true,
+      note: expect.stringMatching(/already running on "machine-alice" keep .* until they restart/),
+    })
+    expect(await sends()).toEqual([])
+    expect((await view('bob', 'managed:anthropic'))?.sentTo).toEqual([])
+    expect((await view('bob', 'managed:anthropic'))?.sendableTo).toEqual([
+      { id: f.machines.alice, name: f.machines.alice },
+    ])
+    const before = spawnFrames(f.machines.alice).length
+    await expect(startClaude('bob', f.machines.alice, '/wt/bob-unsent-again')).rejects.toThrow(
+      /Before your first run on "machine-alice"/,
+    )
+    expect(spawnFrames(f.machines.alice)).toHaveLength(before)
+    expect(await unsendAudits()).toEqual([
+      expect.objectContaining({
+        outcome: 'applied',
+        actorKind: 'user',
+        actorId: MEMBERS.bob.id,
+        onBehalfOf: MEMBERS.bob.id,
+        detail: { id: 'managed:anthropic', owner: MEMBERS.bob.id, machineId: f.machines.alice },
+      }),
+    ])
+  })
+
+  it('taking it back again changes nothing and records nothing', async () => {
+    expect(await (await trpc('bob')).accounts.unsend.mutate(unsend)).toEqual({
+      ok: true,
+      removed: false,
+    })
+    expect(await unsendAudits()).toHaveLength(1)
+  })
+
+  it('an admin may take a member’s send back for them', async () => {
+    await (await trpc('bob')).accounts.send.mutate({ ...unsend, acknowledgeSharedMachine: true })
+    expect(await sends()).toHaveLength(1)
+    expect(
+      await (await trpc('alice')).accounts.unsend.mutate({ ...unsend, owner: MEMBERS.bob.id }),
+    ).toMatchObject({ ok: true, removed: true })
+    expect(await sends()).toEqual([])
+    expect((await unsendAudits()).at(-1)).toMatchObject({
+      actorId: MEMBERS.alice.id,
+      detail: { id: 'managed:anthropic', owner: MEMBERS.bob.id, machineId: f.machines.alice },
+    })
   })
 })
