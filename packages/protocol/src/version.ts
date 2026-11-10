@@ -44,7 +44,9 @@
  *
  * Concrete translators carry mechanical expiry. When the support floor passes
  * their version, remove them and keep the registry, telemetry and 426 backstop
- * for the next rollout. The current window is [5, 5].
+ * for the next rollout. The current window is [6, 6]: version 6 (POD-6764) took the
+ * live plane off the session record (controller, size, client count, busy, gated
+ * requests, last input, context use), which an older client reads there.
  */
 
 import { z } from 'zod'
@@ -52,7 +54,7 @@ import { z } from 'zod'
 /** Client framing evolves independently of daemon framing. Bump only for breaking
  * changes; additive features negotiate capabilities. Each floor retains the edge
  * adapters needed for cached clients and rolling daemon upgrades. */
-export const CLIENT_WIRE_VERSION = 5
+export const CLIENT_WIRE_VERSION = 6
 
 /**
  * @deprecated Use {@link versionSupport}. This equality check is NOT what the
@@ -80,7 +82,7 @@ export function isProtocolCompatible(a: number, b: number): boolean {
  * fails while an adapter for a version below this floor still exists, so the
  * floor and the adapter set cannot drift apart.
  */
-export const MIN_CLIENT_WIRE_VERSION = 5
+export const MIN_CLIENT_WIRE_VERSION = 6
 
 /**
  * Every version inside the window, ascending.

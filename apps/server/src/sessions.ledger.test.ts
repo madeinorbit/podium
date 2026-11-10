@@ -570,14 +570,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const changes = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
     expect(changes.kind).toBe('delta')
     if (changes.kind !== 'delta') return
-    const geometryChange = changes.changes.find(
+    // The size is a live reading (POD-6764): no session change carries it, and
+    // the terminal state topic answers it.
+    const sized = changes.changes.filter(
       (change) =>
         change.entity === 'session' &&
         change.id === sessionId &&
         change.op === 'upsert' &&
-        (change.value as SessionMeta | undefined)?.geometry.cols === 100,
+        'geometry' in (change.value as object),
     )
-    expect(geometryChange).toBeDefined()
+    expect(sized).toEqual([])
+    expect(
+      await registry.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId),
+    ).toMatchObject({ geometry: { cols: 100, rows: 40 } })
   })
 
   it('emits ordered self-contained projection events for persist and every live-view seam', async () => {
@@ -768,7 +773,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
 
-  it('coalesces a burst of size reports into one async capture and one projection event', async () => {
+  it('a burst of size reports appends no session change; the newest size is the live reading', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -805,13 +810,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(append).not.toHaveBeenCalled()
     expect(events).toEqual([])
     await registry.modules.sessions.flushBroadcasts()
-    expect(append).toHaveBeenCalledTimes(1)
-    expect(events).toHaveLength(1)
-    expect(events[0]?.changes).toHaveLength(1)
-    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.geometry).toEqual({
-      cols: 299,
-      rows: 239,
-    })
+    // The size left the synced record (POD-6764): a drag is not a record change.
+    expect(append).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+    expect(
+      await registry.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId),
+    ).toMatchObject({ geometry: { cols: 299, rows: 239 } })
     append.mockRestore()
     off()
   })
@@ -864,11 +868,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     expect(granteeMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
     await registry.modules.sessions.flushBroadcasts()
-    expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
-        (row) => row.sessionId === sessionId,
-      )?.clientCount,
-    ).toBe(1)
     await registry.clientGateway.routeClientFrame(grantee, { type: 'attach', sessionId })
     expect(granteeMessages).toContainEqual({
       type: 'terminalOutcome',
@@ -877,94 +876,61 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
   })
 
-  it('retains dirty live-view and machine patches across one append failure', async () => {
+  it('attach, resize, control and detach append no session change and reach the live topics (POD-6764)', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
     })
-    await registry.modules.machines.ensureHostMachine('first-host')
     await registry.modules.sessions.flushBroadcasts()
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
-    const sync = registry.sessionStore.sync
-
-    const failAndHeal = async (
-      trigger: () => void | Promise<void>,
-      assertValue: (value: SessionMeta) => void,
-    ) => {
-      const before = events.length
-      const originalAppend = sync.appendChanges.bind(sync)
-      const sessionAppend = vi.fn()
-      const append = vi.spyOn(sync, 'appendChanges').mockImplementation((changes, stampedAt) => {
-        // S1's machine record now commits before the compatibility-only session
-        // refresh. Plant this failure at the session boundary the test owns.
-        if (changes.some((change) => change.entity === 'session')) {
-          sessionAppend()
-          throw new Error('transient session capture failure')
-        }
-        return originalAppend(changes, stampedAt)
-      })
-      await trigger()
-      expect(sessionAppend).not.toHaveBeenCalled()
-      await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow(
-        'transient session capture failure',
-      )
-      expect(events).toHaveLength(before)
-      append.mockRestore()
-      await registry.modules.sessions.flushBroadcasts()
-      expect(events).toHaveLength(before + 1)
-      const change = events.at(-1)?.changes.find((candidate) => candidate.id === sessionId)
-      expect(change?.op).toBe('upsert')
-      assertValue((change as { value: SessionMeta }).value)
-    }
+    const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges')
+    const terminalState = () =>
+      registry.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId)
 
     const firstClient = attachTestClient(registry.clientGateway, () => {})
-    await failAndHeal(
-      () => registry.clientGateway.routeClientFrame(firstClient, { type: 'attach', sessionId }),
-      // POD-1081: clientCount is room occupancy (per principal), not attach-set size.
-      (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
-    )
+    await registry.clientGateway.routeClientFrame(firstClient, { type: 'attach', sessionId })
+    await registry.modules.sessions.flushBroadcasts()
+    expect(await terminalState()).toMatchObject({ controller: firstClient })
+
     await registry.clientGateway.routeClientFrame(firstClient, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'geometryApplied',
+      sessionId,
+      geometry: { cols: 123, rows: 47 },
+      cause: 'request',
+    })
     await registry.modules.sessions.flushBroadcasts()
-    await failAndHeal(
-      () =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-          type: 'geometryApplied',
-          sessionId,
-          geometry: { cols: 123, rows: 47 },
-          cause: 'request',
-        }),
-      (value) => expect(value.geometry).toEqual({ cols: 123, rows: 47 }),
-    )
+    expect(await terminalState()).toMatchObject({ geometry: { cols: 123, rows: 47 } })
 
-    // A second CONNECTION of the SAME principal does not change occupancy
-    // (ADR 7 D9.4: two tabs are one member). Control transfer still dirties.
     const secondClient = attachTestClient(registry.clientGateway, () => {})
     await registry.clientGateway.routeClientFrame(secondClient, { type: 'attach', sessionId })
+    await registry.clientGateway.routeClientFrame(secondClient, {
+      type: 'requestControl',
+      sessionId,
+    })
     await registry.modules.sessions.flushBroadcasts()
-    await failAndHeal(
-      () =>
-        registry.clientGateway.routeClientFrame(secondClient, {
-          type: 'requestControl',
-          sessionId,
-        }),
-      (value) => expect(value.controllerId).toBe(secondClient),
-    )
-    await failAndHeal(
-      () => registry.clientGateway.routeClientFrame(secondClient, { type: 'detach', sessionId }),
-      // First principal still in the room; controller reverts to first connection.
-      (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
-    )
+    expect(await terminalState()).toMatchObject({ controller: secondClient })
+
+    await registry.clientGateway.routeClientFrame(secondClient, { type: 'detach', sessionId })
+    await registry.modules.sessions.flushBroadcasts()
+    // Control reverts to the first connection.
+    expect(await terminalState()).toMatchObject({ controller: firstClient })
+
+    expect(
+      append.mock.calls.flatMap(([changes]) => changes).filter((c) => c.entity === 'session'),
+    ).toEqual([])
+    expect(events).toEqual([])
+    append.mockRestore()
     off()
   })
 
-  it('captures a 588-session disconnect in one retryable batch', async () => {
+  it('a 588-session disconnect appends no session change (POD-6764)', async () => {
     const registry = await makeRegistry()
     const sessionIds = await Promise.all(
       Array.from(
@@ -980,34 +946,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     }
     await registry.modules.sessions.flushBroadcasts()
 
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
-    const append = vi
-      .spyOn(registry.sessionStore.sync, 'appendChanges')
-      .mockImplementationOnce(() => {
-        throw new Error('disconnect batch failed')
-      })
-
+    const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges')
     const detached = vi.spyOn(registry.modules.sessions, 'onClientDetached')
     registry.clientGateway.detachClient(clientId)
     await detached.mock.results[0]?.value
-    expect(append).not.toHaveBeenCalled()
-    await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow(
-      'disconnect batch failed',
-    )
-    expect(append).toHaveBeenCalledTimes(1)
-    expect(events).toEqual([])
-
     await registry.modules.sessions.flushBroadcasts()
-    expect(append).toHaveBeenCalledTimes(2)
-    expect(events).toHaveLength(1)
-    expect(events[0]?.changes).toHaveLength(588)
-    expect(
-      events[0]?.changes.every(
-        (change) => (change as { value?: SessionMeta }).value?.clientCount === 0,
-      ),
-    ).toBe(true)
+    // Who is attached and how many clients watch are live (the terminal state
+    // topic and the presence room): a disconnect changes no record.
+    expect(append).not.toHaveBeenCalled()
+    expect(events).toEqual([])
     append.mockRestore()
     off()
   })

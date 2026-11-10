@@ -169,12 +169,9 @@ export class SessionDaemonProjection {
       case 'agentContext': {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session) break
-        const draft = this.ports.draft(session)
-        if (session.setContextUsagePercent(message.percent, draft)) {
-          const result: Promise<void> = this.ports.persistDraft(session, draft)
-          await result
-          this.ports.broadcastSessions()
-        }
+        // A live reading (POD-6764): nothing to persist. The broadcast
+        // rechecks the session's held `session.condition` key.
+        if (session.setContextUsagePercent(message.percent)) this.ports.broadcastSessions()
         break
       }
       case 'title': {

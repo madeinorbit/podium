@@ -276,6 +276,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.live = new LiveStore({
       onMetricsDemand: (id, watched) => topics?.watchMetrics(id, watched),
       onUsageDemand: (watched) => topics?.watchUsage(watched),
+      onSessionDemand: (kind, id, watched) => topics?.watchSession(kind, id, watched),
     })
     const connection = new ConnectionService({
       // The member fence (POD-6292): this socket is this principal's, and the

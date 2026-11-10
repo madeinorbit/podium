@@ -99,9 +99,10 @@ try {
   // 3) take control + resize repaints the agent at the new geometry
   client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
   client.send(encode({ type: 'requestControl', sessionId }))
-  // Epoch is not a SessionFacts field; project only the session under test.
-  const sess = () => srv.registry.modules.sessions.sessionById(sessionId)
-  await waitFor(async () => ((await sess())?.epoch ?? 0) >= 1, 'epoch bump')
+  // The terminal's epoch is a live reading, not a record field (POD-6764):
+  // read it off the running session.
+  const epoch = () => srv.registry.modules.sessions.sessions.get(sessionId)?.terminal.epoch ?? 0
+  await waitFor(async () => epoch() >= 1, 'epoch bump')
   await waitFor(async () => c.text.includes('cols=100 rows=30'), 'resize repaint')
   console.log('[smoke] ✓ resize + takeover: epoch bumped, repainted at cols=100 rows=30')
 

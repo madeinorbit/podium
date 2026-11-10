@@ -10,6 +10,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { testClientPrincipal } from '../../test-support/client-principal'
+import { conditionOf } from './live-topics'
 import { Session } from './session'
 
 const geo: Geometry = { cols: 80, rows: 24 }
@@ -197,16 +198,18 @@ describe('Session', () => {
     s.terminal.attachClient(a) // becomes controller
     // The shell drawing its prompt (output with no command submitted) is idle.
     s.terminal.onFrame('cHJvbXB0') // "prompt"
-    expect(s.toMeta().busy).toBeUndefined()
+    expect(conditionOf(s).busy).toBe(false)
     // A keystroke that isn't Enter (and its echo) also stays idle.
     s.terminal.handleInput('a', Buffer.from('l').toString('base64'))
     s.terminal.onFrame('bA==') // echoed "l"
-    expect(s.toMeta().busy).toBeUndefined()
+    expect(conditionOf(s).busy).toBe(false)
     // Submitting a line (Enter) starts a command → busy, even before output.
     s.terminal.handleInput('a', Buffer.from('s\r').toString('base64'))
-    expect(s.toMeta().busy).toBe(true)
+    expect(conditionOf(s).busy).toBe(true)
     s.terminal.onFrame('b3V0cHV0') // command output keeps it busy
-    expect(s.toMeta().busy).toBe(true)
+    expect(conditionOf(s).busy).toBe(true)
+    // Busy is a live reading (POD-6764), never a record field.
+    expect(s.toMeta()).not.toHaveProperty('busy')
   })
 
   it('controller resize is forwarded to the agent; spectator resize is stored only', () => {
@@ -1172,13 +1175,15 @@ describe('driver family on the wire (POD-2290)', () => {
    * because the client had only the driver ID and no way to know what it meant.
    */
   it('projects the family of the driver the daemon actually bound', () => {
+    // The record reads the STORED binding (POD-6764), which a bind writes
+    // together with the live handle.
     const s = makeSession()
-    s.driverId = 'opencode-server'
+    s.boundDriverId = 'opencode-server'
     expect(s.toMeta().driverFamily).toBe('server')
-    s.attachKinds = ['client']
+    s.boundDriverCapabilities = { attachKinds: ['client'] }
     expect(s.toMeta().attachKinds).toEqual(['client'])
 
-    s.driverId = 'claude-pty'
+    s.boundDriverId = 'claude-pty'
     expect(s.toMeta().driverFamily).toBe('terminal')
   })
 
@@ -1187,7 +1192,7 @@ describe('driver family on the wire (POD-2290)', () => {
     // family would get backwards: this session asked for a server and got a
     // terminal, and it has the terminal.
     const s = makeSession()
-    s.driverId = 'generic-pty'
+    s.boundDriverId = 'generic-pty'
     s.requestedDriverId = 'grok-acp'
     expect(s.toMeta().driverFamily).toBe('terminal')
   })
@@ -1206,7 +1211,7 @@ describe('driver family on the wire (POD-2290)', () => {
     expect(s.toMeta().driverFamily).toBe('server')
     // …and the bind that follows is still what wins, because a launch that
     // failed and fell back must not be described by the plan it abandoned.
-    s.driverId = 'generic-pty'
+    s.boundDriverId = 'generic-pty'
     expect(s.toMeta().driverFamily).toBe('terminal')
   })
 

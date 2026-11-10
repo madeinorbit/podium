@@ -19,8 +19,10 @@ import {
   holdTopic,
   MACHINE,
   OTHER_MACHINE,
+  OTHER_SESSION,
   OTHER_USER,
   SAMPLE_INTERVAL_MS,
+  SESSION,
   settle,
   type TopicConformanceCase,
   type TopicWorld,
@@ -106,6 +108,32 @@ const VALUE_CASES = [
     },
     describeValue: (value) => value?.sampledAt ?? 'none',
   } satisfies TopicConformanceCase<'account.usage'>,
+  {
+    // POD-6764: who controls a session's terminal, and at what size.
+    kind: 'session.terminalState',
+    id: SESSION,
+    hiddenId: OTHER_SESSION,
+    revocable: true,
+    prepare: async () => {},
+    produce: async (world) => {
+      await world.session.produce('session.terminalState')
+      await settle()
+    },
+    describeValue: (value) => `${value.controller}@${value.geometry.cols}x${value.geometry.rows}`,
+  } satisfies TopicConformanceCase<'session.terminalState'>,
+  {
+    // POD-6764: busy, gated requests, last input time and context use.
+    kind: 'session.condition',
+    id: SESSION,
+    hiddenId: OTHER_SESSION,
+    revocable: true,
+    prepare: async () => {},
+    produce: async (world) => {
+      await world.session.produce('session.condition')
+      await settle()
+    },
+    describeValue: (value) => `${value.busy}/${value.contextUsagePercent}`,
+  } satisfies TopicConformanceCase<'session.condition'>,
 ] as const
 
 for (const c of VALUE_CASES) describeTopicConformance(c as TopicConformanceCase<TopicKind>)

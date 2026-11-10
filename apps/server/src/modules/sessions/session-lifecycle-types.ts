@@ -325,12 +325,15 @@ export interface SessionLifecycleDeps {
   /** A session's owner's start record on its task (POD-6290); absent = none. */
   recordIssueParticipation?: SessionStartPorts['recordIssueParticipation']
   /**
-   * Presence-room occupancy for a session (POD-1081). When provided,
-   * `clientCount` is derived from it and attach/watch policy can consult the
-   * same room world. Optional so unit fixtures without the stream plane keep
-   * using the attach-set size.
+   * Hand a session's newest live reading to the topic routing (POD-6764):
+   * `session.terminalState` or `session.condition`. Dropped when nobody holds
+   * the key. Absent in unit fixtures without the stream plane.
    */
-  sessionOccupancyCount?(sessionId: SessionId): number | undefined
+  publishSessionLive?(
+    kind: 'session.terminalState' | 'session.condition',
+    sessionId: SessionId,
+    value: unknown,
+  ): void
   /**
    * Join/leave the session presence room when a PTY attaches or detaches so
    * occupancy and attach stay one mechanism (POD-1081 §5).

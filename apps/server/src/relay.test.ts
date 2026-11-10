@@ -1229,10 +1229,7 @@ describe('SessionRegistry', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     await reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
-    expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === s2)
-        ?.epoch,
-    ).toBe(0)
+    expect(reg.modules.sessions.sessions.get(s2)?.terminal.epoch).toBe(0)
   })
 
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', async () => {
@@ -2098,12 +2095,9 @@ describe('SessionRegistry', () => {
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
     })
-    expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-        (m) => m.sessionId === sessionId,
-      )?.busy,
-    ).toBe(true)
-    expect(spy).toHaveBeenCalled()
+    expect(reg.modules.sessions.sessions.get(sessionId)?.terminal.busy).toBe(true)
+    // The activity write is coalesced; nothing here awaits a listing any more.
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled())
   })
 
   it('queues semantic activity while the transfer fence is read-only, then flushes it', async () => {
@@ -2211,8 +2205,12 @@ describe('SessionRegistry', () => {
       status: 'live',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
-      geometry: { cols: 173, rows: 47 },
     })
+    // The size is not a record field (POD-6764): the terminal state topic
+    // answers it, from the stored column after the restart.
+    expect(
+      await reg2.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId),
+    ).toMatchObject({ geometry: { cols: 173, rows: 47 } })
     // Attaching the daemon fires a reattach for the session awaiting its rebind.
     const control: import('@podium/protocol/daemon').ControlMessage[] = []
     await attachHostDaemon(reg2, (m) => control.push(m))

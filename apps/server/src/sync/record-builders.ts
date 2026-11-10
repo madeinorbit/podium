@@ -7,10 +7,16 @@
  * publisher uses today, so a built record is the published record. A builder
  * never reads `change_latest`, the change log, or server memory.
  *
- * The 4 kinds left out need more than the database today: `repo`, `shipLane`
+ * The 3 kinds left out need more than the database today: `repo`, `shipLane`
  * and `userPreferences` are joined or folded across tables (their builders
- * come with the slim-records phase), and `session` still carries live values.
- * Conversation, machine, access and issue git facts now read stored rows (POD-6765).
+ * come with the slim-records phase). Conversation, machine, access and issue
+ * git facts read stored rows (POD-6765).
+ *
+ * `session` joined with POD-6764: its live plane (controller, size, client
+ * count, busy, gated requests, last input, context use) left the record for
+ * the session topics, and what a daemon reported or the transcript showed is
+ * stored on the row, so the record is its row plus the satellites a restart
+ * restores it with (`modules/sessions/records.ts`).
  *
  * WHAT IS NOT A PURE FUNCTION OF ROWS, AND WHY IT IS STILL HERE
  *  - `effect`: the published input depends on which effect kinds this server
@@ -55,6 +61,7 @@ import {
   parseWorkflowBindingRowId,
   pinRowId,
   readPositionRowId,
+  type SessionId,
   type SessionUserStateWire,
   sessionUserStateRowId,
   subscriptionRowIdOf,
@@ -84,12 +91,14 @@ import {
   messageRecords,
   messageWindow,
 } from '../modules/message-feed/feed'
+import { SessionRecords } from '../modules/sessions/records'
+import { sessionProjectionPass, wireRecord } from '../modules/sessions/view'
 import { shipOrderProjectionRows } from '../modules/shipping/projection'
 import { superagentThreadWireOf } from '../modules/superagent/thread-records'
 import { workflowRunRecordOf } from '../modules/workflows/records'
 import type { SessionStore } from '../store'
 import { checkoutWireOf } from '../store/checkouts'
-import type { IssueRow, MachineRecord } from '../store/types'
+import type { IssueRow, MachineRecord, SessionRow } from '../store/types'
 
 /** What the builders read: the store's repositories (in process, or built over
  *  the sync worker's read-only connection), the effect kinds this server
@@ -116,6 +125,10 @@ export interface RecordReads {
     | 'machines'
     | 'grants'
     | 'conversations'
+    // The session record's satellites and joins (POD-6764).
+    | 'observationCheckpoints'
+    | 'repos'
+    | 'sync'
   >
   readonly effectExecutors: Pick<EffectExecutorRegistry, 'get'>
   readonly now: () => number
@@ -775,7 +788,47 @@ const instancePreferences: Builder = {
 
 // ---------------------------------------------------------------------------
 
-/** The 24 database-only kinds, in the order the audit lists them. */
+/**
+ * `session` (POD-6764): the row, the satellites a restart restores it with (its
+ * offer, draft time, observation checkpoint, runtime transcript and turn state,
+ * Podium conversation id) and the projection's joins (birth issue, repo, queued
+ * messages). Built exactly as a session that does not run is read today
+ * (`SessionRecords.fromRows` then `wireRecord`), with no resident session in
+ * reach: the projection reads only stored state, so a running session's record
+ * is the same value once its writes have settled.
+ */
+const NO_RESIDENT_SESSIONS = new Map<SessionId, never>()
+
+async function sessionRecordsOf(
+  { store }: RecordReads,
+  rows: readonly SessionRow[],
+): Promise<BuiltRecord[]> {
+  const records = await new SessionRecords({ store, sessions: NO_RESIDENT_SESSIONS }).fromRows(
+    rows.filter((row) => !row.deletedAt),
+  )
+  const pass = await sessionProjectionPass(store, records)
+  return records.map((record) => ({ id: record.sessionId, value: wireRecord(record, pass) }))
+}
+
+const session: Builder = {
+  kind: 'session',
+  shape: 'row-and-reads',
+  build: async (reads, ids) =>
+    await sessionRecordsOf(reads, [
+      ...(await reads.store.sessions.getSessions(unique(ids) as SessionId[])).values(),
+    ]),
+  streamAll: async function* (reads) {
+    let after = ''
+    for (;;) {
+      const rows = await reads.store.sessions.sessionsPage(after, RECORD_PAGE_SIZE)
+      if (rows.length > 0) yield await sessionRecordsOf(reads, rows)
+      if (rows.length < RECORD_PAGE_SIZE) return
+      after = rows.at(-1)?.id ?? after
+    }
+  },
+}
+
+/** The database-only kinds: the stored-row kinds (POD-6765), the audit's 24 in its order, then `session` (POD-6764). */
 export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   conversation,
   issueGitState,
@@ -805,6 +858,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   issueEvent,
   pendingInteraction,
   message,
+  session,
 ]
 
 export function serverRecordBuilders(): RecordBuilderRegistry<RecordReads> {

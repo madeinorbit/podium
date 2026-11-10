@@ -130,6 +130,8 @@ export interface SessionRepositoryPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
+  /** A live reading of this resident session moved (its terminal's listener). */
+  sessionLiveChanged?(sessionId: SessionId): void
   flushBroadcasts(): Promise<void>
   runScheduledBroadcast(): Promise<void>
   /** THE CLIENT-VISIBLE SESSION BASELINE, for the boot ledger reconcile.
@@ -302,10 +304,12 @@ export class SessionRepository {
     session.terminal.setActivityDirtyListener(() => {
       this.dirtyActivitySessions.set(session.sessionId, ++this.activityMutationVersion)
     })
+    session.terminal.setLiveListener(() => this.ports.sessionLiveChanged?.(session.sessionId))
   }
 
   registerSession(session: Session): void {
     this.sessions.get(session.sessionId)?.terminal.setActivityDirtyListener(undefined)
+    this.sessions.get(session.sessionId)?.terminal.setLiveListener(undefined)
     this.dirtyActivitySessions.delete(session.sessionId)
     this.sessions.set(session.sessionId, session)
     this.observeSessionActivity(session)

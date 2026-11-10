@@ -1,6 +1,6 @@
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
-import type { LiveStore } from '@podium/client-core/live'
+import { type LiveStore, lastValue } from '@podium/client-core/live'
 import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
@@ -29,7 +29,7 @@ import type {
 } from './workflow-models'
 
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
-import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionLiveFields, SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
 import { APPROVAL_EFFECT_KIND, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
@@ -901,7 +901,7 @@ export class IssueModel extends EntityModel {
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
   readonly readObservation = new ReadObservation()
-  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry', 'messageDraft'])
+  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
@@ -995,8 +995,31 @@ export class SessionModel extends EntityModel {
     const machineId = this.machineId
     return isSessionReconnecting(this.status, machineId ? this.host.live?.onlineOf(machineId) : undefined)
   }
+
+  // Live readings (POD-6764): conditions from this user's LiveStore, never
+  // stored fields. A tracked read holds the session's topic while it is
+  // watched. Before the first reading each is unknown (undefined), and a
+  // reading that went stale keeps its last value for the next frame.
+  /** Writing to its terminal now. Only a running session is asked: a stopped
+   *  one is not busy, so a list of finished sessions holds no topic. */
+  @lazy get busy(): boolean | undefined {
+    const status = this.status
+    if (status !== 'live' && status !== 'starting') return false
+    const reading = this.host.live?.sessionConditionOf(this.id)
+    return reading?.known ? reading.value.busy : undefined
+  }
+  /** The last human input into the session (ISO 8601). */
+  @lazy get lastInputAt(): string | undefined {
+    return lastValue(this.host.live?.sessionConditionOf(this.id))?.lastInputAt
+  }
+  /** The harness's latest exact context-window use. */
+  @lazy get contextUsagePercent(): number | undefined {
+    return lastValue(this.host.live?.sessionConditionOf(this.id))?.contextUsagePercent
+  }
+  /** The terminal's size: the server's stored size while nothing runs it, so a
+   *  cached terminal view opens at the right size with the daemon offline. */
   @lazy({ equals: compareStructural }) get geometry(): SessionView['geometry'] {
-    return this.storedField('geometry') as SessionView['geometry']
+    return lastValue(this.host.live?.sessionTerminalStateOf(this.id))?.geometry
   }
 
   // Stored fields: declared summaries can answer a field without promoting it.
@@ -1351,7 +1374,7 @@ interface IssueEdits {
  */
 // Schema-installed session fields are typed by their wire contract. Derived
 // presence fields above keep their scalar types, and no row is stored here.
-export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft'>>, RelationGetters<'session'> {}
+export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft' | keyof SessionLiveFields>>, RelationGetters<'session'> {}
 
 export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance' | 'assignee'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
   /** The stored projection uses the full wire contract; summaries only gate loading. */

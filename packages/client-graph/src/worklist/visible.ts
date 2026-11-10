@@ -162,6 +162,9 @@ export interface VisibleInputs {
   /** Whether a session reads as reconnecting: its model's derived condition
    *  (ADR 12 D1). Rows never carry it. Absent: not known, so not reconnecting. */
   sessionReconnecting?(id: string): boolean
+  /** Whether a session is writing to its terminal now: its model's live reading
+   *  (POD-6764). Rows never carry it. Absent or unknown: not busy. */
+  sessionBusy?(id: string): boolean
   /** Open pending interactions addressed to a session: one of its seat facts (`coordinatedSeat`). */
   openInteractions?(id: string): SeatInteractions
   /** The sessions holding an open pending interaction, in id order. */
@@ -457,13 +460,35 @@ export interface SessionVisibility {
   readonly verdict: Loaded<SeatVerdict>
 }
 
+/**
+ * THE ROW AS A ROLL-UP READS IT, WITH ITS ONE LIVE READING (POD-6764).
+ *
+ * `busy` left the synced record: it is a condition in the LiveStore, answered by
+ * the session model. A roll-up reads rows, and the only thing it asks `busy` for
+ * is a session with no agent phase to go by (a shell, or a harness that reports
+ * none), so only such a running session is asked, and only then is its topic
+ * held. The stored row is never written: a busy session is read through a
+ * shallow copy that lives for this one computation.
+ */
+export function withLiveBusy<T extends SliceSession>(
+  input: Pick<VisibleInputs, 'sessionBusy'>,
+  id: string,
+  row: T,
+): T {
+  if (row.status !== 'live' && row.status !== 'starting') return row
+  const phase = (row.agentState as { phase?: unknown } | null | undefined)?.phase
+  if (row.agentKind !== 'shell' && phase != null && phase !== 'unknown') return row
+  return input.sessionBusy?.(id) === true ? { ...row, busy: true } : row
+}
+
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
 export function verdictPartOf(
-  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting'>,
+  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting' | 'sessionBusy'>,
   id: string,
 ): Loaded<SeatVerdict> {
-  const row = input.loadedSession(id)
-  if (row === undefined || typeof row === 'symbol') return row
+  const stored = input.loadedSession(id)
+  if (stored === undefined || typeof stored === 'symbol') return stored
+  const row = withLiveBusy(input, id, stored)
   const task = row.issueId ? input.issueRow(row.issueId) : undefined
   return seatVerdictOf(
     row,
@@ -475,7 +500,7 @@ export function verdictPartOf(
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting'>,
+  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting' | 'sessionBusy'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
@@ -553,7 +578,7 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
         working ||= Boolean(
           session &&
             !session.archived &&
-            sessionWorkingFact(session as SeatSessionFacts, input.sessionReconnecting?.(sessionId) === true),
+            sessionWorkingFact(withLiveBusy(input, sessionId, session) as SeatSessionFacts, input.sessionReconnecting?.(sessionId) === true),
         )
       }
       return missionTaskBucket(issue, input.links.issue.bornSessions.size(id) > 0 || ids.length > 0, working)

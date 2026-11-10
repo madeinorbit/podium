@@ -503,35 +503,20 @@ export const SessionMetaEntity = z.object({
   exitCode: z.number().int().optional(), // present only when status === 'exited'
   /** Daemon diagnosis for exitCode=-1 (spawn never started). */
   spawnFailure: z.string().optional(),
-  /** NOT a `SessionId` — it holds a WEBSOCKET CLIENT id
-   *  (`apps/server/src/modules/sessions/session.ts`: `if (this.controllerId ===
-   *  null) this.controllerId = client.id`). Branding it `SessionId` because the
-   *  field sits on `SessionMeta` and is "actor-shaped" would have been a
-   *  well-typed lie. Its brand is ADR 9's `DeviceId` family (a device/connection,
-   *  not a person and not a session), which POD-1075 owns. */
-  controllerId: z.string().nullable(),
-  geometry: Geometry,
+  // NOT HERE (POD-6764): who controls the terminal and its size, how many
+  // clients watch, whether it is busy, its gated requests, last input time and
+  // context use. A saved copy of any of them would be wrong tomorrow, so they
+  // are live readings, never record fields: `session.terminalState` and
+  // `session.condition` (`@podium/protocol` topics) and the presence room.
   /** Never sent since POD-4771: whether the pty exists is `status` (`live`).
    *  Optional so an older server's row still parses. */
   geometryState: GeometryState.optional(),
-  /**
-   * HOW MANY VIEWPORT STATEMENTS THIS SESSION DID NOT FORWARD because their
-   * sender was not the visible native controller (POD-3239 B6). Omitted when
-   * zero. A pane stuck at a stale grid is told apart from one that never asked.
-   */
-  requestsGated: z.number().int().nonnegative().optional(),
   /** Never sent since POD-4771 (no seq watermark). Optional for older servers. */
   requestsDuplicate: z.number().int().nonnegative().optional(),
   /** Never sent since POD-4771 (no report watchdog). Optional for older servers. */
   requestsUnanswered: z.number().int().nonnegative().optional(),
-  epoch: z.number().int().nonnegative(),
-  clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
   lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
-  /** ISO 8601 time of the last human (controller) input into this session, when
-   *  one has happened. The offer-artifact freshness fallback [POD-120] compares
-   *  issue-artifact addedAt against this to show "new since you last typed". */
-  lastInputAt: z.string().optional(),
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
@@ -583,10 +568,6 @@ export const SessionMetaEntity = z.object({
    *  absent on old peers, shell sessions, and unknown harnesses. */
   harnessHandoff: z.boolean().optional(),
   harnessPromptModeHints: z.boolean().optional(),
-  /** True while the session is actively writing to its PTY (debounced). The
-   *  activity signal for uninstrumented kinds with no agentState — a shell reads
-   *  as "working" only while a process is producing output, idle at its prompt. */
-  busy: z.boolean().optional(),
   /** The agent's self-chosen identity colour (Claude's `/color`): a named colour
    *  — red|blue|green|yellow|purple|orange|pink|cyan — used to tell agents apart,
    *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
@@ -607,9 +588,6 @@ export const SessionMetaEntity = z.object({
    *  answering as. See `SessionLiveOverlay` for why none of them is a column. */
   requestedModel: z.string().optional(),
   requestedEffort: z.string().optional(),
-  /** Latest exact harness-reported context-window usage. Absent when the
-   * harness transcript does not expose both used tokens and window capacity. */
-  contextUsagePercent: z.number().finite().min(0).max(100).optional(),
   /** The machine this session runs on; the client joins its replicated row. */
   machineId: MachineIdField.optional(),
   /** Last-edit time (ISO 8601) of a non-empty unsent composer draft, when one

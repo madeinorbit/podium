@@ -217,6 +217,7 @@ import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/session
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionLifecycleController } from './modules/sessions/lifecycle-controller'
+import type { SessionLiveKind, SessionLiveTopics } from './modules/sessions/live-topics'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
@@ -1406,7 +1407,15 @@ export class SessionRegistry {
       hosts?: HostsService
       quota?: AccountQuotaTopic
       usage?: AccountUsageTopic
+      sessionLive?: SessionLiveTopics
     } = {}
+    // POD-6764: a session's live readings. The producers live in the sessions
+    // module, which is built further down.
+    const sessionLiveProducer = (kind: SessionLiveKind) => ({
+      start: (id: string) => topicLate.sessionLive?.start(kind, asSessionId(id)),
+      stop: (id: string) => topicLate.sessionLive?.stop(kind, asSessionId(id)),
+      snapshot: (id: string) => topicLate.sessionLive?.snapshot(kind, asSessionId(id)),
+    })
     const machineConditions = new MachineConditionTopic({
       condition: (machineId) => machines.condition(machineId),
       now: () => this.now(),
@@ -1453,6 +1462,8 @@ export class SessionRegistry {
         stop: (id) => topicLate.usage?.stop(asUserId(id)),
         snapshot: (id) => topicLate.usage?.snapshot(asUserId(id)),
       },
+      'session.terminalState': sessionLiveProducer('session.terminalState'),
+      'session.condition': sessionLiveProducer('session.condition'),
       'account.events': {},
     }
     const topics: TopicRouting = new TopicRouting({
@@ -1462,7 +1473,7 @@ export class SessionRegistry {
         kernelVisibilityResolver(
           await visibility.forBatch(
             entities.map((entity) => ({
-              entity: entity.kind as 'machine',
+              entity: entity.kind as 'machine' | 'session',
               entityId: entity.id,
             })),
           ),
@@ -2166,16 +2177,16 @@ export class SessionRegistry {
       recordIssueParticipation: async (writer, issueId, userId, via) => {
         await this.issues.attention.recordParticipation(writer, issueId, userId, via)
       },
-      // POD-1081: clientCount is a degenerate view of session-room occupancy.
-      // Attach still owns frame delivery; presence rooms own who-is-watching.
-      // PTY attach auto-joins the room so the two stay one mechanism.
-      sessionOccupancyCount: (sessionId) =>
-        presence.occupancy({ kind: 'session', id: sessionId }).length,
+      // POD-1081: attach owns frame delivery; presence rooms own who-is-watching
+      // (a client counts the room's members, POD-6764: no client count on the
+      // record). PTY attach auto-joins the room so the two stay one mechanism.
+      publishSessionLive: (kind, sessionId, value) => topics.publish(kind, sessionId, value),
       sessionRoomJoin: (client, sessionId) =>
         presence.ensureJoined(client, { kind: 'session', id: sessionId }),
       sessionRoomLeave: (client, sessionId) =>
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
     })
+    topicLate.sessionLive = sessionsSvc.liveTopics
     const nativeLogin = new NativeLoginService({
       machines,
       sessions: sessionsSvc,

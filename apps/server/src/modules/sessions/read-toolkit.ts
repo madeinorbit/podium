@@ -407,7 +407,8 @@ export class SessionReadToolkit {
        */
       model: target.observedModel ?? target.requestedModel ?? target.model ?? null,
       effort: target.observedEffort ?? target.requestedEffort ?? target.effort ?? null,
-      contextUsagePercent: target.contextUsagePercent ?? null,
+      // A live reading (POD-6764), so it is read off the facts, not the record.
+      contextUsagePercent: found.contextUsagePercent ?? null,
       account: target.accountId ?? null,
       error,
       draft: target.draftUpdatedAt !== undefined,

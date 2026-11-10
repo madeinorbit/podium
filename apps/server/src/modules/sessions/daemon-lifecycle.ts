@@ -483,6 +483,9 @@ export class SessionDaemonLifecycle {
             // a parked-but-alive row decides on once `driverId` is gone. Like
             // `driverId`, a bind that names none clears it.
             draft.boundDriverId = msg.driverId
+            // Stored with the binding (POD-6764), so the record says what the
+            // daemon last reported without asking this process.
+            draft.draftSyncEngine = msg.draftSyncEngine ?? false
             draft.boundDriverCapabilities =
               msg.driverId === undefined
                 ? undefined

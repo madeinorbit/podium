@@ -3,7 +3,6 @@ import {
   AgentKind,
   type AgentRuntimeState,
   type Attribution,
-  type Geometry,
   type HarnessAgent,
   type SessionDelegation,
   type SessionDesired,
@@ -64,19 +63,15 @@ export interface SessionIdentity {
   readonly headless: boolean
 }
 
-/** What the wire reads off a session's terminal and bound driver. */
+/**
+ * What server code reads off a session's terminal beside its durable state: the
+ * last input time (the offer staleness rule) and whether it is busy (the
+ * session facts). Neither reaches the synced record (POD-6764): clients read
+ * them from the `session.condition` topic.
+ */
 export interface SessionLiveView {
-  readonly controllerId: string | null
-  readonly geometry: Geometry
-  readonly requestsGated: number
-  readonly epoch: number
-  readonly clientCount: number
   readonly lastInputAtMs: number
   readonly busy: boolean
-  readonly configureFields: readonly string[] | undefined
-  readonly attachKinds: readonly ('engine' | 'client')[] | undefined
-  readonly draftSyncEngine: boolean
-  readonly driverId: string | undefined
 }
 
 /**
@@ -182,13 +177,15 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     agentState: undefined,
     workingMsTotal: init.workingMsTotal,
     incomingWorkingMsTotal: undefined,
-    agentColor: undefined,
-    observedModel: undefined,
-    observedEffort: undefined,
+    // Stored since POD-6764: a restart keeps what the transcript tail last
+    // showed, and a move in flight keeps its target.
+    agentColor: init.agentColor,
+    observedModel: init.observedModel,
+    observedEffort: init.observedEffort,
     requestedModel: init.requestedModel,
     requestedEffort: init.requestedEffort,
-    contextUsagePercent: undefined,
-    handoffTargetMachineId: undefined,
+    draftSyncEngine: init.draftSyncEngine === true,
+    handoffTargetMachineId: init.handoffTargetMachineId,
     conversationPodiumId: undefined,
     draftUpdatedAt: undefined,
     offer: undefined,
@@ -202,22 +199,9 @@ export function seedMs(value: string | null | undefined): number {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-/** The live plane of a session nothing runs: what a freshly restored terminal
- *  and an unbound driver report. */
-export function liveViewAtRest(init: Pick<SessionInit, 'geometry' | 'lastInputAt'>): SessionLiveView {
-  return {
-    controllerId: null,
-    geometry: { ...init.geometry },
-    requestsGated: 0,
-    epoch: 0,
-    clientCount: 0,
-    lastInputAtMs: seedMs(init.lastInputAt),
-    busy: false,
-    configureFields: undefined,
-    attachKinds: undefined,
-    draftSyncEngine: false,
-    driverId: undefined,
-  }
+/** The live plane of a session nothing runs: its stored last input time, not busy. */
+export function liveViewAtRest(init: Pick<SessionInit, 'lastInputAt'>): SessionLiveView {
+  return { lastInputAtMs: seedMs(init.lastInputAt), busy: false }
 }
 
 /** A restored record: identity, durable state and the live plane at rest. */
@@ -343,6 +327,14 @@ export function storedSessionInit(
     ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
     ...(r.boundDriverId ? { boundDriverId: r.boundDriverId } : {}),
     ...(r.boundDriverCapabilities ? { boundDriverCapabilities: r.boundDriverCapabilities } : {}),
+    // What a daemon last reported and the transcript tail last showed (POD-6764).
+    // They describe the session until it starts again, when a bind and the
+    // tail's seed window state them afresh.
+    ...(r.draftSyncEngine ? { draftSyncEngine: true } : {}),
+    ...(r.agentColor ? { agentColor: r.agentColor } : {}),
+    ...(r.observedModel ? { observedModel: r.observedModel } : {}),
+    ...(r.observedEffort ? { observedEffort: r.observedEffort } : {}),
+    ...(r.handoffTargetMachineId ? { handoffTargetMachineId: r.handoffTargetMachineId } : {}),
     // Passed through, never defaulted: a row from before this column exists
     // makes no claim about whether its launch ever had a conversation, and
     // inventing `'never'` for it would authorize discarding one.
@@ -388,25 +380,30 @@ export function applyRuntimeTurnStateTo(d: SessionDurableFields, state: AgentRun
   d.incomingWorkingMsTotal = undefined
 }
 
-/** THE wire projection of a session's shared facts (S6): identity, durable
- *  state (the live object's or a draft's) and the live plane. */
-export function projectSessionMeta(
-  s: SessionIdentity,
-  d: SessionDurableFields,
-  live: SessionLiveView,
-): SessionMeta {
+/**
+ * THE wire projection of a session's shared facts (S6): identity and durable
+ * state (the live object's or a draft's).
+ *
+ * EVERY INPUT IS STORED (POD-6764). Nothing here reads a terminal or a bound
+ * driver handle, so a record read from the database and a session running in
+ * this process project the same value, and the record can be built by any
+ * process by id. What only a running process knows (who controls the terminal
+ * and at what size, busy, gated requests, last input time, context use, how
+ * many clients watch) is not a record field: clients read it from the
+ * `session.terminalState` and `session.condition` topics and the presence room.
+ */
+export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields): SessionMeta {
   // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
   // is what the daemon decided before it started the harness; the binding is
   // what it ended up with. They agree on every path that works, and where
   // they can differ — a launch that failed and fell back — the one that
   // describes a running session has to win.
-  // A server restart or materialization does not change the daemon's binding.
-  // Keep the last measured facts on the wire without claiming a live handle
-  // for server-side routing. Only another bind (or spawn failure) replaces them.
-  const driverId = live.driverId ?? d.boundDriverId
-  const capabilities = live.driverId === undefined ? (d.boundDriverCapabilities ?? live) : live
-  const configureFields = capabilities.configureFields
-  const attachKinds = capabilities.attachKinds
+  // The binding is the STORED one: what a daemon last bound, written with the
+  // bind. A server restart does not change the daemon's binding, and the live
+  // handle (`Session.driverId`) stays server-side routing state.
+  const driverId = d.boundDriverId
+  const configureFields = d.boundDriverCapabilities?.configureFields
+  const attachKinds = d.boundDriverCapabilities?.attachKinds
   const driverFamily = driverFamilyForId(driverId ?? d.selectedDriverId ?? '')
   return {
     sessionId: s.sessionId,
@@ -422,19 +419,8 @@ export function projectSessionMeta(
     ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
     ...(d.spawnFailure ? { spawnFailure: d.spawnFailure } : {}),
     ...(d.agentState ? { agentState: d.agentState } : {}),
-    controllerId: live.controllerId,
-    geometry: { ...live.geometry },
-    // Only when there is something to report (POD-3239 B6).
-    ...(live.requestsGated > 0 ? { requestsGated: live.requestsGated } : {}),
-    epoch: live.epoch,
-    clientCount: live.clientCount,
     createdAt: s.createdAt,
     lastActiveAt: d.lastActiveAt,
-    // Last human (controller) input — the offer-artifact freshness fallback
-    // [POD-120] compares issue-artifact addedAt against this on the client.
-    ...(live.lastInputAtMs > 0
-      ? { lastInputAt: new Date(live.lastInputAtMs).toISOString() }
-      : {}),
     origin: s.origin,
     archived: d.archived,
     ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
@@ -448,7 +434,6 @@ export function projectSessionMeta(
     // safe answer for every session whose history we cannot vouch for.
     ...(isNeverBound(d) ? { neverBound: true as const } : {}),
     ...(d.transcriptAvailable ? { transcriptAvailable: true } : {}),
-    ...(live.busy ? { busy: true } : {}),
     ...(d.agentColor ? { agentColor: d.agentColor } : {}),
     ...(d.observedModel ? { observedModel: d.observedModel } : {}),
     ...(d.observedEffort ? { observedEffort: d.observedEffort } : {}),
@@ -459,11 +444,8 @@ export function projectSessionMeta(
     // "nobody told me" would hide the control on both.
     ...(configureFields ? { configureFields: [...configureFields] } : {}),
     ...(attachKinds ? { attachKinds: [...attachKinds] } : {}),
-    ...(d.contextUsagePercent !== undefined
-      ? { contextUsagePercent: d.contextUsagePercent }
-      : {}),
     ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
-    ...(live.draftSyncEngine ? { draftSyncEngine: true } : {}),
+    ...(d.draftSyncEngine ? { draftSyncEngine: true } : {}),
     ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
     ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
     ...(driverId ? { driverId } : {}),

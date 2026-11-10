@@ -15,6 +15,8 @@ import type {
   AccountQuotaPayload,
   AccountUsagePayload,
   MachineConditionPayload,
+  SessionConditionPayload,
+  SessionTerminalStatePayload,
 } from '@podium/protocol'
 import { runInAction } from 'mobx'
 import type { HeaderRecord } from './header-schema'
@@ -33,6 +35,10 @@ export interface LiveFixture {
   usage(value: AccountUsagePayload | undefined): void
   outbox(next: OutboxCondition): void
   connection(next: ConnectionCondition): void
+  /** A session's condition: busy, gated requests, last input, context use (undefined: unknown). */
+  sessionCondition(sessionId: string, value: SessionConditionPayload | undefined): void
+  /** A session's terminal state: controller, size, exit (undefined: unknown). */
+  sessionTerminalState(sessionId: string, value: SessionTerminalStatePayload | undefined): void
 }
 
 export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()): LiveFixture {
@@ -82,6 +88,22 @@ export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()
       ),
     outbox: (next) => live.setOutbox(next),
     connection: (next) => live.setConnection(next),
+    sessionCondition: (sessionId, value) =>
+      runInAction(() =>
+        live.applyTopic(
+          'session.condition',
+          sessionId,
+          value === undefined ? unknownReading(now()) : knownReading(value, now()),
+        ),
+      ),
+    sessionTerminalState: (sessionId, value) =>
+      runInAction(() =>
+        live.applyTopic(
+          'session.terminalState',
+          sessionId,
+          value === undefined ? unknownReading(now()) : knownReading(value, now()),
+        ),
+      ),
   }
 }
 

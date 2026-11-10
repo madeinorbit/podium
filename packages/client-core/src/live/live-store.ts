@@ -23,6 +23,8 @@ import type {
   AccountUsagePayload,
   MachineConditionPayload,
   ServerFeatureFacts,
+  SessionConditionPayload,
+  SessionTerminalStatePayload,
 } from '@podium/protocol'
 import { action, observable, observableRef, runInAction } from 'mobx'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -75,6 +77,12 @@ export interface OutboxCondition {
 }
 
 export type MachineCondition = MachineConditionPayload
+/** Busy, gated requests, last input time and context use of one session. */
+export type SessionCondition = SessionConditionPayload
+/** Who controls one session's terminal, its size and its exit. */
+export type SessionTerminalState = SessionTerminalStatePayload
+/** The session topics the store holds, each only while a reader watches it. */
+export type SessionLiveTopicKind = 'session.terminalState' | 'session.condition'
 
 /** What a live reading's topic kind names (the subset the LiveStore holds). */
 export type LiveTopicKind =
@@ -82,6 +90,7 @@ export type LiveTopicKind =
   | 'machine.metrics'
   | 'account.quota'
   | 'account.usage'
+  | SessionLiveTopicKind
 
 export interface LiveStoreOptions {
   readonly now?: () => number
@@ -98,6 +107,18 @@ export interface LiveStoreOptions {
    * only in between, so the server harvests transcripts only then.
    */
   readonly onUsageDemand?: (watched: boolean) => void
+  /**
+   * Demand for one session's live readings (POD-6764): a reader started or
+   * stopped watching {@link LiveStore.sessionConditionOf} or
+   * {@link LiveStore.sessionTerminalStateOf}. The live feed holds that
+   * session's topic only in between, so the keys a connection holds follow
+   * what is on screen, not how many sessions exist.
+   */
+  readonly onSessionDemand?: (
+    kind: SessionLiveTopicKind,
+    sessionId: string,
+    watched: boolean,
+  ) => void
 }
 
 const NOT_BORN_CONNECTION: ConnectionCondition = Object.freeze({ state: 'connecting', since: 0 })
@@ -123,9 +144,22 @@ export class LiveStore {
     { deep: false, name: 'LiveStore.machineMetrics' },
   )
 
+  /** Busy, gated requests, last input and context use, for sessions somebody watches. */
+  readonly sessionConditions = observable.map<string, Reading<SessionCondition>>(
+    {},
+    { deep: false, name: 'LiveStore.sessionConditions' },
+  )
+  /** Terminal controller, size and exit, for sessions somebody watches. */
+  readonly sessionTerminalStates = observable.map<string, Reading<SessionTerminalState>>(
+    {},
+    { deep: false, name: 'LiveStore.sessionTerminalStates' },
+  )
+
   private readonly now: () => number
   private readonly metricsDemand
   private readonly usageDemand
+  private readonly sessionConditionDemand
+  private readonly sessionTerminalDemand
   private disposed = false
 
   constructor(options: LiveStoreOptions = {}) {
@@ -145,6 +179,17 @@ export class LiveStore {
         if (!this.disposed) options.onMetricsDemand?.(id, false)
       },
     })
+    const sessionDemand = (kind: SessionLiveTopicKind) =>
+      createDemandAtoms<string>((id) => `LiveStore.${kind}:${id}`, {
+        onObserved: (id) => {
+          if (!this.disposed) options.onSessionDemand?.(kind, id, true)
+        },
+        onUnobserved: (id) => {
+          if (!this.disposed) options.onSessionDemand?.(kind, id, false)
+        },
+      })
+    this.sessionConditionDemand = sessionDemand('session.condition')
+    this.sessionTerminalDemand = sessionDemand('session.terminalState')
     this.usageDemand = createDemandAtoms<'usage'>(() => 'LiveStore.usage', {
       onObserved: () => {
         if (!this.disposed) options.onUsageDemand?.(true)
@@ -181,6 +226,38 @@ export class LiveStore {
   metricsOf(machineId: string): Reading<HostMetricsWire> | undefined {
     this.metricsDemand.observe(machineId)
     return this.machineMetrics.get(machineId)
+  }
+
+  /**
+   * One session's condition: busy, gated requests, last input time, context
+   * use (POD-6764). Like {@link metricsOf}, a tracked read is the demand: the
+   * `session.condition` topic is held while somebody watches this session.
+   * Unknown until its first reading; the server answers a session nothing runs
+   * from its stored row.
+   */
+  sessionConditionOf(sessionId: string): Reading<SessionCondition> | undefined {
+    this.sessionConditionDemand.observe(sessionId)
+    return this.sessionConditions.get(sessionId)
+  }
+
+  /**
+   * One session's terminal state: who controls it, its size, its exit. Held
+   * while somebody watches. The size is also stored on the server, so it is
+   * known while the session's daemon is offline.
+   */
+  sessionTerminalStateOf(sessionId: string): Reading<SessionTerminalState> | undefined {
+    this.sessionTerminalDemand.observe(sessionId)
+    return this.sessionTerminalStates.get(sessionId)
+  }
+
+  /** The sessions somebody is watching a live reading of (the live feed's demand). */
+  watchedSessions(kind: SessionLiveTopicKind): readonly string[] {
+    return [
+      ...(kind === 'session.condition'
+        ? this.sessionConditionDemand
+        : this.sessionTerminalDemand
+      ).keys(),
+    ]
   }
 
   /**
@@ -246,6 +323,20 @@ export class LiveStore {
         else this.machineMetrics.delete(id)
         return
       }
+      case 'session.condition': {
+        const held = this.sessionConditions.get(id)
+        if (reading)
+          this.sessionConditions.set(id, carry(held, reading as Reading<SessionCondition>))
+        else this.sessionConditions.delete(id)
+        return
+      }
+      case 'session.terminalState': {
+        const held = this.sessionTerminalStates.get(id)
+        if (reading)
+          this.sessionTerminalStates.set(id, carry(held, reading as Reading<SessionTerminalState>))
+        else this.sessionTerminalStates.delete(id)
+        return
+      }
       case 'account.quota':
         this.quota = carry(
           this.quota,
@@ -285,6 +376,10 @@ export class LiveStore {
     for (const [id, reading] of this.machineConditions)
       this.machineConditions.set(id, stale(reading))
     for (const [id, reading] of this.machineMetrics) this.machineMetrics.set(id, stale(reading))
+    for (const [id, reading] of this.sessionConditions)
+      this.sessionConditions.set(id, stale(reading))
+    for (const [id, reading] of this.sessionTerminalStates)
+      this.sessionTerminalStates.set(id, stale(reading))
   }
 
   /** Sign-out: forget every reading and stop reporting demand. */
@@ -293,8 +388,12 @@ export class LiveStore {
     this.disposed = true
     this.metricsDemand.clear()
     this.usageDemand.clear()
+    this.sessionConditionDemand.clear()
+    this.sessionTerminalDemand.clear()
     this.machineConditions.clear()
     this.machineMetrics.clear()
+    this.sessionConditions.clear()
+    this.sessionTerminalStates.clear()
     this.quota = unknownReading(this.now())
     this.usageReading = unknownReading(this.now())
     this.outbox = EMPTY_OUTBOX

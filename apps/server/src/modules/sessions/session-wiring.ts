@@ -77,6 +77,7 @@ function storedQueueAttachments(json: string | null): {
   return {}
 }
 
+import { SessionLiveTopics } from './live-topics'
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
@@ -299,13 +300,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   // The durable records of sessions read from the database (POD-6160).
   bag.records = new SessionRecords({ store, sessions: bag.sessions })
-  bag.view = new SessionView({
-    records: bag.records,
-    store,
-    state: bag.state,
-    sessionOccupancyCount: bag.deps.sessionOccupancyCount
-      ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)
-      : undefined,
+  bag.view = new SessionView({ records: bag.records, store, state: bag.state })
+  // A session's live readings, as topics (POD-6764). A session nothing here
+  // runs answers from its row, read once per snapshot and never made resident.
+  bag.liveTopics = new SessionLiveTopics({
+    session: (sessionId) => bag.sessions.get(sessionId),
+    stored: async (sessionId) => {
+      const row = await store.sessions.loadSession(sessionId)
+      return row && !row.deletedAt
+        ? {
+            geometry: row.geometry,
+            lastInputAt: row.lastInputAt,
+            status: row.status,
+            exitCode: row.exitCode,
+          }
+        : undefined
+    },
+    publish: (kind, sessionId, value) => bag.deps.publishSessionLive?.(kind, sessionId, value),
   })
   bag.repository = new SessionRepository({
     sessions: bag.sessions,
@@ -325,6 +336,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
+    sessionLiveChanged: (sessionId) => bag.liveTopics.changed(sessionId),
     listSessionsForBootBaseline: () => bag.view.listInPages(undefined, 'bootstrap'),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
@@ -804,9 +816,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     editDraft: (message, clientId) => bag.state.handleDraftEdit(message, clientId),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     machineUseFor: (principal, sessionId) => ownership.machineUseForClient(principal, sessionId),
-    sessionOccupancyCount: bag.deps.sessionOccupancyCount
-      ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)
-      : undefined,
     sessionRoomJoin: bag.deps.sessionRoomJoin
       ? async (client, sessionId) => (await bag.deps.sessionRoomJoin?.(client, sessionId)) === true
       : undefined,

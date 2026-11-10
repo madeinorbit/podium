@@ -524,6 +524,11 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     requestedDriverId: value('requestedDriverId'),
     boundDriverId: value('boundDriverId'),
     boundDriverCapabilities: value('boundDriverCapabilities'),
+    draftSyncEngine: value('draftSyncEngine'),
+    agentColor: value('agentColor'),
+    observedModel: value('observedModel'),
+    observedEffort: value('observedEffort'),
+    handoffTargetMachineId: value('handoffTargetMachineId'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
     // lives here rather than in the caller because it is the premise the
@@ -695,6 +700,11 @@ function sessionUpsertValues(row: SessionRow) {
     boundDriverId: row.boundDriverId ?? null,
     boundDriverCapabilities:
       row.boundDriverCapabilities == null ? null : JSON.stringify(row.boundDriverCapabilities),
+    draftSyncEngine: row.draftSyncEngine ?? false,
+    agentColor: row.agentColor ?? null,
+    observedModel: row.observedModel ?? null,
+    observedEffort: row.observedEffort ?? null,
+    handoffTargetMachineId: row.handoffTargetMachineId ?? null,
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
     exitCode: row.exitCode,
@@ -2491,6 +2501,11 @@ function mapSession(r: SessionSelect): SessionRow {
     requestedDriverId: r.requestedDriverId ?? null,
     boundDriverId: r.boundDriverId ?? null,
     boundDriverCapabilities: decodeDriverCapabilities(r.boundDriverCapabilities),
+    draftSyncEngine: r.draftSyncEngine === true,
+    agentColor: r.agentColor ?? null,
+    observedModel: r.observedModel ?? null,
+    observedEffort: r.observedEffort ?? null,
+    handoffTargetMachineId: r.handoffTargetMachineId ?? null,
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
     // and here it is the safety property itself: only a literal 'never'

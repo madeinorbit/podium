@@ -130,6 +130,13 @@ export interface SessionInit {
   /** The driver a daemon last bound, restored from the row (POD-6160 D2g). */
   boundDriverId?: string
   boundDriverCapabilities?: SessionDriverCapabilities
+  /** Restored from the row (POD-6764): what a daemon last reported and the
+   *  transcript tail last showed, and a move still in flight. */
+  draftSyncEngine?: boolean
+  agentColor?: string
+  observedModel?: string
+  observedEffort?: string
+  handoffTargetMachineId?: MachineId
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -228,7 +235,9 @@ export interface SessionDurableState {
   observedEffort: string | undefined
   requestedModel: string | undefined
   requestedEffort: string | undefined
-  contextUsagePercent: number | undefined
+  /** Whether the daemon runs the composer engine for this session, as its last
+   *  bind reported (POD-859). Stored with the binding (POD-6764). */
+  draftSyncEngine: boolean
   handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
@@ -402,8 +411,13 @@ export class Session {
    *  above is still the record of how it started — see `SessionLiveOverlay`. */
   requestedModel: string | undefined
   requestedEffort: string | undefined
-  /** Latest exact harness-reported context-window usage, if this harness exposes it. */
-  contextUsagePercent: number | undefined
+  /**
+   * Latest exact harness-reported context-window usage, if this harness exposes
+   * it. A LIVE reading (POD-6764): never stored and never on the record; it
+   * goes out on the `session.condition` topic and is re-learned from the
+   * transcript tail after a restart.
+   */
+  contextUsagePercent: number | undefined = undefined
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
@@ -416,8 +430,9 @@ export class Session {
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
   /** Draft Sync v2 (POD-859): true when this session's daemon runs the composer
-   *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
-   *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
+   *  scrape/inject engine (reported on bind). Stored with the binding
+   *  (POD-6764) and re-stated by every (re)bind. Surfaced in toMeta so a client
+   *  retires its own sampler/flush. */
   draftSyncEngine = false
   /**
    * HAS A BOUND DRIVER (POD-1761 W4, renamed POD-4440): true when this
@@ -585,6 +600,11 @@ export class Session {
     this.workingMsTotal = d.workingMsTotal
     this.requestedModel = d.requestedModel
     this.requestedEffort = d.requestedEffort
+    this.agentColor = d.agentColor
+    this.observedModel = d.observedModel
+    this.observedEffort = d.observedEffort
+    this.draftSyncEngine = d.draftSyncEngine
+    this.handoffTargetMachineId = d.handoffTargetMachineId
     this.onUnreadRearm = init.onUnreadRearm
   }
 
@@ -821,11 +841,12 @@ export class Session {
     return true
   }
 
-  setContextUsagePercent(percent: number, d: SessionDurableFields = this): boolean {
+  /** A live reading, set on the session itself: there is no row to write. */
+  setContextUsagePercent(percent: number): boolean {
     if (!Number.isFinite(percent)) return false
     const next = Math.min(100, Math.max(0, percent))
-    if (next === d.contextUsagePercent) return false
-    d.contextUsagePercent = next
+    if (next === this.contextUsagePercent) return false
+    this.contextUsagePercent = next
     return true
   }
 
@@ -916,7 +937,7 @@ export class Session {
       observedEffort: this.observedEffort,
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
-      contextUsagePercent: this.contextUsagePercent,
+      draftSyncEngine: this.draftSyncEngine,
       handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
@@ -992,7 +1013,7 @@ export class Session {
     this.observedEffort = state.observedEffort
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
-    this.contextUsagePercent = state.contextUsagePercent
+    this.draftSyncEngine = state.draftSyncEngine
     if (!preserve.has('handoffTargetMachineId')) {
       this.handoffTargetMachineId = state.handoffTargetMachineId
     }
@@ -1037,6 +1058,14 @@ export class Session {
       requestedDriverId: d.requestedDriverId ?? null,
       boundDriverId: d.boundDriverId ?? null,
       boundDriverCapabilities: d.boundDriverCapabilities ?? null,
+      // Stored so the record builds from the row alone (POD-6764): the daemon's
+      // last bind report, what the transcript tail last showed, and a move in
+      // flight. A bind and the tail's seed window restate them after a restart.
+      draftSyncEngine: d.draftSyncEngine,
+      agentColor: d.agentColor ?? null,
+      observedModel: d.observedModel ?? null,
+      observedEffort: d.observedEffort ?? null,
+      handoffTargetMachineId: d.handoffTargetMachineId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,
       exitCode: d.exitCode ?? null,
@@ -1105,7 +1134,7 @@ export class Session {
    */
   toMeta(d: SessionDurableFields = this): SessionMeta {
     this.freshenDurable()
-    return projectSessionMeta(this, d, this.liveView())
+    return projectSessionMeta(this, d)
   }
 
   private durableRepair: (() => void) | undefined
@@ -1120,23 +1149,6 @@ export class Session {
    */
   freshenDurable(): void {
     this.durableRepair?.()
-  }
-
-  /** What the wire reads off the terminal and the bound driver right now. */
-  liveView(): SessionLiveView {
-    return {
-      controllerId: this.terminal.controllerId,
-      geometry: this.terminal.geometry,
-      requestsGated: this.terminal.requestsGated,
-      epoch: this.terminal.epoch,
-      clientCount: this.terminal.clientCount,
-      lastInputAtMs: this.terminal.lastInputAtMs,
-      busy: this.terminal.busy,
-      configureFields: this.configureFields,
-      attachKinds: this.attachKinds,
-      draftSyncEngine: this.draftSyncEngine,
-      driverId: this.driverId,
-    }
   }
 
   /** Parse a persisted work_state column; unknown strings read as unsorted. */

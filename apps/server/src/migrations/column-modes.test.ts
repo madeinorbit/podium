@@ -46,6 +46,7 @@ const BOOLEAN_COLUMNS = [
   'quota_windows.partial',
   'sessions.archived',
   'sessions.desired_force',
+  'sessions.draft_sync_engine',
   'sessions.headless',
   'subscriptions.deliver_notify',
   'subscriptions.deliver_nudge',

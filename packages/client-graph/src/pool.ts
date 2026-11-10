@@ -707,6 +707,8 @@ export class MobxPool {
       loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
       // The model's @lazy fact (ADR 12 D1): rows stay as stored (frontend-data rules 1, 3).
       sessionReconnecting: (id) => this.sessionObject(id).reconnecting,
+      // The model's live reading (POD-6764): the LiveStore, never the row.
+      sessionBusy: (id) => this.sessionObject(id).busy === true,
       openInteractions: (id) => this.sessionOpenInteractions(id),
       interactionSessions: () => this.sessionsWithOpenInteractions(),
       issueRead: (id) => this.readCursor(id),

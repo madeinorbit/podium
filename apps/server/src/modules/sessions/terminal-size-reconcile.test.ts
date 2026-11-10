@@ -320,14 +320,14 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
     expect(await rows()).toBe(0)
   })
 
-  it('a CHANGED report writes the copy, sends one geometry frame with no revision, and republishes the row', async () => {
+  it('a CHANGED report writes the copy and sends one geometry frame with no revision; the record is not republished (the size is a live reading, POD-6764)', async () => {
     const { reg, sessionId, session, client, rows } = await watched()
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, BOX))
     expect(session.terminal.geometry).toEqual(BOX)
     expect(client.sent.filter((m) => m.type === 'geometry')).toEqual([
       { type: 'geometry', sessionId, cols: BOX.cols, rows: BOX.rows },
     ])
-    expect(await rows()).toBe(1)
+    expect(await rows()).toBe(0)
   })
 
   it('a report never forwards: forwards come only from statements, controller changes and binds', async () => {

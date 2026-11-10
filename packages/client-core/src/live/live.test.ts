@@ -119,6 +119,7 @@ function setup() {
     now: () => 1_000,
     onMetricsDemand: (id, on) => feed?.watchMetrics(id, on),
     onUsageDemand: (on) => feed?.watchUsage(on),
+    onSessionDemand: (kind, id, on) => feed?.watchSession(kind, id, on),
   })
   // The machines the feed follows are the replica's machine records (POD-6644).
   const machines = new FakeMachines()
@@ -322,6 +323,74 @@ describe('LiveFeed', () => {
     frames.flush()
     // An unwatched reading is dropped, never left to go stale silently.
     expect(live.machineMetrics.has('m1')).toBe(false)
+  })
+
+  it('holds a session topic only while a reader watches that session (POD-6764)', () => {
+    const { hub, frames, live, feed } = setup()
+    feed.start()
+    // Nothing is held for a session nobody looks at: the keys follow the screen.
+    expect([...hub.held.keys()].filter((key) => key.startsWith('session.'))).toEqual([])
+
+    let busy: boolean | undefined
+    let cols: number | undefined
+    const stopCondition = autorun(() => {
+      const reading = live.sessionConditionOf('s1')
+      busy = reading?.known ? reading.value.busy : undefined
+    })
+    const stopTerminal = autorun(() => {
+      const reading = live.sessionTerminalStateOf('s1')
+      cols = reading?.known ? reading.value.geometry.cols : undefined
+    })
+    expect(hub.held.has('session.condition:s1')).toBe(true)
+    expect(hub.held.has('session.terminalState:s1')).toBe(true)
+    // Unknown until the first reading.
+    expect(busy).toBeUndefined()
+    expect(cols).toBeUndefined()
+
+    hub.state('session.condition:s1', {
+      status: 'value',
+      value: { busy: true, requestsGated: 0 },
+      position,
+    })
+    hub.state('session.terminalState:s1', {
+      status: 'value',
+      value: { controller: null, geometry: { cols: 132, rows: 43 } },
+      position,
+    })
+    frames.flush()
+    expect(busy).toBe(true)
+    expect(cols).toBe(132)
+
+    // The connection is declared lost: unknown, keeping the last value.
+    live.markAllUnknown(5)
+    expect(busy).toBeUndefined()
+    expect(live.sessionTerminalStates.get('s1')).toEqual({
+      known: false,
+      since: 5,
+      last: { controller: null, geometry: { cols: 132, rows: 43 } },
+    })
+
+    // One reader leaves: only its topic is released, and its reading dropped.
+    stopCondition()
+    expect(hub.held.has('session.condition:s1')).toBe(false)
+    expect(hub.held.has('session.terminalState:s1')).toBe(true)
+    frames.flush()
+    expect(live.sessionConditions.has('s1')).toBe(false)
+    stopTerminal()
+    expect(hub.held.has('session.terminalState:s1')).toBe(false)
+  })
+
+  it('re-arms watched session topics when the feed starts after the reader', () => {
+    const { hub, live, feed } = setup()
+    const stop = autorun(() => {
+      live.sessionConditionOf('s1')
+    })
+    expect(hub.held.has('session.condition:s1')).toBe(false)
+    feed.start()
+    expect(hub.held.has('session.condition:s1')).toBe(true)
+    feed.stop()
+    expect(hub.held.has('session.condition:s1')).toBe(false)
+    stop()
   })
 
   it('holds account.usage only while a usage reader watches, keeping the last reading after', () => {

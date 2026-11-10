@@ -20,11 +20,12 @@ import { SessionDelegation } from '../identity/delegation'
  * storage row and a wire projection the same type, that would be too far.
  *
  * NOT LIVE STATE. `SessionLiveOverlay` is absent, and that is the point of
- * having named it: it holds D-9's five fields that `SessionMeta` publishes with
- * **no storage column in any migration** (`titleLocked`, `agentColor`,
- * `observedModel`, `observedEffort`, `transcriptAvailable`), plus `controllerId`,
- * `clientCount`, `epoch`, `busy` and live `geometry`. A durable member that
- * nothing persists is a lie about the entity (ADR 4 D3.7).
+ * having named it: it holds what only a running process knows (`controllerId`,
+ * `clientCount`, `epoch`, `busy`, live `geometry`). Since POD-6764 none of
+ * those is on `SessionMeta` either: clients read them from the session topics
+ * and the presence room. `agentColor`, `observedModel` and `observedEffort`
+ * left the overlay the other way: they are stored columns now. A durable
+ * member that nothing persists is a lie about the entity (ADR 4 D3.7).
  *
  * NOT DERIVED STATE. `SessionDerived` is absent for the same reason from the
  * other direction: `displayRef`, `resumable`, `unread`, `machineName` are pure

@@ -181,8 +181,8 @@ export function TerminalPane({
           active={active}
           connected={connected}
           spawnPending={spawnPending}
-          cols={session?.geometry.cols}
-          rows={session?.geometry.rows}
+          cols={session?.geometry?.cols}
+          rows={session?.geometry?.rows}
           onAttachTerminal={onAttachTerminal}
           onDetachTerminal={onDetachTerminal}
           onSendInput={onSendInput}

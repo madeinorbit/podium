@@ -69,7 +69,12 @@ export interface TopicProducer {
   start?(id: string): void
   /** The key's subscriber count went 1→0. */
   stop?(id: string): void
-  /** The current value, for a snapshot. Undefined is the valid snapshot `unknown`. */
+  /**
+   * The current value, for a snapshot. Undefined is the valid snapshot `unknown`.
+   * A producer whose value may live in the database answers with a promise (a
+   * session nothing runs reads its row, POD-6764); the snapshot goes out when
+   * it settles, at the position the key has then.
+   */
   snapshot?(id: string): unknown
   /** Daemon kinds: the machine that produces this id, for re-demand on reattach. */
   machineOf?(id: string): MachineId | undefined
@@ -96,8 +101,9 @@ export interface TopicRoutingDeps {
   readonly subscriptions: SubscriptionRegistry
   readonly clients: Pick<ClientRegistry, 'get' | 'deliver' | 'deliverStream'>
   /**
-   * The kernel's visibility, prepared for a batch of entities (ADR 9). Only the
-   * `machine` resolver needs it; `account.self` is decided from the principal.
+   * The kernel's visibility, prepared for a batch of entities (ADR 9). The
+   * `machine` and `session` resolvers need it; `account.self` is decided from
+   * the principal.
    */
   readonly prepareVisibility: (
     entities: readonly { readonly kind: string; readonly id: string }[],
@@ -401,12 +407,7 @@ export class TopicRouting {
     }
   }
 
-  private snapshotFrame(state: KeyState): TopicServerMessage {
-    const decl = TOPIC_KINDS[state.ref.kind]
-    const payload =
-      decl.style === 'value'
-        ? this.deps.producers[state.ref.kind].snapshot?.(state.ref.id)
-        : undefined
+  private snapshotFrame(state: KeyState, payload: unknown): TopicServerMessage {
     return {
       type: 'topicSnapshot',
       key: state.key,
@@ -418,7 +419,50 @@ export class TopicRouting {
   private sendSnapshot(subscriberId: SubscriberId, key: RoutingKey): void {
     const state = this.states.get(key)
     if (!state || isInternal(subscriberId)) return
-    this.deliverValue(subscriberId, key, this.snapshotFrame(state))
+    const send = (payload: unknown): void =>
+      this.deliverValue(subscriberId, key, this.snapshotFrame(state, payload))
+    const read = (): unknown =>
+      TOPIC_KINDS[state.ref.kind].style === 'value'
+        ? this.deps.producers[state.ref.kind].snapshot?.(state.ref.id)
+        : undefined
+    const stillHeld = (): boolean =>
+      this.states.get(key) === state && this.deps.subscriptions.has(key, subscriberId)
+    let payload: unknown
+    try {
+      payload = read()
+    } catch (err) {
+      log.warn('topic producer failed', { kind: state.ref.kind, verb: 'snapshot', err })
+      return
+    }
+    if (!(payload instanceof Promise)) {
+      send(payload)
+      return
+    }
+    // A STORED VALUE IS READ FIRST. The subscriber already holds the key, so an
+    // update sent while the read ran reached it, and is newer than the read: the
+    // snapshot is then taken again, so it never carries an older value at a
+    // newer position. A producer that keeps answering with a promise while it
+    // also keeps publishing is given three reads, then its newest answer.
+    const settle = async (pending: Promise<unknown>): Promise<void> => {
+      let next: unknown = pending
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const seq = state.seq
+        const value = await next
+        if (!stillHeld()) return
+        if (state.seq === seq || attempt === 2) {
+          send(value)
+          return
+        }
+        next = read()
+        if (!(next instanceof Promise)) {
+          send(next)
+          return
+        }
+      }
+    }
+    void settle(payload).catch((err) =>
+      log.warn('topic producer failed', { kind: state.ref.kind, verb: 'snapshot', err }),
+    )
   }
 
   private sendUpdate(state: KeyState, payload: unknown): void {
@@ -490,8 +534,7 @@ export class TopicRouting {
           continue
         }
         // The NEWEST value, as a snapshot: whatever was refused is superseded.
-        const state = this.states.get(key)
-        if (state) this.deliverValue(subscriberId, key, this.snapshotFrame(state))
+        this.sendSnapshot(subscriberId, key)
       }
     }, TOPIC_RESEND_DELAY_MS)
   }
@@ -539,6 +582,7 @@ export class TopicRouting {
   ): Promise<boolean[]> {
     const who = (index: number): Principal => (principals?.[index] ?? principal) as Principal
     const machines = refs.filter((ref) => TOPIC_KINDS[ref.kind].visibility === 'machine')
+    const sessions = refs.filter((ref) => TOPIC_KINDS[ref.kind].visibility === 'session')
     const use = refs.some((ref) => TOPIC_KINDS[ref.kind].visibility === 'machine.use')
       ? await this.deps.prepareMachineUse?.()
       : undefined
@@ -546,6 +590,14 @@ export class TopicRouting {
       machines.length > 0
         ? await this.deps.prepareVisibility(
             machines.map((ref) => ({ kind: 'machine', id: ref.id })),
+          )
+        : undefined
+    // The session's own record visibility (sessions are private to their
+    // owner, POD-6283): who may read the record may read its live readings.
+    const sessionResolver =
+      sessions.length > 0
+        ? await this.deps.prepareVisibility(
+            sessions.map((ref) => ({ kind: 'session', id: ref.id })),
           )
         : undefined
     return refs.map((ref, index) => {
@@ -560,6 +612,8 @@ export class TopicRouting {
         }
         case 'account.self':
           return p.kind === 'user' && String(p.user) === ref.id
+        case 'session':
+          return sessionResolver?.canSee(p, { kind: 'session', id: ref.id }) === true
         default:
           return false
       }

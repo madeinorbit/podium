@@ -49,8 +49,14 @@ import {
  * (`residency.ts`), so from then on its row is its answer.
  */
 
+/** What a durable record reads: the row and the satellites a restart restores. */
+export type SessionRecordStore = Pick<
+  SessionStore,
+  'sessions' | 'observationCheckpoints' | 'events' | 'conversations' | 'users'
+>
+
 export interface SessionRecordPorts {
-  store: SessionStore
+  store: SessionRecordStore
   /** The resident sessions: the map (the running ones and those in use). */
   sessions: ReadonlyMap<SessionId, Session>
 }
@@ -66,7 +72,7 @@ export { isRunningStatus, subjectFacts }
 
 /** The wire projection of either, without the per-reader joins (see `wireRecord`). */
 export function subjectMeta(subject: SessionSubject): SessionMeta {
-  return isResident(subject) ? subject.toMeta() : projectSessionMeta(subject, subject, subject.live)
+  return isResident(subject) ? subject.toMeta() : projectSessionMeta(subject, subject)
 }
 
 /** The reads a reader needs of `SessionRecords` (a test can supply them over a map). */
@@ -491,35 +497,14 @@ function rowFields(row: SessionRow): SelectionFields {
 }
 
 /**
- * WHAT A SESSION THAT RAN IN THIS PROCESS KEEPS AND ITS RECORD DOES NOT: the
- * last values of its live plane — its terminal (controller, geometry, epoch,
- * attached clients, gated requests, busy), the draft engine, the facts
- * learned from its transcript tail and never stored (colour, observed model and
- * effort, context use), and the handoff overlay. None of them describes a
- * stopped session; a restart and an eviction clear every one of them.
+ * What a session's record and the session must agree on: its WHOLE wire
+ * projection, which reads only stored state since POD-6764 (the live plane left
+ * the record for the session topics), and its facts without the two readings
+ * only a running process has (busy, context use).
  */
-export const LIVE_PLANE_META_FIELDS = [
-  'controllerId',
-  'geometry',
-  'requestsGated',
-  'epoch',
-  'clientCount',
-  'busy',
-  'draftSyncEngine',
-  'agentColor',
-  'observedModel',
-  'observedEffort',
-  'contextUsagePercent',
-  'handoffTargetMachineId',
-] as const satisfies readonly (keyof SessionMeta)[]
-
-/** What a stopped session's record and the session must agree on: its facts
- *  and its wire projection without the live plane. */
 export function durableView(subject: SessionSubject, options: { agentState?: boolean } = {}): unknown {
   const meta: Record<string, unknown> = { ...subjectMeta(subject) }
-  for (const field of LIVE_PLANE_META_FIELDS) delete meta[field]
-  const { busy: _busy, observedModel: _model, observedEffort: _effort, contextUsagePercent: _context, ...facts } =
-    subjectFacts(subject)
+  const { busy: _busy, contextUsagePercent: _context, ...facts } = subjectFacts(subject)
   if (options.agentState === false) {
     delete meta.agentState
     delete (facts as Record<string, unknown>).agentState

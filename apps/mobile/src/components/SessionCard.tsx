@@ -57,7 +57,7 @@ const SQUARE_STATE: Record<DotTone, IdSquareState> = {
 export function hidesDraftDot(
   model: Pick<SessionCardModel, 'dotTone'>,
   issue: Pick<IssueViewModel, 'isDraftVessel'> | undefined,
-  session: Pick<SessionMeta, 'agentState' | 'busy'> | undefined,
+  session: (Pick<SessionMeta, 'agentState'> & { readonly busy?: boolean | undefined }) | undefined,
 ): boolean {
   if (!issue?.isDraftVessel || !session) return false
   if (model.dotTone !== 'ready' && model.dotTone !== 'neutral') return false

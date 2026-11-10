@@ -70,11 +70,6 @@ export interface SessionClientControlPorts {
     principal: ClientPrincipal,
     sessionId: SessionId,
   ): Promise<SessionControlContext['machineUse']>
-  /**
-   * Room occupancy count for a session (presence plane). When provided,
-   * `clientCount` is derived from it rather than from the attach-set size.
-   */
-  sessionOccupancyCount?(sessionId: SessionId): number | undefined
   /** Join/leave session presence room with PTY attach (POD-1081 §5). */
   sessionRoomJoin?(client: ClientConn, sessionId: SessionId): Promise<boolean>
   sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void

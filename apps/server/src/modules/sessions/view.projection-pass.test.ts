@@ -173,7 +173,6 @@ async function fixture(count: number) {
     records: residentRecords(sessions),
     store,
     state,
-    sessionOccupancyCount: () => 3,
   })
   // Reader-scoped calls still use their admitted principal; feed projection needs none.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
@@ -207,7 +206,6 @@ async function legacyWire(s: Session, f: Awaited<ReturnType<typeof fixture>>) {
   return {
     ...meta,
     ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
-    clientCount: 3,
     machineName: await f.machines.machineName(),
     ...(loginCondition ? { condition: loginCondition } : {}),
     ...(capabilities

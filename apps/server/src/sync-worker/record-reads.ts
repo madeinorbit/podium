@@ -6,23 +6,28 @@
  */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
+import { syncServerTables } from '../migrations/sync-server-tables'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { AutomationsRepository } from '../store/automations'
 import { CheckoutsRepository } from '../store/checkouts'
+import { ConversationsRepository } from '../store/conversations'
 import { EffectsRepository } from '../store/effects'
 import { EventsRepository } from '../store/events'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
-import { ConversationsRepository } from '../store/conversations'
 import { GrantsRepository } from '../store/grants'
 import { MachinesRepository } from '../store/machines'
 import { MessagesRepository } from '../store/messages'
+import { ObservationCheckpointsRepository } from '../store/observation-checkpoints'
+import { ReposRepository } from '../store/repos'
 import { SessionsRepository } from '../store/sessions'
 import { SettingsRepository } from '../store/settings'
 import { ShippingRepository } from '../store/shipping'
 import { SuperagentRepository } from '../store/superagent'
+import { TableWrites } from '../store/table-writes'
 import { UserLayoutRepository } from '../store/user-layout'
 import { UserReadPositionRepository } from '../store/user-read-position'
 import { UsersRepository } from '../store/users'
@@ -61,6 +66,11 @@ export function recordReadsOver(
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
       settings: new SettingsRepository(q),
+      // The session record's satellites and joins (POD-6764): reads only.
+      observationCheckpoints: new ObservationCheckpointsRepository(q),
+      // Nothing writes on this connection, so nothing announces a write.
+      repos: new ReposRepository(q, unsupported, new TableWrites()),
+      sync: new SyncRepository(q, syncServerTables),
     },
     effectExecutors: options.effectExecutors,
     now: options.now ?? Date.now,

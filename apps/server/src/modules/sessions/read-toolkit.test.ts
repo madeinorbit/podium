@@ -10,7 +10,15 @@ import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { readSessionRefs } from './refs'
 
-function session(over: Partial<SessionMetaInput> & { displayRef?: string; machineName?: string }): SessionMeta {
+function session(
+  // `contextUsagePercent` is a live reading (POD-6764): a fact of the running
+  // session, which the fixture's facts read, never a record field.
+  over: Partial<SessionMetaInput> & {
+    displayRef?: string
+    machineName?: string
+    contextUsagePercent?: number
+  },
+): SessionMeta {
   return {
     sessionId: asSessionId('s1'),
     cwd: '/wt/a',

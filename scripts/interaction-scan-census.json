@@ -32293,7 +32293,7 @@
       "file": "packages/client-graph/src/worklist/visible.ts",
       "holder": "rollupInputsOf/missionBucket/callback",
       "rule": "loop:for-of",
-      "tokens": "f5f45a579eddb7732910e714976f8b6fee04f9b42c02b018828e85ee68488207",
+      "tokens": "d39ed8fc9d9e16e35b31bd9553335324373e4494aae4ef7d551ee5d4d003333c",
       "gate": [
         "??:4a21d5481d26ea73b863933b03dcbad7d7a237830df9f25ac2458ed385848042",
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
@@ -32302,13 +32302,13 @@
       "origin": [
         "5a375a0ecfee7cbfa42c258372b591b6c49adcbfa9aab950d857c120b7142198"
       ],
-      "fingerprint": "ae102f278b33c6d272000941b12e3c452874e6139ec88c7fa83ab81665777c70",
+      "fingerprint": "e11426c248cdac13bed2be0d57b6534d0fc15ce9a3c82815452cca6c128f0d8b",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2237",
       "trigger": "Independent worklist rebuild computes one task execution bucket.",
       "bound": "The addressed issue ID's declared missionSessions relation only; no issue or session catalogue enumeration.",
-      "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild. Predecessor: b1e5daa117486422c5a29c813fe9b652e13844b4a855092237dda722406de3bf (POD-6646: the loop passes the session model's derived reconnecting to the working fact instead of reading it off the row; collection demand is unchanged).",
+      "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild. Predecessor: ae102f278b33c6d272000941b12e3c452874e6139ec88c7fa83ab81665777c70 (POD-6764: the loop reads a shell's busy from the session model's live reading instead of the row; collection demand is unchanged).",
       "guard": "models.test.ts compares demanded unitOwn and unitsBelow with eager parts, including a cycle; mission-full-deck.test.ts execution buckets covers archived, shell and headless sessions."
     },
     {

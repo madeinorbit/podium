@@ -888,7 +888,9 @@ describe('oracle: sendText / resumeAndSend', () => {
     })
     for (const sessionId of [agent.sessionId, shell.sessionId]) {
       await o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
-      expect((await o.meta(sessionId)).controllerId).toBe(controllerId)
+      expect(o.reg.modules.sessions.sessions.get(sessionId)?.terminal.controllerId).toBe(
+        controllerId,
+      )
     }
     o.daemon.length = 0
 

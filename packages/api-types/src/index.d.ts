@@ -2395,11 +2395,7 @@ type Output_accounts_login = Pick<{
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
-    busy?: boolean | undefined;
-    clientCount: number;
     configureFields?: string[] | undefined;
-    contextUsagePercent?: number | undefined;
-    controllerId: null | string;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
     createdBy?: undefined | {
@@ -2445,13 +2441,8 @@ type Output_accounts_login = Pick<{
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
     effort?: string | undefined;
-    epoch: number;
     exitCode?: number | undefined;
     force?: boolean | undefined;
-    geometry: {
-        cols: number;
-        rows: number;
-    };
     geometryState?: "absent" | "current" | "unknown" | undefined;
     handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
     harnessHandoff?: boolean | undefined;
@@ -2459,7 +2450,6 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
-    lastInputAt?: string | undefined;
     lifecycleFailure?: undefined | {
         reason: string;
         revision: number;
@@ -2499,7 +2489,6 @@ type Output_accounts_login = Pick<{
     requestedEffort?: string | undefined;
     requestedModel?: string | undefined;
     requestsDuplicate?: number | undefined;
-    requestsGated?: number | undefined;
     requestsUnanswered?: number | undefined;
     resumable?: boolean | undefined;
     resume?: undefined | {
@@ -2609,11 +2598,7 @@ type Output_accounts_login = Pick<{
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
-    busy?: boolean | undefined;
-    clientCount: number;
     configureFields?: string[] | undefined;
-    contextUsagePercent?: number | undefined;
-    controllerId: null | string;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
     createdBy?: undefined | {
@@ -2659,13 +2644,8 @@ type Output_accounts_login = Pick<{
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
     effort?: string | undefined;
-    epoch: number;
     exitCode?: number | undefined;
     force?: boolean | undefined;
-    geometry: {
-        cols: number;
-        rows: number;
-    };
     geometryState?: "absent" | "current" | "unknown" | undefined;
     handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
     harnessHandoff?: boolean | undefined;
@@ -2673,7 +2653,6 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
-    lastInputAt?: string | undefined;
     lifecycleFailure?: undefined | {
         reason: string;
         revision: number;
@@ -2713,7 +2692,6 @@ type Output_accounts_login = Pick<{
     requestedEffort?: string | undefined;
     requestedModel?: string | undefined;
     requestsDuplicate?: number | undefined;
-    requestsGated?: number | undefined;
     requestsUnanswered?: number | undefined;
     resumable?: boolean | undefined;
     resume?: undefined | {
@@ -4722,11 +4700,7 @@ type Output_issues_get = (null) | ({
         };
         archived: boolean;
         attachKinds?: ("client" | "engine")[] | undefined;
-        busy?: boolean | undefined;
-        clientCount: number;
         configureFields?: string[] | undefined;
-        contextUsagePercent?: number | undefined;
-        controllerId: null | string;
         conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
         createdAt: string;
         createdBy?: undefined | {
@@ -4772,13 +4746,8 @@ type Output_issues_get = (null) | ({
         driverFamily?: "server" | "terminal" | undefined;
         driverId?: string | undefined;
         effort?: string | undefined;
-        epoch: number;
         exitCode?: number | undefined;
         force?: boolean | undefined;
-        geometry: {
-            cols: number;
-            rows: number;
-        };
         geometryState?: "absent" | "current" | "unknown" | undefined;
         handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
         harnessHandoff?: boolean | undefined;
@@ -4786,7 +4755,6 @@ type Output_issues_get = (null) | ({
         headless?: boolean | undefined;
         issueId?: (string & z.BRAND<"IssueId">) | undefined;
         lastActiveAt: string;
-        lastInputAt?: string | undefined;
         lifecycleFailure?: undefined | {
             reason: string;
             revision: number;
@@ -4826,7 +4794,6 @@ type Output_issues_get = (null) | ({
         requestedEffort?: string | undefined;
         requestedModel?: string | undefined;
         requestsDuplicate?: number | undefined;
-        requestsGated?: number | undefined;
         requestsUnanswered?: number | undefined;
         resumable?: boolean | undefined;
         resume?: undefined | {

@@ -212,6 +212,19 @@ export const sessions = sqliteTable(
     /** Daemon-reported capabilities of that binding, retained across server restarts. */
     boundDriverCapabilities: text('bound_driver_capabilities'),
     /**
+     * WHAT THE SESSION RECORD USED TO READ FROM SERVER MEMORY (POD-6764), stored
+     * so the record builds from this row alone. Each describes the session
+     * until it starts again: the daemon's last bind report (whether it runs the
+     * composer engine), what the transcript tail last showed (the agent's
+     * colour, the model and effort answering), and the machine a move in flight
+     * is going to. NULL / 0 = not reported, or a row from before these columns.
+     */
+    draftSyncEngine: integer('draft_sync_engine', { mode: 'boolean' }).default(sql`0`).notNull(),
+    agentColor: text('agent_color'),
+    observedModel: text('observed_model'),
+    observedEffort: text('observed_effort'),
+    handoffTargetMachineId: text('handoff_target_machine_id').$type<MachineId>(),
+    /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
      *
      * `resume_value` answers "is one known NOW", which a conversation can leave

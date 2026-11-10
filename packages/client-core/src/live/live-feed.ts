@@ -12,6 +12,9 @@
  *   metrics (the store's demand hook), so a daemon samples only then.
  * - `account.usage:<me>` is held only while a usage reader watches
  *   `live.usage()`, so the server harvests transcripts only then.
+ * - `session.condition:<id>` and `session.terminalState:<id>` are held only
+ *   while a reader watches that session's reading (POD-6764), so the keys this
+ *   connection holds follow what is on screen.
  *
  * The connection condition is the connection service's and the outbox counts
  * the outbox service's (runtime-root/, POD-6681); all three write through the
@@ -33,6 +36,7 @@ import {
   type LiveStore,
   type LiveTopicKind,
   type Reading,
+  type SessionLiveTopicKind,
   unknownReading,
 } from './live-store'
 
@@ -83,6 +87,11 @@ export function readingOfTopic<T>(state: TopicState<T>, now: number): Reading<T>
   }
 }
 
+const SESSION_KINDS: readonly SessionLiveTopicKind[] = [
+  'session.condition',
+  'session.terminalState',
+]
+
 export class LiveFeed {
   private readonly hub: LiveFeedHub
   private readonly live: LiveStore
@@ -92,6 +101,8 @@ export class LiveFeed {
   private readonly ownsFrames: boolean
   private readonly conditions = new Map<string, () => void>()
   private readonly metrics = new Map<string, () => void>()
+  /** Held session keys, as `kind:id`. */
+  private readonly readings = new Map<string, () => void>()
   private offs: Array<() => void> = []
   private releaseQuota: (() => void) | undefined
   private releaseUsage: (() => void) | undefined
@@ -117,6 +128,8 @@ export class LiveFeed {
     this.offs.push(machines.subscribe(() => this.followMachines(machines.ids())))
     this.followMachines(machines.ids())
     for (const id of this.live.watchedMetrics) this.watchMetrics(id, true)
+    for (const kind of SESSION_KINDS)
+      for (const id of this.live.watchedSessions(kind)) this.watchSession(kind, id, true)
     if (this.live.usageWatched) this.watchUsage(true)
   }
 
@@ -131,6 +144,8 @@ export class LiveFeed {
     this.conditions.clear()
     for (const release of this.metrics.values()) release()
     this.metrics.clear()
+    for (const release of this.readings.values()) release()
+    this.readings.clear()
     this.releaseUsage?.()
     this.releaseUsage = undefined
   }
@@ -184,6 +199,29 @@ export class LiveFeed {
       machineId,
       this.hub.subscribeTopic('machine.metrics', machineId, {
         onState: (state) => this.queueTopic('machine.metrics', machineId, state),
+      }),
+    )
+  }
+
+  /**
+   * The store's demand hook: a reader started or stopped watching one of a
+   * session's live readings. Unwatched, the key is released and the reading is
+   * forgotten: an unwatched reading would go stale silently.
+   */
+  watchSession(kind: SessionLiveTopicKind, sessionId: string, watched: boolean): void {
+    if (this.disposed) return
+    const key = `${kind}:${sessionId}`
+    if (!watched) {
+      this.readings.get(key)?.()
+      this.readings.delete(key)
+      this.queue(key, () => this.live.applyTopic(kind, sessionId, undefined))
+      return
+    }
+    if (!this.started || this.readings.has(key)) return
+    this.readings.set(
+      key,
+      this.hub.subscribeTopic(kind, sessionId, {
+        onState: (state) => this.queueTopic(kind, sessionId, state),
       }),
     )
   }

@@ -122,7 +122,7 @@ export interface SessionFacts {
  *  may never grow a call into the store or another service. */
 export function sessionFactsOf(session: Session): SessionFacts {
   session.freshenDurable()
-  return factsOf(session, session.terminal.busy === true)
+  return factsOf(session, session.terminal.busy === true, session.contextUsagePercent)
 }
 
 /** A durable record's facts (POD-6160): nothing runs it, so nothing is busy. */
@@ -136,7 +136,12 @@ export function subjectFacts(subject: Session | SessionRecord): SessionFacts {
 }
 
 /** THE facts projection, over a live session or a durable record. */
-function factsOf(session: SessionIdentity & SessionDurableFields, busy: boolean): SessionFacts {
+function factsOf(
+  session: SessionIdentity & SessionDurableFields,
+  busy: boolean,
+  // A live reading (POD-6764): only a session this process runs has one.
+  contextUsagePercent?: number,
+): SessionFacts {
   return {
     sessionId: session.sessionId,
     ownerUserId: session.ownerUserId,
@@ -165,9 +170,7 @@ function factsOf(session: SessionIdentity & SessionDurableFields, busy: boolean)
     ...(session.observedEffort ? { observedEffort: session.observedEffort } : {}),
     ...(session.requestedModel ? { requestedModel: session.requestedModel } : {}),
     ...(session.requestedEffort ? { requestedEffort: session.requestedEffort } : {}),
-    ...(session.contextUsagePercent !== undefined
-      ? { contextUsagePercent: session.contextUsagePercent }
-      : {}),
+    ...(contextUsagePercent !== undefined ? { contextUsagePercent } : {}),
     ...(session.draftUpdatedAt !== undefined ? { draftUpdatedAt: session.draftUpdatedAt } : {}),
     refIssueId: session.refIssueId,
     refLetter: session.refLetter,

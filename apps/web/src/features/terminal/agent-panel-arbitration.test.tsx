@@ -165,10 +165,6 @@ function meta(over: Partial<SessionViewInput>): SessionView {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -343,7 +339,7 @@ describe('AgentPanel lifecycle actions', () => {
   })
 
   it('wakes a parked session from the banner and stays retryable when refused', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null })]
+    storeSessions = [meta({ status: 'hibernated' })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await render({ active: true })
     const button = container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-resume"]')
@@ -383,7 +379,7 @@ describe('AgentPanel header triage controls follow the surface', () => {
   })
 
   it('withholds snooze from a parked or ended session — there is nothing to defer', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null, agentState: idle })]
+    storeSessions = [meta({ status: 'hibernated', agentState: idle })]
     await render({ active: true })
     expect(snooze()).toBeNull()
     storeSessions = [meta({ status: 'exited', agentState: idle })]

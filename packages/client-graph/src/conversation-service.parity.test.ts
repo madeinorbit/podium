@@ -92,7 +92,7 @@ it('does not redraw chat chrome for an unrelated session field or a streamed tok
   const order = vi.fn(() => f.after.transcript.ids.slice())
   stops.push(autorun(chrome), autorun(first), autorun(streaming), autorun(order))
   for (const read of [chrome, first, streaming, order]) read.mockClear()
-  f.publish({ lastActiveAt: '2026-10-10T10:01:00Z', contextUsagePercent: 30,
+  f.publish({ lastActiveAt: '2026-10-10T10:01:00Z', observedModel: 'another-model',
     agentState: { ...f.previous.get().agentState, workingMsTotal: 1000 } as never })
   expect(chrome).not.toHaveBeenCalled()
   f.after.transcript.merge([item('b', 'first token and second token')])

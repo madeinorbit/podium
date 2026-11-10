@@ -35,6 +35,8 @@ function fixture(use = true) {
     'account.events': {},
     'checkout.changed': {},
     'machine.processes': {},
+    'session.terminalState': {},
+    'session.condition': {},
   }
   const topics = new TopicRouting({
     subscriptions,
@@ -160,6 +162,51 @@ describe('TopicRouting', () => {
     f.topics.flushNow()
     expect(deliverStream).not.toHaveBeenCalled()
   })
+
+  it('a snapshot read from storage goes out when the read settles, and never older than an update sent meanwhile (POD-6764)', async () => {
+    const f = fixture()
+    const SESSION = 's-1'
+    const key = topicKey('session.terminalState', SESSION)
+    // A producer whose value is a row read: each read answers what is stored then.
+    let stored = { controller: null, geometry: { cols: 80, rows: 24 } }
+    const reads: Array<() => void> = []
+    ;(f.producers as { 'session.terminalState': object })['session.terminalState'] = {
+      snapshot: () =>
+        new Promise((resolve) => {
+          const value = stored
+          reads.push(() => resolve(value))
+        }),
+    }
+    const a = f.conn('a')
+    await f.topics.route(a.conn, { type: 'topicSubscribe', key })
+    // Nothing is sent before the read answers.
+    expect(a.sent).toEqual([])
+
+    // A newer value is published while the first read is still out.
+    stored = { controller: null, geometry: { cols: 132, rows: 43 } }
+    f.topics.publish('session.terminalState', SESSION, stored)
+    f.topics.flushNow()
+    reads.shift()?.()
+    await new Promise((resolve) => setImmediate(resolve))
+    // The stale read is not sent: the snapshot is taken again.
+    expect(a.sent.filter((m) => m.type === 'topicSnapshot')).toEqual([])
+    reads.shift()?.()
+    await new Promise((resolve) => setImmediate(resolve))
+    const snapshot = a.sent.find((m) => m.type === 'topicSnapshot')
+    expect(snapshot).toMatchObject({
+      key,
+      position: { seq: 1 },
+      payload: { geometry: { cols: 132, rows: 43 } },
+    })
+
+    // A subscriber that left while its read was out is sent nothing.
+    const b = f.conn('b')
+    await f.topics.route(b.conn, { type: 'topicSubscribe', key })
+    await f.topics.route(b.conn, { type: 'topicUnsubscribe', key })
+    reads.shift()?.()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(b.sent).toEqual([])
+  })
 })
 
 describe('daemon topic ingress', () => {
@@ -243,6 +290,8 @@ describe('revocation', () => {
         'account.events': {},
         'checkout.changed': {},
         'machine.processes': {},
+        'session.terminalState': {},
+        'session.condition': {},
       },
     })
     const sent: ServerMessage[] = []

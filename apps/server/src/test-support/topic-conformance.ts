@@ -24,6 +24,7 @@ import {
 } from '@podium/client-core/socket-transport'
 import {
   asMachineId,
+  asSessionId,
   asUserId,
   type HostMetricsWire,
   type MachineId,
@@ -54,12 +55,17 @@ import { createDaemonTopicIngress } from '../gateway/topic-ingress'
 import { daemonTopicProducer, type TopicProducers, TopicRouting } from '../gateway/topic-routing'
 import { MachineConditionTopic } from '../modules/machines/condition-topic'
 import { AccountQuotaTopic, AccountUsageTopic } from '../modules/quota-history/quota-topic'
+import { type SessionLiveKind, SessionLiveTopics } from '../modules/sessions/live-topics'
+import { Session } from '../modules/sessions/session'
 
 export const MACHINE = asMachineId('m-conformance')
 export const OTHER_MACHINE = asMachineId('m-other')
 export const USER = asUserId('u-viewer')
 export const OTHER_USER = asUserId('u-stranger')
 export const SAMPLE_INTERVAL_MS = 5_000
+/** A session USER owns and runs, and one nobody in the world may see. */
+export const SESSION = asSessionId('s-conformance')
+export const OTHER_SESSION = asSessionId('s-other')
 
 /**
  * Let queued microtasks and zero-delay timers run, several rounds deep: a
@@ -248,6 +254,14 @@ export interface TopicWorld {
     readonly samples: number
     produce(): Promise<void>
   }
+  /**
+   * The session topics over one running session (POD-6764): `produce` moves a
+   * live reading of that kind (the terminal's size, or the context reading).
+   */
+  readonly session: {
+    readonly live: SessionLiveTopics
+    produce(kind: SessionLiveKind): Promise<void>
+  }
   /** The `account.usage` producer: `usage.harvests` counts transcript reads. */
   readonly usage: {
     readonly topic: AccountUsageTopic
@@ -270,7 +284,7 @@ export async function createTopicWorld(
 ): Promise<TopicWorld> {
   const subscriptions = new SubscriptionRegistry()
   const clients = new ClientRegistry()
-  const visible = new Set<string>([`${USER}:${MACHINE}`])
+  const visible = new Set<string>([`${USER}:${MACHINE}`, `${USER}:${SESSION}`])
   const latestMetrics = new Map<MachineId, HostMetricsWire>()
   const lifecycle = Object.fromEntries(
     Object.keys(TOPIC_KINDS).map((kind) => [kind, { start: 0, stop: 0 }]),
@@ -374,7 +388,39 @@ export async function createTopicWorld(
     },
     publish: (user, value) => topics.publish('account.usage', user, value),
   })
+  // The session topics over ONE running session, wired as the sessions module
+  // wires them: the terminal's live listener reports each move.
+  const session = new Session({
+    ownerUserId: USER,
+    sessionId: SESSION,
+    durableLabel: 'podium-conformance',
+    agentKind: 'shell',
+    cwd: '/w',
+    title: 'w',
+    origin: { kind: 'spawn' },
+    createdAt: '2026-11-10T00:00:00.000Z',
+    geometry: { cols: 80, rows: 24 },
+    machineId: MACHINE,
+    toDaemon: () => {},
+  })
+  const sessionLive = new SessionLiveTopics({
+    session: (id) => (id === SESSION ? session : undefined),
+    stored: async () => undefined,
+    publish: (kind, id, value) => topics.publish(kind, id, value),
+  })
+  session.terminal.setLiveListener(() => sessionLive.changed(SESSION))
+  let sessionReading = 0
+  const sessionProducer = (kind: SessionLiveKind): TopicProducers[TopicKind] => ({
+    start: (id) => sessionLive.start(kind, asSessionId(id)),
+    stop: (id) => sessionLive.stop(kind, asSessionId(id)),
+    snapshot: (id) => sessionLive.snapshot(kind, asSessionId(id)),
+  })
   const producers: TopicProducers = {
+    'session.terminalState': counted(
+      'session.terminalState',
+      sessionProducer('session.terminalState'),
+    ),
+    'session.condition': counted('session.condition', sessionProducer('session.condition')),
     'machine.condition': counted('machine.condition', {
       snapshot: (id) => conditions.snapshot(asMachineId(id)),
     }),
@@ -479,6 +525,19 @@ export async function createTopicWorld(
       async produce() {
         quotaReading += 1
         await quotaTopic.pass()
+      },
+    },
+    session: {
+      live: sessionLive,
+      async produce(kind) {
+        sessionReading += 1
+        if (kind === 'session.terminalState') {
+          // The daemon's report of a new size (the terminal's listener publishes).
+          session.terminal.applyDaemonGeometry({ cols: 80 + sessionReading, rows: 24 })
+        } else {
+          session.setContextUsagePercent(sessionReading % 100)
+          sessionLive.recheckNow()
+        }
       },
     },
     usage: {

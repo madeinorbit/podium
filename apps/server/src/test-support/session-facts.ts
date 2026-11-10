@@ -24,7 +24,11 @@ import type { SessionFacts } from '../modules/sessions/facts'
  * computed — a fixture that needs `displayRef` or `machineName` is describing a
  * WIRED read and should keep using one.
  */
-export function metaAsFacts(meta: SessionMeta): SessionFacts {
+export function metaAsFacts(
+  // A fixture may state the two readings only a running process has (POD-6764):
+  // they are facts of a resident session, never record fields.
+  meta: SessionMeta & { busy?: boolean; contextUsagePercent?: number },
+): SessionFacts {
   return {
     sessionId: meta.sessionId,
     // `SessionMeta` carries no owner — ownership is asked for separately

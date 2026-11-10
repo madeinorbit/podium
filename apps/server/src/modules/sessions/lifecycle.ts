@@ -93,6 +93,7 @@ export { DEFAULT_GEOMETRY }
 import type { SessionActivityHistory, SessionActivityHistoryResult } from './activity-history'
 import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
+import type { SessionLiveTopics } from './live-topics'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
@@ -299,6 +300,8 @@ export class SessionLifecycle {
   /** Which parked sessions stay in memory: leases and viewers (POD-6160 D2f). */
   readonly residency!: SessionResidency
   readonly broadcasts!: SessionBroadcastCoordinator
+  /** The `session.terminalState` and `session.condition` producers (POD-6764). */
+  readonly liveTopics!: SessionLiveTopics
   private readonly browserOpen!: BrowserOpenGateway
   private readonly bindingReceipts!: SessionBindingReceipts
   /** Durable 12-hour fleet-concurrency read model for the global status strip. */
@@ -1093,6 +1096,9 @@ export class SessionLifecycle {
   }
   broadcastSessions(): void {
     this.broadcasts.broadcast()
+    // Whatever changed may have moved a held live reading too (an exit, a
+    // context reading, a session leaving the map).
+    this.liveTopics.recheck()
   }
   flushBroadcasts(): Promise<void> {
     return this.broadcasts.flush()

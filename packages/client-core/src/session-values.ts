@@ -1,6 +1,6 @@
 /** Session display joins (POD-4974 S2). The replica keeps only server truth.
  * A present companion wins even when its cell is null, empty or absent. */
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import type { Geometry, SessionMeta, SessionMetaInput } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { activityAfterRead } from './values/unread'
 
@@ -13,14 +13,32 @@ export interface SessionValues {
   condition?: 'logged-out'
   handoffTarget?: string
 }
-export type SessionView = SessionMeta & SessionValues
+/**
+ * A SESSION'S LIVE READINGS (POD-6764; ADR 12 D1): what only the running
+ * process knows, so never part of the synced record and never stored on this
+ * device. The shared session model answers them from the LiveStore
+ * (`session.condition`, `session.terminalState`), holding each topic only while
+ * a reader watches. A stored row never carries them: read them off the model.
+ * Absent means unknown (no reading yet), not "false".
+ */
+export interface SessionLiveFields {
+  /** The session is writing to its terminal now. */
+  readonly busy?: boolean | undefined
+  /** The last human input into the session (ISO 8601). */
+  readonly lastInputAt?: string | undefined
+  /** The terminal's size; the server's stored size while nothing runs it. */
+  readonly geometry?: Geometry | undefined
+  /** The harness's latest exact context-window use. */
+  readonly contextUsagePercent?: number | undefined
+}
+export type SessionView = SessionMeta & SessionValues & SessionLiveFields
 /**
  * A session as a reader may hold it: a stored row, or the shared session model,
  * which also answers whether it is reconnecting (its machine known offline right
  * now, ADR 12 D1). A row never carries that; read it, never write it.
  */
 export type SessionViewWithLink = SessionView & { readonly reconnecting?: boolean }
-export type SessionViewInput = SessionMetaInput & Partial<SessionValues>
+export type SessionViewInput = SessionMetaInput & Partial<SessionValues> & SessionLiveFields
 
 /** Structural inputs also admit cold summaries and unparsed offline rows. */
 export type SessionValueInput = {

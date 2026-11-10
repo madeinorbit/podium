@@ -167,10 +167,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -298,7 +294,7 @@ describe('AgentPanel active wiring', () => {
   })
 
   it('makes a rejected hibernated resume retryable', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null })]
+    storeSessions = [meta({ status: 'hibernated' })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await act(async () => {
       renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)

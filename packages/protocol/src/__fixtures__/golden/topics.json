@@ -731,6 +731,92 @@
       "encoded": "{\"candidates\":[{\"issueId\":\"candidates[0].issueId\",\"title\":\"candidates[0].title\",\"worktreePath\":\"candidates[0].worktreePath\",\"closedAt\":\"candidates[0].closedAt\",\"machineId\":\"candidates[0].machineId\",\"present\":true,\"protectedReason\":\"candidates[0].protectedReason\"}],\"orphans\":[{\"path\":\"orphans[0].path\",\"branch\":\"orphans[0].branch\",\"headSha\":\"orphans[0].headSha\",\"machineId\":\"orphans[0].machineId\",\"repoPath\":\"orphans[0].repoPath\"}],\"diagnostics\":[{\"repoPath\":\"diagnostics[0].repoPath\",\"machineId\":\"diagnostics[0].machineId\",\"reason\":\"diagnostics[0].reason\"}],\"estimate\":{\"status\":\"ready\",\"recoverableBytes\":3,\"measuredAt\":\"estimate.measuredAt\"}}"
     },
     {
+      "schema": "SessionConditionPayload",
+      "variant": "minimal",
+      "wire": {
+        "busy": true,
+        "requestsGated": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":1}"
+    },
+    {
+      "schema": "SessionConditionPayload",
+      "variant": "full",
+      "wire": {
+        "busy": true,
+        "requestsGated": 1,
+        "lastInputAt": "lastInputAt",
+        "contextUsagePercent": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"contextUsagePercent\":1}"
+    },
+    {
+      "schema": "SessionTerminalStatePayload",
+      "variant": "minimal",
+      "wire": {
+        "controller": null,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":null,\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "SessionTerminalStatePayload",
+      "variant": "full/arm0",
+      "wire": {
+        "controller": "controller",
+        "controllerIdentity": {
+          "kind": "user",
+          "user": "controllerIdentity.user"
+        },
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "exit": {
+          "code": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":\"controller\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"exit\":{\"code\":1}}"
+    },
+    {
+      "schema": "SessionTerminalStatePayload",
+      "variant": "full/arm1",
+      "wire": {
+        "controller": "controller",
+        "controllerIdentity": {
+          "kind": "agent",
+          "agentIdentity": "controllerIdentity.agentIdentity",
+          "onBehalfOf": "controllerIdentity.onBehalfOf"
+        },
+        "geometry": {
+          "cols": 2,
+          "rows": 2
+        },
+        "exit": {
+          "code": 2
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":\"controller\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"exit\":{\"code\":2}}"
+    },
+    {
       "schema": "TopicClientMessage",
       "variant": "minimal",
       "wire": {

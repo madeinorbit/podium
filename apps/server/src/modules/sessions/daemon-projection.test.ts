@@ -10,7 +10,6 @@ const sessionId = asSessionId('projection-session')
 const cases: { name: string; frame: SessionProjectionDaemonFrame; fallback?: boolean }[] = [
   { name: 'color', frame: { type: 'agentColor', sessionId, color: 'blue' } },
   { name: 'model', frame: { type: 'agentModel', sessionId, model: 'new-model' } },
-  { name: 'context', frame: { type: 'agentContext', sessionId, percent: 42 } },
   { name: 'title', frame: { type: 'title', sessionId, title: 'New title' } },
   { name: 'cwd', frame: { type: 'sessionCwd', sessionId, cwd: '/new' } },
   { name: 'transcript', frame: { type: 'transcriptDelta', sessionId, items: [] } },
@@ -136,7 +135,8 @@ describe('contract metadata projection', () => {
     await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'context', source: 'transcript', percent: 0 }))
     await f.projection.metadataSnapshot(sessionId, snapshot)
     expect(f.session.contextUsagePercent).toBe(0)
-    expect(f.save).toHaveBeenCalledTimes(2)
+    // Context use is a live reading (POD-6764): it is never written to the row.
+    expect(f.save).not.toHaveBeenCalled()
     await f.projection.runtimeEvent(sessionId, observation(3, { kind: 'color', source: 'transcript', color: 'blue' }))
     await f.projection.runtimeEvent(sessionId, observation(4, { kind: 'color', source: 'transcript', color: 'default' }))
     expect(f.session.agentColor).toBeUndefined()

@@ -164,8 +164,20 @@ Each kind runs these cases, with a fake daemon where the kind has `producer: dae
 | `session.preview` | value: the snapshot, apply-if-newer on `(turnEpoch, seq)`, plus `afterSeq` | daemon (start = today's fine watch) | about 30 Hz, server-coalesced | `turnPreview` + `runtimeWatch` | POD-6679 (last) |
 | `session.activity` | event (headless turn events) | daemon | — | `headlessActivity` | POD-6679 (last) |
 | `session.terminal` | log of output frames (binary envelope) | server (the session's output window, fed by the daemon) | today's output pacing | `attach`/`outputFrame` | POD-6679 (last) |
-| `session.terminalState` | value `{controller, geometry, exit?}` | server | on change | `attached`, `controllerChanged`, `geometry`, `agentExit`, `terminalOutcome` | POD-6679 (last) |
+| `session.terminalState` | value `{controller, geometry, exit?}` | server | on change (at most 10 per s) | `attached`, `controllerChanged`, `geometry`, `agentExit`, `terminalOutcome`; `controllerId` and `geometry` on the session record | **built by POD-6764** (the record fields are gone); the old frames go with POD-6679 |
+| `session.condition` | value `{busy, requestsGated, lastInputAt?, contextUsagePercent?}` | server | on change, at most 1 per s | `busy`, `requestsGated`, `lastInputAt`, `contextUsagePercent` on the session record | **POD-6764** |
 | `session.draft` | value `{text, rev, origin, editedAt}` | server | at most 10 per s | `sessionDraftChanged` | POD-6679 (last) |
+
+### D26a. Session readings left the record (POD-6764, 2026-11-10)
+
+The session record carried values only the running process knows: who controls the terminal, its size, how many clients watch, busy, gated viewport requests, last input time and context use. A saved copy of any of them is wrong tomorrow, so they are not record fields any more (ADR 12 D1), and the record builds from the database alone.
+
+- `session.terminalState` and `session.condition` are held **only while a reader watches that session** (the LiveStore's demand, as for `machine.metrics`), so the keys a connection holds follow what is on screen.
+- **The size is also a stored column.** A session no process holds the terminal of (its daemon is offline, the server restarted, it stopped) answers its snapshot from the row: the stored size, nobody in control, its stored last input time and its exit. A client can show the cached terminal view at the right size. Subscribing never loads the session.
+- **Client count** is the session presence room's occupancy; it is not a topic and not a record field.
+- What describes the session until it starts again stays **synced and stored**: the bound driver and its capabilities, the composer engine flag, the observed model and effort, the agent's colour and a move's target machine.
+- Visibility is the session record's own (`session` resolver): who may read the record may read its readings.
+- No old-client path: the client wire version went to 6.
 
 ### D27. Transcript, preview, terminal and draft (designed now, moved last)
 

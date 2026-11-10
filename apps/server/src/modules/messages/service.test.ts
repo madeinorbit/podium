@@ -1623,7 +1623,6 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
         sessionId: asSessionId('s1'),
         status: 'starting',
         agentState: undefined,
-        busy: true,
       }),
     ])
     const r = await svc.send(

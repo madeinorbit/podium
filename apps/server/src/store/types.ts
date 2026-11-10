@@ -202,6 +202,13 @@ export interface SessionRow {
   requestedDriverId?: string | null
   boundDriverId?: string | null
   boundDriverCapabilities?: SessionDriverCapabilities | null
+  /** Stored session facts the record projects (POD-6764): the daemon's last
+   *  bind report, the transcript tail's last sightings, a move in flight. */
+  draftSyncEngine?: boolean
+  agentColor?: string | null
+  observedModel?: string | null
+  observedEffort?: string | null
+  handoffTargetMachineId?: MachineId | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null
