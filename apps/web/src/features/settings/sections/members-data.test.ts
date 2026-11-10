@@ -75,7 +75,9 @@ test('person companions match sign-ins and machine custody by member id', async 
   expect(person.devices.map((device) => device.id)).toEqual(['phone'])
   expect(person.machines.map((machine) => machine.name)).toEqual(['My machine'])
   expect(page.devicesTruncated).toBe(true)
-  expect(deviceLabel(person.devices[0]!)).toBe('Phone')
+  const device = person.devices[0]
+  if (!device) throw new Error('Expected a phone sign-in')
+  expect(deviceLabel(device)).toBe('Phone')
   page.dispose()
   pool.dispose()
 })
