@@ -1,7 +1,7 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
+import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
-import { INSTANCE_PREFERENCES_ROW_ID } from '@podium/model/browser'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -175,7 +175,7 @@ describe('Settings save on change', () => {
     storeState.settingsTab = 'hibernation'
     const pool = useWorklistPool()!
     const update = vi.fn(async (values: Record<string, unknown>) => {
-      const current = pool.tables.instancePreferences!.get(INSTANCE_PREFERENCES_ROW_ID)!
+      const current = instancePreferences(pool)!
       seedInstancePreferences(pool, {
         hibernation: {
           ...(current.hibernation as object),

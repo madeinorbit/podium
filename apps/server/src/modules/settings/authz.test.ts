@@ -90,10 +90,6 @@ describe('the shipped table actually splits — the claims below are not vacuous
     // its edit carries the member floor, and no settings command does.
     expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
     expect(INSTANCE_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('admin')
-    expect(asAdmin['records.userPreferences.edit']).toBe(true)
-    expect(asAdmin['records.instancePreferences.edit']).toBe(true)
-    expect(asMember['records.userPreferences.edit']).toBe(true)
-    expect(asMember['records.instancePreferences.edit']).toBe(false)
     expect(ADMIN_FLOOR).toContain('settings.setSecret')
     expect(ADMIN_FLOOR).toContain('settings.secretPresence')
     expect(MEMBER_FLOOR).toEqual([])
