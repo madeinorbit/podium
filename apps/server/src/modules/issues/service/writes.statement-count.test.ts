@@ -90,8 +90,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // are listed and built before the write and again after it, in place of
       // one read of the stored copies: +6, constant in the number of issues.
       // POD-6765 stored the git observation: one read of it per issue write.
-      // 13 -> 20.
-      20,
+      // POD-6767 split the body headers into a record of their own, built
+      // before and after like the issue's: 13 -> 22.
+      22,
     )
   })
 
@@ -100,8 +101,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
         (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
       // POD-6769: compare at save, as for `crud.create` (+5), and POD-6765's
-      // read of the stored git observation (+1): 8 -> 14.
-      14,
+      // read of the stored git observation (+1), and the body headers'
+      // two builds (POD-6767): 8 -> 16.
+      16,
     )
   })
 

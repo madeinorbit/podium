@@ -176,9 +176,9 @@ describe('steward subscription matching (POD-6208)', () => {
   it('runs a fixed number of statements, however many subscriptions cannot match', async () => {
     // POD-6218: each earliest-admin lookup is one statement (the row), not two: 62 -> 59.
     // POD-6769: the poll's issue writes build the issue and its personal
-    // records before and after (compare at save): +7. The base ran 63 against
-    // its pin of 59 at f4053a3909 (POD-6765's stored git observations).
-    await expectConstantStatements(pin, 70)
+    // records before and after (compare at save): +9 with the body headers
+    // (POD-6767). The base ran 75 against its pin of 59 at ef26e79e4e.
+    await expectConstantStatements(pin, 84)
   })
 
   it('reads the same subscription rows, however many cannot match', async () => {
