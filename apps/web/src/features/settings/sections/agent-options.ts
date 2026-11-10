@@ -29,7 +29,7 @@ export function agentOptionValue(accountId: string, harness: string): string {
 }
 
 /** The account directory has already resolved own-key > shared-key precedence.
- * Only offer credentials it says are connected; never invent workspace keys. */
+ * Only its connected credentials become agent choices. */
 export function agentOptions(
   accounts: readonly AccountView[],
   nativeOnly = false,

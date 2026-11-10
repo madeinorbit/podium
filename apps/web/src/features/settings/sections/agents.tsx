@@ -503,7 +503,7 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
             </>
           }
           readOnly
-          readOnlyValue="Last run failed"
+          readOnlyValue="Error recorded"
         />
       )}
     </Section>
