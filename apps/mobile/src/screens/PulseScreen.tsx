@@ -25,6 +25,7 @@ import {
   PULSE_RANGES,
   type PulseRange,
   pulseHero,
+  pulseSubtitle,
   quotaRows,
   rangeLabel,
   rangeShort,
@@ -96,7 +97,12 @@ export function PulseScreen() {
   const hero = useMemo(() => pulseHero(derived.summary, range), [derived.summary, range])
 
   return (
-    <Screen title="Pulse" large right={<RangeButton range={range} onChange={setRange} />}>
+    <Screen
+      title="Pulse"
+      large
+      subtitle={cold && feed.failed ? 'No reading' : pulseSubtitle(hero, range, cold)}
+      right={<RangeButton range={range} onChange={setRange} />}
+    >
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <ScrollView
           ref={listRef as never}

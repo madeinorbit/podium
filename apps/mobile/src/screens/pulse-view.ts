@@ -2,6 +2,7 @@ import {
   type AccountQuotaGroup,
   agentLabel,
   formatReset,
+  formatUsd,
   modelLimitNote,
   paceLabel,
   splitQuotaWindows,
@@ -242,4 +243,10 @@ export function formatPercent(value: number): string {
   if (value <= 0) return '0%'
   if (value < 1) return '<1%'
   return `${Math.round(value)}%`
+}
+
+/** The large title's subtitle line: "$1,284 in the last 7 days". */
+export function pulseSubtitle(hero: PulseHero, range: PulseRange, cold: boolean): string {
+  if (cold) return 'Taking a reading…'
+  return `${formatUsd(hero.costUsd)} in the ${rangeLabel(range).toLowerCase()}`
 }

@@ -24,7 +24,6 @@ import {
   type PulseHero,
   type PulseRange,
   type QuotaRowView,
-  rangeLabel,
 } from './pulse-view'
 
 /**
@@ -72,7 +71,6 @@ export function PulseBody(props: PulseBodyProps) {
   if (props.failed) {
     return (
       <View style={styles.page}>
-        <Text style={styles.subtitle}>No reading</Text>
         <Card>
           <View style={styles.message}>
             <Text style={styles.messageText}>
@@ -89,14 +87,6 @@ export function PulseBody(props: PulseBodyProps) {
 
   return (
     <View style={styles.page}>
-      {/* The large title's subtitle line (Music, Podcasts). It scrolls with the
-          content until the Shell task's header carries an inline subtitle. */}
-      <Text style={styles.subtitle} numberOfLines={1}>
-        {cold
-          ? 'Taking a reading…'
-          : `${formatUsd(hero.costUsd)} in the ${rangeLabel(range).toLowerCase()}`}
-      </Text>
-
       <Card>
         <HeroBlock hero={hero} cold={cold} />
         <View style={styles.stats}>
@@ -193,6 +183,7 @@ export function PulseBody(props: PulseBodyProps) {
       {open('machines') ? <Machines fleet={props.fleet} /> : null}
 
       <Text style={styles.foot}>
+        {range === 'fiveHour' ? 'Quota, top tasks and models cover the last 7 days. ' : ''}
         Public list prices per model. Cost a subscription covers is shown as if billed by the API.
         {summary.unpricedModels.length === 1
           ? ` ${summary.unpricedModels[0]} has no price on file and uses the fallback rate.`
@@ -462,13 +453,6 @@ const tabular = { fontVariant: ['tabular-nums' as const] }
 const styles = StyleSheet.create({
   page: {
     paddingTop: 0,
-  },
-  subtitle: {
-    ...sans(400),
-    color: color.textDim,
-    fontSize: font.small,
-    lineHeight: 20,
-    marginBottom: space.sm + 2,
   },
   hero: {
     paddingHorizontal: CARD_INSET,

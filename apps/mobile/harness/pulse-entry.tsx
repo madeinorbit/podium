@@ -30,6 +30,7 @@ import {
   modelRows,
   type PulseRange,
   pulseHero,
+  pulseSubtitle,
   quotaRows,
   rangeShort,
   topTasks,
@@ -93,6 +94,7 @@ function Harness() {
         <Text style={styles.title}>Pulse</Text>
         <Text style={styles.cap}>{rangeShort(range)} ⌄</Text>
       </View>
+      <Text style={styles.subtitle}>{pulseSubtitle(pulseHero(summary, range), range, cold)}</Text>
       <View style={styles.content}>
         <PulseBody
           range={range}
@@ -131,6 +133,14 @@ const styles = StyleSheet.create({
   },
   title: { ...sans(700), flex: 1, color: color.text, fontSize: 34, lineHeight: 40 },
   cap: { ...sans(400), color: color.text, fontSize: 15 },
+  subtitle: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: 15,
+    lineHeight: 20,
+    paddingHorizontal: space.lg,
+    marginBottom: 10,
+  },
   content: { paddingHorizontal: space.lg },
 })
 
