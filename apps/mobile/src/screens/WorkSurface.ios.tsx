@@ -14,7 +14,6 @@ import {
   VStack,
 } from '@expo/ui/swift-ui'
 import {
-  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -34,6 +33,7 @@ import {
   listRowInsets,
   listRowSeparator,
   listRowSeparatorTint,
+  listSectionMargins,
   listSectionSpacing,
   listStyle,
   monospacedDigit,
@@ -71,6 +71,7 @@ import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
@@ -87,6 +88,8 @@ import { workSectionWindow } from './work-section-window'
 const PAGE_SIZE = 120
 /** Card rows: 12 inset, 14 status column + 8 gap, so titles and separators share x=34. */
 const CARD_INSET = 12
+/** Header and card sections sit flush; the 44pt header rows carry the rhythm (as on Tasks). */
+const COMPACT_SECTION = [listSectionMargins({ edges: 'vertical', length: 0 })]
 const MARK_WIDTH = 14
 const MARK_GAP = 8
 const cardRow = [
@@ -252,8 +255,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           {sections.map(({ section, folded, visible }) => (
             <Fragment key={section.key}>
               {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
-              <Section>
-                <NativeGroupHeader
+              <Section modifiers={COMPACT_SECTION}>
+                <WorkGroupHeader
                   section={section}
                   folded={folded}
                   onToggle={props.onToggle}
@@ -261,7 +264,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                 />
               </Section>
               {folded ? null : (
-                <Section>
+                <Section modifiers={COMPACT_SECTION}>
                   {visible.map((id) => (
                     <NativeWorkRow
                       key={id}
@@ -292,7 +295,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             </Fragment>
           ))}
           {quiet.length && !more ? (
-            <Section>
+            <Section modifiers={COMPACT_SECTION}>
               <NativeQuietRow phone={phone} />
             </Section>
           ) : null}
@@ -373,7 +376,8 @@ const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: Phon
   )
 })
 
-const NativeGroupHeader = observer(function NativeGroupHeader({
+/** The shared Work/Tasks group header, with Work's per-project + (W8). */
+const WorkGroupHeader = observer(function WorkGroupHeader({
   section,
   folded,
   onToggle,
@@ -386,80 +390,33 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
 }) {
   const repoPath = section.repoPath
   return (
-    <HStack
-      spacing={MARK_GAP}
-      modifiers={[
-        ...quietRow,
-        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
-      ]}
-    >
-      <Button
-        onPress={() => onToggle(section.key)}
-        modifiers={[
-          buttonStyle('borderless'),
-          accessibilityLabel(section.label),
-          accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${section.ids.length} tasks`),
-          accessibilityHint('Double tap to fold or unfold this project.'),
-          accessibilityAddTraits(['isHeader']),
-        ]}
-      >
-        <HStack
-          spacing={MARK_GAP}
-          modifiers={[
-            frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
-            contentShape(shapes.rectangle()),
-          ]}
-        >
-          <Image
-            systemName={folded ? 'chevron.right' : 'chevron.down'}
+    <NativeGroupHeader
+      title={section.label}
+      count={section.ids.length}
+      folded={folded}
+      onToggle={() => onToggle(section.key)}
+      trailing={
+        onNew && repoPath ? (
+          <Button
+            onPress={() => onNew(repoPath)}
             modifiers={[
-              font({ textStyle: 'caption2', weight: 'semibold' }),
-              foregroundStyle(paper.tertiary),
-              frame({ width: MARK_WIDTH }),
-              accessibilityHidden(),
-            ]}
-          />
-          <Text
-            modifiers={[
-              font({ textStyle: 'footnote', weight: 'semibold' }),
-              foregroundStyle(paper.secondary),
-              lineLimit(1),
+              buttonStyle('borderless'),
+              accessibilityLabel(`New work in ${section.label}`),
             ]}
           >
-            {section.label}
-          </Text>
-          <Text
-            modifiers={[
-              font({ textStyle: 'caption', design: 'monospaced' }),
-              foregroundStyle(paper.tertiary),
-              monospacedDigit(),
-            ]}
-          >
-            {String(section.ids.length)}
-          </Text>
-          <Spacer />
-        </HStack>
-      </Button>
-      {onNew && repoPath ? (
-        <Button
-          onPress={() => onNew(repoPath)}
-          modifiers={[
-            buttonStyle('borderless'),
-            accessibilityLabel(`New work in ${section.label}`),
-          ]}
-        >
-          <Image
-            systemName="plus"
-            modifiers={[
-              font({ textStyle: 'footnote', weight: 'semibold' }),
-              foregroundStyle(paper.tertiary),
-              frame({ width: 28, height: 28 }),
-              contentShape(shapes.rectangle()),
-            ]}
-          />
-        </Button>
-      ) : null}
-    </HStack>
+            <Image
+              systemName="plus"
+              modifiers={[
+                font({ textStyle: 'footnote', weight: 'semibold' }),
+                foregroundStyle(paper.tertiary),
+                frame({ width: 44, height: 44 }),
+                contentShape(shapes.rectangle()),
+              ]}
+            />
+          </Button>
+        ) : undefined
+      }
+    />
   )
 })
 
@@ -471,15 +428,15 @@ const NativeQuietRow = observer(function NativeQuietRow({ phone }: { phone: Phon
       onPress={() => phone.toggleQuiet()}
       modifiers={[
         ...quietRow,
-        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
-        buttonStyle('borderless'),
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+        buttonStyle('plain'),
         accessibilityValue(phone.quietExpanded ? 'Expanded' : 'Collapsed'),
       ]}
     >
       <HStack
         spacing={MARK_GAP}
         modifiers={[
-          frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
+          frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
         ]}
       >
