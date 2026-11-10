@@ -557,7 +557,7 @@ export interface PortRule {
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/store/accounts.ts#AccountsRepository.onRemoved': {
     kind: 'contained',
-    why: "The audit row for a taken-back send [POD-6699]: the accounts.unsend handler binds it to SettingsAuditRepository.append, an INSERT that joins this transaction, so a rollback takes the record with the removal and nothing outside the process saw it.",
+    why: 'The audit row for a taken-back send [POD-6699]: the accounts.unsend handler binds it to SettingsAuditRepository.append, an INSERT that joins this transaction, so a rollback takes the record with the removal and nothing outside the process saw it.',
   },
   'apps/server/src/store/user-preferences.ts#UserPreferencesRepository.written': {
     kind: 'contained',
@@ -611,10 +611,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
-  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.InstancePreferencesFeedCapture': {
-    kind: 'contained',
-    why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
-  },
+  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.InstancePreferencesFeedCapture':
+    {
+      kind: 'contained',
+      why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
+    },
   'apps/server/src/modules/superagent/thread-records.ts#ThreadRecordDeps.threads': {
     kind: 'contained',
     why: "The superagent repository's thread read and spec write for an owner's generic edit [POD-6675]: composition binds it to SuperagentRepository, whose statements join the entry point's transaction and whose feed capture appends the record's change in the same unit, so a rollback takes both with it and nothing outside the process saw them.",
@@ -657,11 +658,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.of': {
     kind: 'contained',
-    why: "The recorded checkout reach of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_reach inside the same transaction; it writes and publishes nothing.",
+    why: 'The recorded checkout reach of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_reach inside the same transaction; it writes and publishes nothing.',
   },
   'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.lost': {
     kind: 'contained',
-    why: "The lost checkouts of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_lost inside the same transaction; it writes and publishes nothing.",
+    why: 'The lost checkouts of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_lost inside the same transaction; it writes and publishes nothing.',
   },
   'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.paths': {
     kind: 'contained',
@@ -673,11 +674,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/machine-access.ts#MachineOwnershipIndex.rowFor': {
     kind: 'contained',
-    why: "A lookup in the ownership index the machine records built from rows they already read [POD-6644]; pure over that map.",
+    why: 'A lookup in the ownership index the machine records built from rows they already read [POD-6644]; pure over that map.',
   },
   'apps/server/src/machine-access.ts#MachineOwnershipIndex.delegatedMachines': {
     kind: 'contained',
-    why: "A lookup in the same in-memory ownership index [POD-6644]; pure over rows already read, no I/O.",
+    why: 'A lookup in the same in-memory ownership index [POD-6644]; pure over rows already read, no I/O.',
   },
   'apps/server/src/modules/checkouts/service.ts#CheckoutsDeps.writer': {
     kind: 'contained',
@@ -917,6 +918,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
 
   /* --- reads, clocks and same-unit writes --------------------------------- */
+  'apps/server/src/modules/settings/service.ts#SettingsService.now': {
+    kind: 'contained',
+    why: 'a clock read for the preference timestamp; a rollback publishes no observation outside this process',
+  },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.now': {
     kind: 'contained',
     why: 'a clock read',
