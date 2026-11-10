@@ -33575,40 +33575,40 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "e45cf16990e460a8605be3f208344b49619c71a5e83a68a8d3a90a289a676622",
+      "tokens": "04485c5315f2d3b10a4320f9348927cf2f5d5d0a66ecbf0425d9ec92de40e0a2",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee",
+      "fingerprint": "b3bfb1671c1211604768efd15748098ce44367d439209fa92f3825aeccf081b6",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "32030488cb9649cf250a05a60e05519353651d071d6f27a748c7a88aa5272e0a",
+      "tokens": "af0a1a827f41b1a7ba6aee7185842277cc732ce164d1f31920d1930fef354762",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c",
+      "fingerprint": "b331a34e93f71914463f321da4c54903b0b20ab63303073dd1a0f21e332e4257",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -37605,18 +37605,18 @@
       "file": "packages/client-graph/src/settings-owner-fixture.ts",
       "holder": "settingsOwnerFixture/seed",
       "rule": "helper-consumer",
-      "tokens": "98289e1090ad94fca8355551973ac0f0bc4cbaead57c44ccec8eedb02fc3defd",
+      "tokens": "6e285cd23ffbc3be40736a42fe82e538d260d3630a60be190cf2f6bdfdc20f76",
       "gate": [],
       "origin": [
         "5b6662695caf9a227c4025e3ba75eaed64cf62a9506ecbaf91b2ed97f5cbe4b3"
       ],
-      "fingerprint": "09f384329a1f4dd1f8dc114db655d7b201b654a317a329cbcb26e8b708950af2",
+      "fingerprint": "42c1c982ca70fdddf811473789b74d2150b1e59a89f692a982ea4780ccbd156d",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "Test fixture setup or a test moving its fixture",
       "bound": "The fixture rows a test seeds",
-      "reason": "Test support only: seeds machine, access and checkout records as the app receives them (POD-6644). No product interaction runs it.",
+      "reason": "Test support only: seeds machine, access and checkout records as the app receives them (POD-6644). No product interaction runs it. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 09f384329a1f4dd1f8dc114db655d7b201b654a317a329cbcb26e8b708950af2.",
       "guard": "The tests that use the fixture"
     },
     {
