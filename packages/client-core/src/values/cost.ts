@@ -425,7 +425,8 @@ export interface ProjectCostView {
   /** Window spend that maps to a task AND that task's project. */
   attributedUsd: number
   /** `attributedUsd` as a share of the window total, 0–100; null with no spend. */
-  attributedPercent: number | null
+  attributedPercent: number | null /** The window total the shares were read against. */
+  windowTotalUsd: number
 }
 
 /**
@@ -452,6 +453,28 @@ export function projectCostRows(
   projectOf: (issueId: string) => string | null | undefined,
   windowTotalUsd: number,
 ): ProjectCostView {
+  return projectCostShares(projectCostGroups(rows, projectOf), windowTotalUsd)
+}
+
+/** A project's group before it is read against a window total. */
+export type ProjectCostGroup = Omit<ProjectCostRow, 'sharePercent'>
+
+export interface ProjectCostGroups {
+  /** Dearest first. */
+  rows: ProjectCostGroup[]
+  attributedUsd: number
+}
+
+/**
+ * The PRICING half of `projectCostRows`: one pass over the rows and their
+ * window models. Split out so a view model can hold it as a field that
+ * recomputes only when the cost answer (or a task's project) changes, while
+ * the share against a separately-polled window total stays a cheap read.
+ */
+export function projectCostGroups(
+  rows: readonly TaskCostRowWire[],
+  projectOf: (issueId: string) => string | null | undefined,
+): ProjectCostGroups {
   const groups = new Map<
     string,
     { costUsd: number; taskCount: number; models: Map<string, number> }
@@ -497,16 +520,44 @@ export function projectCostRows(
         costUsd: g.costUsd,
         taskCount: g.taskCount,
         topModel,
-        sharePercent: windowTotalUsd > 0 ? Math.min(100, (g.costUsd / windowTotalUsd) * 100) : 0,
         barPercent: peak > 0 ? (g.costUsd / peak) * 100 : 0,
       }
     }),
     attributedUsd,
+  }
+}
+
+/** The SHARE half of `projectCostRows`: each group against the window total. */
+export function projectCostShares(
+  groups: ProjectCostGroups,
+  windowTotalUsd: number,
+): ProjectCostView {
+  return {
+    rows: groups.rows.map((g) => ({
+      ...g,
+      sharePercent: windowTotalUsd > 0 ? Math.min(100, (g.costUsd / windowTotalUsd) * 100) : 0,
+    })),
+    attributedUsd: groups.attributedUsd,
+    windowTotalUsd,
     // Capped like the desktop's attribution cell: a harvest that priced a task
     // a moment after the total cannot make the share read over 100%.
     attributedPercent:
-      windowTotalUsd > 0 ? (Math.min(attributedUsd, windowTotalUsd) / windowTotalUsd) * 100 : null,
+      windowTotalUsd > 0
+        ? (Math.min(groups.attributedUsd, windowTotalUsd) / windowTotalUsd) * 100
+        : null,
   }
+}
+
+/**
+ * The window's dearest tasks: priced rows ranked by each task's OWN cost
+ * inside the harvest window (`windowCostUsd`), so a parent and its children
+ * are never counted twice. Tasks with no spend in the window are left out.
+ */
+export function topWindowTasks(rows: readonly TaskCostRowView[], limit = 5): TaskCostRowView[] {
+  return rows
+    .filter((row) => row.windowCostUsd > 0)
+    .sort((a, b) => b.windowCostUsd - a.windowCostUsd)
+    .slice(0, limit)
 }
 
 // ---------------------------------------------------------------------------

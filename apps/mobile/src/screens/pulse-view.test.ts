@@ -1,16 +1,12 @@
-import { type AccountQuotaGroup, type CapacityView, usageSummary } from '@podium/client-core/values'
-import type { CostModelTotalWire, TaskCostRowWire, UsageBucketWire } from '@podium/model'
+import { type CapacityView, usageSummary } from '@podium/client-core/values'
+import type { UsageBucketWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   attributedLabel,
   daySpanLabel,
-  formatPercent,
-  modelRows,
   projectSubtitle,
   pulseHero,
-  quotaRows,
   quotaVerdict,
-  topTasks,
 } from './pulse-view'
 
 // Mid-afternoon local time on a Monday, so today has future hours left.
@@ -64,113 +60,6 @@ describe('pulseHero', () => {
   })
 })
 
-describe('quotaRows', () => {
-  const reset = new Date(now + 9 * 3_600_000).toISOString()
-  const group = (
-    agent: string,
-    usedPercent: number,
-    over: Partial<AccountQuotaGroup> = {},
-  ): AccountQuotaGroup =>
-    ({
-      key: agent,
-      agent,
-      machineNames: ['m'],
-      status: 'ok',
-      windows: [
-        { key: 'week', label: 'Weekly', usedPercent, resetsAt: reset, windowMinutes: 7 * 1440 },
-      ],
-      fetchedAt: new Date(now).toISOString(),
-      ...over,
-    }) as AccountQuotaGroup
-
-  it('orders tightest first, marks a used-up window out, and keeps unreadable pools last', () => {
-    const rows = quotaRows(
-      [
-        group('claude-code', 71),
-        group('gemini', 0, { status: 'error', error: 'boom', windows: [] }),
-        group('codex', 100),
-      ],
-      now,
-    )
-    expect(rows.map((r) => r.agent)).toEqual(['codex', 'claude-code', 'gemini'])
-    expect(rows[0]).toMatchObject({ out: true, paceText: 'Used up', usedPercent: 100 })
-    expect(rows[0]?.title).toMatch(/· Weekly$/)
-    expect(rows[1]).toMatchObject({ out: false, resetText: 'Resets in 9h 0m' })
-    expect(rows[1]?.elapsedPercent).toBeGreaterThan(90)
-    expect(rows[2]).toMatchObject({ usedPercent: null, out: false })
-  })
-})
-
-const opus = (over: Partial<CostModelTotalWire> = {}): CostModelTotalWire => ({
-  model: 'claude-opus-5',
-  inputTokens: 1_000_000,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-  cacheCreation1hTokens: 0,
-  messages: 1,
-  ...over,
-})
-
-const taskRow = (seq: number, windowMTok: number, ownMTok = 50): TaskCostRowWire =>
-  ({
-    issueId: `iss_${seq}`,
-    seq,
-    displayRef: `POD-${seq}`,
-    title: `Task ${seq}`,
-    stage: 'in_progress',
-    models: [opus({ inputTokens: ownMTok * 1_000_000 })],
-    messages: 10,
-    windowModels: windowMTok > 0 ? [opus({ inputTokens: windowMTok * 1_000_000 })] : [],
-    windowMessages: 5,
-    // A huge rollup must not affect the ranking: that would count children twice.
-    rollupModels: [opus({ inputTokens: 900_000_000 })],
-    rollupMessages: 100,
-    sessionCount: 1,
-    floor: 'none',
-    harnesses: ['claude-code'],
-    uncostedSessionCount: 0,
-  }) as TaskCostRowWire
-
-describe('topTasks', () => {
-  it('ranks by own seven-day cost, drops idle tasks and keeps five', () => {
-    const rows = [1, 2, 3, 4, 5, 6].map((seq) => taskRow(seq, seq))
-    rows.push(taskRow(7, 0, 999))
-    const top = topTasks(rows)
-    expect(top.map((t) => t.seq)).toEqual([6, 5, 4, 3, 2])
-    expect(top[0]?.windowCostUsd).toBeCloseTo(30)
-  })
-
-  it('is empty while cold', () => {
-    expect(topTasks(null)).toEqual([])
-  })
-})
-
-describe('modelRows', () => {
-  it('shares are of the week total and bars are against the dearest model', () => {
-    const summary = usageSummary(
-      [bucket(1), bucket(2), bucket(2, { model: 'claude-sonnet-5', inputTokens: 1_000_000 })],
-      now,
-    )
-    const rows = modelRows(summary)
-    expect(rows[0]).toMatchObject({
-      model: 'claude-opus-5',
-      provider: 'Anthropic',
-      barPercent: 100,
-    })
-    expect(rows.reduce((n, r) => n + r.sharePercent, 0)).toBeCloseTo(100)
-    expect(rows[1]?.barPercent).toBeLessThan(100)
-  })
-})
-
-describe('formatPercent', () => {
-  it('never prints a non-zero share as 0%', () => {
-    expect(formatPercent(0)).toBe('0%')
-    expect(formatPercent(0.3)).toBe('<1%')
-    expect(formatPercent(48.4)).toBe('48%')
-  })
-})
-
 describe('quotaVerdict', () => {
   const view = (over: Partial<CapacityView>): CapacityView =>
     ({
@@ -209,10 +98,18 @@ describe('Top projects copy', () => {
   })
 
   it('reads the attributed share, and nothing before an answer', () => {
-    expect(attributedLabel({ rows: [], attributedUsd: 10, attributedPercent: 82.4 })).toBe(
-      '82% attributed',
-    )
-    expect(attributedLabel({ rows: [], attributedUsd: 0, attributedPercent: null })).toBeUndefined()
+    // The desktop's share rule (formatShare): one decimal, capped at the total.
+    expect(
+      attributedLabel({
+        rows: [],
+        attributedUsd: 82.4,
+        attributedPercent: 82.4,
+        windowTotalUsd: 100,
+      }),
+    ).toBe('82.4% attributed')
+    expect(
+      attributedLabel({ rows: [], attributedUsd: 0, attributedPercent: null, windowTotalUsd: 0 }),
+    ).toBeUndefined()
     expect(attributedLabel(null)).toBeUndefined()
   })
 })

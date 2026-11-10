@@ -1,11 +1,11 @@
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
+import type { TaskCostView } from '@podium/client-graph/task-cost-view'
 import type {
   HostMetricsWire,
   MachineId,
   MachineQuotaWire,
   MachineWire,
   QuotaWindowHistoryWire,
-  TaskCostRowWire,
   UsageBucketWire,
 } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
@@ -66,7 +66,6 @@ interface PulseCache {
   quota: MachineQuotaWire[]
   buckets: UsageBucketWire[]
   history: QuotaWindowHistoryWire[]
-  taskCosts: TaskCostRowWire[] | null
   capacityReadings: MachineCapacityReadings
   loadPerCore: number | null
   fetchedAt: number
@@ -84,9 +83,6 @@ export interface PulseFeed {
   quota: MachineQuotaWire[] | null
   buckets: UsageBucketWire[] | null
   history: QuotaWindowHistoryWire[] | null
-  /** The desktop's `cost.tasks` rows (useTaskCosts.ts), unpriced. Null until
-   *  the first answer; a failed read keeps the last rows. */
-  taskCosts: TaskCostRowWire[] | null
   /** Streamed, so never cold in the way the polled pair is. */
   hosts: readonly HostMetricsWire[]
   /** The same per-principal projection the desktop machine surface receives. */
@@ -105,7 +101,12 @@ export interface PulseFeed {
   reload: () => void
 }
 
-export function usePulseFeed(): PulseFeed {
+/**
+ * `costs` is the screen's shared `TaskCostView`: this hook only drives its
+ * `cost.tasks` read on the usage cadence. The answer, its fencing and its
+ * pricing live in that view model, not here [POD-2385].
+ */
+export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
   // Subscribe only to the three live values Pulse paints. A whole-store
   // subscription would re-render this tab for unrelated replica publishes.
   const trpc = useTrpc()
@@ -119,7 +120,6 @@ export function usePulseFeed(): PulseFeed {
     quota: MachineQuotaWire[] | null
     buckets: UsageBucketWire[] | null
     history: QuotaWindowHistoryWire[] | null
-    taskCosts: TaskCostRowWire[] | null
     capacityReadings: MachineCapacityReadings
     loadPerCore: number | null
     fetchedAt: number | null
@@ -130,7 +130,6 @@ export function usePulseFeed(): PulseFeed {
     quota: cached?.quota ?? null,
     buckets: cached?.buckets ?? null,
     history: cached?.history ?? null,
-    taskCosts: cached?.taskCosts ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
     loadPerCore: cached?.loadPerCore ?? null,
     fetchedAt: cached?.fetchedAt ?? null,
@@ -153,7 +152,10 @@ export function usePulseFeed(): PulseFeed {
   // looking at, on a phone paying for the radio.
   useFocusEffect(
     useCallback(() => {
-      if (demo) return
+      if (demo) {
+        void costs?.read(() => Promise.resolve([]))
+        return
+      }
       let cancelled = false
       const capacityOwner = profileKey
       const updateCache = (patch: Partial<PulseCache>): PulseCache => {
@@ -162,7 +164,6 @@ export function usePulseFeed(): PulseFeed {
           quota: prior?.quota ?? [],
           buckets: prior?.buckets ?? [],
           history: prior?.history ?? [],
-          taskCosts: prior?.taskCosts ?? null,
           capacityReadings: prior?.capacityReadings ?? {},
           loadPerCore: prior?.loadPerCore ?? null,
           fetchedAt: prior?.fetchedAt ?? Date.now(),
@@ -228,20 +229,12 @@ export function usePulseFeed(): PulseFeed {
         )
       }
 
-      // TOP TASKS [POD-2379]. The same existing `cost.tasks` read the desktop's
-      // by-task section polls (useTaskCosts.ts); its rows are written by the
-      // usage harvest, so it rides the usage poll here rather than a cadence of
-      // its own. Best-effort: a failure keeps the last rows on screen.
+      // TOP TASKS AND PROJECTS [POD-2379, POD-2385]. The same `cost.tasks`
+      // read the desktop's by-task section polls; its rows are written by the
+      // usage harvest, so it rides the usage poll. The shared view owns the
+      // answer and fences overlapping reads; a failure keeps the last rows.
       const loadTaskCosts = (): void => {
-        void trpc.cost.tasks.query().then(
-          (taskCosts) => {
-            updateCache({ taskCosts })
-            if (!cancelled) {
-              setAnswer((current) => ({ ...current, profileKey, taskCosts }))
-            }
-          },
-          () => {},
-        )
+        void costs?.read(() => trpc.cost.tasks.query())
       }
 
       const runBreakdowns = (force: boolean): Promise<void> => {
@@ -283,7 +276,6 @@ export function usePulseFeed(): PulseFeed {
                   quota: null,
                   buckets: null,
                   history: null,
-                  taskCosts: null,
                   capacityReadings: {},
                 }),
             capacityReadings: started,
@@ -349,7 +341,7 @@ export function usePulseFeed(): PulseFeed {
         loadRef.current = () => {}
         clearInterval(poll)
       }
-    }, [capacityFence, capacityScheduler, demo, machines, profileKey, trpc]),
+    }, [capacityFence, capacityScheduler, costs, demo, machines, profileKey, trpc]),
   )
 
   if (demo) {
@@ -357,7 +349,6 @@ export function usePulseFeed(): PulseFeed {
       quota: DEMO_QUOTA,
       buckets: DEMO_USAGE_BUCKETS,
       history: DEMO_QUOTA_HISTORY,
-      taskCosts: [],
       hosts: DEMO_HOST_METRICS,
       machines: DEMO_MACHINES,
       capacityReadings: Object.fromEntries(
@@ -380,7 +371,6 @@ export function usePulseFeed(): PulseFeed {
       quota: null,
       buckets: null,
       history: null,
-      taskCosts: null,
       hosts: hostMetrics,
       machines,
       capacityReadings: {},

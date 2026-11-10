@@ -20,6 +20,7 @@ import {
   taskCostRows,
   taskCostView,
   taskRateUsd,
+  topWindowTasks,
 } from './cost'
 import { bucketCostUsd } from './usage'
 
@@ -468,5 +469,46 @@ describe('projectCostRows', () => {
     expect(projectCostRows(rows, projectOf, 8).attributedPercent).toBe(100)
     expect(projectCostRows(rows, projectOf, 8).rows[0]?.sharePercent).toBe(100)
     expect(projectCostRows(rows, projectOf, 0).attributedPercent).toBeNull()
+  })
+})
+
+const opusTotal = (over: Partial<CostModelTotalWire> = {}): CostModelTotalWire => ({
+  model: 'claude-opus-5',
+  inputTokens: 1_000_000,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  cacheCreation1hTokens: 0,
+  messages: 1,
+  ...over,
+})
+
+const windowRow = (seq: number, windowMTok: number, ownMTok = 50): TaskCostRowWire =>
+  ({
+    issueId: `iss_${seq}`,
+    seq,
+    displayRef: `POD-${seq}`,
+    title: `Task ${seq}`,
+    stage: 'in_progress',
+    models: [opusTotal({ inputTokens: ownMTok * 1_000_000 })],
+    messages: 10,
+    windowModels: windowMTok > 0 ? [opusTotal({ inputTokens: windowMTok * 1_000_000 })] : [],
+    windowMessages: 5,
+    // A huge rollup must not affect the ranking: that would count children twice.
+    rollupModels: [opusTotal({ inputTokens: 900_000_000 })],
+    rollupMessages: 100,
+    sessionCount: 1,
+    floor: 'none',
+    harnesses: ['claude-code'],
+    uncostedSessionCount: 0,
+  }) as TaskCostRowWire
+
+describe('topWindowTasks', () => {
+  it('ranks by own seven-day cost, drops idle tasks and keeps five', () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((seq) => windowRow(seq, seq))
+    rows.push(windowRow(7, 0, 999))
+    const top = topWindowTasks(taskCostRows(rows).rows)
+    expect(top.map((t) => t.seq)).toEqual([6, 5, 4, 3, 2])
+    expect(top[0]?.windowCostUsd).toBeCloseTo(30)
   })
 })

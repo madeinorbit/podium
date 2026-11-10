@@ -19,9 +19,13 @@ import {
 } from '@podium/client-core/demo'
 import {
   capacityView,
+  gatingQuotaRows,
   groupQuotaByAccount,
   type MachineCapacityReadings,
+  modelShares,
   projectCostRows,
+  taskCostRows,
+  topWindowTasks,
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
@@ -30,14 +34,11 @@ import { createRoot } from 'react-dom/client'
 import { StyleSheet, Text, View } from 'react-native'
 import { PulseBody } from '../src/screens/PulseBody'
 import {
-  modelRows,
   type PulseRange,
   pulseHero,
   pulseSubtitle,
-  quotaRows,
   quotaVerdict,
   rangeShort,
-  topTasks,
 } from '../src/screens/pulse-view'
 import { color, sans, space } from '../src/theme/theme'
 
@@ -128,7 +129,7 @@ function Harness() {
           range={range}
           hero={pulseHero(summary, range)}
           summary={summary}
-          quota={cold ? [] : quotaRows(groupQuotaByAccount(quota), nowMs)}
+          quota={cold ? [] : gatingQuotaRows(groupQuotaByAccount(quota), nowMs)}
           verdict={
             cold
               ? null
@@ -142,9 +143,9 @@ function Harness() {
                 )
           }
           projects={cold ? null : projectCostRows(taskRows, projectOf, summary.week.estCostUsd)}
-          tasks={cold ? [] : topTasks(taskRows)}
+          tasks={cold ? [] : topWindowTasks(taskCostRows(taskRows).rows)}
           tasksCold={cold}
-          models={modelRows(summary)}
+          models={modelShares(summary, 6)}
           fleet={visibleFleetOperations({
             machines: DEMO_MACHINES,
             hosts: DEMO_HOST_METRICS,

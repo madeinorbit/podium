@@ -9,6 +9,7 @@ import {
   formatTick,
   formatTokens,
   formatUsdTick,
+  modelShares,
   niceAxisMax,
   usageSummary,
 } from './usage'
@@ -526,5 +527,40 @@ describe('formatUsdTick', () => {
     [0, '$0'],
   ])('formats the dollar ruler mark %d as %s', (value, expected) => {
     expect(formatUsdTick(value)).toBe(expected)
+  })
+})
+
+const SHARE_NOW = new Date(2026, 10, 9, 14, 30).getTime()
+const shareBucket = (hoursAgo: number, over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
+  hour: new Date(
+    Math.floor(SHARE_NOW / 3_600_000) * 3_600_000 - hoursAgo * 3_600_000,
+  ).toISOString(),
+  model: 'claude-opus-5',
+  inputTokens: 1_000_000,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  messages: 2,
+  ...over,
+})
+
+describe('modelShares', () => {
+  it('shares are of the week total and bars are against the dearest model', () => {
+    const summary = usageSummary(
+      [
+        shareBucket(1),
+        shareBucket(2),
+        shareBucket(2, { model: 'claude-sonnet-5', inputTokens: 1_000_000 }),
+      ],
+      SHARE_NOW,
+    )
+    const rows = modelShares(summary)
+    expect(rows[0]).toMatchObject({
+      model: 'claude-opus-5',
+      provider: 'anthropic',
+      barPercent: 100,
+    })
+    expect(rows.reduce((n, r) => n + r.sharePercent, 0)).toBeCloseTo(100)
+    expect(rows[1]?.barPercent).toBeLessThan(100)
   })
 })

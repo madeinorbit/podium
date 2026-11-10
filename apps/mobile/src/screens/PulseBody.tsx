@@ -1,15 +1,19 @@
 import {
   formatCostRounded,
+  formatShare,
   formatUsd,
   type MachineOperationsView,
   type ProjectCostRow,
   type ProjectCostView,
+  type QuotaRowView,
   type TaskCostRowView,
+  USAGE_PROVIDER_LABEL,
+  type UsageModelShare,
   type UsageSummaryView,
   type visibleFleetOperations,
 } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import {
   CARD_INSET,
@@ -24,12 +28,9 @@ import {
 import { color, font, mono, sans, space } from '../theme/theme'
 import {
   attributedLabel,
-  formatPercent,
-  type ModelRowView,
   type PulseHero,
   type PulseRange,
   projectSubtitle,
-  type QuotaRowView,
   type QuotaVerdict,
 } from './pulse-view'
 
@@ -53,7 +54,7 @@ export interface PulseBodyProps {
   projects: ProjectCostView | null
   tasks: TaskCostRowView[]
   tasksCold: boolean
-  models: ModelRowView[]
+  models: UsageModelShare[]
   fleet: Fleet
   cold: boolean
   /** Cold AND the last read failed: nothing truthful to draw. */
@@ -183,12 +184,7 @@ export function PulseBody(props: PulseBodyProps) {
             />
           ) : (
             props.tasks.map((task, i) => (
-              <TaskRow
-                key={task.issueId}
-                task={task}
-                first={i === 0}
-                onPress={() => props.onOpenTask(task.issueId)}
-              />
+              <TaskRow key={task.issueId} task={task} first={i === 0} onOpen={props.onOpenTask} />
             ))
           )}
         </Card>
@@ -298,7 +294,7 @@ function Message({ text }: { text: string }) {
   )
 }
 
-function QuotaRow({ row, first }: { row: QuotaRowView; first: boolean }) {
+function QuotaRowBase({ row, first }: { row: QuotaRowView; first: boolean }) {
   const readable = row.usedPercent !== null
   return (
     <View style={[styles.quota, !first && rowDivider]}>
@@ -308,7 +304,7 @@ function QuotaRow({ row, first }: { row: QuotaRowView; first: boolean }) {
         </Text>
         {readable ? (
           <Text style={[styles.rowFigure, row.out && styles.signal]}>
-            {row.out ? 'Out' : formatPercent(row.usedPercent ?? 0)}
+            {row.out ? 'Out' : `${Math.round(row.usedPercent ?? 0)}%`}
           </Text>
         ) : null}
       </View>
@@ -330,21 +326,21 @@ function QuotaRow({ row, first }: { row: QuotaRowView; first: boolean }) {
   )
 }
 
-function TaskRow({
+function TaskRowBase({
   task,
   first,
-  onPress,
+  onOpen,
 }: {
   task: TaskCostRowView
   first: boolean
-  onPress: () => void
+  onOpen: (issueId: string) => void
 }) {
   const ref = issueDisplayRef(task)
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${ref} ${task.title}, ${formatCostRounded(task.windowCostUsd)}`}
-      onPress={onPress}
+      onPress={() => onOpen(task.issueId)}
       style={({ pressed }) => [styles.task, pressed && styles.pressed]}
     >
       {/* Separator starts at the title column, as list rows inset theirs. */}
@@ -360,12 +356,12 @@ function TaskRow({
   )
 }
 
-function ProjectRow({ project, first }: { project: ProjectCostRow; first: boolean }) {
+function ProjectRowBase({ project, first }: { project: ProjectCostRow; first: boolean }) {
   return (
     <View
       style={[styles.share, !first && rowDivider]}
       accessible
-      accessibilityLabel={`${project.project}, ${formatUsd(project.costUsd)}, ${formatPercent(project.sharePercent)} of the week, ${projectSubtitle(project)}`}
+      accessibilityLabel={`${project.project}, ${formatUsd(project.costUsd)}, ${formatShare(project.sharePercent, 100)} of the week, ${projectSubtitle(project)}`}
     >
       <View style={styles.line}>
         <Text style={styles.rowTitle} numberOfLines={1}>
@@ -378,32 +374,40 @@ function ProjectRow({ project, first }: { project: ProjectCostRow; first: boolea
         <Text style={styles.rowMeta} numberOfLines={1}>
           {projectSubtitle(project)}
         </Text>
-        <Text style={[styles.rowMeta, styles.mono]}>{formatPercent(project.sharePercent)}</Text>
+        <Text style={[styles.rowMeta, styles.mono]}>{formatShare(project.sharePercent, 100)}</Text>
       </View>
     </View>
   )
 }
 
-function ModelRow({ model, first }: { model: ModelRowView; first: boolean }) {
+function ModelRowBase({ model, first }: { model: UsageModelShare; first: boolean }) {
   return (
     <View style={[styles.share, !first && rowDivider]}>
       <View style={styles.line}>
         <Text style={styles.rowTitle} numberOfLines={1}>
           {model.model}
         </Text>
-        <Text style={styles.rowFigure}>{formatUsd(model.costUsd)}</Text>
+        <Text style={styles.rowFigure}>{formatUsd(model.estCostUsd)}</Text>
       </View>
       <Meter pct={model.barPercent} muted />
       <View style={styles.line}>
         <Text style={styles.rowMeta} numberOfLines={1}>
-          {model.provider} · {model.messages.toLocaleString('en-US')}{' '}
+          {USAGE_PROVIDER_LABEL[model.provider]} · {model.messages.toLocaleString('en-US')}{' '}
           {model.messages === 1 ? 'reply' : 'replies'}
         </Text>
-        <Text style={[styles.rowMeta, styles.mono]}>{formatPercent(model.sharePercent)}</Text>
+        <Text style={[styles.rowMeta, styles.mono]}>{formatShare(model.sharePercent, 100)}</Text>
       </View>
     </View>
   )
 }
+
+// Rows re-render only when their own reading changes: the shared view model
+// hands back the same row objects until its answer does, so a streamed
+// host-metric update repaints the machines card and nothing else here.
+const QuotaRow = memo(QuotaRowBase)
+const ProjectRow = memo(ProjectRowBase)
+const TaskRow = memo(TaskRowBase)
+const ModelRow = memo(ModelRowBase)
 
 const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
   ok: 'ink',

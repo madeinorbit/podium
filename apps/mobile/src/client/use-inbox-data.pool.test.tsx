@@ -153,7 +153,7 @@ const tokens = [
   { token: 'UTF-8', kind: 'issue' as const, prefix: 'UTF' },
 ]
 function PulseProbe() {
-  const data = usePulseFeed()
+  const data = usePulseFeed(null)
   return (
     <output data-testid="pulse">
       {JSON.stringify({

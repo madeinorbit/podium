@@ -1,5 +1,5 @@
-import { asMachineId } from '@podium/model'
 import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
@@ -7,6 +7,7 @@ import {
   agentLabel,
   agentShortLabel,
   formatReset,
+  gatingQuotaRows,
   groupGatingPace,
   groupQuotaByAccount,
   modelLimitNote,
@@ -480,5 +481,44 @@ describe('groupQuotaByAccount', () => {
     expect(groups[0]?.status).toBe('ok')
     expect(groups[0]?.windows[0]?.usedPercent).toBe(55)
     expect(groups[0]?.machineNames).toEqual(['podium-host', 'vmi'])
+  })
+})
+
+const ROWS_NOW = new Date(2026, 10, 9, 14, 30).getTime()
+
+describe('gatingQuotaRows', () => {
+  const reset = new Date(ROWS_NOW + 9 * 3_600_000).toISOString()
+  const group = (
+    agent: string,
+    usedPercent: number,
+    over: Partial<AccountQuotaGroup> = {},
+  ): AccountQuotaGroup =>
+    ({
+      key: agent,
+      agent,
+      machineNames: ['m'],
+      status: 'ok',
+      windows: [
+        { key: 'week', label: 'Weekly', usedPercent, resetsAt: reset, windowMinutes: 7 * 1440 },
+      ],
+      fetchedAt: new Date(ROWS_NOW).toISOString(),
+      ...over,
+    }) as AccountQuotaGroup
+
+  it('orders tightest first, marks a used-up window out, and keeps unreadable pools last', () => {
+    const rows = gatingQuotaRows(
+      [
+        group('claude-code', 71),
+        group('gemini', 0, { status: 'error', error: 'boom', windows: [] }),
+        group('codex', 100),
+      ],
+      ROWS_NOW,
+    )
+    expect(rows.map((r) => r.agent)).toEqual(['codex', 'claude-code', 'gemini'])
+    expect(rows[0]).toMatchObject({ out: true, paceText: 'Used up', usedPercent: 100 })
+    expect(rows[0]?.title).toMatch(/· Weekly$/)
+    expect(rows[1]).toMatchObject({ out: false, resetText: 'Resets in 9h 0m' })
+    expect(rows[1]?.elapsedPercent).toBeGreaterThan(90)
+    expect(rows[2]).toMatchObject({ usedPercent: null, out: false })
   })
 })

@@ -1,29 +1,16 @@
 import {
-  type AccountQuotaGroup,
-  agentLabel,
   type CapacityView,
-  formatReset,
+  formatShare,
   formatUsd,
-  modelLimitNote,
   type ProjectCostRow,
   type ProjectCostView,
-  paceLabel,
-  splitQuotaWindows,
-  statusNote,
-  type TaskCostRowView,
-  taskCostRows,
-  type UsageProvider,
   type UsageSummaryView,
-  windowElapsedPercent,
-  windowPace,
 } from '@podium/client-core/values'
-import type { AgentKind, TaskCostRowWire } from '@podium/model'
 
 /**
- * Pure readings behind the Pulse tab [POD-2379]. Everything here is a
- * projection of values the shared client-core modules already compute: the
- * usage summary, the quota groups and the priced `cost.tasks` rows. No new
- * aggregate, no second rounding rule.
+ * Presentation behind the Pulse tab [POD-2379]: ranges, the hero trace and the
+ * copy. Every reading — quota rows, task and project costs, model shares and
+ * the share rounding — is client-core's; this file only arranges it.
  */
 
 /**
@@ -120,134 +107,6 @@ export function pulseHero(summary: UsageSummaryView, range: PulseRange): PulseHe
   }
 }
 
-/** One gating window of one pool: the unit a person actually runs out of. */
-export interface QuotaRowView {
-  key: string
-  agent: AgentKind
-  /** "Claude Code · Weekly". */
-  title: string
-  /** Null for a pool we cannot read; the row then shows only its status line. */
-  usedPercent: number | null
-  /** The window is used up: the row reads "Out" in the signal tint. */
-  out: boolean
-  /** 0–100 share of the window elapsed, for the pace tick. */
-  elapsedPercent: number | null
-  /** "On pace", "Used up", or the pool's status note. */
-  paceText: string
-  /** "Resets in 9h 4m". */
-  resetText: string
-  /** Set when the pool has already lost a model-scoped bucket. */
-  modelNote: string | null
-}
-
-function capitalise(text: string): string {
-  return text ? `${text[0]?.toUpperCase()}${text.slice(1)}` : text
-}
-
-/**
- * Every readable pool's gating windows, tightest first, then a status row for
- * each pool we cannot read.
- *
- * Model-scoped windows are not rows: spending one drops that model, not the
- * harness (POD-271), so they become a note under the pool instead.
- */
-export function quotaRows(groups: readonly AccountQuotaGroup[], nowMs: number): QuotaRowView[] {
-  const readable: QuotaRowView[] = []
-  const unreadable: QuotaRowView[] = []
-  for (const group of groups) {
-    const name = agentLabel(group.agent)
-    if (group.status !== 'ok') {
-      unreadable.push({
-        key: `${group.key}:status`,
-        agent: group.agent,
-        title: name,
-        usedPercent: null,
-        out: false,
-        elapsedPercent: null,
-        paceText: statusNote(group),
-        resetText: '',
-        modelNote: null,
-      })
-      continue
-    }
-    const modelNote = modelLimitNote(group.agent, group.windows)
-    for (const window of splitQuotaWindows(group.windows).gating) {
-      const used = Math.max(0, Math.min(100, window.usedPercent))
-      const out = window.usedPercent >= 100
-      const pace = windowPace(window, nowMs)
-      readable.push({
-        key: `${group.key}:${window.key}`,
-        agent: group.agent,
-        title: `${name} · ${window.label}`,
-        usedPercent: used,
-        out,
-        elapsedPercent: windowElapsedPercent(window.resetsAt, window.windowMinutes, nowMs),
-        paceText: out ? 'Used up' : pace ? paceLabel(pace) : '',
-        resetText: window.resetsAt ? capitalise(formatReset(window.resetsAt, nowMs)) : '',
-        modelNote,
-      })
-    }
-  }
-  readable.sort((a, b) => (b.usedPercent ?? 0) - (a.usedPercent ?? 0))
-  return [...readable, ...unreadable]
-}
-
-/**
- * Top tasks: the priced `cost.tasks` rows ranked by each task's OWN cost inside
- * the harvest window (`windowCostUsd`), so a parent and its children are never
- * counted twice. Tasks with no spend in the window are left out.
- */
-export function topTasks(rows: readonly TaskCostRowWire[] | null, limit = 5): TaskCostRowView[] {
-  if (!rows) return []
-  return taskCostRows(rows)
-    .rows.filter((row) => row.windowCostUsd > 0)
-    .sort((a, b) => b.windowCostUsd - a.windowCostUsd)
-    .slice(0, limit)
-}
-
-export const PROVIDER_LABEL: Record<UsageProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  xai: 'xAI',
-  other: 'Other',
-}
-
-export interface ModelRowView {
-  model: string
-  provider: string
-  costUsd: number
-  messages: number
-  /** Share of the week's cost, 0–100. */
-  sharePercent: number
-  /** Bar width against the dearest model, 0–100. */
-  barPercent: number
-}
-
-/** The week's models, dearest first, as shares of the same week total. */
-export function modelRows(summary: UsageSummaryView, limit = 6): ModelRowView[] {
-  const total = summary.week.estCostUsd
-  const models = [...summary.models]
-    .filter((m) => m.estCostUsd > 0 || m.messages > 0)
-    .sort((a, b) => b.estCostUsd - a.estCostUsd)
-    .slice(0, limit)
-  const peak = models[0]?.estCostUsd ?? 0
-  return models.map((m) => ({
-    model: m.model,
-    provider: PROVIDER_LABEL[m.provider],
-    costUsd: m.estCostUsd,
-    messages: m.messages,
-    sharePercent: total > 0 ? (m.estCostUsd / total) * 100 : 0,
-    barPercent: peak > 0 ? (m.estCostUsd / peak) * 100 : 0,
-  }))
-}
-
-/** "48%", "<1%", "0%" — a share as the rows print it. */
-export function formatPercent(value: number): string {
-  if (value <= 0) return '0%'
-  if (value < 1) return '<1%'
-  return `${Math.round(value)}%`
-}
-
 /** The large title's subtitle line: "$1,284 in the last 7 days". */
 export function pulseSubtitle(hero: PulseHero, range: PulseRange, cold: boolean): string {
   if (cold) return 'Taking a reading…'
@@ -279,6 +138,7 @@ export function projectSubtitle(row: ProjectCostRow): string {
 
 /** "82% attributed" for the Top projects header; nothing before a reading. */
 export function attributedLabel(view: ProjectCostView | null): string | undefined {
-  if (!view || view.attributedPercent === null) return undefined
-  return `${formatPercent(view.attributedPercent)} attributed`
+  if (!view || view.windowTotalUsd <= 0) return undefined
+  // The desktop's attribution rule: attributed share of the window, one decimal.
+  return `${formatShare(Math.min(view.attributedUsd, view.windowTotalUsd), view.windowTotalUsd)} attributed`
 }
