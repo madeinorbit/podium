@@ -3,7 +3,12 @@ import { expect, it } from 'vitest'
 import { AccountsRepository, SHARED_WITH_EVERYONE } from '../../store/accounts'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { stageASeam } from '../../test-support/stage-a-seam'
-import { type AccountEnvPorts, MissingManagedKeyError, resolveAccountEnv, SpawnAccountRefusal } from './account-env'
+import {
+  type AccountEnvPorts,
+  MissingManagedKeyError,
+  resolveAccountEnv,
+  SpawnAccountRefusal,
+} from './account-env'
 
 const ALICE = asUserId('mem_alice')
 const BOB = asUserId('mem_bob')
@@ -31,7 +36,10 @@ async function portsWith(
   }
 }
 
-const row = (ownerUserId = ALICE, credential = 'sk-ant-1'): Parameters<AccountsRepository['upsert']>[0] => ({
+const row = (
+  ownerUserId = ALICE,
+  credential = 'sk-ant-1',
+): Parameters<AccountsRepository['upsert']>[0] => ({
   id: asAccountId('managed:anthropic'),
   ownerUserId,
   provider: 'anthropic',
@@ -150,18 +158,31 @@ it("prefers the owner's own key over one shared with them", async () => {
 it('uses a key another user explicitly shares, by name or with everyone', async () => {
   const ports = await portsWith(row(BOB, 'sk-shared'))
   await ports.repo.share(BOB, asAccountId('managed:anthropic'), [ALICE])
-  expect(await resolveAccountEnv(ports, asAccountId('managed:anthropic'), { ownerUserId: ALICE, machineId: BOB_MACHINE })).toEqual({
+  expect(
+    await resolveAccountEnv(ports, asAccountId('managed:anthropic'), {
+      ownerUserId: ALICE,
+      machineId: BOB_MACHINE,
+    }),
+  ).toEqual({
     env: { ANTHROPIC_API_KEY: 'sk-shared' },
   })
   await ports.repo.share(BOB, asAccountId('managed:anthropic'), [SHARED_WITH_EVERYONE])
-  expect(await resolveAccountEnv(ports, asAccountId('managed:anthropic'), { ownerUserId: ALICE, machineId: BOB_MACHINE })).toEqual({
+  expect(
+    await resolveAccountEnv(ports, asAccountId('managed:anthropic'), {
+      ownerUserId: ALICE,
+      machineId: BOB_MACHINE,
+    }),
+  ).toEqual({
     env: { ANTHROPIC_API_KEY: 'sk-shared' },
   })
 })
 
 it("never uses another user's unshared key, and says which key is missing", async () => {
   const ports = await portsWith(row(BOB, 'sk-not-yours'))
-  const refusal = resolveAccountEnv(ports, asAccountId('managed:anthropic'), { ownerUserId: ALICE, machineId: BOB_MACHINE })
+  const refusal = resolveAccountEnv(ports, asAccountId('managed:anthropic'), {
+    ownerUserId: ALICE,
+    machineId: BOB_MACHINE,
+  })
   await expect(refusal).rejects.toBeInstanceOf(MissingManagedKeyError)
   await expect(refusal).rejects.toThrow(/No Anthropic API key is available to you/)
   await expect(refusal).rejects.toThrow(/An admin can share theirs/)
@@ -170,17 +191,42 @@ it("never uses another user's unshared key, and says which key is missing", asyn
 it('a revoked share stops the next resolution', async () => {
   const ports = await portsWith(row(BOB, 'sk-shared'))
   await ports.repo.share(BOB, asAccountId('managed:anthropic'), [SHARED_WITH_EVERYONE])
-  expect(await resolveAccountEnv(ports, asAccountId('managed:anthropic'), { ownerUserId: ALICE, machineId: BOB_MACHINE })).toEqual({
+  expect(
+    await resolveAccountEnv(ports, asAccountId('managed:anthropic'), {
+      ownerUserId: ALICE,
+      machineId: BOB_MACHINE,
+    }),
+  ).toEqual({
     env: { ANTHROPIC_API_KEY: 'sk-shared' },
   })
   await ports.repo.share(BOB, asAccountId('managed:anthropic'), [])
-  await expect(resolveAccountEnv(ports, asAccountId('managed:anthropic'), { ownerUserId: ALICE, machineId: BOB_MACHINE })).rejects.toBeInstanceOf(
-    MissingManagedKeyError,
-  )
+  await expect(
+    resolveAccountEnv(ports, asAccountId('managed:anthropic'), {
+      ownerUserId: ALICE,
+      machineId: BOB_MACHINE,
+    }),
+  ).rejects.toBeInstanceOf(MissingManagedKeyError)
 })
 
 it('refuses when nobody has the selected managed key', async () => {
-  await expect(resolveAccountEnv(await portsWith(), asAccountId('managed:anthropic'), own)).rejects.toThrow(
-    MissingManagedKeyError,
+  await expect(
+    resolveAccountEnv(await portsWith(), asAccountId('managed:anthropic'), own),
+  ).rejects.toThrow(MissingManagedKeyError)
+})
+
+it('requires the adopted workspace key’s own send, and honors taking that send back', async () => {
+  const alias = asAccountId('managed:anthropic:earlier-workspace')
+  const ports = await portsWith({ ...row(BOB, 'earlier-key'), id: alias })
+  await ports.repo.share(BOB, alias, [SHARED_WITH_EVERYONE])
+  await expect(resolveAccountEnv(ports, asAccountId('managed:anthropic'), own)).rejects.toThrow(
+    'Before your first run',
+  )
+  await ports.repo.markSent(BOB, alias, ALICE_MACHINE, '2026-11-10')
+  expect(await resolveAccountEnv(ports, asAccountId('managed:anthropic'), own)).toEqual({
+    env: { ANTHROPIC_API_KEY: 'earlier-key' },
+  })
+  await ports.repo.unmarkSent(BOB, alias, ALICE_MACHINE)
+  await expect(resolveAccountEnv(ports, asAccountId('managed:anthropic'), own)).rejects.toThrow(
+    'Before your first run',
   )
 })

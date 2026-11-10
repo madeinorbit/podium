@@ -9,8 +9,8 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useCountdown } from '@/lib/clock-hooks'
 import { useSettingsDraft } from '../readers'
+import type { SecretSurfaceState } from '../secret-presence'
 import { useSettingsFrame } from '../settings-frame'
-import type { SecretSurfaceState } from './secrets'
 import { CommitInput, Row, SecretRow, Section, SwitchRow } from './shared'
 
 /** The existing SettingsView ceremony owns polling and the synced preference

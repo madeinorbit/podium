@@ -129,13 +129,11 @@ export class IssueAssistantDigestModule {
         {
           settings,
           // POD-469: the actor's managed key (own, then explicitly shared),
-          // the rule a coding spawn uses; the instance's legacy key only as a
-          // read-only fallback. Resolved at the moment of use (POD-419).
+          // the rule a coding spawn uses, resolved at the moment of use.
           apiKey: async (account) =>
             await oneShotApiKey(
               {
                 accounts: store.accounts,
-                legacyApiKey: async (provider) => await store.secrets.apiKeyFor(provider),
               },
               actor,
               account,

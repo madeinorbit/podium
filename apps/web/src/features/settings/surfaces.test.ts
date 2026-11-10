@@ -58,18 +58,19 @@ describe('settings page classification', () => {
     }
   })
 
-  it('homes secrets beside the features that use them, keeping them server-owned', () => {
+  it('homes integration secrets beside their features and retires workspace provider keys', () => {
     const home = (path: string) =>
       pages.filter((page) => TAB_PATHS[page].some((prefix) => pathIsUnder(path, prefix)))
     const expectedHomes = {
       'integrations.linearApiKey': 'projects',
       'notifications.telegramBotToken': 'notifications',
-      'apiKeys.openrouter': 'accounts',
-      'apiKeys.anthropic': 'accounts',
-      'apiKeys.openai': 'accounts',
     }
     for (const entry of SETTINGS_CLASSIFICATION.filter((entry) => entry.tier === 'server-secret')) {
-      expect(home(entry.path)).toEqual([expectedHomes[entry.path as keyof typeof expectedHomes]])
+      if (entry.path.startsWith('apiKeys.')) {
+        expect(home(entry.path)).toEqual([])
+        expect(NOT_ON_THIS_SCREEN[entry.path]).toContain('personal managed accounts')
+      } else
+        expect(home(entry.path)).toEqual([expectedHomes[entry.path as keyof typeof expectedHomes]])
     }
     expect(TAB_SURFACE.projects).toBe('workspace')
     expect(PAGE_SETTINGS_TIER.projects).toBe('instance-preference')

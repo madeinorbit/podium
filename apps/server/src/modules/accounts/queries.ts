@@ -58,8 +58,7 @@ export const ACCOUNT_QUERIES = {
     // ONE MEMBER'S HUB (POD-6300, design §2.5). The caller's own managed
     // connections or explicitly shared keys; native logins on machines in their
     // OWN custody (a machine's native logins belong to the person who looks after
-    // it); the instance's legacy provider keys to an admin only, because those
-    // are instance settings, not anyone's connection. Nothing of another
+    // it). Nothing of another
     // member's private connection reaches this list, admins included.
     const viewer = asUserId(state.callerUserId)
     const standing = await state.machineStanding()
@@ -90,7 +89,6 @@ export const ACCOUNT_QUERIES = {
     const serverAi = state.resolveCodexServerAi
       ? await state.resolveCodexServerAi().catch(() => undefined)
       : undefined
-    const legacyVisible = (await state.callerRole?.()) === 'admin'
     // The viewer's D11 choices and how their ticked logins' copies went (POD-6301).
     const choiceKey = (harness: string, fingerprint: string) => `${harness}\u0000${fingerprint}`
     const ticked = new Set(
@@ -112,11 +110,9 @@ export const ACCOUNT_QUERIES = {
     return await Promise.all(
       (
         await accountViews(
-          async (provider) =>
-            legacyVisible ? await state.settings.apiKeyFor(provider) : undefined,
           state.accounts,
           viewer,
-          ownOnline as unknown as Parameters<typeof accountViews>[3],
+          ownOnline as unknown as Parameters<typeof accountViews>[2],
           served,
         )
       ).map(async (account) => {

@@ -1,17 +1,16 @@
 import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import type { Trpc } from '@/app/trpc'
-import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
+import type { Trpc } from '@/app/trpc'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import type { AccountView } from './shared'
 
-/** The D11 label, word for word (September addendum §4). */
-export const USE_ON_MY_MACHINES_LABEL =
-  'Use on all my machines'
+/** The personal login copy switch (D11). */
+export const USE_ON_MY_MACHINES_LABEL = 'Use on all my machines'
 
-/** Said once beside the box: it reaches future machines, and unticking recalls nothing. */
+/** Said once in the section help: it reaches future machines, and unticking recalls nothing. */
 export const USE_ON_MY_MACHINES_NOTE =
   'Use on all my machines copies a login to every machine you look after, including ones you add later. ' +
   'It never replaces a different login already there, and turning it off stops future copies. Copies already made stay where they are.'
@@ -27,7 +26,7 @@ export function hasUseOnMyMachinesBox(account: AccountView): boolean {
 }
 
 /**
- * THE D11 CHECKBOX (POD-6301; design §2.5). One per detected account, unticked
+ * THE D11 SWITCH (POD-6301; design §2.5). One per detected account, unticked
  * by default: ticked, Podium copies this login to every machine the person looks
  * after, now and in future, and uses it there.
  */

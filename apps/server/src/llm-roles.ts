@@ -92,9 +92,6 @@ export async function completeForRole<T>(
 
 export interface OneShotCredentialPorts {
   accounts: Pick<AccountsRepository, 'own' | 'sharedWith'>
-  /** The instance's pre-hub provider key (`apiKeys.<provider>` in the
-   *  server-only keyed store). Read only: nothing on this path writes it. */
-  legacyApiKey: (provider: string) => Promise<string | undefined>
 }
 
 /**
@@ -113,12 +110,6 @@ export interface OneShotCredentialPorts {
  * role (the first admin), so the role's configuration and the key it spends
  * belong to the same person.
  *
- * LEGACY, READ ONLY. With no managed key in reach, the plain
- * `managed:<provider>` account falls back to the instance's legacy key, which
- * is instance configuration rather than any member's connection. Any other
- * managed account (`managed:claude-oauth`) never falls back: spending an API
- * key where the role selected a subscription would bill a different account.
- *
  * A native (harness) account needs no key: Codex runs on the login catalog's
  * transport, and any other harness is refused by `llmClient`.
  */
@@ -133,13 +124,12 @@ export async function oneShotApiKey(
     if (row.kind !== 'api-key') {
       throw new LlmConfigError(
         `the ${managedKeyName(account.accountId)} cannot serve one-shot background calls; ` +
-          'select an API key account for this role in Settings → Accounts',
+          'select an API key account for this role in Settings → AI accounts',
       )
     }
     return row.credential
   }
-  if (account.accountId !== `managed:${account.provider}`) return undefined
-  return await ports.legacyApiKey(account.provider)
+  return undefined
 }
 
 /**

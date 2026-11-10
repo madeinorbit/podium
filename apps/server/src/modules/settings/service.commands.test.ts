@@ -266,7 +266,7 @@ describe('the blob write may not carry a secret', () => {
     // So the property is stronger than a refusal: the blob CANNOT express a
     // clear at all. Clearing is `settings.clearSecret` — online-only,
     // admin-grade, never queued.
-    await service.setSecret('apiKeys.anthropic', 'sk-configured')
+    await secrets.set('apiKeys.anthropic', 'sk-configured', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
       service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
@@ -279,7 +279,7 @@ describe('the blob write may not carry a secret', () => {
     // is a ROUND-TRIP, not a rotation — refusing it would break every preference
     // save from that tab, which is the failure POD-420's positive control exists
     // to prevent, now expressed against the keyed store.
-    await service.setSecret('apiKeys.openai', 'sk-served-earlier')
+    await secrets.set('apiKeys.openai', 'sk-served-earlier', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
       service.setSettingsFor(USER, {
@@ -323,24 +323,30 @@ describe('the blob write may not carry a secret', () => {
   })
 })
 
-describe('setSecret / clearSecret are the only path to material', () => {
+describe('setSecret / clearSecret own integration tokens', () => {
+  it('refuses new writes to the retired workspace provider key path', async () => {
+    for (const key of ['apiKeys.openai', 'apiKeys.anthropic', 'apiKeys.openrouter'] as const) {
+      await expect(service.setSecret(key, 'never-stored')).rejects.toThrow('AI accounts')
+      expect(await secrets.get(key)).toBeUndefined()
+    }
+  })
   it('writes the material and returns a projection WITHOUT it', async () => {
-    const wire = await service.setSecret('apiKeys.openai', 'sk-live-value')
+    const wire = await service.setSecret('integrations.linearApiKey', 'sk-live-value')
     // POD-419: the material lands in the server-only keyed store, and NOT in the
     // blob — which is the object that round-trips to a browser.
-    expect(await secrets.get('apiKeys.openai')).toBe('sk-live-value')
-    expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
+    expect(await secrets.get('integrations.linearApiKey')).toBe('sk-live-value')
+    expect((await service.getSettingsFor(USER)).integrations.linearApiKey).toBe('')
     expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('sk-live-value')
-    expect(wire.key).toBe('apiKeys.openai')
+    expect(wire.key).toBe('integrations.linearApiKey')
     expect(wire.present).toBe(true)
     expect(wire.fingerprint).toMatch(/^[0-9a-f]{16}$/)
     expect(JSON.stringify(wire)).not.toContain('sk-live-value')
   })
 
   it('the fingerprint changes on rotation and is stable without one', async () => {
-    const first = await service.setSecret('apiKeys.openai', 'sk-one')
-    const again = await service.setSecret('apiKeys.openai', 'sk-one')
-    const rotated = await service.setSecret('apiKeys.openai', 'sk-two')
+    const first = await service.setSecret('integrations.linearApiKey', 'sk-one')
+    const again = await service.setSecret('integrations.linearApiKey', 'sk-one')
+    const rotated = await service.setSecret('integrations.linearApiKey', 'sk-two')
     expect(again.fingerprint).toBe(first.fingerprint)
     expect(rotated.fingerprint).not.toBe(first.fingerprint)
   })

@@ -1,7 +1,7 @@
 import type { PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import type { SecretSurfaceState } from './secrets'
+import type { SecretSurfaceState } from '../secret-presence'
 import {
   CommitInput,
   clampInt,

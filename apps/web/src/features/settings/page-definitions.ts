@@ -161,33 +161,33 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     rows: [
       section(
         'accounts',
-        'Native logins',
-        'Agent logins already on your machines.',
+        'Logins on your machines',
+        'CLI logins found on the machines you look after.',
         'subscription claude codex grok opencode cursor pi sign in',
       ),
       section(
         'accounts',
-        'Managed accounts',
-        'Connect a provider account, send it to a machine, or choose who may use it.',
-        'api key credential send unsend share only you everyone specific people',
+        'Use on all my machines',
+        'Copy a login to every machine you look after, including ones you add later.',
+        'copy login transfer d11',
       ),
-      row(
-        'secrets',
-        'OpenRouter API key',
-        'A server-owned credential. Only presence and fingerprint are shown.',
-        'openrouter provider secret',
+      section(
+        'accounts',
+        'API keys',
+        'Your keys and keys shared with you, for agents and background jobs.',
+        'anthropic openai openrouter claude subscription setup-token',
       ),
-      row(
-        'secrets',
-        'Anthropic API key',
-        'A server-owned credential. Only presence and fingerprint are shown.',
-        'claude provider secret',
+      section(
+        'accounts',
+        'Share a key',
+        'Choose who can use a key when they have none of their own.',
+        'only you everyone specific people sharing',
       ),
-      row(
-        'secrets',
-        'OpenAI API key',
-        'A server-owned credential. Only presence and fingerprint are shown.',
-        'codex provider secret',
+      section(
+        'accounts',
+        'Send a key to someone else’s machine',
+        'Choose which shared machines may run a key, or take it back.',
+        'send unsend shared machine',
       ),
     ],
   },

@@ -28,6 +28,7 @@ import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
+import type { SecretSurfaceState } from './secret-presence'
 import { AgentsSection } from './sections/agents'
 import { AppearanceSection } from './sections/appearance'
 import { HibernationSection } from './sections/hibernation'
@@ -40,12 +41,11 @@ import {
   type TelegramSetupState,
 } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
-import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import {
   type AccountView,
   SettingsControlsContext,
-  useSettingsPermitted,
   type SettingsControlsState,
+  useSettingsPermitted,
 } from './sections/shared'
 import { WorkflowSection } from './sections/workflow'
 import { SettingsPageSection } from './settings-anchors'
@@ -138,22 +138,10 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <AppearanceSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
-  accounts: (ctx) => (
-    <>
-      <SettingsPageSection id="accounts">
-        <AccountsSection />
-      </SettingsPageSection>
-      <SettingsPageSection id="secrets">
-        <SecretsSection
-          state={ctx.secrets}
-          canManage={ctx.canManageSecrets}
-          onSet={(key, value) => void ctx.setSecret(key, value).catch(() => {})}
-          onClear={(key) => void ctx.clearSecret(key).catch(() => {})}
-          busy={ctx.secretBusy}
-          error={ctx.secretError}
-        />
-      </SettingsPageSection>
-    </>
+  accounts: () => (
+    <SettingsPageSection id="accounts">
+      <AccountsSection />
+    </SettingsPageSection>
   ),
   notifications: (ctx) => (
     <SettingsPageSection id="notifications">

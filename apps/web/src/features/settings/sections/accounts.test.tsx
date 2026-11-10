@@ -1,7 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@/test-support/mock-request-pool.test.fixture'
 import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
-import { Profiler, useRef, useSyncExternalStore } from 'react'
+import { Profiler, type ReactNode, useRef, useState, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountView } from './shared'
 
@@ -119,6 +119,23 @@ vi.mock('@/app/store', () => {
   }
 })
 
+const frame = vi.hoisted(() => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() }))
+vi.mock('../settings-frame', () => ({ useSettingsFrame: () => frame }))
+function Harness() {
+  const [flow, setFlow] = useState<ReactNode>(null)
+  frame.openTakeover.mockImplementation(({ content }: { content: ReactNode }) => setFlow(content))
+  frame.closeTakeover.mockImplementation(() => setFlow(null))
+  return (
+    <>
+      <div hidden={flow !== null}>
+        <AccountsSection />
+      </div>
+      <div data-testid="flow">{flow}</div>
+    </>
+  )
+}
+const flow = () => within(screen.getByTestId('flow'))
+
 const { AccountsSection } = await import('./accounts')
 
 const NATIVE: AccountView = {
@@ -127,6 +144,8 @@ const NATIVE: AccountView = {
   source: 'native',
   harness: 'claude-code',
   status: 'not-configured',
+  loginRequired: true,
+  loginMachines: [{ id: asMachineId('desk'), name: 'Desk' }],
 }
 const API_KEY_ROW: AccountView = {
   id: 'managed:anthropic',
@@ -165,162 +184,205 @@ afterEach(() => {
   }
 })
 
-describe('AccountsSection', () => {
-  it('a member who can read names still cannot read or manage members’ keys', async () => {
-    serveList([])
-    memberRequest.mockResolvedValue({ ...ADMIN_DIRECTORY, currentMemberId: 'user:ana' })
-    trpc.accounts.keys.query.mockResolvedValue([])
-    render(<AccountsSection />)
+const OWN: AccountView = {
+  ...API_KEY_ROW,
+  identity: 'sk-a…f9x2',
+  status: 'connected',
+  credentialSource: 'stored',
+  sharing: { everyone: false, users: [] },
+}
 
-    await waitFor(() => expect(memberRequest).toHaveBeenCalled())
-    await act(async () => {})
-    expect(authRequest).toHaveBeenCalledWith(expect.any(String), 'admin/viewer')
+async function openKey(account: AccountView = OWN, next: AccountView = account) {
+  serveList([account], [next])
+  render(<Harness />)
+  fireEvent.click(await screen.findByRole('button', { name: /Anthropic API key/ }))
+}
+
+describe('personal AI accounts', () => {
+  it('does not read the admin keys directory, even for an admin', async () => {
+    asAdmin()
+    serveList([OWN])
+    render(<Harness />)
+    expect(await screen.findByText('Only you')).toBeTruthy()
     expect(screen.queryByText("Members' keys")).toBeNull()
     expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
   })
 
-  it('waits for the viewer before reading members’ keys even when names are already available', async () => {
-    serveList([])
-    memberRequest.mockResolvedValue(ADMIN_DIRECTORY)
-    trpc.accounts.keys.query.mockResolvedValue([])
-    let finish: (answer: { sections: string[] }) => void
-    authRequest.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve
-        }),
-    )
-    render(<AccountsSection />)
-
-    await waitFor(() => expect(memberRequest).toHaveBeenCalled())
-    await act(async () => {})
-    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
-    expect(screen.queryByText("Members' keys")).toBeNull()
-
-    await act(async () => finish({ sections: ['people'] }))
-    expect(await screen.findByText("Members' keys")).toBeTruthy()
-    expect(trpc.accounts.keys.query).toHaveBeenCalledWith({})
-  })
-
-  it('offers an admin members’ keys even when the names read fails', async () => {
-    serveList([])
-    authRequest.mockResolvedValue({ sections: ['people'] })
-    trpc.accounts.keys.query.mockResolvedValue([])
-    render(<AccountsSection />)
-
-    expect(await screen.findByText("Members' keys")).toBeTruthy()
-    expect(trpc.accounts.keys.query).toHaveBeenCalledWith({})
-  })
-
-  it('does not rerender native rows when a store publication leaves their fields unchanged', async () => {
+  it('keeps native rows stable across unrelated store publications', async () => {
     serveList([NATIVE])
     let updates = 0
     render(
-      <Profiler
-        id="accounts"
-        onRender={(_id, phase) => {
-          if (phase === 'update') updates++
-        }}
-      >
-        <AccountsSection />
+      <Profiler id="accounts" onRender={() => updates++}>
+        <Harness />
       </Profiler>,
     )
-    expect(await screen.findByText('Not connected')).toBeTruthy()
-    const updatesBeforePublication = updates
-
-    act(() => publishUnchangedSelection())
-
-    expect(updates).toBe(updatesBeforePublication)
-    expect(trpc.accounts.list.query).toHaveBeenCalledTimes(1)
+    await screen.findByText('Claude Code')
+    const before = updates
+    await act(async () => publishUnchangedSelection())
+    expect(updates).toBe(before)
   })
 
-  it('keeps a long connected identity readable without arbitrary character breaks', async () => {
-    const identity = 'Tillmann Felippi · tillmann.felippi+podium@example.com'
-    serveList([{ ...NATIVE, status: 'connected', identity }])
-    render(<AccountsSection />)
-
-    const value = await screen.findByText(identity)
-    expect(value.className).toContain('break-words')
-    expect(value.className).not.toContain('break-all')
-    expect(value.className).not.toContain('truncate')
+  it('shows each identity, its preserved warning, and a switch with one section explanation', async () => {
+    const login: AccountView = {
+      ...NATIVE,
+      id: 'native:codex',
+      harness: 'codex',
+      identity: 'alice@example.com',
+      identityFingerprint: 'fp-alice',
+      machines: ['Desk'],
+      status: 'connected',
+      loginRequired: false,
+      useOnMyMachines: false,
+      keptOn: [{ id: asMachineId('laptop'), name: 'Laptop' }],
+    }
+    serveList(
+      [
+        login,
+        { ...NATIVE, id: 'native:pi', harness: 'pi', loginMachines: [], loginRequired: false },
+      ],
+      [{ ...login, useOnMyMachines: true }],
+    )
+    trpc.accounts.useOnMyMachines.mutate.mockResolvedValue({ ok: true })
+    render(<Harness />)
+    const toggle = await screen.findByRole('switch', {
+      name: 'Use on all my machines (alice@example.com)',
+    })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByText(/Not copied to Laptop/)).toBeTruthy()
+    expect(screen.getByText(/Pi are supported too/)).toBeTruthy()
+    expect(screen.getAllByText(/copies a login to every machine/)).toHaveLength(1)
+    fireEvent.click(toggle)
+    await waitFor(() =>
+      expect(trpc.accounts.useOnMyMachines.mutate).toHaveBeenCalledWith({
+        harness: 'codex',
+        fingerprint: 'fp-alice',
+        enabled: true,
+      }),
+    )
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
   })
 
-  it('starts a native login on the selected machine and opens its PTY', async () => {
+  it('chooses a qualified machine for Sign in and opens the resulting session', async () => {
     serveList([
       {
         ...NATIVE,
-        loginRequired: true,
         loginMachines: [
-          { id: asMachineId('machine-a'), name: 'Alpha' },
-          { id: asMachineId('machine-b'), name: 'Beta' },
+          { id: asMachineId('desk'), name: 'Desk' },
+          { id: asMachineId('laptop'), name: 'Laptop' },
         ],
       },
     ])
     trpc.accounts.login.mutate.mockResolvedValue({ sessionId: 'login-session' })
-    render(<AccountsSection />)
-
-    fireEvent.change(await screen.findByLabelText('claude-code login machine'), {
-      target: { value: 'machine-b' },
+    render(<Harness />)
+    fireEvent.change(await screen.findByLabelText('Claude Code sign-in machine'), {
+      target: { value: 'laptop' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
-
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() =>
       expect(trpc.accounts.login.mutate).toHaveBeenCalledWith({
         harness: 'claude-code',
-        machineId: 'machine-b',
+        machineId: 'laptop',
       }),
     )
     await waitFor(() => expect(navigateToSession).toHaveBeenCalledWith('login-session'))
   })
 
-  it('renders an unavailable native probe as unknown instead of claiming a logout', async () => {
-    serveList([{ ...NATIVE, status: 'unknown' }])
-    render(<AccountsSection />)
-
-    expect(await screen.findByText('Status unavailable')).toBeTruthy()
-    expect(screen.queryByText('Not connected')).toBeNull()
+  it('moves sharing into the key takeover and saves on change', async () => {
+    trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+    await openKey()
+    expect(flow().getByText('Who can use it')).toBeTruthy()
+    expect(flow().getByText(/Your coding agents, background and superagent/)).toBeTruthy()
+    fireEvent.click(flow().getByRole('button', { name: 'Everyone' }))
+    await waitFor(() =>
+      expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+        id: OWN.id,
+        everyone: true,
+        users: [],
+      }),
+    )
+    expect(flow().queryByRole('button', { name: 'Save' })).toBeNull()
   })
 
-  it('connects a managed API key, masks the input, and refetches so the row flips', async () => {
-    const connected: AccountView = { ...API_KEY_ROW, identity: 'sk-a…f9x2', status: 'connected' }
-    serveList([NATIVE, API_KEY_ROW], [NATIVE, connected])
-    trpc.accounts.connect.mutate.mockResolvedValue({ id: 'managed:anthropic' })
-    render(<AccountsSection />)
+  it('lets a member choose named people and removes their last share immediately', async () => {
+    asMember()
+    trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+    await openKey(OWN, { ...OWN, sharing: { everyone: false, users: ['user:ana'] } })
+    await waitFor(() =>
+      expect(
+        (flow().getByRole('button', { name: 'Specific people' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
+    fireEvent.click(flow().getByRole('button', { name: 'Specific people' }))
+    expect(flow().queryByRole('switch', { name: 'Ben' })).toBeNull()
+    fireEvent.click(flow().getByRole('switch', { name: 'Ana' }))
+    await waitFor(() =>
+      expect(trpc.accounts.share.mutate).toHaveBeenLastCalledWith({
+        id: OWN.id,
+        everyone: false,
+        users: ['user:ana'],
+      }),
+    )
+    await waitFor(() =>
+      expect((flow().getByRole('switch', { name: 'Ana' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    )
+    fireEvent.click(flow().getByRole('switch', { name: 'Ana' }))
+    await waitFor(() =>
+      expect(trpc.accounts.share.mutate).toHaveBeenLastCalledWith({
+        id: OWN.id,
+        everyone: false,
+        users: [],
+      }),
+    )
+    expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory')
+    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+  })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect' }))
-    const input = screen.getByLabelText('Anthropic API key secret') as HTMLInputElement
+  it('restores sharing after a refused save and shows the reason', async () => {
+    trpc.accounts.share.mutate.mockRejectedValue(new Error('Sharing refused'))
+    await openKey()
+    fireEvent.click(flow().getByRole('button', { name: 'Everyone' }))
+    expect(await flow().findByText('Sharing refused')).toBeTruthy()
+    expect(flow().getByRole('button', { name: 'Only you' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('shows who shares a key and offers a write-only personal key entry', async () => {
+    asMember()
+    serveList([{ ...OWN, credentialSource: 'shared', sharedBy: 'user:ana' }], [OWN])
+    trpc.accounts.connect.mutate.mockResolvedValue({ id: OWN.id })
+    render(<Harness />)
+    expect(await screen.findByText(/Ana’s key/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add your own' }))
+    fireEvent.click(flow().getByRole('button', { name: 'Add' }))
+    const input = flow().getByLabelText('Anthropic API key') as HTMLInputElement
     expect(input.type).toBe('password')
-    fireEvent.change(input, { target: { value: 'sk-ant-secret' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
+    expect(input.value).toBe('')
+    fireEvent.change(input, { target: { value: 'sk-new-personal-key' } })
+    fireEvent.click(flow().getByRole('button', { name: 'Save' }))
     await waitFor(() =>
       expect(trpc.accounts.connect.mutate).toHaveBeenCalledWith({
         provider: 'anthropic',
         kind: 'api-key',
-        credential: 'sk-ant-secret',
+        credential: 'sk-new-personal-key',
       }),
     )
-    // Refetched, so the row shows the server's masked identity — not local state.
-    expect(await screen.findByText('sk-a…f9x2')).toBeTruthy()
-    expect(screen.queryByDisplayValue('sk-ant-secret')).toBeNull()
+    await waitFor(() => expect(screen.queryByDisplayValue('sk-new-personal-key')).toBeNull())
   })
 
-  it('offers the setup-token affordance on the Claude subscription row only', async () => {
-    serveList([API_KEY_ROW, OAUTH_ROW])
-    render(<AccountsSection />)
-
-    expect(await screen.findByText('Claude subscription (setup-token)')).toBeTruthy()
-    expect(screen.getByText(/long-lived subscription token \(about a year\)/)).toBeTruthy()
-
-    const rows = screen.getAllByRole('button', { name: 'Connect' })
-    expect(rows).toHaveLength(2)
-    fireEvent.click(rows[1] as HTMLElement)
-    fireEvent.change(screen.getByLabelText('Claude subscription (setup-token) secret'), {
+  it('adds a Claude subscription token using the oauth command shape', async () => {
+    serveList([OAUTH_ROW])
+    trpc.accounts.connect.mutate.mockResolvedValue({ id: OAUTH_ROW.id })
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add key' }))
+    expect(flow().getByText(/claude setup-token/)).toBeTruthy()
+    fireEvent.click(flow().getByRole('button', { name: 'Add' }))
+    fireEvent.change(flow().getByLabelText('Claude subscription token'), {
       target: { value: 'sk-ant-oat01-token' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-    // OAuth is anthropic-only; the api-key row must never send kind 'oauth'.
+    fireEvent.click(flow().getByRole('button', { name: 'Save' }))
     await waitFor(() =>
       expect(trpc.accounts.connect.mutate).toHaveBeenCalledWith({
         provider: 'anthropic',
@@ -330,370 +392,55 @@ describe('AccountsSection', () => {
     )
   })
 
-  it('disconnects a connected managed account and refetches', async () => {
-    const connected: AccountView = { ...API_KEY_ROW, identity: 'sk-a…f9x2', status: 'connected' }
-    serveList([connected], [API_KEY_ROW])
-    trpc.accounts.disconnect.mutate.mockResolvedValue({ ok: true })
-    render(<AccountsSection />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
-    await waitFor(() =>
-      expect(trpc.accounts.disconnect.mutate).toHaveBeenCalledWith({ id: 'managed:anthropic' }),
-    )
-    expect(await screen.findByRole('button', { name: 'Connect' })).toBeTruthy()
-  })
-
-  // POD-6300 (MU-28): sending one's own connection to someone else's machine
-  // shows the shared-machine warning first, and only then sends it.
-  it('sends a connection to a shared machine only after showing the warning', async () => {
-    const alice = { id: asMachineId('machine-alice'), name: 'alice-desk' }
-    const connected: AccountView = {
-      ...API_KEY_ROW,
-      identity: 'sk-a…f9x2',
-      status: 'connected',
-      credentialSource: 'stored',
-      sentTo: [],
-      sendableTo: [alice],
-    }
-    serveList([connected], [{ ...connected, sentTo: [alice], sendableTo: [] }])
+  it('requires the shared-machine acknowledgement before sending', async () => {
     trpc.accounts.send.mutate.mockResolvedValue({ ok: true, sent: true })
-    render(<AccountsSection />)
-
-    expect(screen.queryByText(SHARED_MACHINE_ACCOUNT_WARNING)).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: 'Send to a shared machine' }))
-    expect(screen.getByText(SHARED_MACHINE_ACCOUNT_WARNING)).toBeTruthy()
+    await openKey({
+      ...OWN,
+      sentTo: [],
+      sendableTo: [{ id: asMachineId('foreign'), name: 'Foreign' }],
+    })
+    fireEvent.click(flow().getByRole('switch', { name: 'Send key to Foreign' }))
+    expect(flow().getByText(SHARED_MACHINE_ACCOUNT_WARNING)).toBeTruthy()
+    const send = flow().getByRole('button', { name: 'Send to Foreign' }) as HTMLButtonElement
+    expect(send.disabled).toBe(true)
     expect(trpc.accounts.send.mutate).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Send to alice-desk' }))
+    fireEvent.click(flow().getByRole('checkbox', { name: /I understand we will share/ }))
+    fireEvent.click(send)
     await waitFor(() =>
       expect(trpc.accounts.send.mutate).toHaveBeenCalledWith({
-        id: 'managed:anthropic',
-        machineId: 'machine-alice',
+        id: OWN.id,
+        machineId: 'foreign',
         acknowledgeSharedMachine: true,
       }),
     )
-    expect(await screen.findByText(/Also runs on alice-desk, someone else's machine/)).toBeTruthy()
   })
 
-  // POD-6699: a send can be taken back from the row, and the row says that
-  // sessions already running there keep the key until they restart.
-  it('removes a connection from a machine it was sent to', async () => {
-    const alice = { id: asMachineId('machine-alice'), name: 'alice-desk' }
-    const connected: AccountView = {
-      ...API_KEY_ROW,
-      identity: 'sk-a…f9x2',
-      status: 'connected',
-      credentialSource: 'stored',
-      sentTo: [alice],
+  it('takes a sent key back and preserves the running-session explanation', async () => {
+    const note = 'Running sessions keep it until they restart.'
+    trpc.accounts.unsend.mutate.mockResolvedValue({ ok: true, note })
+    await openKey({
+      ...OWN,
+      sentTo: [{ id: asMachineId('foreign'), name: 'Foreign' }],
       sendableTo: [],
-    }
-    serveList([connected], [{ ...connected, sentTo: [], sendableTo: [alice] }])
-    const note =
-      'The next run on "alice-desk" no longer gets this key. Sessions already running on "alice-desk" keep it until they restart.'
-    trpc.accounts.unsend.mutate.mockResolvedValue({ ok: true, removed: true, note })
-    render(<AccountsSection />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /^Remove .* from alice-desk$/ }))
+    })
+    fireEvent.click(flow().getByRole('switch', { name: 'Send key to Foreign' }))
     await waitFor(() =>
       expect(trpc.accounts.unsend.mutate).toHaveBeenCalledWith({
-        id: 'managed:anthropic',
-        machineId: 'machine-alice',
+        id: OWN.id,
+        machineId: 'foreign',
       }),
     )
-    expect(await screen.findByText(note)).toBeTruthy()
-    await waitFor(() => expect(screen.queryByText(/Also runs on alice-desk/)).toBeNull())
+    expect(await flow().findByText(note)).toBeTruthy()
   })
 
-  // POD-6301 (D11): one unticked box per detected account; ticking it asks the
-  // server to copy that account to the person's other machines.
-  it('shows the D11 box unticked on a detected account and ticks it for that account', async () => {
-    const detected: AccountView = {
-      id: 'native:codex',
-      provider: 'openai',
-      source: 'native',
-      harness: 'codex',
-      identity: 'alice@example.com',
-      identityFingerprint: 'fp-alice',
-      machines: ['alice-laptop'],
-      status: 'connected',
-      useOnMyMachines: false,
-      keptOn: [],
-    }
-    serveList([detected], [{ ...detected, useOnMyMachines: true }])
-    trpc.accounts.useOnMyMachines.mutate.mockResolvedValue({ ok: true, enabled: true })
-    render(<AccountsSection />)
-
-    const box = await screen.findByRole('checkbox', {
-      name: /Automatically transfer and use these credentials on other machines I own/,
-    })
-    expect(box.getAttribute('aria-checked')).toBe('false')
-    expect(screen.getByText(/copies already made stay where they are/)).toBeTruthy()
-    fireEvent.click(box)
+  it('confirms removal inline before disconnecting the key', async () => {
+    trpc.accounts.disconnect.mutate.mockResolvedValue({ ok: true })
+    await openKey()
+    fireEvent.click(flow().getByRole('button', { name: 'Remove' }))
+    expect(trpc.accounts.disconnect.mutate).not.toHaveBeenCalled()
+    fireEvent.click(flow().getByRole('button', { name: 'Remove key' }))
     await waitFor(() =>
-      expect(trpc.accounts.useOnMyMachines.mutate).toHaveBeenCalledWith({
-        harness: 'codex',
-        fingerprint: 'fp-alice',
-        enabled: true,
-      }),
+      expect(trpc.accounts.disconnect.mutate).toHaveBeenCalledWith({ id: OWN.id }),
     )
-    await waitFor(() => expect(box.getAttribute('aria-checked')).toBe('true'))
-  })
-
-  it('says where a different login was kept, and shows no box without a known identity', async () => {
-    serveList([
-      {
-        id: 'native:codex',
-        provider: 'openai',
-        source: 'native',
-        harness: 'codex',
-        identity: 'alice@example.com',
-        identityFingerprint: 'fp-alice',
-        status: 'connected',
-        useOnMyMachines: true,
-        keptOn: [{ id: asMachineId('alice-desk'), name: 'alice-desk' }],
-      },
-      { ...NATIVE, status: 'connected' },
-    ])
-    render(<AccountsSection />)
-    expect(
-      await screen.findByText(
-        'Not copied to alice-desk: a different login is signed in there, and Podium kept it.',
-      ),
-    ).toBeTruthy()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
-  })
-
-  it('surfaces a connect failure and keeps the form open', async () => {
-    serveList([API_KEY_ROW])
-    trpc.accounts.connect.mutate.mockRejectedValue(new Error('bad credential'))
-    render(<AccountsSection />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect' }))
-    fireEvent.change(screen.getByLabelText('Anthropic API key secret'), {
-      target: { value: 'nope' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-    expect(await screen.findByText('bad credential')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
-  })
-
-  it('leaves the background login and failure status to the Agents page', async () => {
-    serveList([
-      {
-        ...NATIVE,
-        id: 'native:codex',
-        harness: 'codex',
-        status: 'connected',
-        identity: 'user@example.com',
-        serverAi: {
-          machineId: asMachineId('desk'),
-          machineName: 'Desk',
-          lastError: "codex 400: The 'gpt-5.5' model is not supported.",
-        },
-      },
-    ])
-    render(<AccountsSection />)
-
-    expect(await screen.findByText('Codex')).toBeTruthy()
-    expect(screen.queryByText(/Server AI uses Desk/)).toBeNull()
-    expect(screen.queryByText(/Server AI last failed: /)).toBeNull()
-    expect(screen.queryByText(/not supported/)).toBeNull()
-  })
-
-  describe('key sharing (POD-6390)', () => {
-    const OWN: AccountView = {
-      ...API_KEY_ROW,
-      identity: 'sk-a…f9x2',
-      status: 'connected',
-      credentialSource: 'stored',
-      sharing: { everyone: false, users: [] },
-    }
-
-    it("shows the owner's sharing and shares their key with everyone", async () => {
-      serveList([OWN], [{ ...OWN, sharing: { everyone: true, users: [] } }])
-      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
-      render(<AccountsSection />)
-
-      expect(await screen.findByText('Only you')).toBeTruthy()
-      fireEvent.click(screen.getByRole('button', { name: 'Change who can use Anthropic API key' }))
-      fireEvent.click(screen.getByLabelText('Everyone on this server'))
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-      await waitFor(() =>
-        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
-          id: 'managed:anthropic',
-          everyone: true,
-          users: [],
-        }),
-      )
-      // Refetched: the editor closes and the line shows the server's answer.
-      await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
-      expect(await screen.findByText('Everyone on this server')).toBeTruthy()
-    })
-
-    it('when the directory fails, a member can still revoke one already named', async () => {
-      serveList([{ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }], [OWN])
-      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
-      render(<AccountsSection />)
-
-      expect(await screen.findByText('1 person')).toBeTruthy()
-      fireEvent.click(screen.getByRole('button', { name: 'Change who can use Anthropic API key' }))
-      // The named person is still listed (by id, since no directory names them).
-      expect((screen.getByLabelText('user:ana') as HTMLInputElement).checked).toBe(true)
-      fireEvent.click(screen.getByLabelText('Only you'))
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-      await waitFor(() =>
-        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
-          id: 'managed:anthropic',
-          everyone: false,
-          users: [],
-        }),
-      )
-      expect(await screen.findByText('Only you')).toBeTruthy()
-      // No admin list for a member, and the admin read is never sent.
-      expect(screen.queryByText("Members' keys")).toBeNull()
-      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
-    })
-
-    it('a member shares their own key with a specific person by name', async () => {
-      asMember()
-      serveList([OWN], [{ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }])
-      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
-      render(<AccountsSection />)
-
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
-      )
-      await waitFor(() =>
-        expect((screen.getByLabelText('Specific people') as HTMLInputElement).disabled).toBe(false),
-      )
-      fireEvent.click(screen.getByLabelText('Specific people'))
-      expect(screen.queryByLabelText('Ben')).toBeNull()
-      expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(
-        true,
-      )
-      fireEvent.click(screen.getByLabelText('Ana'))
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-      await waitFor(() =>
-        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
-          id: 'managed:anthropic',
-          everyone: false,
-          users: ['user:ana'],
-        }),
-      )
-      expect(await screen.findByText('Ana')).toBeTruthy()
-      expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory')
-      expect(screen.queryByText("Members' keys")).toBeNull()
-      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
-    })
-
-    it('explains an unavailable directory without requiring an admin', async () => {
-      serveList([OWN])
-      render(<AccountsSection />)
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
-      )
-      expect((screen.getByLabelText('Specific people') as HTMLInputElement).disabled).toBe(true)
-      expect(screen.queryByText(/Only an admin can see the member list/)).toBeNull()
-      expect(screen.getByText(/No other active members are available/)).toBeTruthy()
-    })
-
-    it('an admin shares their own key with named people, by name', async () => {
-      asAdmin()
-      trpc.accounts.keys.query.mockResolvedValue([])
-      serveList([OWN], [{ ...OWN, sharing: { everyone: false, users: ['user:ana', 'user:ben'] } }])
-      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
-      render(<AccountsSection />)
-
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
-      )
-      fireEvent.click(screen.getByLabelText('Specific people'))
-      // The viewer is the owner: not offered as a grantee.
-      expect(screen.queryByLabelText('Robin')).toBeNull()
-      const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
-      expect(save.disabled).toBe(true)
-      fireEvent.click(screen.getByLabelText('Ana'))
-      fireEvent.click(screen.getByLabelText('Ben'))
-      fireEvent.click(save)
-
-      await waitFor(() =>
-        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
-          id: 'managed:anthropic',
-          everyone: false,
-          users: ['user:ana', 'user:ben'],
-        }),
-      )
-      expect(await screen.findByText('Ana and Ben')).toBeTruthy()
-    })
-
-    it("an admin manages another member's key from the members' keys list", async () => {
-      asAdmin()
-      const anas = {
-        owner: 'user:ana',
-        id: 'managed:openai',
-        provider: 'openai',
-        kind: 'api-key',
-        identity: 'sk-p…1234',
-        sharing: { everyone: false, users: [] },
-      }
-      trpc.accounts.keys.query
-        .mockResolvedValueOnce([{ ...anas, owner: 'user:admin', id: 'managed:anthropic' }, anas])
-        .mockResolvedValue([{ ...anas, sharing: { everyone: true, users: [] } }])
-      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
-      serveList([OWN])
-      render(<AccountsSection />)
-
-      expect(await screen.findByText("Members' keys")).toBeTruthy()
-      expect(await screen.findByText('sk-p…1234')).toBeTruthy()
-      // Ana's key is private: it is hers, not the viewing admin's.
-      expect(screen.getByText('Only its owner')).toBeTruthy()
-      // The admin's own key is not repeated in the list: one control for it, above.
-      expect(
-        screen
-          .getAllByRole('button', { name: /^Change who can use / })
-          .map((b) => b.getAttribute('aria-label')),
-      ).toEqual(['Change who can use Anthropic API key', "Change who can use Ana's OpenAI API key"])
-      fireEvent.click(
-        screen.getByRole('button', { name: "Change who can use Ana's OpenAI API key" }),
-      )
-      fireEvent.click(screen.getByLabelText('Everyone on this server'))
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-      await waitFor(() =>
-        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
-          id: 'managed:openai',
-          owner: 'user:ana',
-          everyone: true,
-          users: [],
-        }),
-      )
-      await waitFor(() => expect(trpc.accounts.keys.query).toHaveBeenCalledTimes(2))
-      await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
-      expect(await screen.findByText('Everyone on this server')).toBeTruthy()
-    })
-
-    it('names who shared a key with a member without reading admin data', async () => {
-      asMember()
-      serveList([
-        {
-          ...API_KEY_ROW,
-          identity: 'sk-a…0000',
-          status: 'connected',
-          credentialSource: 'shared',
-          sharedBy: 'user:ana',
-        },
-      ])
-      render(<AccountsSection />)
-
-      expect(await screen.findByText(/Shared with you by Ana/)).toBeTruthy()
-      expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory')
-      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
-      // Not the viewer's key: no sharing control on it.
-      expect(screen.queryByRole('button', { name: /^Change who can use Anthropic/ })).toBeNull()
-    })
   })
 })

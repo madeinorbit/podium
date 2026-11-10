@@ -20,8 +20,8 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Row } from './shared'
 import { useSettingsTrpc } from '../stable-access'
+import { Row } from './shared'
 
 type Mode = 'private' | 'everyone' | 'people'
 
@@ -92,7 +92,9 @@ export const KeySharing = observer(function KeySharing({
   }, [sharing])
 
   const keyOwner = owner ?? currentMemberId
-  const known = (directory?.members ?? []).filter((member) => member.id !== keyOwner && !member.disabledAt)
+  const known = (directory?.members ?? []).filter(
+    (member) => member.id !== keyOwner && !member.disabledAt,
+  )
   const knownIds = new Set(known.map((member) => member.id))
   const extra = picked.filter((id) => !knownIds.has(id))
   const canPick = known.length > 0 || extra.length > 0
@@ -115,7 +117,17 @@ export const KeySharing = observer(function KeySharing({
         users: nextMode === 'people' ? [...users] : [],
       })
       onChanged()
-      toast('Saved', undo ? { action: { label: 'Undo', onClick: () => void save(previousMode, previousUsers, false) } } : undefined)
+      toast(
+        'Saved',
+        undo
+          ? {
+              action: {
+                label: 'Undo',
+                onClick: () => void save(previousMode, previousUsers, false),
+              },
+            }
+          : undefined,
+      )
     } catch (e) {
       setMode(previousMode)
       setPicked(previousUsers)
@@ -128,23 +140,76 @@ export const KeySharing = observer(function KeySharing({
   return (
     <>
       <Row label="Share with" error={error} pending={busy}>
-        <fieldset aria-label={`Who can use ${label}`} disabled={busy} className="m-0 flex min-w-0 rounded-lg border border-hairline-soft bg-muted/40 p-0.5">
-          {([
-            ['private', owner ? 'Only its owner' : 'Only you'],
-            ['everyone', 'Everyone'],
-            ['people', 'Specific people'],
-          ] as const).map(([value, text]) => <Button key={value} type="button" size="sm" variant="ghost" aria-pressed={mode === value} disabled={busy || (value === 'people' && !canPick)} className={mode === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'} onClick={() => void save(value, value === 'people' ? picked : [])}>{text}</Button>)}
+        <fieldset
+          aria-label={`Who can use ${label}`}
+          disabled={busy}
+          className="m-0 flex min-w-0 rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
+        >
+          {(
+            [
+              ['private', owner ? 'Only its owner' : 'Only you'],
+              ['everyone', 'Everyone'],
+              ['people', 'Specific people'],
+            ] as const
+          ).map(([value, text]) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-pressed={mode === value}
+              disabled={busy || (value === 'people' && !canPick)}
+              className={mode === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'}
+              onClick={() => void save(value, value === 'people' ? picked : [])}
+            >
+              {text}
+            </Button>
+          ))}
         </fieldset>
       </Row>
-      {!canPick && <p className="settings-list-note settings-prose">{directory?.loading ? 'Loading people…' : directory?.error ? 'People could not be loaded. Existing shares can still be removed.' : 'No other active members are available to select.'}</p>}
-      {mode === 'people' && <>
-        {known.map((member) => <Row key={member.id} label={nameOf(directory, member.id) ?? 'Member'}>
-          <Switch aria-label={nameOf(directory, member.id) ?? 'Member'} checked={picked.includes(member.id)} disabled={busy} onCheckedChange={(checked) => void save('people', checked ? [...picked, member.id] : picked.filter((id) => id !== member.id))} />
-        </Row>)}
-        {extra.map((id) => <Row key={id} label={nameOf(directory, id) ?? id}>
-          <Switch aria-label={nameOf(directory, id) ?? id} checked disabled={busy} onCheckedChange={() => void save('people', picked.filter((user) => user !== id))} />
-        </Row>)}
-      </>}
+      {!canPick && (
+        <p className="settings-list-note settings-prose">
+          {directory?.loading
+            ? 'Loading people…'
+            : directory?.error
+              ? 'People could not be loaded. Existing shares can still be removed.'
+              : 'No other active members are available to select.'}
+        </p>
+      )}
+      {mode === 'people' && (
+        <>
+          {known.map((member) => (
+            <Row key={member.id} label={nameOf(directory, member.id) ?? 'Member'}>
+              <Switch
+                aria-label={nameOf(directory, member.id) ?? 'Member'}
+                checked={picked.includes(member.id)}
+                disabled={busy}
+                onCheckedChange={(checked) =>
+                  void save(
+                    'people',
+                    checked ? [...picked, member.id] : picked.filter((id) => id !== member.id),
+                  )
+                }
+              />
+            </Row>
+          ))}
+          {extra.map((id) => (
+            <Row key={id} label={nameOf(directory, id) ?? id}>
+              <Switch
+                aria-label={nameOf(directory, id) ?? id}
+                checked
+                disabled={busy}
+                onCheckedChange={() =>
+                  void save(
+                    'people',
+                    picked.filter((user) => user !== id),
+                  )
+                }
+              />
+            </Row>
+          ))}
+        </>
+      )}
     </>
   )
 })

@@ -8,9 +8,13 @@
 import { providerOf, resolveDescriptors } from '@podium/harness/browser'
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import { asAccountId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
-import { isBuiltinHarnessKind, type HarnessDescriptorWire } from '@podium/protocol'
+import { type HarnessDescriptorWire, isBuiltinHarnessKind } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
-import { type AccountsRepository, type ManagedAccountRow, SHARED_WITH_EVERYONE } from './store/accounts'
+import {
+  type AccountsRepository,
+  type ManagedAccountRow,
+  SHARED_WITH_EVERYONE,
+} from './store/accounts'
 import type { MachineRecord } from './store/types'
 
 /** A row in the Accounts hub. Native rows are observed from the machine catalog;
@@ -140,19 +144,18 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * All accounts for the hub, as ONE VIEWER sees them: the catalog of native CLI
  * logins plus the managed credentials Podium holds. Managed rows are read from
  * the accounts table, never from the settings blob, so credential bytes cannot
- * reach a client. Native machines and legacy key access are scoped by the caller.
+ * reach a client. Native machines are scoped by the caller.
  *
  * Managed keys are per user (POD-6360). For each managed account id the viewer
  * sees their OWN key (`stored`, with who they share it with); else a key another
  * user explicitly shares with them (`shared`, with its owner, never with its
- * sharing list); else the legacy settings key; else not configured. Another
+ * sharing list); else not configured. Another
  * user's unshared key is never shown.
  *
  * The fourth argument accepts an explicit HOME only for legacy unit tests. The
  * production query passes machine records and therefore has no homedir fallback.
  */
 export async function accountViews(
-  legacyApiKey: (provider: string) => string | undefined | Promise<string | undefined>,
   accounts: AccountsRepository,
   viewer: UserId,
   machinesOrHome: readonly MachineRecord[] | string = [],
@@ -171,26 +174,21 @@ export async function accountViews(
   const shared = new Map<string, ManagedAccountRow>()
   // Oldest first: the same key the spawn picks (`managedKeyFor`).
   for (const row of await accounts.sharedWithUser(viewer)) {
-    if (!shared.has(row.accountKey)) shared.set(row.accountKey, row)
+    // LEGACY(remove-after: 2027-05): adopted workspace aliases participate in ordinary provider sharing.
+    const accountKey = row.accountKey.replace(/:earlier-workspace$/, '')
+    if (!shared.has(accountKey)) shared.set(accountKey, row)
   }
-  const managed: AccountView[] = await Promise.all(MANAGED_KEY_PROVIDERS.map(async (provider) => {
-    const id = `managed:${provider}`
-    const base = { id, provider, source: 'managed' as const, kind: 'api-key' as const }
-    const row = own.get(asAccountId(id))
-    if (row) return { ...base, ...storedView(row) }
-    const sharedRow = shared.get(asAccountId(id))
-    if (sharedRow) return { ...base, ...sharedView(sharedRow) }
-    const legacyKey = (await legacyApiKey(provider)) ?? ''
-    if (legacyKey) {
-      return {
-        ...base,
-        identity: maskCredential(legacyKey),
-        status: 'connected' as const,
-        credentialSource: 'legacy' as const,
-      }
-    }
-    return { ...base, status: 'not-configured' as const }
-  }))
+  const managed: AccountView[] = await Promise.all(
+    MANAGED_KEY_PROVIDERS.map(async (provider) => {
+      const id = `managed:${provider}`
+      const base = { id, provider, source: 'managed' as const, kind: 'api-key' as const }
+      const row = own.get(asAccountId(id))
+      if (row) return { ...base, ...storedView(row) }
+      const sharedRow = shared.get(asAccountId(id))
+      if (sharedRow) return { ...base, ...sharedView(sharedRow) }
+      return { ...base, status: 'not-configured' as const }
+    }),
+  )
 
   const oauthId = asAccountId('managed:claude-oauth')
   const oauthOwn = own.get(oauthId)
@@ -207,7 +205,16 @@ export async function accountViews(
         : { status: 'not-configured' as const }),
   }
 
-  return [...native, ...managed, claudeOauth]
+  const earlier = [...own.values()]
+    .filter((row) => row.accountKey.endsWith(':earlier-workspace'))
+    .map((row) => ({
+      id: row.accountKey,
+      provider: row.provider,
+      source: 'managed' as const,
+      kind: row.kind,
+      ...storedView(row),
+    }))
+  return [...native, ...managed, claudeOauth, ...earlier]
 }
 
 /** The viewer's own key: connected, masked, and who they share it with. */

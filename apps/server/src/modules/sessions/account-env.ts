@@ -120,7 +120,7 @@ export async function resolveAccountEnv(
   const foreignToCredential = custodian !== null && custodian !== row.ownerUserId
   if (
     foreignToCredential &&
-    !(await ports.accounts.sentTo(row.ownerUserId, accountId)).includes(target.machineId)
+    !(await ports.accounts.sentTo(row.ownerUserId, row.accountKey)).includes(target.machineId)
   ) {
     throw new SpawnAccountRefusal(
       `Before your first run on "${await machineName()}": ${SHARED_MACHINE_ACCOUNT_WARNING} ` +

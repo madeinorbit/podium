@@ -620,12 +620,16 @@ export class SettingsService {
    * changed token (the notify service's replay, the messaging bridge) must react
    * whichever command wrote it.
    *
-   * The material lands in the LEGACY blob path (`apiKeys.openai`, …) because
-   * that is where secrets still live; POD-419 owns moving them into the keyed
-   * store. The RETURN carries no material: `secretPresence` names presence, an
+   * The material lands in the keyed store. Provider keys use managed accounts.
+   * The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
+    if (key.startsWith('apiKeys.')) {
+      throw new Error(
+        'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
+      )
+    }
     // POD-419: the material lands in the keyed store, never in the blob. The
     // rotation time is now DURABLE — POD-420 could only return it.
     const updatedAt = new Date(this.now()).toISOString()

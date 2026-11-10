@@ -17,7 +17,7 @@ export const TAB_PATHS = {
     'roles.shipwright',
     'roles.background',
   ],
-  accounts: ['apiKeys.openrouter', 'apiKeys.anthropic', 'apiKeys.openai'],
+  accounts: [],
   notifications: [
     'notifications.web',
     'notifications.ntfyTopic',
@@ -64,11 +64,10 @@ export const TAB_SURFACE = {
   labs: 'workspace',
 } as const satisfies Record<SettingsPage, SettingsSurface>
 
-// AI accounts temporarily hosts the existing server-secret presence controls.
-// Re-homing them does not turn those writes into personal preferences.
+// AI accounts writes managed accounts, independently of the settings record tiers.
 export const PAGE_SETTINGS_TIER = {
   agents: 'personal-preference',
-  accounts: 'server-secret',
+  accounts: 'personal-preference',
   notifications: 'personal-preference',
   appearance: 'personal-preference',
   account: 'personal-preference',
@@ -83,6 +82,9 @@ export const PAGE_SETTINGS_TIER = {
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
+  'apiKeys.openrouter': 'Retired: migrated into personal managed accounts on AI accounts.',
+  'apiKeys.anthropic': 'Retired: migrated into personal managed accounts on AI accounts.',
+  'apiKeys.openai': 'Retired: migrated into personal managed accounts on AI accounts.',
   'gitWorkflow.mergeStyle': 'No consumer reads this setting. Tasks always land by fast-forward.',
   'sidebar.repoOrder': 'Set by dragging project headers in the sidebar.',
   'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',

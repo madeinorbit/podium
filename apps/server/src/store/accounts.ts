@@ -15,7 +15,7 @@
  */
 
 import { type AccountId, asAccountId, type MachineId, type UserId } from '@podium/model'
-import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -27,6 +27,13 @@ import { param, prepared } from './executor/sync-drizzle'
 
 /** The grantee that means every user of this instance. */
 export const SHARED_WITH_EVERYONE = '*'
+
+// LEGACY(remove-after: 2027-05): distinct workspace keys adopted during the personal-key upgrade.
+export function earlierWorkspaceKey(accountKey: AccountId): AccountId {
+  return ['managed:anthropic', 'managed:openai', 'managed:openrouter'].includes(accountKey)
+    ? asAccountId(`${accountKey}:earlier-workspace`)
+    : accountKey
+}
 
 export interface ManagedAccountRow {
   /** Storage key on `own`/`ownedBy`; the public account id on `getFor`/`listFor`. */
@@ -182,7 +189,10 @@ const sharedAccountsOfKey = prepared((db: StoreDrizzle) =>
     .from(accounts)
     .where(
       and(
-        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+        inArray(accounts.accountKey, [
+          param(accounts.accountKey, 'accountKey'),
+          param(accounts.accountKey, 'earlierKey'),
+        ]),
         isNotNull(accounts.sharedWith),
       ),
     )
@@ -533,9 +543,12 @@ export class AccountsRepository {
    * or with everyone, oldest first. The caller's own key is not among them.
    */
   async sharedWith(userId: UserId, accountKey: AccountId): Promise<ManagedAccountRow[]> {
-    return rowsOf(await sharedAccountsOfKey(this.db).all({ accountKey })).filter(
-      (row) => row.ownerUserId !== userId && isSharedWith(row, userId),
-    )
+    return rowsOf(
+      await sharedAccountsOfKey(this.db).all({
+        accountKey,
+        earlierKey: earlierWorkspaceKey(accountKey),
+      }),
+    ).filter((row) => row.ownerUserId !== userId && isSharedWith(row, userId))
   }
 
   /** Every key other users share with this user, oldest first. */
