@@ -33,6 +33,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
+import { useHeaderInset } from '../navigation/header-inset'
 import { color } from '../theme/theme'
 import { sessionAbsence, sessionAbsenceShowsLoader, sessionLinkAbsence } from './session-absence'
 import { useSessionLink } from './session-link'
@@ -175,6 +176,7 @@ export function SessionScreen() {
       onBack={goBack}
       backLabel="Back"
       bareBack
+      underHeader
       monoSubtitle
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
@@ -194,7 +196,7 @@ export function SessionScreen() {
         </>
       }
     >
-      <SessionConversation
+      <HeaderInsetConversation
         session={session}
         issue={issue}
         findRequest={findRequest}
@@ -235,6 +237,16 @@ export function SessionScreen() {
       />
     </SessionChrome>
   )
+}
+
+/**
+ * The transcript runs under the transparent navigation bar (POD-2387): the
+ * Screen opts in with `underHeader`, and the inverted feed cannot use the
+ * automatic content inset, so it takes the bar's height as its top inset. The
+ * hook reads the Screen's context, hence a component below it.
+ */
+function HeaderInsetConversation(props: ComponentProps<typeof SessionConversation>) {
+  return <SessionConversation {...props} topInset={useHeaderInset()} />
 }
 
 const SessionChrome = observer(function SessionChrome({ issue, session, served, children, ...screen }: {
