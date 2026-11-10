@@ -6,7 +6,7 @@ import { gotoWorkspace, RELAY } from './_harness'
  * real Live UI on the harness relay. The harness runs from source, so the
  * server is in dev mode (PODIUM_APP_VERSION unset ⇒ 'dev'): the edge-visible
  * `shipping` flag must be listed, toggleable, and persist immediately through
- * reload via settings.experimental.
+ * reload via the instance preferences record.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-oriented)')
 
@@ -69,9 +69,9 @@ test('Labs saves Shipping on change and opens the feature', async ({ page }) => 
   await expect(row.locator('.settings-label')).toContainText('Shipping', {
     timeout: 20_000,
   })
-  await expect(row.getByText('Show durable delivery progress in the right sidebar.')).toBeVisible()
+  await expect(row.getByText('Release trains for landed tasks.')).toBeVisible()
 
-  // Toggle → reload → flipped state survived (persisted via settings.experimental).
+  // Toggle → reload → flipped state survived.
   const flagSwitch = row.getByRole('switch').first()
   await expect(flagSwitch).toBeEnabled()
   const before = await flagSwitch.getAttribute('aria-checked')
