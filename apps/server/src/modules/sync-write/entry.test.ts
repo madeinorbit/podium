@@ -37,7 +37,6 @@ import {
   SyncWriteRegistry,
   type SyncWriteTarget,
 } from './registry'
-import { testStoreRecords } from '../../test-support/record-writer'
 
 const FEED = { feedId: 'feed-test', epoch: 'epoch-test' }
 
@@ -60,7 +59,6 @@ async function harness(): Promise<Harness> {
   opened.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     postCommit: (step, label) => store.effect(step, label),

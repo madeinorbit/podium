@@ -396,10 +396,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       'original',
     )
     expect(await ledger.cursor()).toBe(cursorBefore)
-    // The baseline is untouched: re-declaring the ORIGINAL wire truth is a no-op.
+    // Nothing is left behind: a commit that names the issue and writes nothing
+    // finds it as it was.
     const redo = await testLedgerWriter(ledger).commit({
+      affects: [{ entity: 'issueProjection', id: wire.id }],
       write: async () => {},
-      changes: () => [{ entity: 'issueProjection', id: wire.id, op: 'upsert', value: wire }],
     })
     expect(redo.changes).toEqual([])
   })

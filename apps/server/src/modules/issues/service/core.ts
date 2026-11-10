@@ -239,7 +239,11 @@ export class IssueStore {
    * the task itself — a reopen or a start retires every member's tuck, not one
    * person's — so another member's fold cannot survive into the next close.
    */
-  async clearIssueMarkerForAll(writer: IssueWriter, issueId: IssueId, marker: 'tuckedAt'): Promise<void> {
+  async clearIssueMarkerForAll(
+    writer: IssueWriter,
+    issueId: IssueId,
+    marker: 'tuckedAt',
+  ): Promise<void> {
     const holdersOf = async () =>
       (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
         (state) => state[marker] != null,
@@ -298,7 +302,12 @@ export class IssueStore {
    * Answers whether a record was written. Opening, searching or reading a task
    * never calls this.
    */
-  async recordParticipation(writer: IssueWriter, issueId: IssueId, user: UserId, via: IssueJoinVia): Promise<boolean> {
+  async recordParticipation(
+    writer: IssueWriter,
+    issueId: IssueId,
+    user: UserId,
+    via: IssueJoinVia,
+  ): Promise<boolean> {
     const at = this.now()
     return await this.commitUserState(writer, issueId, user, (current) =>
       current?.joinedAt != null ? undefined : { joinedAt: at, joinedVia: via },
@@ -327,7 +336,10 @@ export class IssueStore {
       await this.recordParticipation(writer, issueId, assignee, 'join')
       return
     }
-    await this.commitUserState(writer, issueId, assignee, () => ({ assignedAt: at, assignedBy: by }))
+    await this.commitUserState(writer, issueId, assignee, () => ({
+      assignedAt: at,
+      assignedBy: by,
+    }))
   }
 
   /** Remove `user`'s assigned row (POD-6290). Nothing else changes: not the

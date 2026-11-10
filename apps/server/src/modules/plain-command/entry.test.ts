@@ -26,7 +26,6 @@ import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
 import { assertPlainContract, runPlainCommand } from './entry'
-import { testStoreRecords } from '../../test-support/record-writer'
 
 const opened: SessionStore[] = []
 afterEach(async () => {
@@ -38,7 +37,6 @@ async function realLedger(): Promise<Ledger> {
   opened.push(store)
   return new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     postCommit: (step, label) => store.effect(step, label),

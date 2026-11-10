@@ -161,10 +161,8 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       automationInput,
       principal,
     )
-    // THROUGH THE LEDGER, exactly as `recordRun` does, and not straight into the
-    // store. The Authority drops a `remove` for an id its log never recorded, so
-    // a run inserted behind the ledger would make this assertion fail for a
-    // reason that has nothing to do with scoping. Driving a real scheduler tick
+    // THROUGH THE LEDGER, exactly as the scheduler records a run, and not
+    // straight into the store, so the run is on the feed before it is removed. Driving a real scheduler tick
     // instead would make the spawn a dependency of a scoping assertion.
     const run: AutomationRunRow = {
       id: asAutomationRunId('run_pod1509'),
@@ -179,11 +177,11 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     await writesOf(reg)
       .system('automations.schedule')
       .commit({
+        affects: [{ entity: 'automationRun', id: run.id }],
         write: async (scope) => {
           await store.automations.addRun(scope, run)
           return undefined
         },
-        changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
       })
 
     await reg.modules.automations.remove(commandWriter(reg), created.id, principal)

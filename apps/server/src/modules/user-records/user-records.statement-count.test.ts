@@ -105,7 +105,9 @@ const readPositionEdit = write('records.userReadPosition.edit', (_f, n) =>
 
 describe('statement counts of the per-user record writes', () => {
   it('a pin does not grow with the pins the table holds', async () => {
-    await expectConstantStatements(pinCreate, 10)
+    // Compare at save (POD-6769): the person's pins are read before the write
+    // and again after it, in place of one read of the stored copy.
+    await expectConstantStatements(pinCreate, 11)
   })
 
   it('a tab order does not grow with the orders the table holds', async () => {
@@ -123,7 +125,7 @@ describe('statement counts of the per-user record writes', () => {
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {
-    await expectArmed(pinCreate, 10, (f, size) => {
+    await expectArmed(pinCreate, 11, (f, size) => {
       const repo = f.o.store.sessions
       const original = repo.pinnedAt.bind(repo)
       repo.pinnedAt = async (user, kind, id) => {
