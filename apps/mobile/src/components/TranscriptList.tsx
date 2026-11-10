@@ -33,7 +33,6 @@ import {
 } from 'react'
 import {
   Animated,
-  AppState,
   Platform,
   Pressable,
   type RefreshControlProps,
