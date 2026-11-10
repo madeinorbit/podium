@@ -138,7 +138,10 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
 
   /** The library's adapter bound to `db`, wrapped by the hashing layer. */
   const adapterFor = (db: object, options: BetterAuthOptions): LibraryAdapter =>
-    hashedSessionTokens(baseAdapter(db)(options), (callback) =>
+    // The adapter and the library each name the options type from their own
+    // copy of the library's core; under stricter compiler settings (the cloud's)
+    // the two do not unify, though they are the same shape.
+    hashedSessionTokens(baseAdapter(db)(options as never), (callback) =>
       transaction(() => callback(adapterOfCurrentHandle(options))),
     )
 
