@@ -27,6 +27,7 @@ const seams = vi.hoisted(() => ({
   remove: vi.fn(async () => {}),
   switch: vi.fn(async () => {}),
   back: vi.fn(),
+  push: vi.fn(),
   replace: vi.fn(),
   devices: [] as MobileClientSession[],
   reloadDevices: () => {},
@@ -41,7 +42,7 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   }
 })
 vi.mock('expo-router', () => ({
-  useRouter: () => ({ back: seams.back, replace: seams.replace }),
+  useRouter: () => ({ back: seams.back, replace: seams.replace, push: seams.push }),
   useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
 }))
 vi.mock('expo-haptics', () => ({
@@ -112,7 +113,8 @@ vi.mock('../components/Screen', () => ({
   ),
 }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
-const { SettingsScreen } = await import('./SettingsScreen')
+const { SettingsScreen, SettingsDevicesScreen, SettingsServersScreen, SettingsVersionScreen } =
+  await import('./SettingsScreen')
 const { createMobilePool, useMobilePool } = await import('../client/mobile-pool')
 
 beforeEach(() => {
@@ -188,7 +190,16 @@ async function mount(count = 8, scale?: number) {
     return shown ? <MeasuredSettings /> : null
   }
   function MeasuredSettings() {
-    return insideReader('phone.SettingsScreen', () => SettingsScreen())
+    // The home screen and its three pushed screens, mounted together so one
+    // pass covers every row they split between them.
+    return insideReader('phone.SettingsScreen', () => (
+      <>
+        {SettingsScreen()}
+        {SettingsDevicesScreen()}
+        {SettingsServersScreen()}
+        {SettingsVersionScreen()}
+      </>
+    ))
   }
   storeStats.enable()
   storeStats.reset()
@@ -362,9 +373,12 @@ it('keeps server controls and logout on their existing owners', async () => {
   })
   {
     const current = await mount()
-    // A root tab on iOS: no Done button to dismiss it.
-    fireEvent.click(current.view.getByText('Done'))
-    fireEvent.click(current.view.getByLabelText('Add server'))
+    // A root tab and native pushes on iOS: no Screen hands out a dismiss handler.
+    for (const done of current.view.getAllByText('Done')) fireEvent.click(done)
+    fireEvent.click(current.view.getByLabelText('Version'))
+    fireEvent.click(current.view.getByLabelText('Connected devices'))
+    fireEvent.click(current.view.getAllByLabelText('Add server')[0]!)
+    fireEvent.click(current.view.getAllByLabelText('Add server')[1]!)
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))
     fireEvent.change(current.view.getByLabelText('Server name'), {
       target: { value: 'Renamed phone' },
@@ -387,6 +401,11 @@ it('keeps server controls and logout on their existing owners', async () => {
   }
   expect(seams.back).not.toHaveBeenCalled()
   expect(seams.add).toHaveBeenCalledTimes(1)
+  expect(seams.push.mock.calls.map(([href]) => href)).toEqual([
+    '/settings/version',
+    '/settings/devices',
+    '/settings/servers',
+  ])
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
 })

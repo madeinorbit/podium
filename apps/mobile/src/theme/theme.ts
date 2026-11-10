@@ -62,12 +62,14 @@ export const color = {
   card: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
   cardPressed: semanticColor('systemFill', '#2c3038'),
 
-  // Seam / hairline tiers — row rules → panel/bar seams → chip rims
-  border: semanticColor('separator', '#26292f'),
+  // Seam / hairline tiers — row rules → panel/bar seams → chip rims. iOS draws
+  // its system separator; elsewhere a translucent white that reads on both the
+  // ground and the raised card (an opaque grey matched the card and vanished).
+  border: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   borderStrong: semanticColor('opaqueSeparator', '#3a3f48'),
-  hairline: semanticColor('separator', '#24272d'),
+  hairline: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   /** Hairlines on the #1b1d21 bars. */
-  hairlineBar: semanticColor('separator', '#26292f'),
+  hairlineBar: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   fill: semanticColor('systemFill', 'rgba(120, 120, 128, 0.36)'),
   secondaryFill: semanticColor('secondarySystemFill', 'rgba(120, 120, 128, 0.32)'),
   tertiaryFill: semanticColor('tertiarySystemFill', 'rgba(118, 118, 128, 0.24)'),

@@ -20,19 +20,20 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { logout } from '../client/auth'
-import { useConnectedDevices } from '../client/connected-devices'
+import { type ConnectedDevicesFeed, useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useConnected, useHttpOrigin } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
-import { Check, Monitor } from '../components/icons'
+import { Check, ChevronRight, Monitor } from '../components/icons'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import { useAgeNow } from '../lib/clock-hooks'
+import { appVersion } from '../lib/logging'
 import { color, font, grid, leading, radius, sans } from '../theme/theme'
 import { SettingsOpening } from './settings-opening'
 import {
@@ -49,55 +50,52 @@ function openDesktop() {
   }
 }
 
+/**
+ * Settings follows the Settings board: one screen of summary rows, with the
+ * detail behind pushed screens in the same tab stack (Connected devices,
+ * Servers, Version). Every screen reads the same settings opening; nothing
+ * here adds a read.
+ */
 export function SettingsScreen() {
   return (
     <SettingsOpening>
-      <SettingsScreenBody />
+      <SettingsHome />
     </SettingsOpening>
   )
 }
 
-const SettingsScreenBody = observer(function SettingsScreenBody() {
-  const router = useRouter()
-  // The last row clears the tab bar on native and the home indicator on web.
-  const bottomInset = useContentBottomInset()
-  const {
-    machineIds,
-    machineCount,
-    fleetLabel,
-    updateLabel,
-    sessionCount,
-    issueCount,
-    outboxDeadLetterCount,
-    outboxSize,
-    cursor,
-  } = useSettingsData()
-  const httpOrigin = useHttpOrigin()
-  const connected = useConnected()
-  const { eraseLocalData } = useMobileShell()
-  const {
-    profile,
-    profiles,
-    bearer,
-    isEphemeralOverride,
-    beginAddServer,
-    switchProfile,
-    renameProfile,
-    removeProfile,
-    updateCredential,
-  } = useServerProfile()
-  const [loggedOut, setLoggedOut] = useState(false)
-  const [profileName, setProfileName] = useState(profile.name)
-  const [accountBusy, setAccountBusy] = useState(false)
-  const deviceFeed = useConnectedDevices()
-  const buildStamp = useBuildStamp()
-  const demo = demoEnabled()
-  const demoFleet = useMemo(
-    () =>
-      demo ? visibleFleetOperations({ machines: DEMO_MACHINES, hosts: DEMO_HOST_METRICS }) : null,
-    [demo],
+export function SettingsDevicesScreen() {
+  return (
+    <SettingsOpening>
+      <SettingsDevices />
+    </SettingsOpening>
   )
-  const devices = deviceFeed.sessions ?? []
+}
+
+export function SettingsServersScreen() {
+  return (
+    <SettingsOpening>
+      <SettingsServers />
+    </SettingsOpening>
+  )
+}
+
+export function SettingsVersionScreen() {
+  return (
+    <SettingsOpening>
+      <SettingsVersion />
+    </SettingsOpening>
+  )
+}
+
+/** Log out keeps the server on this phone and drops its credential; Remove also forgets the server. */
+function useAccountActions() {
+  const router = useRouter()
+  const httpOrigin = useHttpOrigin()
+  const { eraseLocalData } = useMobileShell()
+  const { profile, bearer, removeProfile, updateCredential } = useServerProfile()
+  const [loggedOut, setLoggedOut] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
@@ -107,8 +105,8 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
   }
 
   const doLogout = async () => {
-    if (accountBusy) return
-    setAccountBusy(true)
+    if (busy) return
+    setBusy(true)
     try {
       try {
         await logout(httpOrigin, bearer, profile.workspaceId)
@@ -143,7 +141,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         ),
       )
     } finally {
-      setAccountBusy(false)
+      setBusy(false)
     }
   }
 
@@ -158,8 +156,8 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           style: 'destructive',
           onPress: () => {
             void (async () => {
-              if (accountBusy) return
-              setAccountBusy(true)
+              if (busy) return
+              setBusy(true)
               const removeLocally = async () => {
                 // The mounted replica owns exactly profileId + userId; erase it
                 // before profile selection remounts or unmounts the client stack.
@@ -199,7 +197,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                   ),
                 )
               } finally {
-                setAccountBusy(false)
+                setBusy(false)
               }
             })()
           },
@@ -208,13 +206,62 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
     )
   }
 
+  return { doLogout, removeCurrent, loggedOut, busy }
+}
+
+function useDemoFleet() {
+  const demo = demoEnabled()
+  return useMemo(
+    () =>
+      demo ? visibleFleetOperations({ machines: DEMO_MACHINES, hosts: DEMO_HOST_METRICS }) : null,
+    [demo],
+  )
+}
+
+/** A pushed detail screen: inline bar with the native back button; web draws its own. */
+function DetailScreen({ title, children }: { title: string; children: ReactNode }) {
+  const router = useRouter()
+  const bottomInset = useContentBottomInset()
+  return (
+    <Screen title={title} onBack={Platform.OS === 'web' ? () => router.back() : undefined}>
+      <ScrollView
+        style={styles.scroll}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
+      >
+        {children}
+      </ScrollView>
+    </Screen>
+  )
+}
+
+function deviceCountLabel(feed: ConnectedDevicesFeed): string {
+  const count = feed.sessions?.length ?? 0
+  if (count > 0) return String(count)
+  if (feed.loading) return '…'
+  return feed.failed ? 'Unavailable' : 'None'
+}
+
+const SettingsHome = observer(function SettingsHome() {
+  const router = useRouter()
+  // The last row clears the tab bar on native and the home indicator on web.
+  const bottomInset = useContentBottomInset()
+  const { machineCount, sessionCount, issueCount } = useSettingsData()
+  const httpOrigin = useHttpOrigin()
+  const connected = useConnected()
+  const { profile, isEphemeralOverride } = useServerProfile()
+  const account = useAccountActions()
+  const deviceFeed = useConnectedDevices()
+  const demoFleet = useDemoFleet()
+
   const host = hostOf(httpOrigin)
   const machines = demoFleet?.visibleCount ?? machineCount
+  const native = Platform.OS !== 'web'
   return (
     <Screen
       title="Settings"
-      large={Platform.OS !== 'web'}
-      onBack={Platform.OS === 'web' ? () => router.back() : undefined}
+      large={native}
+      onBack={native ? undefined : () => router.back()}
       backAs="text"
       backLabel="Done"
     >
@@ -223,7 +270,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
       >
-        {Platform.OS === 'web' ? (
+        {!native ? (
           <PressableScale
             style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
             onPress={openDesktop}
@@ -257,164 +304,258 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           </View>
         </Card>
 
-        <GroupHeader label="Machines" />
+        <GroupHeader label="Server" />
         <Card>
-          <Row label="Visible fleet" value={demoFleet?.fleetLabel ?? fleetLabel} />
-          <Row label="Updates" value={demoFleet?.updateLabel ?? updateLabel} />
-          {demoFleet
-            ? demoFleet.machines
-                .slice(0, 12)
-                .map((machine) => <MachineStatusRow key={machine.id} machine={machine} />)
-            : machineIds.map((id) => <SettingsMachineRow key={id} id={id} />)}
-          {machines > 12 ? (
-            <Row label="More machines" value={`${machines - 12} · see Pulse`} />
+          <NavRow
+            label="Connected devices"
+            value={deviceCountLabel(deviceFeed)}
+            onPress={() => router.push('/settings/devices')}
+          />
+          {native ? (
+            <NavRow
+              label={isEphemeralOverride ? 'Servers' : 'Add server'}
+              onPress={() => router.push('/settings/servers')}
+            />
           ) : null}
         </Card>
-        <Text style={styles.footer}>
-          This phone shows status only. Fleet, network, host, and update changes stay on authorized
-          desktop or server surfaces.
-        </Text>
-
-        <GroupHeader label="Connected devices" />
-        <Card>
-          {deviceFeed.loading && devices.length === 0 ? (
-            <Row label="Devices" value="Loading…" />
-          ) : deviceFeed.failed && devices.length === 0 ? (
-            <Row label="Devices" value="Unavailable" />
-          ) : devices.length === 0 ? (
-            <Row label="Devices" value="None" />
-          ) : (
-            devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
-          )}
-          {deviceFeed.failed && devices.length > 0 ? (
-            <Row label="Refresh" value="Failed · showing prior list" />
-          ) : null}
-        </Card>
-        <Text style={styles.footer}>
-          This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
-          in Connected devices on the desktop.
-        </Text>
-
-        {Platform.OS !== 'web' ? (
-          <>
-            <GroupHeader label="Servers" />
-            <Card>
-              {profiles.map((row) => (
-                <PressableScale
-                  key={row.id}
-                  style={({ pressed }) => [styles.serverRow, pressed && styles.rowPressed]}
-                  onPress={() =>
-                    void switchProfile(row.id).catch((cause: unknown) =>
-                      Alert.alert(
-                        'Could not switch safely',
-                        cause instanceof Error ? cause.message : String(cause),
-                      ),
-                    )
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Switch to ${row.name}`}
-                  accessibilityState={{ selected: row.id === profile.id }}
-                >
-                  <View style={styles.serverDetails}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>
-                      {row.name}
-                    </Text>
-                    <Text style={styles.rowDetail} numberOfLines={1}>
-                      {row.userId ? `${row.httpOrigin} · ${row.userId}` : row.httpOrigin}
-                    </Text>
-                  </View>
-                  {row.transport === 'insecure-lan' ? (
-                    <Text style={styles.rowWarning}>Insecure</Text>
-                  ) : null}
-                  {row.id === profile.id ? (
-                    <Icon as={Check} size={17} color={color.accentTint} />
-                  ) : null}
-                </PressableScale>
-              ))}
-              {!isEphemeralOverride ? (
-                <View style={styles.renameRow}>
-                  <TextInput
-                    style={styles.renameInput}
-                    value={profileName}
-                    onChangeText={setProfileName}
-                    accessibilityLabel="Server name"
-                  />
-                  <PressableScale
-                    style={styles.renameButton}
-                    onPress={() => void renameProfile(profile.id, profileName)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Rename server"
-                  >
-                    <Text style={styles.tintLabel}>Rename</Text>
-                  </PressableScale>
-                </View>
-              ) : null}
-              {!isEphemeralOverride ? (
-                <PressableScale
-                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                  onPress={beginAddServer}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add server"
-                >
-                  <Text style={styles.tintLabel}>Add server</Text>
-                </PressableScale>
-              ) : null}
-            </Card>
-            {isEphemeralOverride ? (
-              <Text style={styles.footer}>
-                This development server override is ephemeral and cannot be edited or saved.
-              </Text>
-            ) : null}
-          </>
-        ) : null}
 
         <GroupHeader label="About" />
         <Card>
-          <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
-          <Row label="Queued sends" value={String(outboxSize)} />
-          <Row label="Needs recovery" value={String(outboxDeadLetterCount)} />
-          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
+          <NavRow
+            label="Version"
+            value={appVersion()}
+            onPress={() => router.push('/settings/version')}
+          />
         </Card>
-        <Text style={styles.footer}>
-          Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
-          pushed when an agent needs you.
-        </Text>
 
-        <Card style={styles.lastCard}>
-          <PressableScale
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            onPress={() => void doLogout()}
-            disabled={accountBusy}
-            accessibilityRole="button"
-            accessibilityLabel="Log out"
-            // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
-            // only the former. The disabled half already reaches the browser via
-            // the `disabled` prop above. [POD-1664]
-            accessibilityState={{ disabled: accountBusy, busy: accountBusy }}
-            aria-busy={accountBusy}
-          >
-            <Text style={styles.destructiveLabel}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
-          </PressableScale>
-          {Platform.OS !== 'web' && !isEphemeralOverride ? (
-            <PressableScale
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              onPress={removeCurrent}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${profile.name}`}
-            >
-              <Text style={styles.destructiveLabel}>Remove this server</Text>
-            </PressableScale>
-          ) : null}
-        </Card>
-        {Platform.OS !== 'web' && !isEphemeralOverride ? (
-          <Text style={styles.footer}>
-            Removing signs this phone out of {host}. Nothing on the server is deleted.
-          </Text>
+        {native && !isEphemeralOverride ? (
+          <>
+            <Card style={styles.lastCard}>
+              <PressableScale
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                onPress={account.removeCurrent}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${profile.name}`}
+              >
+                <Text style={styles.destructiveLabel}>Remove this server</Text>
+              </PressableScale>
+            </Card>
+            <Text style={styles.footer}>
+              Signs this phone out of {host}. Nothing on the server is deleted.
+            </Text>
+          </>
+        ) : !native ? (
+          <Card style={styles.lastCard}>
+            <LogoutRow account={account} />
+          </Card>
         ) : null}
       </ScrollView>
     </Screen>
   )
 })
+
+const SettingsDevices = observer(function SettingsDevices() {
+  const { profile } = useServerProfile()
+  const deviceFeed = useConnectedDevices()
+  const devices = deviceFeed.sessions ?? []
+  return (
+    <DetailScreen title="Connected devices">
+      <Card>
+        {deviceFeed.loading && devices.length === 0 ? (
+          <Row label="Devices" value="Loading…" />
+        ) : deviceFeed.failed && devices.length === 0 ? (
+          <Row label="Devices" value="Unavailable" />
+        ) : devices.length === 0 ? (
+          <Row label="Devices" value="None" />
+        ) : (
+          devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+        )}
+        {deviceFeed.failed && devices.length > 0 ? (
+          <Row label="Refresh" value="Failed · showing prior list" />
+        ) : null}
+      </Card>
+      <Text style={styles.footer}>
+        This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay in
+        Connected devices on the desktop.
+      </Text>
+    </DetailScreen>
+  )
+})
+
+const SettingsServers = observer(function SettingsServers() {
+  const { profile, profiles, isEphemeralOverride, beginAddServer, switchProfile, renameProfile } =
+    useServerProfile()
+  const connected = useConnected()
+  const [profileName, setProfileName] = useState(profile.name)
+  const account = useAccountActions()
+  return (
+    <DetailScreen title="Servers">
+      <Card>
+        {profiles.map((row) => (
+          <PressableScale
+            key={row.id}
+            style={({ pressed }) => [styles.serverRow, pressed && styles.rowPressed]}
+            onPress={() =>
+              void switchProfile(row.id).catch((cause: unknown) =>
+                Alert.alert(
+                  'Could not switch safely',
+                  cause instanceof Error ? cause.message : String(cause),
+                ),
+              )
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Switch to ${row.name}`}
+            accessibilityState={{ selected: row.id === profile.id }}
+          >
+            <View style={styles.serverDetails}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {row.name}
+              </Text>
+              <Text style={styles.rowDetail} numberOfLines={1}>
+                {row.id === profile.id && !connected ? 'Reconnecting · ' : ''}
+                {row.userId ? `${row.httpOrigin} · ${row.userId}` : row.httpOrigin}
+              </Text>
+            </View>
+            {row.transport === 'insecure-lan' ? (
+              <Text style={styles.rowWarning}>Insecure</Text>
+            ) : null}
+            {row.id === profile.id ? <Icon as={Check} size={17} color={color.accentTint} /> : null}
+          </PressableScale>
+        ))}
+      </Card>
+      {isEphemeralOverride ? (
+        <Text style={styles.footer}>
+          This development server override is ephemeral and cannot be edited or saved.
+        </Text>
+      ) : (
+        <>
+          <GroupHeader label="This server" />
+          <Card>
+            <View style={styles.renameRow}>
+              <TextInput
+                style={styles.renameInput}
+                value={profileName}
+                onChangeText={setProfileName}
+                accessibilityLabel="Server name"
+              />
+              <PressableScale
+                style={styles.renameButton}
+                onPress={() => void renameProfile(profile.id, profileName)}
+                accessibilityRole="button"
+                accessibilityLabel="Rename server"
+              >
+                <Text style={styles.tintLabel}>Rename</Text>
+              </PressableScale>
+            </View>
+            <PressableScale
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              onPress={beginAddServer}
+              accessibilityRole="button"
+              accessibilityLabel="Add server"
+            >
+              <Text style={styles.tintLabel}>Add server</Text>
+            </PressableScale>
+          </Card>
+        </>
+      )}
+      <Card style={styles.lastCard}>
+        <LogoutRow account={account} />
+      </Card>
+      <Text style={styles.footer}>
+        Log out signs this phone out and keeps {profile.name} in the list.
+      </Text>
+    </DetailScreen>
+  )
+})
+
+const SettingsVersion = observer(function SettingsVersion() {
+  const {
+    machineIds,
+    machineCount,
+    fleetLabel,
+    updateLabel,
+    outboxDeadLetterCount,
+    outboxSize,
+    cursor,
+  } = useSettingsData()
+  const buildStamp = useBuildStamp()
+  const demoFleet = useDemoFleet()
+  const machines = demoFleet?.visibleCount ?? machineCount
+  return (
+    <DetailScreen title="Version">
+      <Card>
+        <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
+        <Row label="Queued sends" value={String(outboxSize)} />
+        <Row label="Needs recovery" value={String(outboxDeadLetterCount)} />
+        <Row label="Sync cursor" value={String(cursor ?? 'none')} />
+      </Card>
+
+      <GroupHeader label="Machines" />
+      <Card>
+        <Row label="Visible fleet" value={demoFleet?.fleetLabel ?? fleetLabel} />
+        <Row label="Updates" value={demoFleet?.updateLabel ?? updateLabel} />
+        {demoFleet
+          ? demoFleet.machines
+              .slice(0, 12)
+              .map((machine) => <MachineStatusRow key={machine.id} machine={machine} />)
+          : machineIds.map((id) => <SettingsMachineRow key={id} id={id} />)}
+        {machines > 12 ? (
+          <Row label="More machines" value={`${machines - 12} · see Pulse`} />
+        ) : null}
+      </Card>
+      <Text style={styles.footer}>
+        This phone shows status only. Fleet, network, host, and update changes stay on authorized
+        desktop or server surfaces.
+      </Text>
+      <Text style={[styles.footer, styles.footerGap]}>
+        Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
+        pushed when an agent needs you.
+      </Text>
+    </DetailScreen>
+  )
+})
+
+function LogoutRow({ account }: { account: ReturnType<typeof useAccountActions> }) {
+  return (
+    <PressableScale
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={() => void account.doLogout()}
+      disabled={account.busy}
+      accessibilityRole="button"
+      accessibilityLabel="Log out"
+      // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former. The disabled half already reaches the browser via
+      // the `disabled` prop above. [POD-1664]
+      accessibilityState={{ disabled: account.busy, busy: account.busy }}
+      aria-busy={account.busy}
+    >
+      <Text style={styles.destructiveLabel}>{account.loggedOut ? 'Logged out' : 'Log out'}</Text>
+    </PressableScale>
+  )
+}
+
+/** A row that pushes a detail screen: label, trailing value, chevron. */
+function NavRow({ label, value, onPress }: { label: string; value?: string; onPress: () => void }) {
+  return (
+    <PressableScale
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityValue={value ? { text: value } : undefined}
+    >
+      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.navTrail}>
+        {value ? (
+          <Text style={styles.navValue} numberOfLines={1}>
+            {value}
+          </Text>
+        ) : null}
+        <Icon as={ChevronRight} size={14} color={color.textFaint} />
+      </View>
+    </PressableScale>
+  )
+}
 
 function hostOf(origin: string): string {
   try {
@@ -542,6 +683,15 @@ const styles = StyleSheet.create({
     marginLeft: grid(3),
     backgroundColor: color.border,
   },
+  navTrail: {
+    marginLeft: 'auto',
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: grid(1),
+  },
+  navValue: { ...sans(400), color: color.textDim, fontSize: font.small, flexShrink: 1 },
+  footerGap: { paddingTop: grid(3) },
   lastCard: { marginTop: grid(7) },
   server: { paddingHorizontal: grid(3), paddingVertical: grid(3), gap: 2 },
   serverName: { ...sans(600), color: color.text, fontSize: font.body, lineHeight: leading(17) },
