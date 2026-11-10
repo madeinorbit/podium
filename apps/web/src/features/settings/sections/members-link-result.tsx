@@ -15,7 +15,9 @@ export function MemberLinkResult({
   const id = useId()
   const [copyNotice, setCopyNotice] = useState('')
   const result = useRef<HTMLDivElement | null>(null)
-  useEffect(() => result.current?.focus({ preventScroll: true }), [url])
+  useEffect(() => {
+    if (url) result.current?.focus({ preventScroll: true })
+  }, [url])
   return (
     <div ref={result} tabIndex={-1} className="settings-list-note space-y-2" role="status">
       <p className="settings-prose">{copyNotice || notice}</p>
