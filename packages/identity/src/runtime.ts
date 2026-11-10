@@ -133,6 +133,12 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         session: tables.session,
         verification: tables.verification,
         ...('rateLimit' in tables ? { rateLimit: tables.rateLimit } : {}),
+        // The tables of the edition's extensions; the package's own win.
+        ...Object.fromEntries(
+          Object.entries(config.libraryRoutes?.tables ?? {}).filter(
+            ([model]) => !['user', 'account', 'session', 'verification', 'rateLimit'].includes(model),
+          ),
+        ),
       },
       // The library's own transaction support is off; the hashing layer routes
       // its transaction call to the edition's runner.

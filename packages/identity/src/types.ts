@@ -45,7 +45,17 @@ export interface IdentityConfig {
   }
   rateLimit: { storage: 'memory' | 'database' }
   /** Mounts the library's own HTTP routes at this path. Absent: they are not reachable. */
-  libraryRoutes?: { basePath: string; extensions?: LibraryExtension[] }
+  libraryRoutes?: {
+    basePath: string
+    extensions?: LibraryExtension[]
+    /**
+     * The tables of the extensions, by the library's model name. An extension
+     * with models of its own (the cloud's organisation extension: `organization`,
+     * `member`, `invitation`) reads and writes them through the same adapter as
+     * the library, so the edition that owns those tables hands them over here.
+     */
+    tables?: Record<string, object>
+  }
   /** Absent: the library's ids. */
   generateId?: (model: string) => string
   /**
@@ -117,6 +127,15 @@ export interface IdentityCore {
   libraryHandler?: (request: Request, facts: ConnectionFacts) => Promise<Response>
   /** Deletes expired invitations and one-time codes. Called by the server on a timer, hourly. */
   sweep(): Promise<void>
+  /**
+   * Runs fn in one transaction of the database port. Every operation of this
+   * core called inside joins it, and so do the edition's own statements when
+   * they use the handle its port was given. For a rule of the edition that must
+   * commit together with a membership: the cloud creates a workspace and its
+   * creator's membership this way. A membership changed inside is applied to
+   * member rows in another database by the next catch-up, not before fn returns.
+   */
+  transaction<T>(fn: () => Promise<T>): Promise<T>
 }
 
 export interface WorkspaceIdentity {

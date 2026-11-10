@@ -62,6 +62,7 @@ export async function buildIdentity(
       await deleteExpiredCodes(runtime.db()).run({ now })
       await deleteExpiredInvitations(runtime.db()).run({ now })
     },
+    transaction: (fn) => runtime.transaction(fn),
   }
 
   if (config.libraryRoutes) {
