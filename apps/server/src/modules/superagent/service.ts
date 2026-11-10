@@ -1251,6 +1251,16 @@ export class SuperagentService {
     if (harnessSupportsMcp(agent.data) && !this.mcpEndpoint && !allowWithoutMcp) {
       return
     }
+    // Never on another person's login (POD-6740): a native account on a
+    // machine someone else looks after ends the turn here, before dispatch.
+    const loginRefusal = await this.modules.headless.superagentLoginRefusal(
+      pending.podiumSessionId,
+      agent.data,
+    )
+    if (loginRefusal) {
+      await this.finishPendingTurn(pending, { ok: false, error: loginRefusal })
+      return
+    }
     this.dispatchedTurnIds.add(pending.turnId)
     const turn = this.modules.headless.headlessTurn(
       {

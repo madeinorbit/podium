@@ -36,7 +36,7 @@ import type {
 } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
-import { managedKeyName } from '../sessions/account-env'
+import { ForeignMachineLoginRefusal, managedKeyName } from '../sessions/account-env'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
@@ -403,6 +403,41 @@ export class HeadlessService {
   broadcastHeadlessActivity(sessionId: SessionId, event: HeadlessActivityEvent): void {
     const msg: LiveServerMessage = { type: 'headlessActivity', sessionId, event }
     for (const c of this.deps.clients()) c.send(msg)
+  }
+
+  /**
+   * Why a superagent turn on this session may not run on its NATIVE account,
+   * or undefined when it may (POD-6740, decision POD-6739 (a)). A machine's
+   * native CLI logins belong to the person who looks after it, so a member's
+   * superagent never runs on another person's login. The coding spawn's
+   * resolution decides (`accountEnv` → `resolveAccountEnv`: {} on the owner's
+   * own machine or one nobody looks after); only the words name the
+   * superagent role's fix. Managed accounts are resolved per turn in
+   * {@link headlessTurn}. The superagent awaits this before dispatch, so a
+   * refusal ends the turn before anything is sent.
+   */
+  async superagentLoginRefusal(
+    sessionId: SessionId,
+    agent: AgentKind,
+  ): Promise<string | undefined> {
+    const session = this.deps.getSession(sessionId)
+    if (!session || session.accountId?.startsWith('managed:')) return undefined
+    try {
+      await this.deps.accountEnv({
+        agentKind: agent,
+        accountId: session.accountId ?? asAccountId(''),
+        ownerUserId: session.ownerUserId,
+        machineId: session.machineId,
+      })
+      return undefined
+    } catch (error) {
+      if (!(error instanceof ForeignMachineLoginRefusal)) return describeError(error)
+      return (
+        `"${error.machineName}" is someone else's machine: its native CLI logins are theirs, ` +
+        "and Podium never runs your superagent on another person's login. Connect your own " +
+        'account in Settings → AI accounts and select it for the superagent role.'
+      )
+    }
   }
 
   /**
