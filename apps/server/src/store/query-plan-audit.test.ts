@@ -852,10 +852,6 @@ const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
     'apps/server/src/modules/sessions/instructions.ts:context',
     "Not SQL: an instruction provider's `prepare(context)`, which builds a session's start instructions.",
   ],
-  [
-    'apps/server/src/sync-worker/producer.ts:sql',
-    "The worker's `iterate` helper prepares the text it is given; its callers' SQL is censused at the `iterate(db, ...)` calls.",
-  ],
 ])
 
 /**

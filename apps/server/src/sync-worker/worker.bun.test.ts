@@ -40,9 +40,14 @@ async function fixture(options: { monitorMs?: number; wedgedMs?: number } = {}) 
  * One real record and one step of the feed's head (POD-6770): the load is
  * built from the model tables, so a row is an agent profile (every principal
  * reads every profile) with `text` as its instructions. The appended change
- * only moves the head; its payload is never read.
+ * only moves the head; its payload is never read. The baseline schema seeds
+ * profiles of its own, so a fixture's are told apart by their id.
  */
-function append(writer: SqlDatabase, id: string, text = 'x') {
+const FIXTURE = 'fixture-'
+const fixtureRows = (changes: { entity: string; entityId: string }[]) =>
+  changes.filter((r) => r.entity === 'agentProfile' && r.entityId.startsWith(FIXTURE))
+function append(writer: SqlDatabase, name: string, text = 'x') {
+  const id = `${FIXTURE}${name}`
   writer.exec('BEGIN IMMEDIATE')
   try {
     writer
@@ -93,10 +98,9 @@ describe('real sync worker boundary', () => {
       expect(lines[0]).toEqual(await transfer.meta)
       expect(lines.at(-1)).toMatchObject({ type: 'syncComplete' })
       expect(
-        lines
-          .filter((row) => row.type === 'feedBootstrap')
-          .flatMap((row) => row.changes)
-          .filter((change) => change.entity === 'agentProfile'),
+        fixtureRows(
+          lines.filter((row) => row.type === 'feedBootstrap').flatMap((row) => row.changes),
+        ),
       ).toHaveLength(300)
       expect(encoded.byteLength).toBeLessThan(decoded.length / 10)
       await checkpoint(f.writer)
@@ -138,10 +142,9 @@ describe('real sync worker boundary', () => {
         .map((line) => JSON.parse(line))
       clearInterval(timer)
       timer = undefined
-      const actual = output
-        .filter((r) => r.type === 'feedBootstrap')
-        .flatMap((r) => r.changes)
-        .filter((r) => r.entity === 'agentProfile')
+      const actual = fixtureRows(
+        output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes),
+      ) as { entity: string; entityId: string; seq: number }[]
       // The profiles whose append is at or below the head the load is stamped
       // with: each append writes its profile and its change in one transaction.
       const expected = f.writer

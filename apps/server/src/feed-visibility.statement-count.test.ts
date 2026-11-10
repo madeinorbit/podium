@@ -316,12 +316,12 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       // (the window's oldest id, then the issues' events above it; POD-6766).
       // (The base ran 18, not its pinned 14: the four panel kinds' reads of
       // POD-6778 were never pinned.)
-      // RE-PINNED 18 -> 29 FOR POD-6770: the subjects' current values are built
+      // RE-PINNED 18 -> 28 FOR POD-6770: the subjects' current values are built
       // from the model tables, one `build` per kind the subjects name (the
       // issue and its labels, its bodies, its git state, its edges, the order
       // with its holds and receipt, the lane's plan, the effect), where one
       // grouped read of the stored copy answered them all.
-      29,
+      28,
     )
   })
 
