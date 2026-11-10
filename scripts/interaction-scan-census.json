@@ -7333,26 +7333,6 @@
     },
     {
       "file": "apps/web/src/features/settings/sections/updates.tsx",
-      "holder": "UpdatesSection/UpdatesSection",
-      "rule": "consume:map",
-      "tokens": "31c8f4d390198b69d29bd58542e4bb7f717f5dd37b6e51c8f1b338abc9e61298",
-      "gate": [
-        "else:421b9170df7e51aca48d89b1bb8443bd593978052f3328a9be4e5dddd53a10b1"
-      ],
-      "origin": [
-        "1c5ee753b1b879289bd720f19c49bdc7856db316c27adc03d8d747e09a0a62dc"
-      ],
-      "fingerprint": "5d2bc51e27942e9a6af71303728886bb4f0f9e2b94a2daf2166d152387c572d8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5866",
-      "trigger": "Invocation of UpdatesSection",
-      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e. POD-6683 wraps UpdatesSection in observer (the update-status reader), which only renames the holder; predecessor: d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7.",
-      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
-      "file": "apps/web/src/features/settings/sections/updates.tsx",
       "holder": "UpdatesSection/UpdatesSection/machineIds",
       "rule": "reader-summary",
       "tokens": "03614cf6a46389236aa30ff335033e15ffff31ec1351247597d3f521a034edf4",
@@ -40224,6 +40204,114 @@
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
       "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/MachinesPanel.tsx",
+      "holder": "MachinesPanel/MachinesPanel",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "cd8918adf6849d4e1222d6727eb33165e9b3921868b86886b71088ff58249c0b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/machine-add.tsx",
+      "holder": "AddMachineFlow/AddMachineFlow",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "be8b6e27250c33ad6aaf66b75f3bf382e7241d1a60e827d276d6eb2b577c7d46",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/machine-detail.tsx",
+      "holder": "MachineDetailRecord/MachineDetailRecord",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "9f6f0426f3f3d34234f00281ce6246bcbcb889cd574c1ee47a9016be290ab28f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/sections/connected-devices.tsx",
+      "holder": "SignedInDevicesSection/SignedInDevicesSection",
+      "rule": "consume:map",
+      "tokens": "90e69162c1625efaba250feadb1e1ac635bda0c24b33e1a44e8e61102cd37936",
+      "gate": [],
+      "origin": ["1697c7c2ecc3cb2f64e11ba046360ad607bdadeedc552863784fd745e4ed23ec"],
+      "fingerprint": "06793b70fcde10d6e7f8fdd2c201521f4ae46233f8dd73a103aeaa5ccd3824ac",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6667",
+      "trigger": "Opening Account and loading the caller\u2019s sign-in inventory",
+      "bound": "One EntityRow is rendered for each returned sign-in in the explicitly opened Account section.",
+      "reason": "The Account redesign replaces the old connected-phone subset with every caller sign-in. This map directly renders those visible rows and performs no hidden whole-workspace scan.",
+      "guard": "Exact fingerprint and multiplicity; connected-devices tests cover every client kind, current-first ordering, and per-row sign-out."
+    },
+    {
+      "file": "apps/web/src/features/settings/sections/repos.tsx",
+      "holder": "ProjectDetail/ProjectDetail/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "73e4f8e884cd0023386bad1de8f2dea804a8779d50e2f49bf418c66a46e30496",
+      "gate": ["&&:5e50a43a5963c413ad50a6f83e1076392c219b0cae3497de931fa78a87d61972"],
+      "origin": ["5884e6a147f47780a4d78f9c0d7fc35a59c42c60ec7037843f295efedaed68b0"],
+      "fingerprint": "61722bc2633987f44279864a2a7115e26de3315478225734f4137e66e005a9b9",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6667",
+      "trigger": "Opening one project detail takeover",
+      "bound": "One row is rendered for each worktree of each checkout of the selected project.",
+      "reason": "The project detail renders its addressed project\u2019s worktrees. The map consumes only the opened project\u2019s checkout relations and produces a visible row for every item.",
+      "guard": "Exact fingerprint and multiplicity; repos tests retain checkout/worktree detail behavior and opening ownership."
+    },
+    {
+      "file": "apps/web/src/features/settings/sections/updates.tsx",
+      "holder": "UpdatesSection/UpdatesSection",
+      "rule": "consume:map",
+      "tokens": "28b4ce820ce59233df61ffb3a14d94261bb3d1f453fd2796429ec7d9850810d8",
+      "gate": [],
+      "origin": ["1c5ee753b1b879289bd720f19c49bdc7856db316c27adc03d8d747e09a0a62dc"],
+      "fingerprint": "c1852660d1b4a733d18a96bed06d498ca4d4764099a45bde1ec3dae65656a659",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Invocation of UpdatesSection",
+      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
+      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e. POD-6683 wraps UpdatesSection in observer (the update-status reader), which only renames the holder; predecessor: d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7. POD-6519 moves machine update rows into the grouped Updates list; this changes the JSX and branch fingerprint, not the collection demand. Predecessor: 5d2bc51e27942e9a6af71303728886bb4f0f9e2b94a2daf2166d152387c572d8.",
+      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     }
   ]
 }
