@@ -25,11 +25,34 @@ export default async () => {
   return {
     root: fileURLToPath(new URL('.', import.meta.url)),
     define: { __DEV__: 'true', 'process.env.NODE_ENV': '"development"' },
-    plugins: [standardDecorators(), react()],
+    plugins: [
+      standardDecorators(),
+      react(),
+      // react-native-svg's transform parser is CommonJS, served unbundled here
+      // because the package is excluded from pre-bundling. Nothing a harness
+      // draws passes a transform string, so stand it in.
+      {
+        name: 'svg-transform-stub',
+        enforce: 'pre' as const,
+        resolveId(source: string, importer?: string) {
+          if (
+            (source === './transform' || source === './transformToRn') &&
+            importer?.includes('react-native-svg')
+          )
+            return fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url))
+          return null
+        },
+      },
+    ],
     resolve: {
+      // A worktree has no package dist: read @podium/* from source, as the
+      // unit lane does (vitest.config.ts), then the browser defaults.
+      conditions: ['@podium/source', 'module', 'browser', 'development|production'],
       extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
       alias: [
         { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
+        // The symbols stub draws Lucide web glyphs; only the web app installs them.
+        { find: /^lucide-react$/, replacement: webRequire.resolve('lucide-react') },
         // The composer harness (POD-1659) pulls the real component, which reaches
         // Expo modules a plain vite page has no runtime for. Stub the pieces that
         // only matter on device; safe-area is a hook, so it gets a module rather
@@ -56,6 +79,25 @@ export default async () => {
         // captured state has the sheet closed, so a closed sheet is the whole
         // contract. Anchored per import site: a bare suffix match would rewrite
         // the specifier into a relative-plus-absolute path.
+        // The chat harness (POD-2380) draws the real TranscriptList, whose
+        // long-press sheet and shared-file rows reach gesture-handler, screens
+        // and the webview; no captured state opens them.
+        ...['ActionSheet', 'SharedFiles', 'PendingFiles'].map((name) => ({
+          find: new RegExp(`^\\./${name}$`),
+          replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
+        })),
+        {
+          find: /^@react-native\/assets-registry\/registry$/,
+          replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
+        },
+        {
+          find: /^@expo\/dom-webview$/,
+          replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
+        },
+        {
+          find: /^expo-clipboard$/,
+          replacement: fileURLToPath(new URL('./harness/stub-null-component.tsx', import.meta.url)),
+        },
         {
           find: /^\.\/BottomSheet$/,
           replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
@@ -86,7 +128,12 @@ export default async () => {
     // aliases above redirect every native package the composer touches; excluding
     // them from prebundling keeps the optimizer from resolving the originals.
     optimizeDeps: {
+      // HARNESS_ENTRY=chat-harness.html pre-bundles one page's graph instead
+      // of every harness's, so one page's device-only imports cannot fail the
+      // scan for another.
+      ...(process.env.HARNESS_ENTRY ? { entries: [process.env.HARNESS_ENTRY] } : {}),
       exclude: [
+        'expo-clipboard',
         'expo-blur',
         'expo-haptics',
         'expo-symbols',

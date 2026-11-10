@@ -660,13 +660,16 @@ function FeedRowFrame({
     if (!arrived || reduceMotion) return
     Animated.timing(entrance, { toValue: 1, duration: 220, useNativeDriver: true }).start()
   }, [arrived, entrance, reduceMotion])
+  // A note from another agent is a murmur line, not a turn of its own: it keeps
+  // the feed's beat spacing instead of opening a new turn (board Chat).
+  const turn = row.kind === 'envelope' && row.turn === 'open' ? 'beat' : row.turn
   return (
     <Animated.View
       style={[
         styles.feedRow,
-        row.turn === 'open'
+        turn === 'open'
           ? styles.turnOpen
-          : row.turn === 'bind'
+          : turn === 'bind'
             ? styles.turnBind
             : styles.turnBeat,
         highlighted && styles.searchHit,

@@ -50,9 +50,7 @@ import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
 import { ComposerModelChip } from './ComposerModelChip'
-import { Icon } from './Icon'
-import { Reply, X } from './icons'
-import { PressableScale } from './PressableScale'
+import { ComposerReplyHeader } from './ComposerReplyHeader'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -180,7 +178,7 @@ const SessionComposer = observer(function SessionComposer({
       attachments={replying ? undefined : attachments}
       onRestingHeight={onRestingHeight}
       onStop={replying ? undefined : onStop}
-      header={replying ? <ReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
+      header={replying ? <ComposerReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
       leading={<ComposerModelChip session={conversation.session} onNotice={setNotice} />}
     />
   )
@@ -188,26 +186,6 @@ const SessionComposer = observer(function SessionComposer({
 
 const NOTICE_MS = 4000
 
-/** "Replying to POD-1906" with its cancel: the board's signal-coloured line. */
-function ReplyHeader({ asker, onCancel }: { asker: string; onCancel: () => void }) {
-  return (
-    <View style={styles.replyHeader} testID="composer-reply">
-      <Icon as={Reply} size={14} color={color.accentTint} />
-      <Text style={styles.replyText} numberOfLines={1}>
-        Replying to {asker}
-      </Text>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel="Cancel reply"
-        onPress={onCancel}
-        hitSlop={10}
-        style={styles.replyCancel}
-      >
-        <Icon as={X} size={14} color={color.textDim} />
-      </PressableScale>
-    </View>
-  )
-}
 
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
@@ -875,15 +853,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
 })
 
 const styles = StyleSheet.create({
-  replyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    height: 24,
-    marginBottom: space.xs,
-  },
-  replyText: { ...sans(500), flex: 1, minWidth: 0, fontSize: font.tiny, color: color.accentTint },
-  replyCancel: { width: 28, height: 24, alignItems: 'center', justifyContent: 'center' },
   flex: {
     flex: 1,
   },

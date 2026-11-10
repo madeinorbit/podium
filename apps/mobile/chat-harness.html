@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chat — mobile harness</title>
+    <style>
+      html, body, #root { margin: 0; background: #000; }
+      /* The app's own Geist faces (web/Android use these; iOS uses SF Pro). */
+      @font-face { font-family: Geist_400Regular; src: url(/node_modules/@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf); }
+      @font-face { font-family: Geist_600SemiBold; src: url(/node_modules/@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf); }
+      @font-face { font-family: GeistMono_400Regular; src: url(/node_modules/@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf); }
+      @font-face { font-family: GeistMono_600SemiBold; src: url(/node_modules/@expo-google-fonts/geist-mono/600SemiBold/GeistMono_600SemiBold.ttf); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>window.global = window</script>
+    <script type="module" src="/harness/chat-entry.tsx"></script>
+  </body>
+</html>
