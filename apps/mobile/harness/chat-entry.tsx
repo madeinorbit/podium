@@ -36,8 +36,8 @@ const items: TranscriptItem[] = [
     role: 'tool',
     ts: t(1),
     toolName: 'Bash',
+    toolUseId: 'use-b1',
     toolInput: 'bun scripts/build-corpus.ts',
-    toolResult: 'ok',
     durationMs: 120_000,
     text: '',
   },
@@ -46,10 +46,20 @@ const items: TranscriptItem[] = [
     role: 'tool',
     ts: t(3),
     toolName: 'Read',
+    toolUseId: 'use-b2',
     toolInput: '/repo/chart.ts',
-    toolResult: 'ok',
     durationMs: 75_000,
     text: '',
+  },
+  // The harness's own summary of those two calls (systemKind 'tool-summary'):
+  // the fold reads it instead of the subjects; the run below has none.
+  {
+    id: 's1',
+    role: 'system',
+    systemKind: 'tool-summary',
+    ts: t(4),
+    text: 'Rebuilt the corpus and regenerated the chart',
+    summarizes: ['use-b1', 'use-b2'],
   },
   {
     id: 'u1',

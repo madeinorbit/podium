@@ -116,3 +116,42 @@ it('opens a question from another agent with Reply, which starts the reply', () 
   fireEvent.click(screen.getByLabelText('Reply to POD-1906'))
   expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg_q' }))
 })
+
+it("names a fold by the harness's own summary of its calls", () => {
+  render(
+    <TranscriptList
+      items={[
+        {
+          id: 'c1',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolUseId: 'u1',
+          toolInput: 'bun build',
+        },
+        {
+          id: 'c2',
+          role: 'tool',
+          text: '',
+          toolName: 'Read',
+          toolUseId: 'u2',
+          toolInput: '/r/chart.ts',
+        },
+        {
+          id: 's',
+          role: 'system',
+          systemKind: 'tool-summary',
+          text: 'Rebuilt the corpus and regenerated the chart',
+          summarizes: ['u1', 'u2'],
+        },
+        { id: 'after', role: 'assistant', text: 'Done.' },
+      ]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+    />,
+  )
+  expect(
+    screen.getByLabelText('Expand work run: Rebuilt the corpus and regenerated the chart'),
+  ).toBeTruthy()
+})
