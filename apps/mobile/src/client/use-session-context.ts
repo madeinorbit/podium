@@ -39,6 +39,11 @@ export function useSessionContextSession(id: SessionId | undefined) {
   )
   return useRead(read, undefined)
 }
+/** Terminal size is a live model reading, independent of the stored session row. */
+export function useSessionContextGeometry(id: SessionId | undefined) {
+  const read = useCallback((reader: Reader) => reader.geometry(id), [id])
+  return useRead(read, undefined)
+}
 export function useSessionContextIssue(id: string | undefined) {
   const read = useCallback(
     (reader: Reader) => {

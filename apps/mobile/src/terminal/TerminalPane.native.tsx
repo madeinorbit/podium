@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
 import {
-  useSessionContextSession,
+  useSessionContextGeometry,
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
@@ -56,9 +56,9 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const spawnPending = useSpawnPending(sessionId)
-  // The row this pane's grid comes from (POD-3239 B1), marshalled to the DOM
+  // The live grid this pane opens at (POD-3239 B1), marshalled to the DOM
   // component as two primitives — see TerminalDomProps.
-  const session = useSessionContextSession(sessionId)
+  const geometry = useSessionContextGeometry(sessionId)
   // The keyboard belongs to the webview's focus, but UIKit's notifications are
   // app-wide, so the native side still sees it come up. See ACCESSORY_INSET.
   const keyboardUp = useKeyboardHeight() > 0 && Platform.OS === 'ios'
@@ -181,8 +181,8 @@ export function TerminalPane({
           active={active}
           connected={connected}
           spawnPending={spawnPending}
-          cols={session?.geometry?.cols}
-          rows={session?.geometry?.rows}
+          cols={geometry?.cols}
+          rows={geometry?.rows}
           onAttachTerminal={onAttachTerminal}
           onDetachTerminal={onDetachTerminal}
           onSendInput={onSendInput}

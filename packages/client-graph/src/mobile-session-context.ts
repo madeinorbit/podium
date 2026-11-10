@@ -54,6 +54,8 @@ function pooledMobileSessions(pool: MobxPool) {
 export function createMobileSessionReader(pool: MobxPool) {
   return {
     session: (id: string | undefined) => paneSession(pool, id),
+    geometry: (id: string | undefined) =>
+      id === undefined ? undefined : here(pool.model('session', id))?.geometry,
     issue: (id: string | undefined) => mobileSessionIssue(pool, id),
     /** The phone header/menu needs identity and lifecycle fields, not mission seats. */
     chromeIssue(id: string | undefined): Loaded<IssueViewModel> {

@@ -1,3 +1,4 @@
+import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -386,6 +387,12 @@ async function mount(
         attachRuntime={(owner) => {
           data.bindHub(owner.services.connection.hub, undefined, owner.live)
           data.publishMachines()
+          // Terminal geometry arrives on its topic after the P9 record split.
+          owner.live.applyTopic(
+            'session.terminalState',
+            SID,
+            knownReading({ controller: null, geometry: { cols: 80, rows: 24 } }, NOW),
+          )
           referenceState(owner).setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))
           return stop
@@ -493,6 +500,17 @@ it('renders the same six phone readers through real late attachment with no Reac
     initialGeometry: { cols: 80, rows: 24 },
   })
   expect(seams.nativeInputs.at(-1)).toMatchObject({ spawnPending: false, cols: 80, rows: 24 })
+  await act(async () =>
+    enabled.runtime.live.applyTopic(
+      'session.terminalState',
+      SID,
+      knownReading({ controller: null, geometry: { cols: 132, rows: 37 } }, NOW),
+    ),
+  )
+  await waitFor(() => {
+    expect(seams.terminalInputs.at(-1)).toMatchObject({ initialGeometry: { cols: 132, rows: 37 } })
+    expect(seams.nativeInputs.at(-1)).toMatchObject({ cols: 132, rows: 37 })
+  })
   await act(async () =>
     enabled.data.patch('session', 'synthetic-session-2', {
       draftUpdatedAt: '2026-10-03T00:02:00Z',

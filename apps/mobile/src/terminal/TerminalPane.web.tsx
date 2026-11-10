@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
 import {
-  useSessionContextSession,
+  useSessionContextGeometry,
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
 import { useTerminalReferences } from '../client/use-terminal-references'
@@ -42,9 +42,9 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const references = useTerminalReferences(active)
-  // The row this pane's grid comes from (POD-3239 B1). Read once at mount by
+  // The live grid this pane opens at (POD-3239 B1). Read once at mount by
   // `useTerminalSession`; a later row update never remounts the terminal.
-  const session = useSessionContextSession(sessionId)
+  const geometry = useSessionContextGeometry(sessionId)
   // Live reads for callbacks the terminal keeps for the lifetime of the mount:
   // the overlay asks for a stage on every repaint, and a closure that captured
   // one render's projection would underline a stage the board has left behind.
@@ -116,7 +116,7 @@ export function TerminalPane({
       // Born at W (POD-3239 B1). A phone crops rather than reflows, so a buffer
       // constructed at 80x24 and then moved is the same wrong first frame here
       // as on the desktop — with a scroll position that jumps as well.
-      ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+      ...(geometry ? { initialGeometry: geometry } : {}),
       test: new URLSearchParams(window.location.search).get('e2e') === '1',
       // Ref underlines are configured at mount so the very first replayed frame
       // is already marked — the desktop AgentPanel arms them in the same place.
