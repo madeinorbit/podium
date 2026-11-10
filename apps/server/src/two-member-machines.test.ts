@@ -21,7 +21,13 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { asMachineId, type MachineId, type SessionId } from '@podium/model'
+import {
+  asMachineId,
+  asMutationId,
+  type MachineId,
+  mintDeviceId,
+  type SessionId,
+} from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { sha256 } from './modules/machines/enrollment'
@@ -180,6 +186,46 @@ describe('MU-10: an unowned machine runs nothing', () => {
     await expect(
       client.sessions.create.mutate({ agentKind: 'shell', cwd: '/wt/orphan', machineId: ORPHAN }),
     ).rejects.toThrow(NO_USE)
+  })
+})
+
+describe('MU-10: a launch requires machine use before it is queued', () => {
+  it.each([
+    { who: 'bob', machine: 'alice', visible: false },
+    { who: 'alice', machine: 'orphan', visible: true },
+    { who: 'bob', machine: 'orphan', visible: false },
+  ] as const)('$who cannot queue a launch on $machine’s machine', async ({
+    who,
+    machine,
+    visible,
+  }) => {
+    const client = await trpc(who)
+    const machineId = machine === 'orphan' ? ORPHAN : f.machines[machine]
+    const sessionId = randomUUID() as SessionId
+    const effectId = mintDeviceId('eff_')
+    const reply = await client.sync.submit.mutate({
+      mutationId: asMutationId(`mut_launch_${randomUUID()}`),
+      command: 'effects.create',
+      version: 1,
+      input: {
+        id: effectId,
+        kind: 'session.launch',
+        target: { kind: 'session', id: sessionId },
+        input: { agentKind: 'shell', cwd: '/wt/refused', machineId },
+      },
+    })
+
+    expect(reply).toMatchObject({
+      outcome: 'rejected',
+      refusal: {
+        kind: visible ? 'unauthorized' : 'target-not-found',
+        message: visible
+          ? `you do not have access to run agents on machine '${machineId}'`
+          : `unknown machine '${machineId}'`,
+      },
+    })
+    expect(await f.handle.registry.sessionStore.effects.get(effectId)).toBeUndefined()
+    expect(await sessions().sessionRowExists(sessionId)).toBe(false)
   })
 })
 

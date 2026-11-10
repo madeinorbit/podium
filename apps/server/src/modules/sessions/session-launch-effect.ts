@@ -58,7 +58,11 @@ import {
   onBehalfOfUser,
   userCommandPrincipal,
 } from '../../command-principal'
-import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
+import {
+  checkMachineUse,
+  machineAccessMessage,
+  ownershipSnapshotFromMachines,
+} from '../../machine-access'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
@@ -330,14 +334,29 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
      * A resume names its agent and its conversation, or it is refused now. An
      * agent's spawn is created only by `mail.spawnAgent`'s own write, which
      * checked what it names (the owner, the parent): nobody creates one through
-     * `effects.create` (POD-6525).
+     * `effects.create` (POD-6525). An explicit machine requires use now; the
+     * run's recheck can then report access lost while the launch waited.
      */
-    admit: async (input) =>
-      input.spawnAgent !== undefined
-        ? { kind: 'invalid', message: 'an agent spawn is started with `podium agent spawn`' }
-        : resumeInputOf(input)?.success === false
-          ? { kind: 'invalid', message: 'a resume names its agent and its conversation' }
-          : undefined,
+    admit: async (input, _target, principal) => {
+      if (input.spawnAgent !== undefined) {
+        return { kind: 'invalid', message: 'an agent spawn is started with `podium agent spawn`' }
+      }
+      if (resumeInputOf(input)?.success === false) {
+        return { kind: 'invalid', message: 'a resume names its agent and its conversation' }
+      }
+      if (input.machineId === undefined) return undefined
+      const ownership = await ownershipSnapshotFromMachines(deps.modules().machines)
+      const failure = checkMachineUse(principal, input.machineId, ownership)
+      if (failure === undefined) return undefined
+      return {
+        kind: failure === 'absent' ? 'target-not-found' : 'unauthorized',
+        message: machineAccessMessage(
+          failure,
+          input.machineId,
+          ownership.rowFor(input.machineId)?.name,
+        ),
+      }
+    },
     publish: (input) => ({
       ...(input.agentKind !== undefined ? { agentKind: input.agentKind } : {}),
       cwd: input.cwd,
