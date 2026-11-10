@@ -1,171 +1,131 @@
 import { observer } from '@podium/client-graph/react'
-import type { JSX } from 'react'
-import { useEffect, useMemo } from 'react'
+import { type JSX, useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
-import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
-import { NetworkSettingsView } from '../network-view'
+import { type NetworkCheck, NetworkStep, reachabilityHintFor } from '@/features/setup/network-step'
+import type { NetworkSettingsView } from '../network-view'
+import { useSettingsFrame } from '../settings-frame'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
-/**
- * Network — view + change how this server is reached (its `publicUrl`) after first-run setup.
- * The join tokens handed to new machines embed this URL, so it's the thing to change when you
- * switch from a throwaway tunnel to a stable one. Reuses the setup reachability step. Worker
- * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
- * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
- */
-export const NetworkSection = observer(function NetworkSection({
-  onSaveStateChange,
-}: {
-  onSaveStateChange?: (state: NetworkSaveController | null) => void
-} = {}): JSX.Element {
+const EXPOSURE: Record<string, string> = {
+  'tailscale-serve': 'Tailscale Serve — reachable from your tailnet only.',
+  'tailscale-funnel': 'Tailscale Funnel — reachable from anywhere.',
+  'cloudflare-tunnel': 'Cloudflare quick tunnel — changes on every restart.',
+  manual: 'Your own reverse proxy.',
+}
+
+/** Address and its explicit change flow; Access owns the request's lifetime. */
+export const NetworkSection = observer(function NetworkSection({ view }: { view: NetworkSettingsView }): JSX.Element | null {
   const trpc = useSettingsTrpc()
-  const forcedPublicUrl = useForcedSetting('publicUrl')
-  const forcedAppUrl = useForcedSetting('appUrl')
-  const forcedOrigins = useForcedSetting('allowedOrigins')
-  const view = useMemo(() => new NetworkSettingsView(trpc), [trpc])
-  useEffect(() => {
-    view.open()
-    return () => view.close()
-  }, [view])
-  const load = (showLoading = false): void => {
-    void view.refresh(showLoading)
-  }
+  const frame = useSettingsFrame()
+  const forced = useForcedSetting('publicUrl')
+  const [lastCheck, setLastCheck] = useState<NetworkCheck | null>(null)
+  const [checking, setChecking] = useState(false)
   const info = view.answer
-
-  if (info === undefined && !view.error) {
+  if (!info) return null
+  if (info.mode === 'daemon' || info.mode === 'client') {
     return (
-      <Section title="Network" hint="Loading the network configuration for this machine.">
-        <p role="status" className="settings-prose">
-          Loading network settings…
+      <Section title="Address">
+        <Row label="Connected to" readOnly readOnlyValue={info.serverUrl ?? 'Unknown'} />
+        <p className="settings-prose mt-3">
+          To connect this machine to a different Podium, run <code>podium setup</code> on it
+          and paste a new join code.
         </p>
       </Section>
     )
   }
-
-  if (!info) {
-    return (
-      <Section title="Network" hint="Choose how this machine connects to Podium.">
-        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-          <p role="alert" className="settings-prose text-destructive">
-            Couldn’t load network settings.
-          </p>
-          <Button type="button" variant="outline" size="sm" onClick={() => load(true)}>
-            Try again
-          </Button>
-        </div>
-      </Section>
-    )
+  const check = async () => {
+    if (!info.publicUrl || checking) return
+    const url = info.publicUrl
+    setChecking(true)
+    try {
+      const verdict = await trpc.connect.check.query({ url })
+      setLastCheck({ url, checkedAt: new Date().toISOString(), verdict })
+    } catch {
+      setLastCheck({ url, checkedAt: new Date().toISOString(), verdict: undefined })
+    } finally {
+      setChecking(false)
+    }
   }
-
-  const isWorker = info.mode === 'daemon' || info.mode === 'client'
-
-  if (isWorker) {
-    return (
-      <Section
-        title="Network"
-        hint="This machine connects to a Podium running elsewhere; it isn't reachable on its own."
-      >
-        <Row label="Connected to">
-          <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
-            {info.serverUrl ?? <span className="text-muted-foreground">unknown</span>}
-          </span>
-        </Row>
-        <p className="settings-prose mt-1">
-          To point this machine at a different server, re-run <code>podium setup</code> on it and
-          paste a new join code.
-        </p>
-      </Section>
-    )
-  }
-
+  const currentCheck = lastCheck?.url === info.publicUrl ? lastCheck : null
+  const checked = currentCheck ? new Date(currentCheck.checkedAt).toLocaleString() : null
+  const checkLabel = currentCheck
+    ? currentCheck.verdict?.ok
+      ? `Reachable · Checked ${checked}`
+      : currentCheck.verdict === undefined || currentCheck.verdict.error === 'CONNECT_UNAVAILABLE'
+        ? `Check unavailable · Attempted ${checked}`
+        : `Not reachable from outside · Checked ${checked}`
+    : 'Not checked yet'
+  const source = forced.forced
+    ? forcedNotice(forced)
+    : info.publicUrlSource === 'env' || info.publicUrlSource === 'file'
+      ? forcedNotice(info.publicUrlSource === 'file' ? { forced: true, source: 'file' } : 'PODIUM_PUBLIC_URL')
+      : null
   return (
-    <Section
-      title="Network"
-      hint="Choose how phones, browsers, and other machines reach this Podium server."
-    >
-      {info.networkOption === 'cloudflare-tunnel' && (
-        <Row label="Tunnel">
-          <span role="status" className="text-[13.5px] text-foreground">
-            {view.tunnelHealthLabel}
-          </span>
-        </Row>
-      )}
-      {forcedPublicUrl.forced ? (
-        <>
-          <Row label="Public URL">
-            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
-              {info.publicUrl ?? <span className="text-muted-foreground">not set</span>}
-            </span>
-          </Row>
-          <p className="mt-2 settings-prose text-warning">{forcedNotice(forcedPublicUrl)}</p>
-        </>
-      ) : (
-        <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
-      )}
-      {/*
-        THE ADDRESS THAT DOES NOT CHANGE (POD-5921). A quick tunnel's URL moves on
-        every restart; this Connect link always lands wherever the server is now.
-        Shown only while Connect publishing is on, when the link actually works.
-      */}
-      {info.stableLink && (
+    <Section title="Address">
+      <div className="rounded-lg border border-hairline-soft px-4">
         <Row
-          label="Stable link (bookmark this)"
-          description="Always opens this server, even after its address changes."
+          label="Podium address"
+          description={<>{EXPOSURE[info.networkOption ?? ''] ?? 'How phones, browsers and machines reach this workspace.'}{source && <span className="mt-1 block">{source}</span>}</>}
+          readOnly={source !== null}
+          readOnlyValue={<span className="break-all font-mono">{info.publicUrl ?? 'Not set'}</span>}
         >
-          <a
-            href={info.stableLink}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground underline-offset-2 hover:underline"
-          >
-            {info.stableLink}
-          </a>
+          <span className="settings-label min-w-0 flex-1 truncate font-mono" title={info.publicUrl ?? undefined}>
+            {info.publicUrl ?? 'Not set'}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => frame.openTakeover({
+              title: 'Change address',
+              description: <>Choose how this Podium is reached. <strong>Paired machines and phones must rejoin with the new address.</strong></>,
+              content: <NetworkStep
+                embedded
+                addressOnly
+                trpc={trpc}
+                onBack={frame.closeTakeover}
+                onChecked={setLastCheck}
+                onSaved={() => {
+                  void view.refresh()
+                  frame.closeTakeover()
+                  toast.success('Address saved. Paired machines and phones must rejoin.')
+                }}
+              />,
+            })}
+          >Change</Button>
         </Row>
-      )}
-      {/*
-        WHERE THE UI IS, when it is not here. Read-only and shown only when set:
-        an operator who never split their hosting has no such thing, and a row
-        saying "not set" would invite them to look for a setting that would only
-        break their install. Split hosting is configured by the deployment, so
-        the value arrives through the environment and there is nothing to edit
-        here — the provenance notice says which variable holds it.
-      */}
-      {info.appUrl && (
-        <>
+        <div className="border-t border-hairline-soft/70">
           <Row
-            label="Web app URL"
-            description="Browsers and desktop apps are sent here for the interface; this server answers the API."
+            label="Reachable from outside"
+            description={<>
+              {info.networkOption === 'cloudflare-tunnel' && <span className="block">Tunnel: {view.tunnelHealthLabel}</span>}
+              <span>{checking ? 'Checking the address from outside…' : checkLabel}</span>
+              {currentCheck && reachabilityHintFor(currentCheck.verdict) && <span className="mt-1 block">{reachabilityHintFor(currentCheck.verdict)}</span>}
+            </>}
+            pending={checking}
           >
-            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
-              {info.appUrl}
-            </span>
+            <Button type="button" variant="ghost" size="sm" disabled={!info.publicUrl || checking} onClick={() => void check()}>
+              {checking ? 'Checking…' : 'Check now'}
+            </Button>
           </Row>
-          {forcedAppUrl.forced && (
-            <p className="mt-2 settings-prose text-muted-foreground">
-              {forcedNotice(forcedAppUrl)}
-            </p>
-          )}
-        </>
-      )}
-      {(info.allowedOrigins?.length ?? 0) > 0 && (
-        <>
-          <Row
-            label="Allowed browser origins"
-            description="Sites allowed to sign in to this server from another origin."
-          >
-            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
-              {info.allowedOrigins?.join(', ')}
-            </span>
-          </Row>
-          {forcedOrigins.forced && (
-            <p className="mt-2 settings-prose text-muted-foreground">
-              {forcedNotice(forcedOrigins)}
-            </p>
-          )}
-        </>
-      )}
+        </div>
+      </div>
     </Section>
   )
+})
+
+/** Configuration facts live in Advanced, after the everyday sign-ins. */
+export const AdvancedNetworkRows = observer(function AdvancedNetworkRows({ view }: { view: NetworkSettingsView }) {
+  const app = useForcedSetting('appUrl')
+  const origins = useForcedSetting('allowedOrigins')
+  const info = view.answer
+  if (!info) return null
+  return <>
+    <Row label="Web app address" description={app.forced ? forcedNotice(app) : undefined} readOnly readOnlyValue={<span className="break-all">{info.appUrl ?? 'Same as Podium address'}</span>} />
+    <Row label="Other sites allowed to sign in" description={origins.forced ? forcedNotice(origins) : undefined} readOnly readOnlyValue={<span className="break-all">{info.allowedOrigins?.join(', ') || 'None'}</span>} />
+    {info.stableLink && <Row label="Stable link" description="Always opens this server, even after its address changes." readOnly readOnlyValue={<a href={info.stableLink} target="_blank" rel="noreferrer" className="break-all underline-offset-2 hover:underline">{info.stableLink}</a>} />}
+  </>
 })

@@ -72,8 +72,20 @@ export function reachabilityHintFor(verdict: CheckResult | undefined): string | 
 // Derived from the tRPC client so the web bundle never imports @podium/runtime/setup.
 type NetOption = Parameters<Trpc['setup']['commandFor']['query']>[0]['option']
 type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[number]
+const ADDRESS_METHODS: Record<NetOption, { label: string; note: string }> = {
+  'tailscale-serve': { label: 'Tailscale Serve', note: 'Private to your tailnet. Recommended.' },
+  'tailscale-funnel': { label: 'Tailscale Funnel', note: 'Public on the internet, with a real certificate.' },
+  manual: { label: 'Your own reverse proxy', note: 'Caddy, nginx or similar, with an https address.' },
+  'cloudflare-tunnel': { label: 'Cloudflare quick tunnel', note: 'Instant, no account — but the address changes on every restart.' },
+}
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
+
+export interface NetworkCheck {
+  url: string
+  checkedAt: string
+  verdict: CheckResult | undefined
+}
 
 /** Save-bar state exposed by the embedded Network settings form. */
 export interface NetworkSaveController {
@@ -125,6 +137,9 @@ interface NetworkStepProps {
   onSaved: () => void
   /** Compact layout (no page chrome / Back / Skip) for hosting inside a dialog. */
   embedded?: boolean
+  /** Settings changes only the address; personal passwords live under Account. */
+  addressOnly?: boolean
+  onChecked?: (check: NetworkCheck) => void
   /** Which host mode this box is; sent to setup.complete. Omitted (embedded) preserves it. */
   mode?: 'all-in-one' | 'server'
   /** When set, this step does NOT commit: it hands the collected payload up so a
@@ -190,6 +205,8 @@ function NetworkStepForm({
   onSkip,
   onSaved,
   embedded = false,
+  addressOnly = false,
+  onChecked,
   mode,
   onCollected,
   onSaveStateChange,
@@ -244,14 +261,17 @@ function NetworkStepForm({
       .catch(() => {})
   }, [trpc])
   useEffect(() => {
+    let live = true
     if (option === null) {
       setCmd(null)
       return
     }
+    setCmd(null)
     trpc.setup.commandFor
       .query({ option, port: reachablePort() })
-      .then(setCmd)
-      .catch(() => {})
+      .then((answer) => { if (live) setCmd(answer) })
+      .catch(() => { if (live) setErr('Couldn’t load the command for this method. Choose it again to retry.') })
+    return () => { live = false }
   }, [trpc, option])
 
   const copy = (): void => {
@@ -269,20 +289,23 @@ function NetworkStepForm({
       // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
       // could never type again — and made Settings → Security and Settings → Network disagree
       // about what identical keystrokes mean. Empty is still empty; whitespace is a character.
-      if (authMode === 'password' && !password) {
+      if (!addressOnly && authMode === 'password' && !password) {
         setErr('Enter a login password or choose no-password mode.')
         return
       }
-      if (authMode === 'open' && !ackNoPassword) {
+      if (!addressOnly && authMode === 'open' && !ackNoPassword) {
         setErr('Confirm running without a login password.')
         return
       }
       const payload: SetupCompleteInput = {
-        publicUrl: url,
+        publicUrl: url.trim(),
+        ...(initial.url && url.trim() !== initial.url ? { confirmUrlChange: true } : {}),
         ...(option ? { networkOption: option } : {}),
         ...(mode ? { mode } : {}),
         // 'keep' sends neither field → the server leaves the existing password untouched.
-        ...(authMode === 'password'
+        ...(addressOnly
+          ? initial.hasPassword ? {} : { acknowledgeNoPassword: true }
+          : authMode === 'password'
           ? { password }
           : authMode === 'open'
             ? { acknowledgeNoPassword: true }
@@ -303,6 +326,7 @@ function NetworkStepForm({
         } catch {
           verdict = undefined
         }
+        onChecked?.({ url: url.trim(), checkedAt: new Date().toISOString(), verdict })
         const hint = reachabilityHintFor(verdict)
         if (hint !== null) {
           // Failed probe, override NOT taken: commit nothing, stay on the URL field.
@@ -350,7 +374,7 @@ function NetworkStepForm({
         setBusy(false)
       }
     },
-    [ackNoPassword, authMode, httpOrigin, mode, onCollected, onSaved, option, password, trpc, url],
+    [ackNoPassword, addressOnly, authMode, httpOrigin, initial.hasPassword, initial.url, mode, onChecked, onCollected, onSaved, option, password, trpc, url],
   )
 
   const discard = useCallback((): void => {
@@ -402,14 +426,14 @@ function NetworkStepForm({
           </p>
         </div>
       )}
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-[12px] text-muted-foreground">How to expose this instance</legend>
+      <fieldset className="flex flex-col gap-2" disabled={busy}>
+        <legend className={addressOnly ? 'settings-label mb-2' : 'text-[12px] text-muted-foreground'}>How to expose this instance</legend>
         {initial.option === null && (
           <p className="text-[12px] text-muted-foreground">
             Choose how this URL is exposed. Podium will save the selection with the URL.
           </p>
         )}
-        {options.map((o) => (
+        {(addressOnly ? [...options].sort((a, b) => Object.keys(ADDRESS_METHODS).indexOf(a.id) - Object.keys(ADDRESS_METHODS).indexOf(b.id)) : options).map((o) => (
           <label
             key={o.id}
             htmlFor={`net-${o.id}`}
@@ -428,8 +452,8 @@ function NetworkStepForm({
               className="mt-1"
             />
             <span className="flex flex-col">
-              <strong className="text-[13px] text-foreground">{o.label}</strong>
-              <span className="text-[12px] text-muted-foreground">{o.note}</span>
+              <strong className="settings-label">{addressOnly ? ADDRESS_METHODS[o.id].label : o.label}</strong>
+              <span className="settings-prose">{addressOnly ? ADDRESS_METHODS[o.id].note : o.note}</span>
             </span>
           </label>
         ))}
@@ -459,6 +483,7 @@ function NetworkStepForm({
           type="text"
           placeholder="https://box.tailnet.ts.net"
           value={url}
+          disabled={busy}
           onChange={(e) => {
             setUrl(e.target.value)
             setSaved(false)
@@ -502,7 +527,7 @@ function NetworkStepForm({
           </div>
         )}
       </div>
-      <fieldset className="flex flex-col gap-2">
+      {!addressOnly && <fieldset className="flex flex-col gap-2" disabled={busy}>
         <legend className="text-[12px] text-muted-foreground">Login</legend>
         {hasPassword && (
           <label
@@ -614,7 +639,7 @@ function NetworkStepForm({
             </span>
           </Label>
         )}
-      </fieldset>
+      </fieldset>}
       {err && !onSaveStateChange && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
@@ -629,7 +654,7 @@ function NetworkStepForm({
         <div className="flex items-center justify-between gap-2">
           {onBack ? (
             <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-              Back
+              {addressOnly ? 'Cancel' : 'Back'}
             </Button>
           ) : (
             <span />
@@ -645,11 +670,11 @@ function NetworkStepForm({
               disabled={
                 busy ||
                 !url.trim() ||
-                (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
+                (!addressOnly && (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false))
               }
               onClick={() => void finish()}
             >
-              {reach?.status === 'checking' ? 'Checking…' : busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
+              {reach?.status === 'checking' ? 'Checking…' : busy ? 'Saving…' : addressOnly ? 'Check and save' : embedded ? 'Save network settings' : 'Finish'}
             </Button>
           </div>
         </div>
