@@ -7744,13 +7744,12 @@
       "wire": {
         "id": "id",
         "displayName": "displayName",
-        "email": null,
         "role": "role"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"displayName\":\"displayName\",\"email\":null,\"role\":\"role\"}"
+      "encoded": "{\"id\":\"id\",\"displayName\":\"displayName\",\"role\":\"role\"}"
     },
     {
       "schema": "MemberView",
