@@ -3,12 +3,13 @@ import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
 import { useOpeningView } from '@podium/client-graph/react'
 import type { MemberModel } from '@podium/client-graph/requested-models'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
-import { ChevronRight, Link, Plus } from 'lucide-react'
+import { Link, Plus } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { AdminViewerError } from '../AdminViewerError'
@@ -18,7 +19,7 @@ import { type MemberSignInsAnswer, MembersPage, memberRoleLabel } from './member
 import { InviteMember, type MemberLinkReceipt } from './members-invite'
 import { MemberLinkResult } from './members-link-result'
 import { MemberPerson } from './members-person'
-import { ConfirmInline, Section } from './shared'
+import { ConfirmInline, EntityRow, Section } from './shared'
 
 const createPage = (pool: import('@podium/client-graph/pool').MobxPool) => new MembersPage(pool)
 
@@ -84,14 +85,7 @@ export const MembersSection = observer(function MembersSection() {
           </Button>
         </SettingsPageActions>
       )}
-      <Section
-        title="Members"
-        hint={
-          admin
-            ? 'People who can sign in to this workspace. Open someone to change their role, see their devices and keys, or remove them.'
-            : 'People who can sign in to this workspace.'
-        }
-      >
+      <Section list>
         {data.error && (
           <div className="settings-list-note">
             <p className="settings-prose text-destructive" role="alert">
@@ -134,7 +128,7 @@ export const MembersSection = observer(function MembersSection() {
         )}
       </Section>
       {admin && (
-        <Section title="Pending invites">
+        <Section title="Pending invites" list>
           {data.invites.length ? (
             data.invites.map((invite) => (
               <PendingInvite
@@ -169,48 +163,31 @@ const MemberListRow = observer(function MemberListRow({
   onOpen: () => void
 }) {
   const person = data.person(member)
-  const contents = (
-    <>
-      <span
-        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary settings-label"
-        aria-hidden="true"
-      >
-        {person.initials}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-2">
-          <span className="settings-label">{member.displayName}</span>
-          {person.self && <span className="settings-micro">You</span>}
-          {admin && member.disabledAt && (
-            <span className="settings-micro text-destructive">Disabled</span>
-          )}
-        </span>
-        {admin && (
-          <span className="settings-prose block">
+  return (
+    <EntityRow
+      leading={person.initials}
+      title={member.displayName}
+      pills={
+        <>
+          {person.self && <Badge variant="outline">You</Badge>}
+          {admin && member.disabledAt && <Badge variant="destructive">Disabled</Badge>}
+        </>
+      }
+      subtitle={
+        admin ? (
+          <>
             {member.email || 'No email'} ·{' '}
             {data.devices.error
               ? 'Devices unavailable'
               : !data.devices.answer
                 ? 'Loading devices…'
                 : `${data.devicesTruncated ? 'At least ' : ''}${person.devices.length} device${person.devices.length === 1 ? '' : 's'} signed in`}
-          </span>
-        )}
-      </span>
-      <span className="settings-prose">{memberRoleLabel(member.role)}</span>
-      {admin && <ChevronRight size={14} aria-hidden="true" />}
-    </>
-  )
-  return admin ? (
-    <button
-      type="button"
-      className="settings-list-row flex w-full items-center gap-3 text-left"
-      onClick={onOpen}
-      aria-label={`Open ${member.displayName}`}
-    >
-      {contents}
-    </button>
-  ) : (
-    <div className="settings-list-row flex items-center gap-3">{contents}</div>
+          </>
+        ) : undefined
+      }
+      trailing={<span className="settings-prose">{memberRoleLabel(member.role)}</span>}
+      onClick={admin ? onOpen : undefined}
+    />
   )
 })
 
@@ -291,27 +268,26 @@ const PendingInvite = observer(function PendingInvite({
       ),
     })
   return (
-    <div className="settings-list-row">
-      <div className="flex items-center gap-3">
-        <Link size={18} aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="settings-label">{label}</p>
-          <p className="settings-prose">
-            {memberRoleLabel(invite.role)} · Expires{' '}
-            {new Date(invite.expiresAt).toLocaleDateString()}
-          </p>
-        </div>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('replace')}>
-          New link
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('revoke')}>
-          Revoke
-        </Button>
-      </div>
+    <div>
+      <EntityRow
+        leading={<Link size={18} />}
+        title={label}
+        subtitle={`${memberRoleLabel(invite.role)} · Expires ${new Date(invite.expiresAt).toLocaleDateString()}`}
+        trailing={
+          <>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('replace')}>
+              New link
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('revoke')}>
+              Revoke
+            </Button>
+          </>
+        }
+      />
       {pending === 'replace' && (
         <ConfirmInline
           key="replace"
-          sentence={`Create a new link for ${label}? Creates a new link; the old one stops working.`}
+          sentence={`Create a new link for ${label}? The old one stops working.`}
           actionLabel="Create new link"
           hasPassword={needsPassword}
           pending={busy}

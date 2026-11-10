@@ -1,7 +1,8 @@
 import { memberRoster } from '@podium/client-graph/member-roster'
 import type { MemberModel } from '@podium/client-graph/requested-models'
+import { KeyRound, Monitor, Server } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
@@ -12,7 +13,7 @@ import { KeySharing, StoredKeys } from './key-sharing'
 import { deviceLabel, type MembersPage, memberRoleLabel, type SettingsPerson } from './members-data'
 import { MemberLinkResult } from './members-link-result'
 import { MemberRoleControl } from './members-role'
-import { ConfirmInline, providerLabel, Row, Section } from './shared'
+import { ConfirmInline, EntityRow, providerLabel, Row, Section } from './shared'
 
 type AccessAction = 'disable' | 'enable' | 'recovery' | 'invite' | 'remove'
 const ACCESS = {
@@ -144,7 +145,7 @@ export const MemberPerson = observer(function MemberPerson({
 
   return (
     <>
-      <Section title="Profile">
+      <Section>
         <Row label="Email" readOnly readOnlyValue={member.email || 'No email'} />
         <div>
           <Row
@@ -197,14 +198,16 @@ export const MemberPerson = observer(function MemberPerson({
         )}
       </PersonDevices>
       <PersonKeys member={member} />
-      <Section title="Machines they look after">
+      <Section title="Machines they look after" list>
         {person.machines.length ? (
           person.machines.map((machine) => (
-            <Row
+            <EntityRow
               key={machine.id}
-              label={machine.name}
-              readOnly
-              readOnlyValue={machine.online ? 'Online' : 'Offline'}
+              leading={<Server size={18} />}
+              title={machine.name}
+              trailing={
+                <span className="settings-prose">{machine.online ? 'Online' : 'Offline'}</span>
+              }
             />
           ))
         ) : (
@@ -296,8 +299,19 @@ const PersonDevices = observer(function PersonDevices({
   return (
     <Section
       title="Devices"
+      list
       hint={person.self ? 'Manage your own devices and sign out in Account.' : undefined}
+      action={
+        !person.self &&
+        person.allows('signOutEverywhere') &&
+        (person.devices.length > 0 || data.devicesTruncated) ? (
+          <Button variant="ghost" size="sm" onClick={onSignOutEverywhere}>
+            Sign out everywhere
+          </Button>
+        ) : undefined
+      }
     >
+      {children && <div className="settings-list-note">{children}</div>}
       {data.devices.error ? (
         <p className="settings-list-note settings-prose text-destructive" role="alert">
           {data.devices.error}
@@ -317,26 +331,38 @@ const PersonDevices = observer(function PersonDevices({
           {person.devices.length ? (
             person.devices.map((device) => (
               <div key={device.id || `${device.kind}-${device.createdAt}-${device.expiresAt}`}>
-                <Row
-                  label={deviceLabel(device)}
-                  description={`${device.platform ? `${device.platform} · ` : ''}Last seen ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : 'unknown'}`}
-                  error={error?.id === device.id ? error.message : undefined}
-                >
-                  {!person.self && person.allows('signOutEverywhere') && device.id && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={Boolean(revoking)}
-                      pending={revoking === device.id}
-                      pendingLabel="Signing out…"
-                      aria-label={`Sign out ${deviceLabel(device)}`}
-                      onClick={() => device.id && void revoke(device.id)}
-                    >
-                      Sign out
-                    </Button>
-                  )}
-                </Row>
+                <EntityRow
+                  leading={<Monitor size={18} />}
+                  title={deviceLabel(device)}
+                  subtitle={
+                    <>
+                      {`${device.platform ? `${device.platform} · ` : ''}Last seen ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : 'unknown'}`}
+                      {error?.id === device.id && (
+                        <p className="settings-prose text-destructive" role="alert">
+                          {error.message}
+                        </p>
+                      )}
+                    </>
+                  }
+                  trailing={
+                    !person.self &&
+                    person.allows('signOutEverywhere') &&
+                    device.id && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={Boolean(revoking)}
+                        pending={revoking === device.id}
+                        pendingLabel="Signing out…"
+                        aria-label={`Sign out ${deviceLabel(device)}`}
+                        onClick={() => device.id && void revoke(device.id)}
+                      >
+                        Sign out
+                      </Button>
+                    )
+                  }
+                />
               </div>
             ))
           ) : (
@@ -346,21 +372,6 @@ const PersonDevices = observer(function PersonDevices({
                 : 'Not signed in anywhere.'}
             </p>
           )}
-          {!person.self &&
-            person.allows('signOutEverywhere') &&
-            (person.devices.length > 0 || data.devicesTruncated) && (
-              <div>
-                <Row
-                  label="Sign out everywhere"
-                  description="Ends all their sign-ins. They can sign in again."
-                >
-                  <Button variant="ghost" size="sm" onClick={onSignOutEverywhere}>
-                    Sign out everywhere
-                  </Button>
-                </Row>
-                {children}
-              </div>
-            )}
         </>
       )}
     </Section>
@@ -379,7 +390,7 @@ const PersonKeys = observer(function PersonKeys({ member }: { member: MemberMode
   }, [keys, reload])
   const own = (keys.answer ?? []).filter((key) => key.owner === member.id)
   return (
-    <Section title="Their API keys" hint="You can change who may use a key, never see it.">
+    <Section title="Their API keys" hint="You can change who may use a key, never see it." list>
       {keys.error ? (
         <p className="settings-list-note settings-prose text-destructive" role="alert">
           {keys.error}
@@ -395,18 +406,26 @@ const PersonKeys = observer(function PersonKeys({ member }: { member: MemberMode
               ? 'Claude subscription (setup-token)'
               : `${providerLabel(key.provider as Parameters<typeof providerLabel>[0])} API key`
           return (
-            <div key={key.id} className="settings-list-row">
-              <Row label={label} readOnly readOnlyValue={key.identity || 'Stored'} />
-              <KeySharing
-                accountId={key.id}
-                label={`${member.displayName}’s ${label}`}
-                sharing={key.sharing}
-                owner={key.owner}
-                directory={directory}
-                currentMemberId={directory?.currentMemberId}
-                onChanged={() => void reload()}
+            <Fragment key={key.id}>
+              <EntityRow
+                leading={<KeyRound size={18} />}
+                title={label}
+                trailing={
+                  <span className="settings-micro font-mono">{key.identity || 'Stored'}</span>
+                }
               />
-            </div>
+              <div className="settings-list-note">
+                <KeySharing
+                  accountId={key.id}
+                  label={`${member.displayName}’s ${label}`}
+                  sharing={key.sharing}
+                  owner={key.owner}
+                  directory={directory}
+                  currentMemberId={directory?.currentMemberId}
+                  onChanged={() => void reload()}
+                />
+              </div>
+            </Fragment>
           )
         })
       ) : (

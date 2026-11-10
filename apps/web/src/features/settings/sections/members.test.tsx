@@ -108,7 +108,7 @@ function mockApi(
 }
 async function openPerson(name = 'Anna') {
   render(<MembersSection />)
-  fireEvent.click(await screen.findByRole('button', { name: `Open ${name}` }))
+  fireEvent.click(await screen.findByRole('button', { name }))
   const flow = frame.openTakeover.mock.calls.at(-1)?.[0]
   expect(flow.title).toBe(name)
   const rendered = render(flow.content)
@@ -143,7 +143,7 @@ test('members read names and roles without requesting admin lists or revealing e
   expect(screen.queryByText('anna@example.com')).toBeNull()
   expect(screen.queryByText('Beth')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Invite' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Open Anna' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Anna' })).toBeNull()
   expect(screen.queryByText('Pending invites')).toBeNull()
   expect(request.mock.calls.some(([url]) => url.endsWith('/directory'))).toBe(true)
   expect(

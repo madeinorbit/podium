@@ -77,7 +77,7 @@ export const InviteMember = observer(function InviteMember({
 
   return (
     <>
-      <Section title="Invitation">
+      <Section>
         <Row label="Email" description="Optional. Without it you get a link to share yourself.">
           <label className="sr-only" htmlFor={`${id}-email`}>
             Email
