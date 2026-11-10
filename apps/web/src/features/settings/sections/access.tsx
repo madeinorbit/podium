@@ -152,7 +152,7 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
       key={signIn.id ?? `${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`}
       signIn={signIn}
       revoking={revoking}
-      error={revokeError?.id === signIn.id ? revokeError.message : undefined}
+      error={revokeError && revokeError.id === signIn.id ? revokeError.message : undefined}
       onRevoke={revoke}
     />
   )

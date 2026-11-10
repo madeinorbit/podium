@@ -30,7 +30,7 @@ async function network(overrides: Record<string, unknown> = {}) {
     allowedOrigins: [],
     stableLink: null,
     ...overrides,
-  } as NetworkInfo
+  } as unknown as NetworkInfo
   fixture.trpc = {
     setup: {
       info: { query: vi.fn().mockResolvedValue(info) },

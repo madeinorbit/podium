@@ -177,7 +177,7 @@ describe('Access', () => {
     })
     fireEvent.click(control)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'the password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Require sign-in', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Require sign-in' }))
     await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('true'))
     expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenLastCalledWith({
       required: true,
