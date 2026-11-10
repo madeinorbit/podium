@@ -187,13 +187,23 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       </SettingsPageSection>
     </>
   ),
-  projects: ({ settings, patch }) => (
+  projects: ({ settings, patch, secrets, secretBusy, secretError, setSecret, clearSecret }) => (
     <>
       <SettingsPageSection id="repos">
         <ReposSection podiumDefault={settings.gitWorkflow?.defaultParentBranch ?? ''} />
       </SettingsPageSection>
       <SettingsPageSection id="workflow">
-        <WorkflowSection settings={settings} patch={patch} />
+        <WorkflowSection
+          settings={settings}
+          patch={patch}
+          linear={{
+            state: secrets,
+            busy: secretBusy,
+            error: secretError,
+            onSet: async (value) => setSecret('integrations.linearApiKey', value),
+            onClear: async () => clearSecret('integrations.linearApiKey'),
+          }}
+        />
       </SettingsPageSection>
     </>
   ),

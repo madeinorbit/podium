@@ -21,14 +21,19 @@ export const TAB_PATHS = {
     'apiKeys.openrouter',
     'apiKeys.anthropic',
     'apiKeys.openai',
-    'integrations.linearApiKey',
     'notifications.telegramBotToken',
   ],
   notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
   appearance: ['sidebar.repoSort'],
   account: [],
-  machines: ['hibernation', 'worktreeGc'],
-  projects: ['gitWorkflow', 'issues.assistantEnabled'],
+  machines: ['hibernation'],
+  projects: [
+    'gitWorkflow.defaultParentBranch',
+    'gitWorkflow.autoRebaseBeforeMerge',
+    'worktreeGc',
+    'issues.assistantEnabled',
+    'integrations.linearApiKey',
+  ],
   members: [],
   access: [],
   audit: [],
@@ -78,6 +83,7 @@ export const PAGE_SETTINGS_TIER = {
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
+  'gitWorkflow.mergeStyle': 'No consumer reads this setting. Tasks always land by fast-forward.',
   'sidebar.repoOrder': 'Set by dragging project headers in the sidebar.',
   'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',
   'autoContinue.promptDismissed':

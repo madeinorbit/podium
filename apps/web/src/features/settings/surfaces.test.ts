@@ -27,11 +27,16 @@ describe('settings page classification', () => {
   for (const page of pages) {
     const prefixes = TAB_PATHS[page]
     if (prefixes.length === 0) continue
-    it(`${page} retains the write tier of every leaf it hosts`, () => {
+    it(`${page} retains each leaf’s write tier when re-homing controls`, () => {
       for (const prefix of prefixes) {
         const matches = SETTINGS_CLASSIFICATION.filter((entry) => pathIsUnder(entry.path, prefix))
         expect(matches.length, `${page}: ${prefix} matches no classified leaf`).toBeGreaterThan(0)
-        for (const entry of matches) expect(entry.tier, entry.path).toBe(PAGE_SETTINGS_TIER[page])
+        for (const entry of matches) {
+          // Secret rows may be re-homed alongside preferences. Each still
+          // writes through the secret contract, never the page's record tier.
+          if (entry.tier === 'server-secret') continue
+          expect(entry.tier, entry.path).toBe(PAGE_SETTINGS_TIER[page])
+        }
       }
     })
   }
@@ -53,13 +58,22 @@ describe('settings page classification', () => {
     }
   })
 
-  it('keeps all five interim server-secret controls on AI accounts without changing their tier', () => {
-    const secrets = SETTINGS_CLASSIFICATION.filter((entry) => entry.tier === 'server-secret')
-      .map((entry) => entry.path)
-      .sort()
-    expect([...TAB_PATHS.accounts].sort()).toEqual(secrets)
-    expect(TAB_SURFACE.accounts).toBe('personal')
-    expect(PAGE_SETTINGS_TIER.accounts).toBe('server-secret')
+  it('homes secrets beside the features that use them, keeping them server-owned', () => {
+    const home = (path: string) => pages.filter((page) =>
+      TAB_PATHS[page].some((prefix) => pathIsUnder(path, prefix)),
+    )
+    const expectedHomes = {
+      'integrations.linearApiKey': 'projects',
+      'notifications.telegramBotToken': 'notifications',
+      'apiKeys.openrouter': 'accounts',
+      'apiKeys.anthropic': 'accounts',
+      'apiKeys.openai': 'accounts',
+    }
+    for (const entry of SETTINGS_CLASSIFICATION.filter((entry) => entry.tier === 'server-secret')) {
+      expect(home(entry.path)).toEqual([expectedHomes[entry.path as keyof typeof expectedHomes]])
+    }
+    expect(TAB_SURFACE.projects).toBe('workspace')
+    expect(PAGE_SETTINGS_TIER.projects).toBe('instance-preference')
   })
 
   it('matches prefixes on a dot boundary', () => {
