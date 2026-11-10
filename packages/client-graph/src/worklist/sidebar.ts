@@ -1,6 +1,6 @@
+import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { here } from '../lookup'
 import { worklistGroups } from './groups'
-import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { projectIndex } from './projects'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
@@ -9,15 +9,16 @@ import { projectIndex } from './projects'
 
 import { compareShallow, compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
-import { hostOf, type IssueModel } from '../models'
+import { hostOf, type IssueModel, type UserPreferencesModel } from '../models'
 import type { MobxPool } from '../pool'
+import { WorklistIssue } from './issue'
 import { LOADING, type Loaded } from './rollup'
 import type { SidebarProgress } from './sidebar-row'
-import { WorklistIssue } from './issue'
-import { worklistView, type Worklist } from './view-model'
+import { type Worklist, worklistView } from './view-model'
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
+  readonly projectSort?: UserPreferencesModel['sidebar']['repoSort']
   readonly pinnedRepos?: readonly string[]
   readonly pinnedWorktrees?: readonly string[]
   readonly collapsed?: Readonly<Record<string, boolean>>
@@ -75,23 +76,43 @@ export function sidebarNestedOf(issue: WorklistIssue): readonly string[] {
   return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
 
-export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleDescendantIds }
-export function sidebarOwnAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).ownAttention }
-export function sidebarAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleAttention }
-export function sidebarSeatActivity(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleSessionActivity }
-export function sidebarActivityAt(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleActivityAt }
+export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) {
+  return companionOf(model, pool).visibleDescendantIds
+}
+export function sidebarOwnAttention(model: IssueModel | WorklistIssue, pool: MobxPool) {
+  return companionOf(model, pool).ownAttention
+}
+export function sidebarAttention(model: IssueModel | WorklistIssue, pool: MobxPool) {
+  return companionOf(model, pool).visibleAttention
+}
+export function sidebarSeatActivity(model: IssueModel | WorklistIssue, pool: MobxPool) {
+  return companionOf(model, pool).visibleSessionActivity
+}
+export function sidebarActivityAt(model: IssueModel | WorklistIssue, pool: MobxPool) {
+  return companionOf(model, pool).visibleActivityAt
+}
 
 /** Compatibility records borrow narrow fields, storing no answers. */
-export function sidebarIssueRow(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<WorklistIssue> {
+export function sidebarIssueRow(
+  model: IssueModel | WorklistIssue,
+  pool: MobxPool,
+): Loaded<WorklistIssue> {
   const row = companionOf(model, pool)
   return row.ready === 'ready' ? row : row.ready
 }
-export function sidebarValues(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<WorklistIssue> {
+export function sidebarValues(
+  model: IssueModel | WorklistIssue,
+  pool: MobxPool,
+): Loaded<WorklistIssue> {
   const row = companionOf(model, pool)
   return row.ready === 'ready' ? row : row.ready
 }
-export function sidebarIssueProgress(model: IssueModel | WorklistIssue): SidebarProgress | typeof LOADING {
-  return model instanceof WorklistIssue ? model.progress : worklistView(hostOf(model) as MobxPool).row(model).progress
+export function sidebarIssueProgress(
+  model: IssueModel | WorklistIssue,
+): SidebarProgress | typeof LOADING {
+  return model instanceof WorklistIssue
+    ? model.progress
+    : worklistView(hostOf(model) as MobxPool).row(model).progress
 }
 
 /** Compatibility adapter; the worklist owns the shared section queries. */
@@ -109,8 +130,11 @@ export class SidebarIndex {
   // These projections assemble new arrays and records from the same lane facts.
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
   private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', sameBand)
+  private readonly activityViews = keyedViews<number>('pool.sidebar', 'projectActivity', Object.is)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
-  private get pool() { return this.view.pool }
+  private get pool() {
+    return this.view.pool
+  }
   constructor(private readonly view: Worklist) {}
 
   row(id: string): WorklistIssue | typeof LOADING | undefined {
@@ -168,7 +192,9 @@ export class SidebarIndex {
   private groupFacts(key: string): GroupFacts {
     return this.groupViews(key, () => {
       const group = worklistGroups(this.pool).group(key)
-      const rowIds = group.sidebarRowIds, snoozedIds = group.sidebarSnoozedIds, closedIds = group.sidebarClosedIds
+      const rowIds = group.sidebarRowIds,
+        snoozedIds = group.sidebarSnoozedIds,
+        closedIds = group.sidebarClosedIds
       const firstOpen = rowIds[0]
       // The group's logical repo, from its issues: two repos can share a path,
       // and only one of them seeds a root lane there (POD-2153).
@@ -185,6 +211,18 @@ export class SidebarIndex {
             ? key
             : (worklistGroups(this.pool).placementOf(firstOpen)?.repoPath ?? key),
       }
+    })
+  }
+
+  /** One shared activity answer per project; unrelated projects keep their cache. */
+  private projectActivity(key: string): number {
+    return this.activityViews(key, () => {
+      let latest = 0
+      for (const id of worklistGroups(this.pool).members.lane(key)) {
+        const row = this.row(id)
+        if (row !== undefined && row !== LOADING) latest = Math.max(latest, row.visibleActivityAt)
+      }
+      return latest
     })
   }
 
@@ -218,7 +256,12 @@ export class SidebarIndex {
       if (!facts.shown) continue
       // A registered root was seeded above; its path stays.
       const spec = add(key, facts.label, facts.path, [key], facts.repoId)
-      specs.set(key, { ...spec, label: facts.label, repoId: spec.repoId ?? facts.repoId, group: true })
+      specs.set(key, {
+        ...spec,
+        label: facts.label,
+        repoId: spec.repoId ?? facts.repoId,
+        group: true,
+      })
     }
     const base = [...specs.values()]
     const registered = new Set(repos.map((repo) => repo.repoId ?? machinePathKey(repo.repoPath)))
@@ -231,16 +274,41 @@ export class SidebarIndex {
             ? 1
             : a.key.localeCompare(b.key),
     )
-    const remaining = new Set(base)
-    const ordered: BandSpec[] = []
-    for (const saved of state.projectOrder ?? []) {
-      const band = base.find((item) => remaining.has(item) && item.aliases.some(alias => machinePathsEqual(alias, saved)))
-      if (band) {
-        ordered.push(band)
-        remaining.delete(band)
+    let ordered: BandSpec[]
+    if (state.projectSort === 'alphabetical' || state.projectSort === 'lastUsed') {
+      const activity =
+        state.projectSort === 'lastUsed'
+          ? new Map(base.map((band) => [band.key, this.projectActivity(band.key)]))
+          : undefined
+      const pinAt = (band: BandSpec) =>
+        state.pinnedRepos?.findIndex((pin) =>
+          band.aliases.some((alias) => machinePathsEqual(alias, pin)),
+        ) ?? -1
+      ordered = base.sort((a, b) => {
+        const ap = pinAt(a),
+          bp = pinAt(b)
+        if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
+        return (
+          (activity?.get(b.key) ?? 0) - (activity?.get(a.key) ?? 0) ||
+          a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }) ||
+          a.key.localeCompare(b.key)
+        )
+      })
+    } else {
+      const remaining = new Set(base)
+      ordered = []
+      for (const saved of state.projectOrder ?? []) {
+        const band = base.find(
+          (item) =>
+            remaining.has(item) && item.aliases.some((alias) => machinePathsEqual(alias, saved)),
+        )
+        if (band) {
+          ordered.push(band)
+          remaining.delete(band)
+        }
       }
+      for (const band of base) if (remaining.has(band)) ordered.push(band)
     }
-    for (const band of base) if (remaining.has(band)) ordered.push(band)
     return {
       order: ordered.map((spec) => spec.key),
       byKey: Object.fromEntries(ordered.map((spec) => [spec.key, spec])),
@@ -299,6 +367,7 @@ const NO_IDS: readonly string[] = Object.freeze([])
 function layoutKey(state: SidebarState): string {
   return JSON.stringify([
     state.projectOrder ?? null,
+    state.projectSort ?? null,
     state.pinnedRepos ?? null,
     state.pinnedWorktrees ?? null,
     state.collapsed ?? null,

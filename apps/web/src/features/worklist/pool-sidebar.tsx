@@ -110,11 +110,12 @@ const NO_PATHS: readonly string[] = Object.freeze([])
 export function usePoolLayoutState(): SidebarState {
   const pool = useWorklistPool()
   const projectOrder = (pool ? myPreferences(pool)?.repoOrder : undefined) ?? NO_PATHS
+  const projectSort = pool ? myPreferences(pool)?.sidebar.repoSort : undefined
   const pinnedRepos = pool ? pinnedIds(pool, 'repo') : NO_PATHS
   const pinnedWorktrees = pool ? pinnedIds(pool, 'worktree') : NO_PATHS
   return useMemo(
-    () => ({ projectOrder, pinnedRepos, pinnedWorktrees }),
-    [projectOrder, pinnedRepos, pinnedWorktrees],
+    () => ({ projectOrder, projectSort, pinnedRepos, pinnedWorktrees }),
+    [projectOrder, projectSort, pinnedRepos, pinnedWorktrees],
   )
 }
 

@@ -108,17 +108,25 @@ it('feeds remote changes to both devices while isolating accounts', () => {
   expect(a.local.get('tips.enabled')).toBeNull()
 })
 
-it('skip all logs each moment and re-enabling retains progress across reloads', () => {
+it('re-enabling restores one-time tips and the phone promo across devices, with Undo', () => {
   const f = account(),
     d = f.device()
   d.log.record('first-prompt', 'skipped-all')
   expect(d.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
   expect(d.rendered.enabled).toBe(false)
-  d.log.setEnabled(true)
+  f.data.set('mobile.promoDismissed', 'true')
+  f.deliver()
+  const undo = d.log.setEnabled(true)
   const reload = f.device()
   expect(reload.rendered.ready).toBe(true)
   expect(reload.rendered.enabled).toBe(true)
+  expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => false))
+  expect(reload.layout.get('mobile.promoDismissed')).toBeNull()
+  undo?.()
+  expect(reload.rendered.enabled).toBe(false)
   expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
+  expect(reload.layout.get('mobile.promoDismissed')).toBe('true')
+  expect(f.data.get('tips.seen.first-prompt')).toBe(AT)
 })
 
 it('retires with the account pool even when rows arrive after teardown', () => {

@@ -139,9 +139,9 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       </SettingsPageSection>
     </>
   ),
-  appearance: () => (
+  appearance: ({ settings, patch }) => (
     <SettingsPageSection id="appearance">
-      <AppearanceSection />
+      <AppearanceSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
   accounts: (ctx) => (

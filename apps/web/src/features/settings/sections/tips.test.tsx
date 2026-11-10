@@ -3,10 +3,15 @@ import { action, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ShowTipsRow } from './tips'
 
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: notice }))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => null }))
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  notice.mockClear()
+})
 
-it('disables while loading and follows local and remote switch changes without resetting progress', () => {
+it('disables while loading and delegates local changes and Undo to the account log', () => {
   const seen = new Set(['first-prompt'])
   const record = vi.fn()
   const log = observable({
@@ -15,7 +20,11 @@ it('disables while loading and follows local and remote switch changes without r
     isSeen: (id: string) => seen.has(id),
     record,
     setEnabled: action((on: boolean) => {
+      const previous = log.enabled
       log.enabled = on
+      return action(() => {
+        log.enabled = previous
+      })
     }),
   })
   const view = render(<ShowTipsRow log={log} />)
@@ -31,11 +40,7 @@ it('disables while loading and follows local and remote switch changes without r
   expect(toggle.getAttribute('aria-checked')).toBe('false')
   fireEvent.click(toggle)
   expect(log.enabled).toBe(true)
-  act(() =>
-    runInAction(() => {
-      log.enabled = false
-    }),
-  )
+  act(() => notice.mock.lastCall?.[1].action.onClick())
   expect(toggle.getAttribute('aria-checked')).toBe('false')
   expect(log.isSeen('first-prompt')).toBe(true)
   expect(record).not.toHaveBeenCalled()

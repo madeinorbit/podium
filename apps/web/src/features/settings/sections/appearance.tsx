@@ -14,15 +14,7 @@ import {
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { useSettingsRowId } from '../settings-anchors'
-import {
-  NumberRow,
-  Row,
-  Section,
-  SegmentedRow,
-  SwitchRow,
-  TextRow,
-  ThisDeviceTag,
-} from './shared'
+import { NumberRow, Row, Section, SegmentedRow, SwitchRow, TextRow, ThisDeviceTag } from './shared'
 import { AccountTipsRow } from './tips'
 
 const THEMES: readonly { value: ThemeMode; label: string }[] = [
@@ -113,7 +105,10 @@ function ThemeCards(): JSX.Element {
             className="group h-auto min-w-0 flex-col items-stretch gap-2 rounded-lg p-0 text-left hover:bg-transparent"
             onClick={() => {
               if (mode !== theme.value)
-                saveDeviceChoice(() => setMode(theme.value), () => setMode(mode))
+                saveDeviceChoice(
+                  () => setMode(theme.value),
+                  () => setMode(mode),
+                )
             }}
           >
             <ThemePreview mode={theme.value} selected={mode === theme.value} />
@@ -150,7 +145,9 @@ function ThemePreview({ mode, selected }: { mode: ThemeMode; selected: boolean }
       aria-hidden="true"
       className={`grid h-[74px] grid-cols-[30%_1fr] overflow-hidden rounded-lg ${outline}`}
     >
-      <span className={`flex flex-col gap-[5px] px-[7px] py-[9px] ${dark ? 'bg-[#191a1e]' : 'bg-[#f4f3f0]'}`}>
+      <span
+        className={`flex flex-col gap-[5px] px-[7px] py-[9px] ${dark ? 'bg-[#191a1e]' : 'bg-[#f4f3f0]'}`}
+      >
         <span className={`h-[5px] rounded ${line}`} />
         <span className={`h-[5px] rounded ${line}`} />
         <span className={`h-[5px] rounded ${line}`} />
@@ -182,7 +179,13 @@ function TerminalAppearanceRows(): JSX.Element {
           disabled={isDefault}
           onClick={() =>
             saveDeviceChoice(
-              () => update({ fontSize: undefined, fontFamily: undefined, lineHeight: undefined, background: undefined }),
+              () =>
+                update({
+                  fontSize: undefined,
+                  fontFamily: undefined,
+                  lineHeight: undefined,
+                  background: undefined,
+                }),
               () => update(settings),
             )
           }
@@ -230,7 +233,10 @@ function TerminalAppearanceRows(): JSX.Element {
             onChange={(event) => {
               const next = event.target.value
               if (next !== background)
-                saveDeviceChoice(() => update({ background: next }), () => update({ background: settings.background }))
+                saveDeviceChoice(
+                  () => update({ background: next }),
+                  () => update({ background: settings.background }),
+                )
             }}
           />
           <span className="settings-value">{background}</span>

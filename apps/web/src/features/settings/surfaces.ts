@@ -25,7 +25,7 @@ export const TAB_PATHS = {
     'notifications.telegramBotToken',
   ],
   notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
-  appearance: [],
+  appearance: ['sidebar.repoSort'],
   account: [],
   machines: ['hibernation', 'worktreeGc'],
   projects: ['gitWorkflow', 'issues.assistantEnabled'],
@@ -78,7 +78,6 @@ export const PAGE_SETTINGS_TIER = {
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
-  'sidebar.repoSort': 'Set by dragging project headers in the sidebar.',
   'sidebar.repoOrder': 'Set by dragging project headers in the sidebar.',
   'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',
   'autoContinue.promptDismissed':
