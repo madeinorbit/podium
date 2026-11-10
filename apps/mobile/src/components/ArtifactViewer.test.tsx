@@ -12,6 +12,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../client/server-profile-context', () => ({ useServerProfile: () => ({ bearer: null }) }))
+vi.mock('expo-blur', () => ({ BlurView: () => null }))
 vi.mock('./RichMarkdown', () => ({ RichMarkdown: () => null }))
 vi.mock('./ArtifactVideo', () => ({ ArtifactVideo: () => null }))
 vi.mock('react-native-gesture-handler', async () => {

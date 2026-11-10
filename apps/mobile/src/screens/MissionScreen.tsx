@@ -10,12 +10,13 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { ComposerGlass } from '../components/ComposerGlass'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
@@ -247,10 +248,20 @@ function MissionBody({
   findRequest: number
   onOpenDetails: () => void
 }) {
+  // The deck bar floats over the feed so the chat scrolls under it (board
+  // DeckA); its measured height is the transcript's top inset.
+  const [barHeight, setBarHeight] = useState(0)
+  const onBarLayout = (event: LayoutChangeEvent) => {
+    const next = Math.round(event.nativeEvent.layout.height)
+    setBarHeight((prev) => (prev === next ? prev : next))
+  }
   return (
     <View style={styles.body}>
-      <MissionBar full={full} onOpen={onOpenDetails} />
-
+      <ComposerGlass style={styles.deck} testID="mission-deck">
+        <View onLayout={onBarLayout}>
+          <MissionBar full={full} onOpen={onOpenDetails} />
+        </View>
+      </ComposerGlass>
       <View style={styles.stage}>
         {current ? (
           <SessionConversation
@@ -258,6 +269,7 @@ function MissionBody({
             session={current}
             issue={currentIssue}
             findRequest={findRequest}
+            topInset={barHeight}
           />
         ) : (
           <EmptyState
@@ -275,6 +287,13 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minHeight: 0,
+  },
+  deck: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   stage: {
     flex: 1,

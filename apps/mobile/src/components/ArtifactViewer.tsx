@@ -47,6 +47,7 @@ import {
 } from '../lib/issue-artifacts'
 import { color, font, leading, mono, sans, space, spring } from '../theme/theme'
 import { ArtifactVideo } from './ArtifactVideo'
+import { ComposerGlass } from './ComposerGlass'
 import { Icon } from './Icon'
 import { type AppIcon, X } from './icons'
 import { PressableScale } from './PressableScale'
@@ -212,14 +213,7 @@ function ViewerPages({
       <GestureDetector gesture={pan}>
         <Animated.View style={[styles.fill, styles.page, pageStyle]} testID="artifact-viewer">
           <Animated.View style={[styles.bar, { paddingTop: insets.top + space.sm }, chromeStyle]}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Close artifact"
-              onPress={onClose}
-              style={styles.cap}
-            >
-              <Icon as={X} size={18} color={color.text} />
-            </PressableScale>
+            <BarCap label="Close artifact" icon={X} onPress={onClose} />
             <View style={styles.heading}>
               <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
                 {label}
@@ -231,17 +225,8 @@ function ViewerPages({
               ) : null}
             </View>
             {Platform.OS !== 'web' && current.url ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Share artifact"
-                onPress={share}
-                style={styles.cap}
-              >
-                <Icon as={ShareIcon} size={18} color={color.text} />
-              </PressableScale>
-            ) : (
-              <View style={styles.capSpace} />
-            )}
+              <BarCap label="Share artifact" icon={ShareIcon} onPress={share} />
+            ) : null}
           </Animated.View>
           <ScrollView
             ref={pager}
@@ -283,6 +268,27 @@ function ViewerPages({
         </Animated.View>
       </GestureDetector>
     </GestureHandlerRootView>
+  )
+}
+
+/**
+ * A round bar button over the artifact (board Artifact's toolbar caps): the
+ * system bar-button shape on the composer's glass material, since the viewer
+ * has no navigation bar to host native ones. Swap ComposerGlass for the shared Glass
+ * helper (POD-2376) once it lands.
+ */
+function BarCap({ label, icon, onPress }: { label: string; icon: AppIcon; onPress: () => void }) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={styles.cap}
+    >
+      <ComposerGlass style={styles.capGlass}>
+        <Icon as={icon} size={18} color={color.text} />
+      </ComposerGlass>
+    </PressableScale>
   )
 }
 
@@ -487,12 +493,22 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    // Glass alone vanishes on the opaque ground; the fill keeps the disc.
     backgroundColor: color.tertiaryFill,
+    // The web Modal focuses its first control on open, and the browser drew
+    // its focus ring round the close button: the white ring.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
   },
-  capSpace: { width: 44, height: 44 },
-  heading: { flex: 1, minWidth: 0, alignItems: 'center' },
+  capGlass: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Leading, beside the close button (board Artifact).
+  heading: { flex: 1, minWidth: 0, alignItems: 'flex-start' },
   title: {
     ...sans(600),
     color: color.text,
