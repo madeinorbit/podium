@@ -3,6 +3,7 @@ export { DeadlineClock, deadlineClock, nextUp } from '@podium/mobx-helpers'
 /** Every production untracked()/peek call site has a unique untracked-read tag.
  * A peek avoids loading; it still tracks the addressed row/residency when read in a derivation. */
 export const UNTRACKED_READS: Readonly<Record<string, string>> = {
+  'work-search-child-peek': 'Work search skips sub-tasks not in memory instead of loading them; the next query re-runs it.',
   'header-attachment': 'The attachment census seeds contributions once; row and cold-change subscriptions maintain them.',
   'header-cold-seed': 'Seed the cold contribution from its declared summary; cold-change notifications refresh it.',
   'reader-identity-seed': 'Seed identity membership after watch registers invalidation; avoid tracking every history table entry.',

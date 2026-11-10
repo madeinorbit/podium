@@ -1,7 +1,11 @@
+import { boardTextMatcher } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import { omitGone } from '../lookup'
+import type { IssueModel } from '../models'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
+import type { WorklistIssue } from './issue'
 import type { MobileWorkRef } from './mobile'
 import type { SidebarBand } from './sidebar'
 import type { Worklist } from './view-model'
@@ -11,6 +15,7 @@ export type PhoneWorkLane = 'open' | 'snoozed' | 'closed'
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 const EMPTY_REFS: readonly MobileWorkRef[] = Object.freeze([])
+const EMPTY_SECTIONS: readonly PhoneWorkSection[] = Object.freeze([])
 
 /** SectionList's identity-only boundary; displayed facts stay on the section. */
 export interface PhoneListSection {
@@ -61,7 +66,15 @@ export class PhoneWorklist {
     (group: GroupNode) => new PhoneWorkSection(group.key, this),
   )
 
+  private readonly searchHit = companion((row: WorklistIssue) => new PhoneSearchHit(row, this))
+  /** Whether the "projects with nothing open" row is unfolded; per worklist, not saved. */
+  @observable accessor quietExpanded = false
+
   constructor(readonly worklist: Worklist) {}
+
+  @action toggleQuiet() {
+    this.quietExpanded = !this.quietExpanded
+  }
 
   @action setFilters(filters: PhoneWorkFilters) {
     this.filters = filters
@@ -127,6 +140,35 @@ export class PhoneWorklist {
     return sections
   }
 
+  /** Unfiltered Open folds projects with nothing open into one row (data plan W4);
+   * search and the other lanes already leave empty projects out. */
+  @lazy({ equals: compareShallow }) get quietSections(): readonly PhoneWorkSection[] {
+    if (this.lane !== 'open' || this.needle) return EMPTY_SECTIONS
+    const quiet = this.sections.filter((section) => !section.pinned && section.ids.length === 0)
+    return quiet.length ? quiet : EMPTY_SECTIONS
+  }
+
+  /** {@link sections} without the folded quiet projects. */
+  @lazy({ equals: compareShallow }) get activeSections(): readonly PhoneWorkSection[] {
+    const quiet = this.quietSections
+    return quiet.length
+      ? this.sections.filter((section) => !quiet.includes(section))
+      : this.sections
+  }
+
+  /** The Tasks board's text rule, built once per query (W7). */
+  @lazy get textMatcher() {
+    return boardTextMatcher(this.query)
+  }
+
+  /** A sub-task of the row that matches the search by title or ref (data plan W7),
+   * or null. Only sub-tasks already in the pool are searched. */
+  childHit(id: string): string | null {
+    if (!this.needle) return null
+    const row = this.worklist.knownRow(id)
+    return row?.ready === 'ready' ? this.searchHit(row).childId : null
+  }
+
   @lazy({ equals: compareShallow }) get listSections(): readonly PhoneListSection[] {
     return this.sections.map((section) => section.listSection)
   }
@@ -134,7 +176,8 @@ export class PhoneWorklist {
   matches(id: string): boolean {
     if (!this.needle) return true
     const row = this.worklist.knownRow(id)
-    return row?.ready === 'ready' && row.searchText.includes(this.needle)
+    if (row?.ready !== 'ready') return false
+    return row.searchText.includes(this.needle) || this.searchHit(row).childId !== null
   }
 
   @lazy get counts(): Readonly<Record<PhoneWorkLane, number>> {
@@ -188,6 +231,10 @@ export class PhoneWorkSection {
 
   get pinned() {
     return this.key === 'pinned'
+  }
+  /** The project's repository, for starting new work in it; null for Pinned. */
+  get repoPath(): string | null {
+    return this.pinned ? null : (this.band?.repoPath ?? null)
   }
   get label() {
     if (this.pinned) return 'Pinned'
@@ -249,5 +296,35 @@ export class PhoneWorkSection {
   }
   @lazy get listSection(): PhoneListSection {
     return this.listBoundary(this.ids.map((id) => ({ id, listKey: `${this.key}:${id}` })))
+  }
+}
+
+/** A row's search rule: the first resident descendant, breadth first, whose
+ * title or ref the query matches. Deleted and archived sub-tasks never match. */
+class PhoneSearchHit {
+  constructor(
+    readonly row: WorklistIssue,
+    readonly phone: PhoneWorklist,
+  ) {}
+
+  @lazy get childId(): string | null {
+    const matches = this.phone.textMatcher
+    if (!matches) return null
+    const pool = this.phone.worklist.pool
+    const seen = new Set<string>([this.row.id])
+    const queue = [...pool.graph.many('issue', this.row.id, 'treeChildren')]
+    for (let index = 0; index < queue.length; index++) {
+      const id = queue[index]!
+      if (seen.has(id)) continue
+      seen.add(id)
+      // A search never loads cold sub-tasks.
+      // untracked-read: work-search-child-peek
+      if (!omitGone(pool.row('issue', id, 'peek'))) continue
+      const issue = omitGone(pool.model('issue', id)) as IssueModel | undefined
+      if (!issue || typeof issue === 'symbol') continue
+      if (!issue.deletedAt && !issue.archived && matches(issue)) return id
+      queue.push(...pool.graph.many('issue', id, 'treeChildren'))
+    }
+    return null
   }
 }

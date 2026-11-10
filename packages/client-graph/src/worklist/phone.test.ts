@@ -231,3 +231,57 @@ describe('phone Work list desktop parity', () => {
     }
   })
 })
+
+describe('phone Work list folds and child search (data plan W4, W7)', () => {
+  it('folds projects with nothing open into one quiet group in unfiltered Open', () => {
+    const { phone } = fixture()
+    expect(phone.quietSections.map((section) => section.label)).toEqual(['empty'])
+    expect(phone.activeSections.map((section) => section.label)).not.toContain('empty')
+    expect(phone.activeSections.length + phone.quietSections.length).toBe(phone.sections.length)
+    expect(phone.quietExpanded).toBe(false)
+    phone.toggleQuiet()
+    expect(phone.quietExpanded).toBe(true)
+  })
+
+  it('has no quiet group while searching or outside Open', () => {
+    const { phone } = fixture()
+    phone.setQuery('reconnect')
+    expect(phone.quietSections).toEqual([])
+    phone.setQuery('')
+    phone.setLane('snoozed')
+    expect(phone.quietSections).toEqual([])
+    expect(phone.activeSections).toBe(phone.sections)
+  })
+
+  it('finds a top-level task through a sub-task title and names the hit', () => {
+    const { pool, phone } = fixture()
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [task('kid', { parentId: 'live', seq: 77, title: 'Hidden lever' })] as never,
+      }),
+    )
+    phone.setQuery('hidden lever')
+    expect(rows(phone)).toContain('live')
+    expect(phone.childHit('live')).toBe('kid')
+    phone.setQuery('reconnect')
+    expect(phone.childHit('live')).toBeNull()
+    phone.setQuery('')
+    expect(phone.childHit('live')).toBeNull()
+  })
+
+  it('never matches a deleted sub-task', () => {
+    const { pool, phone } = fixture()
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [
+          task('gone-kid', { parentId: 'live', seq: 78, title: 'Hidden lever', deletedAt: stamp }),
+        ] as never,
+      }),
+    )
+    phone.setQuery('hidden lever')
+    expect(phone.childHit('live')).toBeNull()
+    expect(rows(phone)).not.toContain('live')
+  })
+})

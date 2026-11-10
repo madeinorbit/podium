@@ -20135,18 +20135,18 @@
       "file": "packages/client-core/src/values/issue-board-filter.ts",
       "holder": "filterBoardIssues",
       "rule": "consume:filter",
-      "tokens": "94defbe2d2da7e546d81bba2fd9ca2c85b554009f938b0f40831e1b1809d665a",
+      "tokens": "611288a63bfb770e237ceb4741d6c5f26a151293c98223811a6d4ca372e445d9",
       "gate": [],
       "origin": [
         "cd27caa38a96ceaee6e84c0ec7e70f554e851452b51e0b224b79a0f3a3971326"
       ],
-      "fingerprint": "b042f3c53193911c7acd81679c6e9867f86277dd5812b1972d8d2214dbff160f",
+      "fingerprint": "ca869d5972cc46d53d18353902c83358eebfa8ce17516e21a128d311db96a82a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of filterBoardIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: b042f3c53193911c7acd81679c6e9867f86277dd5812b1972d8d2214dbff160f.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

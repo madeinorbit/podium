@@ -47,6 +47,9 @@ import {
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
+import { headerView } from '@podium/client-graph/header-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { observer, useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
@@ -67,12 +70,14 @@ import { Stack, useFocusEffect } from 'expo-router'
 import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
-import { workLaneTitle, workMenuItem } from '../lib/work-row-copy'
+import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
+import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
 import { color } from '../theme/theme'
 import { NAV_LOADER_DELAY_MS, useDelayedFlag } from './WorkListRow'
 import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurface.types'
@@ -121,8 +126,11 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   // Native List virtualizes the views; bound the number of JS row observers as well.
   const [window, setWindow] = useState({ scope: '', size: PAGE_SIZE })
   const scope = `${phone.lane}:${phone.needle}`
+  const quiet = phone.quietSections
   const { sections, more } = workSectionWindow(
-    phone.sections,
+    phone.quietExpanded && quiet.length
+      ? [...phone.activeSections, ...quiet]
+      : phone.activeSections,
     props.collapsed,
     Boolean(phone.needle),
     window.scope === scope ? window.size : PAGE_SIZE,
@@ -140,6 +148,17 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     },
     [onAction, onStatus],
   )
+  // W3: two existing shared counts, joined for the title's subtitle.
+  const needYou = useMobilePoolProjection(readNeedYouCount, 0)
+  const working = useMobilePoolProjection(readWorkingCount, 0)
+  const subtitle = props.mode === 'tab' ? workSubtitle(needYou, working) : undefined
+  // W8: one launcher for every project header's +, opened with that project picked.
+  const [projectRepo, setProjectRepo] = useState<string | null>(null)
+  const openProjectWork = useRef<(() => void) | null>(null)
+  const onNewInProject = useCallback((repoPath: string) => {
+    setProjectRepo(repoPath)
+    openProjectWork.current?.()
+  }, [])
   const loadMore = () =>
     setWindow((current) => ({
       scope,
@@ -159,6 +178,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           // The tint is for bar buttons; titles keep the system label colour.
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
+          ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
         }}
       />
       {props.mode === 'tab' ? (
@@ -191,6 +211,16 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           }}
         />
       )}
+      {props.mode === 'tab' ? (
+        <NewWorkButton
+          repoPath={projectRepo}
+          renderTrigger={(open) => {
+            // No trigger of its own: the project headers' + buttons open it.
+            openProjectWork.current = open
+            return null
+          }}
+        />
+      ) : null}
       <View>{props.notices}</View>
       <Host style={styles.host} seedColor={color.accentTint}>
         <List
@@ -205,6 +235,17 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           ]}
         >
           <Section>
+            {subtitle && !nativeSubtitleAvailable ? (
+              <Text
+                modifiers={[
+                  ...noteRow,
+                  font({ textStyle: 'subheadline' }),
+                  foregroundStyle(paper.secondary),
+                ]}
+              >
+                {subtitle}
+              </Text>
+            ) : null}
             <WorkLanePicker phone={phone} />
           </Section>
           {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
@@ -212,7 +253,12 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             <Fragment key={section.key}>
               {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
               <Section>
-                <NativeGroupHeader section={section} folded={folded} onToggle={props.onToggle} />
+                <NativeGroupHeader
+                  section={section}
+                  folded={folded}
+                  onToggle={props.onToggle}
+                  onNew={props.mode === 'tab' ? onNewInProject : undefined}
+                />
               </Section>
               {folded ? null : (
                 <Section>
@@ -227,6 +273,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                       onAction={props.onAction}
                       onStatus={props.onStatus}
                       onSwipe={onSwipe}
+                      phone={phone}
                     />
                   ))}
                   {section.ids.length ? null : (
@@ -244,6 +291,11 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               )}
             </Fragment>
           ))}
+          {quiet.length && !more ? (
+            <Section>
+              <NativeQuietRow phone={phone} />
+            </Section>
+          ) : null}
           {more ? (
             <Text
               modifiers={[
@@ -325,22 +377,103 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
   section,
   folded,
   onToggle,
+  onNew,
 }: {
   section: PhoneWorkSection
   folded: boolean
   onToggle: (key: string) => void
+  onNew?: (repoPath: string) => void
 }) {
+  const repoPath = section.repoPath
   return (
-    <Button
-      onPress={() => onToggle(section.key)}
+    <HStack
+      spacing={MARK_GAP}
       modifiers={[
         ...quietRow,
         listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
-        buttonStyle('plain'),
-        accessibilityLabel(section.label),
-        accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${section.ids.length} tasks`),
-        accessibilityHint('Double tap to fold or unfold this project.'),
-        accessibilityAddTraits(['isHeader']),
+      ]}
+    >
+      <Button
+        onPress={() => onToggle(section.key)}
+        modifiers={[
+          buttonStyle('borderless'),
+          accessibilityLabel(section.label),
+          accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${section.ids.length} tasks`),
+          accessibilityHint('Double tap to fold or unfold this project.'),
+          accessibilityAddTraits(['isHeader']),
+        ]}
+      >
+        <HStack
+          spacing={MARK_GAP}
+          modifiers={[
+            frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
+            contentShape(shapes.rectangle()),
+          ]}
+        >
+          <Image
+            systemName={folded ? 'chevron.right' : 'chevron.down'}
+            modifiers={[
+              font({ textStyle: 'caption2', weight: 'semibold' }),
+              foregroundStyle(paper.tertiary),
+              frame({ width: MARK_WIDTH }),
+              accessibilityHidden(),
+            ]}
+          />
+          <Text
+            modifiers={[
+              font({ textStyle: 'footnote', weight: 'semibold' }),
+              foregroundStyle(paper.secondary),
+              lineLimit(1),
+            ]}
+          >
+            {section.label}
+          </Text>
+          <Text
+            modifiers={[
+              font({ textStyle: 'caption', design: 'monospaced' }),
+              foregroundStyle(paper.tertiary),
+              monospacedDigit(),
+            ]}
+          >
+            {String(section.ids.length)}
+          </Text>
+          <Spacer />
+        </HStack>
+      </Button>
+      {onNew && repoPath ? (
+        <Button
+          onPress={() => onNew(repoPath)}
+          modifiers={[
+            buttonStyle('borderless'),
+            accessibilityLabel(`New work in ${section.label}`),
+          ]}
+        >
+          <Image
+            systemName="plus"
+            modifiers={[
+              font({ textStyle: 'footnote', weight: 'semibold' }),
+              foregroundStyle(paper.tertiary),
+              frame({ width: 28, height: 28 }),
+              contentShape(shapes.rectangle()),
+            ]}
+          />
+        </Button>
+      ) : null}
+    </HStack>
+  )
+})
+
+/** W4: projects with nothing open fold into this one row; a tap shows them. */
+const NativeQuietRow = observer(function NativeQuietRow({ phone }: { phone: PhoneWorklist }) {
+  const count = phone.quietSections.length
+  return (
+    <Button
+      onPress={() => phone.toggleQuiet()}
+      modifiers={[
+        ...quietRow,
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
+        buttonStyle('borderless'),
+        accessibilityValue(phone.quietExpanded ? 'Expanded' : 'Collapsed'),
       ]}
     >
       <HStack
@@ -351,7 +484,7 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
         ]}
       >
         <Image
-          systemName={folded ? 'chevron.right' : 'chevron.down'}
+          systemName={phone.quietExpanded ? 'chevron.down' : 'chevron.right'}
           modifiers={[
             font({ textStyle: 'caption2', weight: 'semibold' }),
             foregroundStyle(paper.tertiary),
@@ -359,29 +492,54 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
             accessibilityHidden(),
           ]}
         />
-        <Text
-          modifiers={[
-            font({ textStyle: 'footnote', weight: 'semibold' }),
-            foregroundStyle(paper.secondary),
-            lineLimit(1),
-          ]}
-        >
-          {section.label}
-        </Text>
-        <Text
-          modifiers={[
-            font({ textStyle: 'caption', design: 'monospaced' }),
-            foregroundStyle(paper.tertiary),
-            monospacedDigit(),
-          ]}
-        >
-          {String(section.ids.length)}
+        <Text modifiers={[font({ textStyle: 'footnote' }), foregroundStyle(paper.tertiary)]}>
+          {quietProjectsLabel(count)}
         </Text>
         <Spacer />
       </HStack>
     </Button>
   )
 })
+
+/** W7: the sub-task a search matched, under its top-level task. */
+const NativeChildHit = observer(function NativeChildHit({ id }: { id: string }) {
+  const model = useWorklistModel()
+  const issue = model ? omitGone(model.pool.model('issue', id)) : undefined
+  if (!issue || typeof issue === 'symbol') return null
+  return (
+    <HStack spacing={4}>
+      <Image
+        systemName="arrow.turn.down.right"
+        modifiers={[
+          font({ textStyle: 'caption2' }),
+          foregroundStyle(paper.tertiary),
+          accessibilityHidden(),
+        ]}
+      />
+      <Text
+        modifiers={[
+          font({ size: 11, design: 'monospaced' }),
+          foregroundStyle(paper.tertiary),
+          lineLimit(1),
+        ]}
+      >
+        {issue.displayRef}
+      </Text>
+      <Text
+        modifiers={[
+          font({ textStyle: 'footnote' }),
+          foregroundStyle(paper.secondary),
+          lineLimit(1),
+        ]}
+      >
+        {issue.title}
+      </Text>
+    </HStack>
+  )
+})
+
+const readNeedYouCount = (pool: MobxPool) => mobileWorkView(pool).mobileSections().attentionCount
+const readWorkingCount = (pool: MobxPool) => headerView(pool).workingCount()
 
 /** Swipe actions reuse the menu's handlers; only the gesture is new. */
 export type WorkSwipeAction = 'close' | 'status' | 'undefer' | 'bringBack'
@@ -394,6 +552,7 @@ type RowProps = Pick<
   lane: PhoneWorkLane
   pending: boolean
   onSwipe: (id: string, action: WorkSwipeAction) => void
+  phone: PhoneWorklist
 }
 const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const model = useWorklistModel()
@@ -421,6 +580,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const ref = issueDisplayRef(row.issue)
   const unread = row.emphasizeUnread
   const notSaved = model?.pool.notSaved('issue', row.id) ?? false
+  const childHit = props.phone.childHit(row.id)
   const open = () => {
     if (!model) return
     const current = mobileWorkView(model.pool).mobileRow(row.id)
@@ -521,6 +681,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
                   </Text>
                   {expanded ? null : refText}
                 </HStack>
+                {childHit ? <NativeChildHit id={childHit} /> : null}
                 {notSaved ? (
                   <Text
                     modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}

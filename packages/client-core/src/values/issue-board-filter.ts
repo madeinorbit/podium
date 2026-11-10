@@ -49,9 +49,20 @@ export type BoardFilterIssue = Pick<
 /** Alphanumerics only so POD-123, pod 123, #123 and 123 share one needle. */
 const normalizeRef = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '')
 
-function matchesRef(issue: BoardFilterIssue, needle: string): boolean {
+function matchesRef(issue: Pick<BoardFilterIssue, 'seq' | 'displayRef'>, needle: string): boolean {
   if (!/\d/.test(needle)) return false
   return normalizeRef(issue.displayRef ?? `#${issue.seq}`).includes(needle)
+}
+
+/** The text facet alone: title, or ref when the needle has a digit. Built once
+ * per needle; null for an empty needle. Shared with Work search (child refs). */
+export function boardTextMatcher(
+  needle: string | undefined,
+): ((issue: Pick<BoardFilterIssue, 'title' | 'seq' | 'displayRef'>) => boolean) | null {
+  const text = needle?.trim().toLowerCase()
+  if (!text) return null
+  const refNeedle = normalizeRef(text)
+  return (issue) => issue.title.toLowerCase().includes(text) || matchesRef(issue, refNeedle)
 }
 
 /** AND-composed membership used by every task index. Pure and order-preserving. */
@@ -59,8 +70,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
   issues: readonly T[],
   filter: BoardFilter,
 ): T[] {
-  const text = filter.text?.trim().toLowerCase()
-  const refNeedle = text ? normalizeRef(text) : ''
+  const matchesText = boardTextMatcher(filter.text)
   return issues.filter((issue) => {
     if (issue.deletedAt ? !filter.deleted : issue.archived && !filter.archived) return false
     if (filter.priority != null && issue.priority !== filter.priority) return false
@@ -72,8 +82,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
     if (filter.status === 'ready' && !issue.ready) return false
     if (filter.status === 'blocked' && !issue.blocked) return false
     if (filter.status === 'deferred' && !issue.deferred) return false
-    if (text && !issue.title.toLowerCase().includes(text) && !matchesRef(issue, refNeedle))
-      return false
+    if (matchesText && !matchesText(issue)) return false
     return true
   })
 }

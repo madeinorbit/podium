@@ -132,7 +132,12 @@ function readNewWorkDraft(pool: MobxPool): {
  * {@link useModelCatalog}; until reported, the menu offers Auto. Tracked tasks are still created from the Tasks tab — this sheet only
  * starts an agent.
  */
-export function NewWorkButton({ size = 28, renderTrigger }: { size?: 28 | 32 | 34; renderTrigger?: (open: () => void) => ReactNode }) {
+export function NewWorkButton({ size = 28, renderTrigger, repoPath }: {
+  size?: 28 | 32 | 34
+  renderTrigger?: (open: () => void) => ReactNode
+  /** Opens with this project picked (a project header's +); the user can still change it. */
+  repoPath?: string | null
+}) {
   const [step, setStep] = useState<PickerStep>(null)
   // The prompt survives dismissal and an optimistic launch settling while the
   // launcher is unmounted. Persisted choices live in the existing UI state.
@@ -143,7 +148,7 @@ export function NewWorkButton({ size = 28, renderTrigger }: { size?: 28 | 32 | 3
         <Icon as={Plus} size={19} color={color.text} />
       </HeaderButton>}
       {step !== null ? (
-        <NewWorkLauncher step={step} setStep={setStep} prompt={prompt} setPrompt={setPrompt} />
+        <NewWorkLauncher step={step} setStep={setStep} prompt={prompt} setPrompt={setPrompt} presetRepo={repoPath ?? null} />
       ) : null}
     </>
   )
@@ -155,7 +160,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   setStep,
   prompt,
   setPrompt,
+  presetRepo,
 }: {
+  presetRepo: string | null
   step: Exclude<PickerStep, null>
   setStep: Dispatch<SetStateAction<PickerStep>>
   prompt: string
@@ -179,7 +186,12 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const setModelPick = useCallback((value: string) => setDraftPick(NEW_WORK_MODEL_KEY, value), [setDraftPick])
   const setEffortPick = useCallback((value: string) => setDraftPick(NEW_WORK_EFFORT_KEY, value), [setDraftPick])
   const setMachinePick = useCallback((value: string) => setDraftPick(NEW_WORK_MACHINE_KEY, value), [setDraftPick])
-  const setRepoPick = useCallback((value: string) => setDraftPick(NEW_WORK_REPO_KEY, value), [setDraftPick])
+  // A project header's preset wins until the user picks a project themselves.
+  const [preset, setPreset] = useState(presetRepo)
+  const setRepoPick = useCallback((value: string) => {
+    setPreset(null)
+    setDraftPick(NEW_WORK_REPO_KEY, value)
+  }, [setDraftPick])
   const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
   const draftReady = !draftLoading
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
@@ -222,6 +234,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
    * top of the list is what the operator would have done by hand.
    */
   const selectedRepo =
+    visibleRepos.find((repo) => preset !== null && machinePathsEqual(repo.path, preset)) ??
     visibleRepos.find((repo) => repoPick !== null && machinePathsEqual(repo.path, repoPick)) ?? visibleRepos[0] ?? null
   const onlyOneRepo = visibleRepos.length === 1
 

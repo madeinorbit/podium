@@ -42,3 +42,14 @@ export function workMenuItem(
       return { label: 'Delete…', symbol: 'trash' }
   }
 }
+
+/** W3: "3 need you · 6 working"; a zero part drops, and nothing at all is no subtitle. */
+export function workSubtitle(needYou: number, working: number): string | undefined {
+  const parts = [needYou > 0 ? `${needYou} need you` : '', working > 0 ? `${working} working` : '']
+  return parts.filter(Boolean).join(' · ') || undefined
+}
+
+/** W4: the folded row for projects with nothing open. */
+export function quietProjectsLabel(count: number): string {
+  return `${count} ${count === 1 ? 'project' : 'projects'} with nothing open`
+}
