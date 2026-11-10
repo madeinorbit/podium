@@ -417,7 +417,7 @@ describe('personal AI accounts', () => {
 
   it('takes a sent key back and preserves the running-session explanation', async () => {
     const note = 'Running sessions keep it until they restart.'
-    trpc.accounts.unsend.mutate.mockResolvedValue({ ok: true, note })
+    trpc.accounts.unsend.mutate.mockResolvedValue({ ok: true, removed: true, note })
     await openKey({
       ...OWN,
       sentTo: [{ id: asMachineId('foreign'), name: 'Foreign' }],
