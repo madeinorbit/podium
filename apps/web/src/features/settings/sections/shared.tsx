@@ -439,8 +439,8 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
       </>
     ) : (
       <>
-        Billed per token against the key you set under Settings → API keys. This role calls the
-        provider API directly.
+        Billed per token against the API key you connected under Accounts, or the instance key under
+        API keys when you have none. This role calls the provider API directly.
       </>
     )
   const asDefault = role === 'superagent' || role === 'shipwright'

@@ -3517,7 +3517,7 @@ describe('IssueService assistant', () => {
     try {
       const wire = await svc.gitWorkflow.refreshAssistant(c.id)
       expect(wire.activityNotes).toBeUndefined()
-      const expected = 'no API key configured for openrouter — add one in Settings → API keys'
+      const expected = 'no API key configured for openrouter — connect one in Settings → Accounts'
       const warns = logs.at('warn')
       expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
       expect(warns.map((r) => r.err?.message)).toContain(expected)
@@ -3525,8 +3525,69 @@ describe('IssueService assistant', () => {
       logs.restore()
     }
     expect(svc.gitWorkflow.backgroundLastError()).toBe(
-      'no API key configured for openrouter — add one in Settings → API keys',
+      'no API key configured for openrouter — connect one in Settings → Accounts',
     )
+  })
+
+  it("the digest spends the designated member's managed key, never another member's (POD-469)", async () => {
+    // The background role reads the first admin's settings, so it spends that
+    // admin's credential: their own managed key from the Accounts hub, then a
+    // key shared with them. Another member's unshared key is never used, even
+    // when it is the only one connected.
+    const { deps } = await harness([])
+    const keys: (string | undefined)[] = []
+    deps.llm = ((_backend: never, apiKey: string | undefined) => {
+      keys.push(apiKey)
+      return {
+        label: 'fake',
+        complete: async () => ({
+          text: '{"activityNotes":"n","suggestedStage":"","suggestedReason":"","blockedBy":[],"dependencyNote":""}',
+          toolCalls: [],
+        }),
+      }
+    }) as never
+    deps.repoOp = vi.fn(async () => ({ ok: true, output: '' })) as never
+    deps.getSettings = async () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+        issues: { assistantEnabled: true },
+        workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
+      })
+    const store = deps.store
+    const connect = async (ownerUserId: UserId, credential: string) =>
+      await store.accounts.connect({
+        ownerUserId,
+        accountKey: asAccountId('managed:openrouter'),
+        provider: 'openrouter',
+        kind: 'api-key',
+        credential,
+        identity: 'mask',
+        scope: 'role',
+        createdAt: 1,
+      })
+    const svc = await IssueService.create(deps)
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, c.id, {
+      worktreePath: '/r/wt',
+      branch: 'issue/1-x',
+      stage: 'planning',
+    })
+
+    await connect(asUserId('user:other-member'), 'other-member-key')
+    await svc.gitWorkflow.refreshAssistant(c.id)
+    await connect(await firstAdminMemberId(store), 'admin-managed-key')
+    await svc.gitWorkflow.refreshAssistant(c.id)
+
+    expect(keys).toEqual([undefined, 'admin-managed-key'])
   })
 
   it('applySuggestion moves the stage and clears the suggestion', async () => {

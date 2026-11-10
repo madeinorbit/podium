@@ -1,8 +1,8 @@
 import { createLogger } from '@podium/logger'
 import type { IssueProjection, SessionId } from '@podium/model'
-import { isMachinePathWithinRoot } from '@podium/model'
+import { firstAdminMemberId, isMachinePathWithinRoot } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
-import { completeForRole } from '../../../llm-roles'
+import { completeForRole, oneShotApiKey } from '../../../llm-roles'
 import type { IssueStore } from './core'
 
 const log = createLogger('server:issues')
@@ -81,7 +81,12 @@ export class IssueAssistantDigestModule {
     // probes and the LLM completion — and is re-cut after them (POD-3375).
     let row = await this.store.draftOrThrow(id)
     if (!row.worktreePath) return await this.store.projection(row)
-    const settings = await this.store.d.getSettings()
+    // WHOSE ROLE, WHOSE KEY (POD-469). The digest has no requesting user, so it
+    // acts for the member whose settings name the background role, the first
+    // admin. The same member's credential is spent below; nobody else's.
+    const store = this.store.d.store
+    const actor = await firstAdminMemberId(store)
+    const settings = await this.store.d.getSettings(actor)
     const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
@@ -123,9 +128,18 @@ export class IssueAssistantDigestModule {
       const resp = await completeForRole(
         {
           settings,
-          // POD-419: the provider's key, resolved at the moment of use out of
-          // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: async (provider) => await this.store.d.store.secrets.apiKeyFor(provider),
+          // POD-469: the actor's managed key (own, then explicitly shared),
+          // the rule a coding spawn uses; the instance's legacy key only as a
+          // read-only fallback. Resolved at the moment of use (POD-419).
+          apiKey: async (account) =>
+            await oneShotApiKey(
+              {
+                accounts: store.accounts,
+                legacyApiKey: async (provider) => await store.secrets.apiKeyFor(provider),
+              },
+              actor,
+              account,
+            ),
           llm: this.store.d.llm,
         },
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },

@@ -1,8 +1,17 @@
+import { asAccountId, asUserId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { LlmClient, LlmMessage } from './llm'
-import { completeForRole, jsonSchema, resolveOneShotBackend } from './llm-roles'
+import { LlmConfigError } from './llm-error'
+import { completeForRole, jsonSchema, oneShotApiKey, resolveOneShotBackend } from './llm-roles'
+import {
+  AccountsRepository,
+  type ManagedAccountWrite,
+  SHARED_WITH_EVERYONE,
+} from './store/accounts'
+import { openMigratedTestDatabase } from './test-support/migrated-database'
+import { stageASeam } from './test-support/stage-a-seam'
 
 const settings = (patch: Partial<PodiumSettings> = {}): PodiumSettings =>
   normalizeSettings({
@@ -14,7 +23,7 @@ const settings = (patch: Partial<PodiumSettings> = {}): PodiumSettings =>
 
 /** The provider-key resolver `completeForRole` now requires (POD-419) — the
  *  material lives in the server-only keyed store, not in `settings.apiKeys`. */
-const apiKey = (provider: string): string | undefined =>
+const apiKey = ({ provider }: { provider: string }): string | undefined =>
   ({ openrouter: 'or-key', anthropic: 'an-key' })[provider]
 
 /** A fake llmClient factory: records what it was built with, returns fixed text. */
@@ -90,5 +99,117 @@ describe('jsonSchema', () => {
   })
   it('returns null when no object is present', () => {
     expect(parse('plain text')).toBeNull()
+  })
+})
+
+/**
+ * The credential a one-shot role call spends (POD-469), with two members.
+ *
+ * Coding sessions resolve a managed key from the accounts table: the member's
+ * own, then one explicitly shared with them. The one-shot (api) path used to
+ * read only the instance's legacy keyed store, so a key connected in the
+ * Accounts hub served coding sessions and silently not the background role.
+ * These pin the one rule both paths now share, and that a one-shot call never
+ * borrows another member's unshared key.
+ */
+
+const ADMIN = asUserId('user:admin')
+const MEMBER = asUserId('user:member')
+const OPENROUTER = asAccountId('managed:openrouter')
+const CLAUDE_OAUTH = asAccountId('managed:claude-oauth')
+
+let accounts: AccountsRepository
+let legacy: Record<string, string>
+
+const ports = () => ({
+  accounts,
+  legacyApiKey: async (provider: string) => legacy[provider],
+})
+
+const connect = async (
+  ownerUserId: UserId,
+  credential: string,
+  accountKey = OPENROUTER,
+  extra: Partial<ManagedAccountWrite> = {},
+) =>
+  await accounts.connect({
+    ownerUserId,
+    accountKey,
+    provider: 'openrouter',
+    kind: 'api-key',
+    credential,
+    identity: 'mask',
+    scope: 'role',
+    createdAt: 1,
+    ...extra,
+  })
+
+beforeEach(() => {
+  accounts = new AccountsRepository(stageASeam(openMigratedTestDatabase()))
+  legacy = {}
+})
+
+describe('oneShotApiKey', () => {
+  it("spends the acting member's own managed key", async () => {
+    await connect(ADMIN, 'admin-key')
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBe('admin-key')
+  })
+
+  it("never borrows another member's unshared key", async () => {
+    await connect(MEMBER, 'member-key')
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBeUndefined()
+  })
+
+  it('uses a key another member explicitly shares with the acting member', async () => {
+    await connect(MEMBER, 'member-key')
+    await accounts.share(MEMBER, OPENROUTER, [SHARED_WITH_EVERYONE])
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBe('member-key')
+  })
+
+  it('own key wins over the legacy instance key', async () => {
+    legacy.openrouter = 'legacy-key'
+    await connect(ADMIN, 'admin-key')
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBe('admin-key')
+  })
+
+  it('falls back to the legacy instance key, read only, when no managed key applies', async () => {
+    legacy.openrouter = 'legacy-key'
+    await connect(MEMBER, 'member-key')
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBe('legacy-key')
+  })
+
+  it('a subscription token role does not quietly spend the legacy API key', async () => {
+    legacy.anthropic = 'legacy-anthropic'
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'anthropic', accountId: CLAUDE_OAUTH }),
+    ).toBeUndefined()
+  })
+
+  it('refuses a subscription token, which the one-shot client cannot send', async () => {
+    await connect(ADMIN, 'sk-ant-oat', CLAUDE_OAUTH, { provider: 'anthropic', kind: 'oauth' })
+    await expect(
+      oneShotApiKey(ports(), ADMIN, { provider: 'anthropic', accountId: CLAUDE_OAUTH }),
+    ).rejects.toBeInstanceOf(LlmConfigError)
+  })
+
+  it('a native (harness) account needs no key and reads none', async () => {
+    legacy.codex = 'never'
+    await connect(ADMIN, 'admin-key')
+    expect(
+      await oneShotApiKey(ports(), ADMIN, {
+        provider: 'codex',
+        accountId: asAccountId('native:codex'),
+      }),
+    ).toBeUndefined()
   })
 })

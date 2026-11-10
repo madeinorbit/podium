@@ -295,8 +295,8 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
       </>
     ) : !isOauth && connected && !legacy ? (
       <>
-        Injected into agent spawns. The superagent and background LLM roles still read their key
-        from Settings → API keys (issue #469), so this account does not power those.
+        Injected into your agents' spawns. Issue digests (the background LLM role) run on the first
+        admin's settings and spend that admin's key, falling back to the instance key under API keys.
       </>
     ) : undefined
 
