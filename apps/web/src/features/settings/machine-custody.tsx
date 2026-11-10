@@ -1,10 +1,15 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import type { MachineModel } from '@podium/client-graph'
+import type { RosterFacts } from '@podium/client-graph/worklist/view-model'
+import { lazy } from '@podium/mobx-helpers'
 import { type MachineGrantEntry, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model/browser'
+import { compareShallow } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { type JSX, useState } from 'react'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useMemberRoster } from '@/lib/member-roster'
+import { useSettingsMachine } from './readers'
+import { ConfirmInline, Row, Subsection } from './sections/shared'
 
 /** The fleet commands this control sends. */
 export interface MachineShareApi {
@@ -27,195 +32,98 @@ export interface MachineShareApi {
   }
 }
 
-const VERB_LABEL: Record<MachineGrantEntry['verb'], string> = {
-  use: 'can run agents',
-  see: 'can see',
-  manage: 'can manage',
+
+/** Use grants are distinct from custody and from visibility-only grants. */
+export class MachineSharing {
+  constructor(readonly machine: MachineModel, private readonly roster: RosterFacts | undefined) {}
+
+  @lazy({ equals: compareShallow }) get grants(): readonly MachineGrantEntry[] {
+    return (this.machine.grants ?? []).filter((grant) => grant.verb === 'use')
+  }
+  @lazy({ equals: compareShallow }) get candidates() {
+    return (this.roster?.members ?? []).filter((member) => member.id !== this.machine.custodian &&
+      !this.grants.some((grant) => grant.grantee === member.id))
+  }
 }
 
-/** What a removal tells the person who made it. */
-const REMOVED_LABEL: Record<MachineGrantEntry['verb'], string> = {
-  use: 'can no longer start agents here. Sessions already running finish.',
-  see: 'can no longer see this machine.',
-  manage: 'can no longer manage this machine.',
-}
+/** POD-6700's grants, re-homed into the machine detail pane. */
+export const MachineCustody = observer(function MachineCustody({ machineId, transferable, trpc }: {
+  machineId: string; transferable: boolean; trpc: MachineShareApi
+}) {
+  const machine = useSettingsMachine(machineId)
+  return machine ? <MachineGrants machine={machine} transferable={transferable} trpc={trpc} /> : null
+})
 
-/** "8 Nov 2026"; an unreadable time shows nothing rather than "Invalid Date". */
-function grantedOn(at: string): string | undefined {
-  const date = new Date(at)
-  return Number.isNaN(date.getTime())
-    ? undefined
-    : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-/**
- * CUSTODY, AND GIVING ANOTHER MEMBER USE OF A MACHINE (POD-6299; design §2.4).
- *
- * Names who holds custody of the machine. Where the server says the viewer
- * holds custody authority (the custodian, or an admin: `transferable`), it
- * offers to give another member `use`. Both people's agents then run under the
- * machine's one operating-system account, so the grant shows the server's
- * warning and is sent acknowledged only once the person ticks that they
- * understand it (POD-6300 refuses an unacknowledged grant).
- *
- * WHO ELSE HAS ACCESS (POD-6700). The custodian's and admins' rows carry the
- * machine's grants; each can be removed. Removal stops new sessions there; a
- * session already running finishes.
- */
-export const MachineCustody = observer(function MachineCustody({
-  machineId,
-  transferable,
-  trpc,
-}: {
-  machineId: string
-  transferable: boolean
-  trpc: MachineShareApi
-}): JSX.Element | null {
-  const pool = useWorklistPool()
+const MachineGrants = observer(function MachineGrants({ machine, transferable, trpc }: {
+  machine: MachineModel; transferable: boolean; trpc: MachineShareApi
+}) {
   const roster = useMemberRoster(true)
-  const model = pool ? omitGone(pool.model('machine', machineId)) : undefined
-  const custodian = model && typeof model === 'object' ? (model.custodian ?? undefined) : undefined
-  const grants =
-    model && typeof model === 'object' && Array.isArray(model.grants)
-      ? (model.grants as readonly MachineGrantEntry[])
-      : []
+  const view = useMemo(() => new MachineSharing(machine, roster), [machine, roster])
   const [open, setOpen] = useState(false)
   const [grantee, setGrantee] = useState('')
-  const [understood, setUnderstood] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
-  const candidates = (roster?.members ?? []).filter((member) => member.id !== custodian)
-  const custodianName = custodian ? (roster?.nameOf(custodian) ?? 'A member') : undefined
-  if (!custodianName && !(transferable && candidates.length > 0) && grants.length === 0) return null
-  const close = () => {
-    setOpen(false)
-    setGrantee('')
-    setUnderstood(false)
-  }
-  const share = async () => {
-    setBusy(true)
-    setMessage(null)
-    try {
-      await trpc.machines.share.mutate({
-        id: machineId,
-        grantee,
-        verb: 'use',
-        acknowledgeSharedMachine: true,
-      })
-      setMessage({
-        error: false,
-        text: `${roster?.nameOf(grantee) ?? 'They'} can now run agents here.`,
-      })
-      close()
-    } catch (error) {
-      setMessage({ error: true, text: error instanceof Error ? error.message : String(error) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const selected = view.candidates.find((person) => person.id === grantee)
+  const canManage = transferable && machine.transferable === true && !machine.revokedAt
+  const close = () => { setOpen(false); setGrantee('') }
   const remove = async (grant: MachineGrantEntry) => {
+    if (!canManage || busy) return
     setBusy(true)
     setMessage(null)
     try {
-      await trpc.machines.unshare.mutate({
-        id: machineId,
-        grantee: grant.grantee,
-        verb: grant.verb,
-      })
-      setMessage({
-        error: false,
-        text: `${roster?.nameOf(grant.grantee) ?? 'They'} ${REMOVED_LABEL[grant.verb]}`,
-      })
+      await trpc.machines.unshare.mutate({ id: machine.id, grantee: grant.grantee, verb: grant.verb })
+      setMessage({ error: false, text: `${roster?.nameOf(grant.grantee) ?? 'They'} can no longer start agents here. Sessions already running finish.` })
     } catch (error) {
       setMessage({ error: true, text: error instanceof Error ? error.message : String(error) })
-    } finally {
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
   }
-  return (
-    <div className="flex flex-col gap-2">
-      {custodianName && <span className="settings-prose">Custody: {custodianName}</span>}
-      {transferable && grants.length > 0 && (
-        <ul aria-label="Who else has access" className="flex flex-col gap-1">
-          {grants.map((grant) => {
-            const on = grantedOn(grant.grantedAt)
-            const by = grant.grantedBy ? roster?.nameOf(grant.grantedBy) : undefined
-            return (
-              <li key={`${grant.grantee}:${grant.verb}`} className="flex items-center gap-2">
-                <span className="settings-prose">
-                  {roster?.nameOf(grant.grantee) ?? 'A member'} {VERB_LABEL[grant.verb]}
-                  {on ? ` · since ${on}` : ''}
-                  {by ? ` · given by ${by}` : ''}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  aria-label={`Remove ${roster?.nameOf(grant.grantee) ?? 'this member'}: ${VERB_LABEL[grant.verb]}`}
-                  onClick={() => void remove(grant)}
-                >
-                  Remove
-                </Button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {transferable && candidates.length > 0 && !open && (
-        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-          Give use…
-        </Button>
-      )}
-      {open && (
-        <div role="dialog" aria-label="Give use of this machine" className="space-y-2">
-          <label className="block">
-            Member
-            <select
-              className="block w-full bg-background p-2"
-              value={grantee}
-              onChange={(e) => setGrantee(e.target.value)}
-            >
-              <option value="">Choose a member</option>
-              {candidates.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {roster?.nameOf(member.id) ?? member.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="settings-prose" role="note">
-            {SHARED_MACHINE_ACCOUNT_WARNING}
-          </p>
-          <label className="flex gap-2">
-            <input
-              type="checkbox"
-              checked={understood}
-              onChange={(e) => setUnderstood(e.target.checked)}
-            />
-            I understand that we will share this machine’s account
-          </label>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || !grantee || !understood}
-            onClick={() => void share()}
-          >
-            Give use
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={close}>
-            Cancel
-          </Button>
-        </div>
-      )}
-      {message && (
-        <p
-          className={message.error ? 'settings-prose text-destructive!' : 'settings-prose'}
-          role={message.error ? 'alert' : 'status'}
-        >
-          {message.text}
-        </p>
-      )}
+  return <Subsection title="Who else can run agents here"
+    hint="People here share this machine’s operating-system account with whoever looks after it: their agents can read each other’s files.">
+    {canManage && view.candidates.length > 0 && !open && <div className="mb-3 flex justify-end">
+      <Button type="button" variant="outline" size="sm" onClick={() => {
+        setGrantee(view.candidates[0]?.id ?? '')
+        setMessage(null)
+        setOpen(true)
+      }}>Add someone</Button>
+    </div>}
+    <div className="rounded-lg border border-border">
+      {machine.grants === undefined ? <p className="settings-prose px-4 py-4">
+        {canManage ? 'Access has not been reported yet.' : 'Only the person who looks after it or an admin can see who else has access.'}
+      </p> : view.grants.length === 0 ? <p className="settings-prose px-4 py-4">Only the person who looks after it.</p>
+        : <ul aria-label="Who else can run agents here" className="divide-y divide-border">
+          {view.grants.map((grant) => <li key={grant.grantee} className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="settings-label">{roster?.nameOf(grant.grantee) ?? 'A member'}{grant.grantee === roster?.currentMemberId ? ' (you)' : ''}</p>
+              <p className="settings-prose mt-1">Can run agents here</p>
+            </div>
+            {canManage && <Button type="button" variant="ghost" size="sm" disabled={busy}
+              aria-label={`Remove ${roster?.nameOf(grant.grantee) ?? 'this member'}: can run agents`}
+              onClick={() => void remove(grant)}>Remove</Button>}
+          </li>)}
+        </ul>}
+      {open && canManage && <div className="border-t border-border px-4 py-2">
+        <Row label="Person">
+          <Select value={selected?.id ?? null} disabled={busy} onValueChange={(id) => setGrantee(id ?? '')}>
+            <SelectTrigger aria-label="Person" className="w-full"><SelectValue placeholder="Choose someone" /></SelectTrigger>
+            <SelectContent>{view.candidates.map((person) => <SelectItem key={person.id} value={person.id}>
+              {roster?.nameOf(person.id) ?? 'A member'}
+            </SelectItem>)}</SelectContent>
+          </Select>
+        </Row>
+        {selected ? <ConfirmInline key={grantee} sentence={SHARED_MACHINE_ACCOUNT_WARNING}
+          acknowledgement="I understand we will share this machine’s account"
+          actionLabel="Let them run agents here" pending={busy} onCancel={close} onConfirm={async () => {
+            if (!canManage || !view.candidates.some((person) => person.id === grantee)) return
+            setBusy(true)
+            setMessage(null)
+            try {
+              await trpc.machines.share.mutate({ id: machine.id, grantee, verb: 'use', acknowledgeSharedMachine: true })
+              setMessage({error: false, text: `${roster?.nameOf(grantee) ?? 'They'} can now run agents here.`})
+              close()
+            } finally { setBusy(false) }
+          }} /> : <Button type="button" variant="ghost" size="sm" onClick={close}>Cancel</Button>}
+      </div>}
     </div>
-  )
+    {message && <p className={message.error ? 'settings-prose mt-2 text-destructive' : 'settings-prose mt-2'} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
+  </Subsection>
 })
