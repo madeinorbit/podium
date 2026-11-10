@@ -832,7 +832,7 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/feed",
       "rule": "reader-summary",
-      "tokens": "e77fe27dc0860a6eeeb6ad316c75cfeb68de4ffff9abd19a4172df0cbdf7b119",
+      "tokens": "b8b748da72e4024123f8cd7110c490cc7aceae4308ddfb53ea72e11e7d746379",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -843,37 +843,18 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733",
+      "fingerprint": "2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PulseScreen/feed through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/capacity",
-      "rule": "helper-consumer",
-      "tokens": "312a771fb5274828fb7c6a37ab1bde42b5f07aa04f3fdcbeeb500562720c27ae",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "eaf9f8f47fc7927d546644e244eb5af367223fbdd9a8714e5e939b74abe08586",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/capacity through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/fleet",
+      "holder": "PulseScreen/derived/useMemo:callback/fleet",
       "rule": "helper-consumer",
       "tokens": "8259fc4cf8358cc96717fa192b705651365291ae6d3d9057a942774e70a7452f",
       "gate": [],
@@ -881,70 +862,163 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199",
+      "fingerprint": "7d221a88afede7906ec3e92bcefaf5670dc4cd5d3fcbddfe896bd313348d13e0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PulseScreen/useMemo:callback/fleet through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedHosts",
+      "holder": "PulseScreen/derived/useMemo:callback/grantedHosts",
       "rule": "helper-consumer",
-      "tokens": "cc6a110c53c3927edfe02b5901886fb9eb6d060cf9c8656d98bea4786013764e",
+      "tokens": "af26af94894380ed595d83fbb32f4fbde3545cb31238784fe7bf0071ab3988f8",
       "gate": [],
       "origin": [
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924",
+      "fingerprint": "182fb572af4a9081ca4fa0bd8c6363e34e987808ba9714791599184cd8569c1c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PulseScreen/useMemo:callback/grantedHosts through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedHosts",
+      "holder": "PulseScreen/derived/useMemo:callback/grantedHosts",
       "rule": "reader-summary",
-      "tokens": "ebf71bcd3dd06856a5e8cd6d731a5f086c1e9f1c308672343a755fc7120be90a",
+      "tokens": "807aeec0a58572c0111fbb1fb1fe8fc6e0216c784de6badbba1ac63b5013a07c",
       "gate": [],
       "origin": [
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e",
+      "fingerprint": "105cd0e67f91d3188026e79db3bf62a9f44a4e7e6291b3430bffeebabc38220d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PulseScreen/useMemo:callback/grantedHosts through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/summary",
+      "holder": "PulseScreen/derived/useMemo:callback/summary",
       "rule": "reader-summary",
       "tokens": "e6a812e1e465625253ad00e19d82a5e4ea7f976b656936097e530eda9ee0aa6b",
       "gate": [],
       "origin": [
         "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
       ],
-      "fingerprint": "0904ea119756affd19ad4dfd272e1a3b02de8fa98a0ce6b948d62ea10fb34c21",
+      "fingerprint": "c754630c956f88f264faefe23a30822deb20889dc051447229eed4cb847fa4fc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PulseScreen/useMemo:callback/summary",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0904ea119756affd19ad4dfd272e1a3b02de8fa98a0ce6b948d62ea10fb34c21.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen",
+      "rule": "helper-consumer",
+      "tokens": "136c7a0d0a2859de01f3d9a8077cf54517987e784b438a0d773f294c9de44e70",
+      "gate": [
+        "else:3bdd7388d2ed9ad80e904ff8fef948a9bce37ac6a94a2e79ea20ebfca85e470b"
+      ],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "53d961aac65a1d37d1c8913f584a6b5cf0bfab579509825a24b4b79ce86e439b",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders its header subtitle.",
+      "bound": "One usage summary answer and the chosen range.",
+      "reason": "Formats the hero figure into the large-title subtitle; no collection is enumerated beyond the summary already derived.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/derived/useMemo:callback/models",
+      "rule": "helper-consumer",
+      "tokens": "e3d0a965659ff81ea26b7984b52e2d2aef85d7e13be8726b79c05fa9805a1294",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "460a7825428352e92907aaddcfaea44a4333f60a01f95e5c8aa81d253e411ce5",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders its Models card.",
+      "bound": "One usage summary answer; at most six displayed rows.",
+      "reason": "The memo hands the polled usage summary to modelRows for display; no pool collection is enumerated.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/derived/useMemo:callback/models",
+      "rule": "reader-summary",
+      "tokens": "fcda023cd81d27e967f095a1309dde5a1b1b1bf47ebc64584c0d0ff2bdb3e64e",
+      "gate": [],
+      "origin": [
+        "3251e6a0d956dedda6c3f5ed91ca95df0d3054f11f38cf0cfc33b2013b83bb17",
+        "789a8a43b6d24fe409113a056c02115aa1081ec83c2fa7e01244348574974954"
+      ],
+      "fingerprint": "4fd6cca265f29072b7904d7343f8028a41dd6bd827e57f5b189e6c88183f55f3",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders its Models card.",
+      "bound": "One usage summary answer; at most six displayed rows.",
+      "reason": "The memo hands the polled usage summary to modelRows for display; no pool collection is enumerated.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/derived/useMemo:callback/tasks",
+      "rule": "reader-summary",
+      "tokens": "2eb2b21fdbbc8851461f1a3658e873bc8e37de1eead1f94b34b7760f01df2ee6",
+      "gate": [],
+      "origin": [
+        "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538"
+      ],
+      "fingerprint": "28c7a54975253aeddf2a257ba7925ba22826319b6a2ceb240171ad89d2c69ecf",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders its Top tasks card.",
+      "bound": "One cost.tasks answer; five displayed rows.",
+      "reason": "The memo hands the polled cost.tasks rows to topTasks for display; no pool collection is enumerated.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/hero/useMemo:callback",
+      "rule": "helper-consumer",
+      "tokens": "783b55d9fbb3677674c0cb1de08782e4584c178738e700d2d55ce3c6c1969ef1",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "685295e7934dcc7da7ba1cc331caa66653d222b43a25e4cfe78e10740664a826",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders the cost hero for the chosen range.",
+      "bound": "Seven days of 24 hour slots from one usage summary.",
+      "reason": "Projects the summary hour slots into the trace bars and day columns the hero draws.",
+      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/SessionScreen.tsx",
@@ -23935,44 +24009,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/values/pulse.ts",
-      "holder": "capacityView/hosts",
-      "rule": "helper-consumer",
-      "tokens": "cf8672e172a6ea4372d27ec831a3267b39cd71489d2c939f5f0214800a8fa1dc",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "09215caba3694614ecd3d65b0825c5222f5230c391f825cef5c5a1ba2edc3402",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of capacityView/hosts through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/pulse.ts",
-      "holder": "capacityView/pools",
-      "rule": "helper-consumer",
-      "tokens": "db7b4de4a84d0d471ba430ce139e7208222e702e33c471a28c49d0d7178bebda",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "d3708542b19fd38cb3841781c623388e615ba7429968a1c83b51e2073940065c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of capacityView/pools through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "packages/client-core/src/values/quota.ts",
       "holder": "agentLabel",
       "rule": "helper-consumer",
@@ -36037,6 +36073,140 @@
       "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "modelRows",
+      "rule": "consume:map",
+      "tokens": "74b1bc848108ca41d8a9c2944f9c1bb7dcf3b9a0c8b5d1afa3697fc11fd866fd",
+      "gate": [],
+      "origin": [
+        "789a8a43b6d24fe409113a056c02115aa1081ec83c2fa7e01244348574974954"
+      ],
+      "fingerprint": "a65611e15c8ca358ee2db5782a52e8973eb9402168d9f6102ecc88a0d928e9b7",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Models card from the polled usage summary.",
+      "bound": "The usage summary model table for one seven-day window, cut to the six rows shown.",
+      "reason": "Projects usageSummary().models into the displayed model rows with shares of the same week total; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "modelRows/models",
+      "rule": "consume:slice",
+      "tokens": "5feedfd09cdc31ae2be76bdc422e138940e212afc52b7d851b781fd10bd2e147",
+      "gate": [],
+      "origin": [
+        "789a8a43b6d24fe409113a056c02115aa1081ec83c2fa7e01244348574974954"
+      ],
+      "fingerprint": "6b9d2ef97bdfc62cbca0935434e32e2cde3115dc4efb0aeaa2a44dbfb441fd0f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Models card from the polled usage summary.",
+      "bound": "The usage summary model table for one seven-day window, cut to the six rows shown.",
+      "reason": "Projects usageSummary().models into the displayed model rows with shares of the same week total; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "modelRows/models",
+      "rule": "consume:sort",
+      "tokens": "5f1af91c49e372c75fd9eb76ec5593427cf1c993a4938cf0c178764da5d25c17",
+      "gate": [],
+      "origin": [
+        "789a8a43b6d24fe409113a056c02115aa1081ec83c2fa7e01244348574974954"
+      ],
+      "fingerprint": "da698533a604a7a0a3a58b0e6c6905d9aa7f9752fa5f76ff6a8118de125360dd",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Models card from the polled usage summary.",
+      "bound": "The usage summary model table for one seven-day window, cut to the six rows shown.",
+      "reason": "Projects usageSummary().models into the displayed model rows with shares of the same week total; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "topTasks",
+      "rule": "consume:filter",
+      "tokens": "d20c774619931d0e1145a637f801f21f0627deb7fe190c73aab0fd3d721d7c6b",
+      "gate": [
+        "exit:then:5812459790402f831384e648b939885ac02b6b303141515a757d3852d2c01fe8"
+      ],
+      "origin": [
+        "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538"
+      ],
+      "fingerprint": "020d89c1de560d2160740e877a2f8ece2c707b131b468476c89b66e31ee79ca5",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Top tasks card from the polled cost.tasks answer.",
+      "bound": "One RPC answer: at most one row per costed task, priced once and cut to the five shown.",
+      "reason": "Ranks the existing cost.tasks rows by own seven-day cost to produce the five rows the card displays; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "topTasks",
+      "rule": "reader-summary",
+      "tokens": "131e9ae4f5ff368c8f82d7ad3886cb2473bb766f90ae2f6bd2020f6f2105877f",
+      "gate": [
+        "exit:then:5812459790402f831384e648b939885ac02b6b303141515a757d3852d2c01fe8"
+      ],
+      "origin": [
+        "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538"
+      ],
+      "fingerprint": "058dc1a5b38cf609c1e0002fe08527c88fa264e8973c322d840fa7fb651476b3",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Top tasks card from the polled cost.tasks answer.",
+      "bound": "One RPC answer: at most one row per costed task, priced once and cut to the five shown.",
+      "reason": "Ranks the existing cost.tasks rows by own seven-day cost to produce the five rows the card displays; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "topTasks",
+      "rule": "consume:sort",
+      "tokens": "d8c2b7594b5e45c6370554dd4c2f487da866cca7aa959c85abe03d7d2eea24be",
+      "gate": [
+        "exit:then:5812459790402f831384e648b939885ac02b6b303141515a757d3852d2c01fe8"
+      ],
+      "origin": [
+        "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538"
+      ],
+      "fingerprint": "de5e893901d53a56bae69f63e96f8bdfd95c1c6b52452dcdadcc4d6efd6c115c",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Top tasks card from the polled cost.tasks answer.",
+      "bound": "One RPC answer: at most one row per costed task, priced once and cut to the five shown.",
+      "reason": "Ranks the existing cost.tasks rows by own seven-day cost to produce the five rows the card displays; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/pulse-view.ts",
+      "holder": "topTasks",
+      "rule": "consume:slice",
+      "tokens": "d6304897d516e3f2edf998da386d34528625db9a995e39d7686176124728fc43",
+      "gate": [
+        "exit:then:5812459790402f831384e648b939885ac02b6b303141515a757d3852d2c01fe8"
+      ],
+      "origin": [
+        "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538"
+      ],
+      "fingerprint": "e63b11fbf2505c333c4163e15865726a31ea8b30c038867f0e9f828cc6054e0f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab shows its Top tasks card from the polled cost.tasks answer.",
+      "bound": "One RPC answer: at most one row per costed task, priced once and cut to the five shown.",
+      "reason": "Ranks the existing cost.tasks rows by own seven-day cost to produce the five rows the card displays; no pool records are read.",
+      "guard": "scripts/check-interaction-scans.ts"
     }
   ]
 }
