@@ -78,9 +78,9 @@ describe('settings frame', () => {
     fireEvent.animationEnd(target)
     expect(target.classList.contains('settings-search-highlight')).toBe(false)
     expect((input as HTMLInputElement).value).toBe('')
-    expect(
-      screen.getByRole('button', { name: 'Projects', exact: true }).getAttribute('aria-current'),
-    ).toBe('page')
+    expect(screen.getByRole('button', { name: 'Projects' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
   })
 
   it('focuses search with slash and supports keyboard selection without closing the sheet', async () => {
@@ -102,7 +102,7 @@ describe('settings frame', () => {
   it('places page actions in the header and replaces the pane with a takeover', async () => {
     const close = vi.fn()
     render(<Harness onClose={close} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Projects', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
     const action = await screen.findByRole('button', { name: 'Add project' })
     expect(action.closest('.settings-page-header')).toBeTruthy()
     fireEvent.click(action)
@@ -127,7 +127,7 @@ describe('settings frame', () => {
 
   it('does not steal slash from an editor', async () => {
     render(<Harness />)
-    fireEvent.click(screen.getByRole('button', { name: 'Projects', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
     const input = screen.getByRole('textbox', { name: 'Default parent branch' })
     act(() => input.focus())
     fireEvent.keyDown(input, { key: '/' })
@@ -152,8 +152,14 @@ describe('settings search catalog', () => {
 })
 
 it('waits for a lazy page before revealing its search target', async () => {
-  const pending = Promise.withResolvers<{ default: () => React.JSX.Element }>()
-  const Content = lazy(() => pending.promise)
+  type PageModule = { default: () => React.JSX.Element }
+  let resolvePage: (module: PageModule) => void = () => {
+    throw new Error('Page resolver is not ready')
+  }
+  const pending = new Promise<PageModule>((resolve) => {
+    resolvePage = resolve
+  })
+  const Content = lazy(() => pending)
   function LazyHarness() {
     const [page, setPage] = useState<SettingsPage>('agents')
     return (
@@ -176,7 +182,7 @@ it('waits for a lazy page before revealing its search target', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Default parent branch Projects' }))
   expect(screen.getByText('Loading project controls…')).toBeTruthy()
   await act(async () =>
-    pending.resolve({
+    resolvePage({
       default: () => (
         <SettingsPageSection id="workflow">
           <Row label="Default parent branch">
