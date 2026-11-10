@@ -169,6 +169,22 @@ export function describeCheckOutcome(records: readonly ChannelCheck[], now: numb
   return `Already checked ${relativeTime(new Date(oldest.checkedAt).toISOString(), now)} — that answer still stands.`
 }
 
+/** The selected channel’s check, kept to one line with failures still readable. */
+export function lastChecked(
+  check: ChannelCheck | undefined,
+  now: number,
+): { label: string; title?: string } {
+  if (!check) return { label: 'Not checked yet' }
+  const ago = relativeTime(new Date(check.checkedAt).toISOString(), now)
+  return {
+    label:
+      check.outcome.status === 'unavailable'
+        ? `${ago} · ${channelUnavailableProse(check.channel, check.outcome.reason)}`
+        : ago,
+    title: new Date(check.checkedAt).toLocaleString(),
+  }
+}
+
 export interface HistoryRow {
   id: string
   /** "Podium 0.4.3", or the honest absence when an operation never got a target. */

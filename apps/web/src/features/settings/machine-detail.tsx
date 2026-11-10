@@ -3,7 +3,7 @@ import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import { machineWrites } from '@podium/commands/fleet-synced'
 import { useMemo, useState } from 'react'
-import { MachineUpdateControls, useFleetConvergence } from '@/app/MachinesPanel'
+import { useFleetConvergence } from '@/app/MachinesPanel'
 import { Button } from '@/components/ui/button'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { MachineFailureReason } from '@/features/updates/MachineFailureReason'
@@ -180,7 +180,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           <span className="settings-value break-all">
             {machine.appVersion ? formatDisplayedVersion(machine.appVersion) : 'Not reported'}
           </span>
-          {(skew.badge || machine.versionState === 'behind') && (
+          {
             <Button
               type="button"
               variant="link"
@@ -190,9 +190,9 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
                 setSettingsTab('updates')
               }}
             >
-              Updates
+              Update
             </Button>
-          )}
+          }
         </Row>
         <Row
           label="Agents installed"
@@ -232,15 +232,6 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
         onFind={view.canFindRepositories ? () => setFindingRepos(true) : undefined}
       />
       <MachineRemove view={view} />
-      {/* The Updates task moves these controls after this page lands. */}
-      {view.canManage && machine.podiumManaged !== false && (
-        <MachineUpdateControls
-          machine={machine}
-          trpc={trpc}
-          convergence={update}
-          onApplied={convergence.refresh}
-        />
-      )}
     </>
   )
 })

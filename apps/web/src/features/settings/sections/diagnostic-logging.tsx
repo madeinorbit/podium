@@ -1,39 +1,6 @@
-/**
- * Settings → Privacy → DIAGNOSTIC DETAIL (POD-1920 chunk 7, extended by
- * POD-1946; [spec:2026-08-11-logging-strategy-design]).
- *
- * The support flow this exists for: "turn this on, do the thing that fails, tell
- * me when you have." An operator with a shell raises the client from the server
- * (`logs.setLevel`); this is the same act performed by the person sitting at the
- * client, for the cases where nobody has a shell — a hosted install, a phone, a
- * user on a call.
- *
- * IT DRIVES THE SAME KNOB. Both paths end at the one `setLogLevel` in
- * `@podium/client-core/logging`, so the console and the forwarded stream move
- * together and this control cannot disagree with what the operator sees. It is
- * NOT a second setting: nothing is persisted, and picking the default here is
- * the same `level: null` the TTL applies by itself when it runs out. There is
- * deliberately no separate threshold for forwarding — the forwarding sink pins
- * no `minLevel`, which is what makes "raise a client to debug and debug forwards
- * too" true; a second control would break that silently.
- *
- * IT SHOWS WHAT IS IN FORCE. The row is read before it is used: which level this
- * client is running at right now, whether that is its boot default or a
- * temporary raise (from here or from an operator), and when a raise lifts. A
- * control that can be moved from the other end has to say where it is, or the
- * reader cannot tell "nothing to report" from "never turned up".
- *
- * ON THE PRIVACY TAB, and the placement is a claim worth being careful about.
- * That tab promises Podium sends nothing off the install unless you say so, and
- * that promise is about the VENDOR hop. Forwarding to your own server is a
- * different hop and is unconditional (the design spec's "Client → server
- * forwarding": the client's server IS the user's server). So the copy here says
- * where the detail goes, in the section hint, rather than leaving the reader to
- * assume this control is governed by the switches above it.
- */
-
+/** A temporary, device-local log detail control for Updates → Troubleshooting. */
 import { applyServerLogLevel, logLevelStatus } from '@podium/client-core/logging'
-import { LEVELS, type LogLevel } from '@podium/logger'
+import type { LogLevel } from '@podium/logger'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
@@ -46,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useCountdown } from '@/lib/clock-hooks'
-import { Row, Subsection } from './shared'
+import { Row } from './shared'
 
 /** How long a raise made from here lasts. The same half hour the server-pushed
  *  command defaults to — a user picking a level and an operator issuing one
@@ -61,18 +28,19 @@ export const AFFORDANCE_TTL_MS = 30 * 60 * 1000
  *  costs nothing and cannot leak. */
 const POLL_MS = 5000
 
-/** What each level means to somebody who does not write log lines for a living.
- *  The level's own name stays in the label — it is what an operator will ask for
- *  on a call ("put it on debug"), so the picker has to speak both languages. */
-const LEVEL_HINT: Record<LogLevel, string> = {
-  error: 'failures only',
-  warn: 'failures and warnings',
-  info: 'ordinary activity',
-  // Kept short on purpose: the open list is as wide as the trigger, and it
-  // CLIPS rather than wraps — a hint that does not fit is a hint cut mid-word.
-  debug: 'detailed diagnostics',
-  trace: 'every message in and out',
+const LEVEL_NAMES: Record<LogLevel, string> = {
+  error: 'Normal',
+  warn: 'Normal',
+  info: 'More',
+  debug: 'Debug',
+  trace: 'Everything',
 }
+const LEVEL_OPTIONS = [
+  { level: 'warn', label: 'Normal', hint: 'Warnings and errors' },
+  { level: 'info', label: 'More', hint: 'Plus what Podium is doing' },
+  { level: 'debug', label: 'Debug', hint: 'Detailed diagnostics' },
+  { level: 'trace', label: 'Everything', hint: 'Very noisy' },
+] as const
 
 function remainingLabel(remainingMs: number): string {
   const minutes = Math.ceil(remainingMs / 60_000)
@@ -111,41 +79,24 @@ export function DiagnosticLoggingSubsection(): JSX.Element | null {
     setStatus(logLevelStatus())
   }
 
-  /** The trigger says only what is in force — the settings control column is one
-   *  fixed width, and a hint appended here is a hint the reader sees cut off.
-   *  The meaning belongs where there is room for it: the row's description, and
-   *  the options in the open list. */
-  const triggerLabel = (level: LogLevel): string =>
-    `${level}${level === status.boot ? ' (default)' : ''}`
-  const optionLabel = (level: LogLevel): string => `${triggerLabel(level)} — ${LEVEL_HINT[level]}`
-
   return (
-    <Subsection
-      title="Diagnostic detail"
-      hint="How much this client records about what it is doing. Detail goes to your own server, alongside the logs it keeps for itself — it never leaves your installation."
-    >
+    <>
       <Row
-        label="Detail level"
-        description={
-          raised
-            ? // NOT "turned up": a level can be picked BELOW the boot default too,
-              // and a row that calls that a raise is describing a different act
-              // than the one the reader just performed.
-              `Running at ${status.level} (${LEVEL_HINT[status.level]}) — a temporary change from its usual ${status.boot}.`
-            : `Running at ${status.level} (${LEVEL_HINT[status.level]}), this client's default. Turn it up before reproducing a problem; it comes back down by itself.`
-        }
+        label="Log detail for this window"
+        device
+        description="Raise it before you reproduce a problem. Goes back to normal after 30 minutes."
       >
         <Select
-          value={status.level}
+          value={status.level === 'error' ? 'warn' : status.level}
           onValueChange={(value) => apply((value ?? status.boot) as LogLevel)}
         >
           <SelectTrigger className="w-full flex-1" data-testid="log-level-select">
-            <SelectValue>{triggerLabel(status.level)}</SelectValue>
+            <SelectValue>{LEVEL_NAMES[status.level]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {LEVELS.map((level) => (
+            {LEVEL_OPTIONS.map(({ level, label, hint }) => (
               <SelectItem key={level} value={level}>
-                {optionLabel(level)}
+                {label} — {hint}
               </SelectItem>
             ))}
           </SelectContent>
@@ -158,7 +109,7 @@ export function DiagnosticLoggingSubsection(): JSX.Element | null {
           onReset={() => apply(null)}
         />
       )}
-    </Subsection>
+    </>
   )
 }
 
@@ -175,7 +126,7 @@ function TemporaryLogLevel({
   return (
     <Row
       label="Temporary change"
-      description={`Back to ${boot} by itself — ${remainingLabel(remaining)}. Nothing is saved, so reloading this page returns to ${boot} too.`}
+      description={`Back to ${LEVEL_NAMES[boot]} by itself — ${remainingLabel(remaining)}. Nothing is saved, so reloading this page returns to ${LEVEL_NAMES[boot]} too.`}
     >
       <Button
         type="button"

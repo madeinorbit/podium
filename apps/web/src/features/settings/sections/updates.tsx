@@ -1,35 +1,41 @@
+import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
+import { History, Laptop, Server } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
 import { UpdateSpaceNotice } from '@/features/updates/UpdateSpaceNotice'
 import { copyToClipboard } from '@/lib/clipboard'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
-import {
-  formatDisplayedVersion,
-  machineVersionSkew,
-  type VersionSkewVerdict,
-} from '@/lib/machine-version-skew'
+import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
 import { uiSource } from '@/lib/ui-source'
 import { updateStatus } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
-import { useSettingsMachine, useSettingsMachineIds, useSettingsMachineTargets } from '../readers'
+import {
+  canApplyMachineUpdate,
+  type MachineConvergence,
+  MachineUpdateActions,
+  MachineUpdateControls,
+} from '../machine-update-controls'
+import { useSettingsMachine, useSettingsMachineIds, useSettingsMachines } from '../readers'
 import { useSettingsTrpc } from '../stable-access'
-import { Row, Section } from './shared'
+import { DiagnosticLoggingSubsection } from './diagnostic-logging'
+import { EntityRow, Row, Section, useSettingsPermitted } from './shared'
 import {
   CHANNEL_LABELS,
   type ChannelCheck,
-  type ChannelStatusRow,
-  channelStatusRows,
   channelUnavailableProse,
   describeCheckOutcome,
   type FleetChannel,
   type HistoryRow,
   historyRows,
+  lastChecked,
 } from './updates-view'
 import { componentVersions } from './version-rows'
 
@@ -68,56 +74,20 @@ interface VersionInfo {
   appVersion?: string
 }
 
-interface MachineVersionRow {
-  reason?: FailureReason
-  id: string
-  label: string
-  version: string
-  /** Expected-or-not, in the same vocabulary the component rows above use. */
-  skew: VersionSkewVerdict
-  /** The machine's own pin, or null when it follows the fleet default (POD-1882). */
-  channelOverride: FleetChannel | null
-  /**
-   * Why this machine's selected channel has no trusted target right now, already
-   * sanitized by the server (POD-1880). A dev channel legitimately has NO target
-   * while a bundle is preparing, missing or failed, so this is a normal state to
-   * render — not an error — and the page must say it in prose (spec §6.3), which
-   * is what `channelUnavailableProse` is for.
-   */
-  targetUnavailableReason: string | null
-}
-
 /** How many operations §9.2.6 retains, and therefore how many are worth asking for. */
 const HISTORY_LIMIT = 20
 
-/**
- * THE OPERATOR'S VIEW OF UPDATES (POD-2103, spec §3.7 / §6.3 / §9.2).
- *
- * The update panel is for the update that is happening; this page is for every
- * update that already did, and for the state of the channels those updates come
- * from. "Did the update finish last night?" is answerable here and nowhere else
- * — before this, the only record of a finished update was a toast that had long
- * since evaporated.
- *
- * The channel selector below is not decorative and not a duplicate of the
- * per-machine selector in Settings → Machines (POD-1882): it sets the channel
- * every machine follows unless it has pinned one of its own, so it is the
- * fleet-wide answer and the per-machine one is the exception. Development is a
- * Podium-development channel and appears only while Settings → Experimental has
- * "Podium development" on — but the selector itself is always here, because
- * choosing between released channels is ordinary operation. The channel type is
- * inlined so the web bundle never imports @podium/runtime (node:fs).
- *
- * An `observer`: the fleet and the release proposal are the update-status
- * reader's (POD-6683), which polls while this section is open. The version info
- * and the update history are this section's own request answers.
- */
+/** Updates are the one home for release choices, machine actions and their history. */
 export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
   const trpc = useSettingsTrpc()
   const status = updateStatus()
   useEffect(() => status.watch(), [status])
   const machineIds = useSettingsMachineIds()
   const developing = useFeature('podium-development')
+  const admin = useSettingsPermitted('records.instancePreferences.edit')
+  const machines = useSettingsMachines()
+  const actions = useMemo(() => new MachineUpdateActions(trpc), [trpc])
+  const [updatingAll, setUpdatingAll] = useState(false)
   const [channel, setChannel] = useState<FleetChannel | null>(null)
   // PODIUM_UPDATE_CHANNEL in the deployment's environment beats config.json, and
   // the server resolves machines against the env value. When it is set, the
@@ -317,79 +287,32 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     }
   }, [desktop, desktopMachineId, status, trpc])
 
-  // Development is appended, never substituted: the released channels stay in the
-  // same place and the same order whether or not the flag is on. A machine already
-  // sitting on `dev` keeps its button visible with the flag off, so the selector can
-  // never show a state the fleet is not in.
   const options: { value: FleetChannel; label: string }[] = [
     { value: 'stable', label: CHANNEL_LABELS.stable },
     { value: 'edge', label: CHANNEL_LABELS.edge },
-    ...(developing || channel === 'dev'
-      ? [{ value: 'dev' as const, label: CHANNEL_LABELS.dev }]
-      : []),
+    ...(developing ? [{ value: 'dev' as const, label: CHANNEL_LABELS.dev }] : []),
   ]
-
   const serverVersion = fleet?.appVersion ?? versionInfo?.appVersion
-
-  /**
-   * `allMachines` and not `machines`: the latter is the dev-authority wave the
-   * global dialog accounts for, and this page owes one row per machine — an
-   * edge or stable machine has its own convergence to show.
-   */
   const fleetMachines = fleet?.allMachines ?? fleet?.machines ?? []
-  const machineRows: MachineVersionRow[] =
-    machineIds.length > 0
-      ? []
-      : fleetMachines.map((machine) => ({
-          id: machine.id,
-          reason: machine.reason,
-          label: machine.id,
-          version: formatDisplayedVersion(machine.version),
-          channelOverride: null,
-          targetUnavailableReason: null,
-          skew: machineVersionSkew(
-            {
-              installKind: machine.installKind,
-              versionState: fleet?.targetVersion
-                ? machine.version === fleet.targetVersion
-                  ? 'current'
-                  : 'behind'
-                : 'unreported',
-            } as Parameters<typeof machineVersionSkew>[0],
-            serverVersion ?? null,
-            machine.reason ? 'rejected' : machine.state,
-          ),
-        }))
-
-  /**
-   * A channel's target version, read back from the machines that are on it.
-   *
-   * Each machine carries the version ITS OWN selected authority advertises,
-   * resolved server-side; picking those up per channel is reading the server's
-   * answer rather than computing a second one. `dev` additionally has the fleet
-   * snapshot's `targetVersion`, which is the same authority seen from the
-   * coordinating server's side and is what a fleet with no machines still knows.
-   */
-  const targetByChannel: Partial<Record<FleetChannel, string | null>> = {
-    ...useSettingsMachineTargets(channel),
+  const convergenceFor = (id: string): MachineConvergence | null =>
+    fleetMachines.find((m) => m.id === id) ?? null
+  const waitingMachines = machines.filter(
+    (machine) =>
+      machine.transferable === true &&
+      canApplyMachineUpdate(machine, convergenceFor(machine.id)) &&
+      !actions.row(machine).applying,
+  )
+  const applyAll = async () => {
+    if (updatingAll) return
+    setUpdatingAll(true)
+    try {
+      await Promise.all(
+        waitingMachines.map((machine) => actions.row(machine).apply(() => void status.refresh())),
+      )
+    } finally {
+      setUpdatingAll(false)
+    }
   }
-  if (fleet?.targetVersion) targetByChannel.dev = fleet.targetVersion
-
-  // Every channel the user can select, plus any channel a machine has been
-  // pinned to — a pinned channel is one this server checks, so hiding its state
-  // would hide the only place that machine's updates can come from.
-  const shownChannels: FleetChannel[] = [
-    ...options.map((option) => option.value),
-    ...(checks ?? []).map((check) => check.channel),
-  ].filter((value, index, all): value is FleetChannel => all.indexOf(value) === index)
-
-  const channelRows: ChannelStatusRow[] = channelStatusRows({
-    channels: shownChannels,
-    checks: checks ?? [],
-    targetByChannel,
-    now: Date.now(),
-  })
-
   const rows: HistoryRow[] = history ? historyRows(history, Date.now()) : []
 
   /**
@@ -412,189 +335,100 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     channel,
   })
   const showComponentVersions = fleet !== null && versions.single === null
-  const targetVersionLabel = fleet?.targetVersion
-    ? formatDisplayedVersion(fleet.targetVersion)
-    : null
-
   return (
-    <Section
-      title="Updates"
-      hint="Which builds the self-updater (podium update) pulls, for this server and every machine that has not pinned a source of its own. stable = released builds · edge = latest from main."
-    >
-      <Row label="Update disk space">
-        <UpdateSpaceNotice client={trpc} scope="all" />
-      </Row>
-      <Row label="Running version">
-        {showComponentVersions ? (
-          <dl className="flex w-full flex-col gap-2" data-testid="component-version-breakdown">
-            {versions.rows.map((component) => (
-              <div key={component.key} data-testid={`component-version-${component.key}`}>
-                <div className="flex items-baseline justify-between gap-4">
-                  <dt className="settings-micro">{component.label}</dt>
-                  <dd className="settings-value text-right">
-                    {component.prefix && (
-                      <span className="settings-micro font-sans">{component.prefix} · </span>
-                    )}
-                    <span className="font-mono">{component.value}</span>
-                  </dd>
-                </div>
-                {/* An expected difference is the mechanism working (a frame
-                    released on its own cadence, a tab that has not reloaded
-                    yet); an unexpected one is someone's problem. Same row
-                    shape, different ink, so the warning colour keeps meaning
-                    something. */}
-                {component.note && (
-                  // The tone goes on a CHILD span, never beside `settings-micro`
-                  // on the same element: the component class wins that cascade
-                  // and the warning silently renders in the ordinary ink.
-                  <p className="settings-micro">
-                    {component.mark === 'unexpected' ? (
-                      <span className="text-warning">{component.note}</span>
-                    ) : (
-                      <>
+    <>
+      <Section title="Version">
+        <Row
+          label="Update channel"
+          description={
+            channel === 'stable'
+              ? 'Released builds.'
+              : channel === 'dev'
+                ? 'Builds from this workspace’s development branch.'
+                : 'Latest builds from main, a few times a day.'
+          }
+          readOnly={!admin}
+          readOnlyValue={channel ? CHANNEL_LABELS[channel] : 'Loading…'}
+          error={channelError}
+        >
+          {channel === null ? (
+            <span className="settings-micro">Loading…</span>
+          ) : (
+            <div className="flex flex-wrap gap-1" aria-label="Update channel">
+              {options.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant={channel === option.value ? 'default' : 'outline'}
+                  aria-pressed={channel === option.value}
+                  disabled={envForced}
+                  onClick={() => void choose(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              {!developing && channel === 'dev' && (
+                <span className="settings-micro">Development</span>
+              )}
+            </div>
+          )}
+        </Row>
+        {envForced && (
+          <p className="settings-list-note settings-prose text-warning">
+            {channelSource === 'file' ? 'config.json' : 'PODIUM_UPDATE_CHANNEL'} overrides the
+            configured channel. Remove the override to choose the update channel here.
+          </p>
+        )}
+        {updateScope === 'fleet-only' && (
+          <p className="settings-list-note settings-prose">
+            Server updates are managed by this deployment; machines still update from the{' '}
+            {channel ?? 'configured'} feed.
+          </p>
+        )}
+        <Row
+          label="Podium"
+          description={
+            showComponentVersions
+              ? 'The components are running different builds.'
+              : versions.single
+                ? 'Server, this window and the desktop app all match.'
+                : undefined
+          }
+        >
+          {showComponentVersions ? (
+            <dl className="flex w-full flex-col gap-2" data-testid="component-version-breakdown">
+              {versions.rows.map((component) => (
+                <div key={component.key} data-testid={`component-version-${component.key}`}>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="settings-micro">{component.label}</dt>
+                    <dd className="settings-value text-right">
+                      {component.prefix && (
+                        <span className="settings-micro font-sans">{component.prefix} · </span>
+                      )}
+                      <span className="font-mono">{component.value}</span>
+                    </dd>
+                  </div>
+                  {component.note && (
+                    <p className="settings-micro">
+                      <span className={component.mark === 'unexpected' ? 'text-warning' : ''}>
                         {component.mark === 'expected' ? 'Expected. ' : ''}
                         {component.note}
-                      </>
-                    )}
-                  </p>
-                )}
-              </div>
-            ))}
-          </dl>
-        ) : (
-          <code className="settings-value" data-testid="running-version">
-            {versions.single ?? <span className="settings-micro font-sans">Loading…</span>}
-          </code>
-        )}
-      </Row>
-      <Row
-        label="Target version"
-        description="The version this server is asking its places to run."
-      >
-        <code className="settings-value">
-          {fleet === null ? (
-            <span className="settings-micro font-sans">Loading…</span>
+                      </span>
+                    </p>
+                  )}
+                </div>
+              ))}
+            </dl>
           ) : (
-            (targetVersionLabel ?? <span className="settings-micro font-sans">None published</span>)
+            <code className="settings-value" data-testid="running-version">
+              {versions.single ?? <span className="settings-micro font-sans">Loading…</span>}
+            </code>
           )}
-        </code>
-      </Row>
-
-      {proposal && (
-        <Row
-          label="Development release"
-          description="A landed commit is proposed for the fleet first. Approval builds and publishes it; rollout remains the normal update offer."
-        >
-          <div
-            className="flex w-full flex-col gap-2 rounded-md border border-border/70 bg-muted/15 px-3 py-2"
-            data-testid="settings-release-proposal"
-          >
-            <div>
-              <p className="settings-prose text-foreground">
-                Build {formatDisplayedVersion(proposal.version)} for the fleet.
-              </p>
-              {proposal.runningVersion && (
-                <p
-                  className="settings-micro"
-                  data-testid="settings-release-proposal-server-transition"
-                >
-                  Server: {formatDisplayedVersion(proposal.runningVersion)} →{' '}
-                  {formatDisplayedVersion(proposal.version)}
-                </p>
-              )}
-              <p className="settings-micro">
-                {proposal.branch} · {proposal.headSha}
-              </p>
-            </div>
-            {proposal.commits.length > 0 ? (
-              <ul className="flex flex-col gap-1" aria-label="Commits in proposed release">
-                {proposal.commits.map((commit) => (
-                  <li key={commit.sha} className="settings-micro">
-                    <code className="mr-2">{commit.sha}</code>
-                    {commit.summary}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="settings-micro">No changes since what this server is running.</p>
-            )}
-            {proposal.addedMigrations.length > 0 && (
-              <p
-                className="settings-micro text-warning"
-                data-testid="settings-release-proposal-migration-warning"
-              >
-                Adds {proposal.addedMigrations.length}{' '}
-                {proposal.addedMigrations.length === 1 ? 'migration' : 'migrations'}; releasing
-                commits fleet databases to this branch until it merges.
-              </p>
-            )}
-            {proposal.approval && (
-              <p className="settings-micro">
-                Approved by <code>{proposal.approval.approvedBy}</code>.
-              </p>
-            )}
-            {proposal.failure && (
-              <details className="settings-micro text-destructive">
-                <summary>{proposal.failure.message}</summary>
-                <pre className="mt-2 whitespace-pre-wrap">{proposal.failure.logs}</pre>
-              </details>
-            )}
-            {proposalError && (
-              <p className="settings-micro text-destructive" role="alert">
-                {proposalError}
-              </p>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              className="w-fit"
-              disabled={approvingProposal || proposal.state === 'building'}
-              pending={approvingProposal || proposal.state === 'building'}
-              pendingLabel="Building…"
-              onClick={() => void approveProposal()}
-            >
-              {proposal.state === 'failed' ? 'Try build again' : 'Build and publish'}
-            </Button>
-          </div>
         </Row>
-      )}
-
-      {/* §9.2: the cadence is part of the contract — a daily timer, on-panel-open,
-          and this button — so the page says when each channel was last asked and
-          what came back, in prose. */}
-      <Row
-        label="Update channels"
-        description="Podium checks each channel daily. What it heard, and when."
-      >
-        <div className="flex w-full flex-col gap-2">
-          <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
-            {checks === null ? (
-              <p className="settings-prose px-3 py-2">Loading…</p>
-            ) : (
-              <div className="divide-y divide-border/60">
-                {channelRows.map((row) => (
-                  <div
-                    key={row.channel}
-                    className="px-3 py-2"
-                    data-testid={`channel-${row.channel}`}
-                  >
-                    <p className="settings-prose text-foreground">{row.label}</p>
-                    <p
-                      className={
-                        row.tone === 'warning' ? 'settings-micro text-warning' : 'settings-micro'
-                      }
-                    >
-                      {row.status}
-                    </p>
-                    <p className="settings-micro" title={row.checkedAtLabel}>
-                      {row.checked}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
+        <Row label="Last checked">
+          <LastChecked checks={checks} channel={channel} />
+          {admin && (
             <Button
               type="button"
               size="sm"
@@ -605,291 +439,403 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
             >
               {checking ? 'Checking…' : 'Check now'}
             </Button>
-            {checkNote && (
-              <span className="settings-micro" role="status">
-                {checkNote}
-              </span>
-            )}
-          </div>
-        </div>
-      </Row>
-
-      {/* Every desktop runs its supervisor from a local payload since POD-3431, a client too.
-          Only a client shell without `repairPayload` (0.1.0) has none to repair (POD-5973). */}
-      {desktop && (desktop.launchMode !== 'client' || desktop.repairPayload !== undefined) && (
-        <Row
-          label="Repair payload"
-          description="Re-download the current server, daemon, and web payload through the normal fleet update path."
-        >
-          <div className="flex items-center gap-2">
+          )}
+          {checkNote && (
+            <span className="settings-micro" role="status">
+              {checkNote}
+            </span>
+          )}
+        </Row>
+        {readError && (
+          <p className="settings-list-note settings-prose text-destructive" role="alert">
+            {readError}
+          </p>
+        )}
+      </Section>
+      <Section
+        title="Machines"
+        list
+        action={
+          waitingMachines.length > 0 || updatingAll ? (
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              disabled={repairing}
-              aria-busy={repairing}
-              onClick={() => void repairPayload()}
+              disabled={updatingAll}
+              aria-busy={updatingAll}
+              onClick={() => void applyAll()}
             >
-              {repairing ? 'Starting repair…' : 'Repair payload'}
+              {updatingAll
+                ? 'Starting updates…'
+                : `Update ${waitingMachines.length} ${waitingMachines.length === 1 ? 'machine' : 'machines'}`}
             </Button>
-            {repairNote && (
-              <span className="settings-micro" role="status">
-                {repairNote}
-              </span>
-            )}
-          </div>
-        </Row>
-      )}
-
-      <Row
-        label="Machines"
-        description="Each machine's reported version compared with the target. Podium never applies an update on its own, so a machine with one available is waiting to be told to take it."
+          ) : undefined
+        }
       >
-        <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
-          {machineIds.length === 0 && machineRows.length === 0 ? (
-            <p className="settings-prose px-3 py-2">
-              {fleet === null ? 'Loading…' : 'No machines connected.'}
-            </p>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {machineIds.map((id) => (
-                <SettingsUpdateMachine
-                  key={id}
-                  id={id}
-                  fleetMachines={fleetMachines}
-                  serverVersion={serverVersion ?? null}
-                  channel={channel}
-                />
-              ))}
-              {machineRows.map((machine) => (
-                <UpdateMachineRow key={machine.id} machine={machine} channel={channel} />
-              ))}
-            </div>
-          )}
+        {machineIds.map((id) => (
+          <SettingsUpdateMachine
+            key={id}
+            id={id}
+            fleetMachines={fleetMachines}
+            serverVersion={serverVersion ?? null}
+            channel={channel}
+            actions={actions}
+          />
+        ))}
+        {machineIds.length === 0 &&
+          fleetMachines.map((machine) => (
+            <EntityRow
+              key={machine.id}
+              leading={<Server size={16} />}
+              title={machine.id}
+              subtitle={
+                <>
+                  {formatDisplayedVersion(machine.version)}
+                  {fleet?.targetVersion ? ` → ${formatDisplayedVersion(fleet.targetVersion)}` : ''}
+                  {!machine.online && ' · Offline'}
+                </>
+              }
+              monoSubtitle
+              trailing={
+                machine.state === 'current' ? (
+                  <span className="settings-micro">Current</span>
+                ) : (
+                  <Badge variant="warning">Update waiting</Badge>
+                )
+              }
+            />
+          ))}
+        {machineIds.length === 0 && fleetMachines.length === 0 && (
+          <p className="settings-list-note settings-prose">
+            {fleet === null ? 'Loading…' : 'No machines connected.'}
+          </p>
+        )}
+        <div className="settings-list-note">
+          <UpdateSpaceNotice client={trpc} scope="all" />
         </div>
-      </Row>
-
-      {/* §3.7: the audit trail. One row per operation, the failed ones openable
-          into §7's three layers with the operation id copyable — which is what
-          "share the last failed update" needs instead of a screenshot. */}
-      <Row
-        label="Recent updates"
-        description="The last update operations this server ran, and how they ended."
-      >
-        <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
-          {history === null && historyError === null ? (
-            <p className="settings-prose px-3 py-2">Loading…</p>
-          ) : historyError !== null ? (
-            <p className="settings-prose px-3 py-2 text-warning">
-              This server does not keep a record of past updates.
-            </p>
-          ) : rows.length === 0 ? (
-            <p className="settings-prose px-3 py-2">No updates have been run on this server yet.</p>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {rows.map((row) => (
-                <div key={row.id} className="px-3 py-2" data-testid={`update-operation-${row.id}`}>
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate settings-prose text-foreground">{row.version}</p>
-                      <p className="settings-micro" title={row.startedAtLabel}>
-                        {row.startedRelative}
-                        {row.duration ? ` · took ${row.duration}` : ''}
-                        {row.retryNote ? ` · ${row.retryNote}` : ''}
-                      </p>
-                    </div>
-                    <span
-                      className={
+      </Section>
+      <Section title="History" list>
+        {history === null && historyError === null ? (
+          <p className="settings-list-note settings-prose">Loading…</p>
+        ) : historyError ? (
+          <p className="settings-list-note settings-prose text-warning">
+            This server does not keep a record of past updates.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="settings-list-note settings-prose">
+            No updates have been run on this server yet.
+          </p>
+        ) : (
+          rows.map((row) => (
+            <div key={row.id} data-testid={`update-operation-${row.id}`}>
+              <EntityRow
+                leading={<History size={16} />}
+                title={<span className="settings-value">{row.version}</span>}
+                subtitle={
+                  <span title={row.startedAtLabel}>
+                    {row.startedRelative}
+                    {row.duration ? ` · took ${row.duration}` : ''}
+                    {row.retryNote ? ` · ${row.retryNote}` : ''}
+                  </span>
+                }
+                trailing={
+                  <>
+                    <Badge
+                      variant={
                         row.outcome.tone === 'error'
-                          ? 'settings-micro text-destructive'
+                          ? 'destructive'
                           : row.outcome.tone === 'ok'
-                            ? 'settings-micro text-success'
-                            : 'settings-micro'
+                            ? 'success'
+                            : row.outcome.tone === 'warning'
+                              ? 'warning'
+                              : 'secondary'
                       }
                     >
                       {row.outcome.label}
-                    </span>
-                  </div>
-                  {row.error && (
-                    <div className="mt-1">
-                      <button
+                    </Badge>
+                    {row.error && (
+                      <Button
                         type="button"
-                        data-pressable
-                        className="settings-micro underline"
+                        size="sm"
+                        variant="ghost"
                         aria-expanded={openRow === row.id}
+                        aria-controls={`update-details-${row.id}`}
                         onClick={() => setOpenRow(openRow === row.id ? null : row.id)}
                       >
-                        {openRow === row.id ? 'Hide details' : 'What happened?'}
-                      </button>
-                      {openRow === row.id && (
-                        <div className="mt-1 flex flex-col gap-1">
-                          <p className="settings-prose">{row.error.message}</p>
-                          <p className="settings-micro">{row.error.nextAction}</p>
-                          {row.error.detail && (
-                            <>
-                              <pre className="max-w-full overflow-x-auto whitespace-pre-wrap settings-micro font-mono">
-                                {row.error.detail}
-                              </pre>
-                              <div>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    copyToClipboard(
-                                      row.error?.detail ?? row.id,
-                                      'Update details copied',
-                                    )
-                                  }
-                                >
-                                  Copy details
-                                </Button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                        Why?
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+              {row.error && openRow === row.id && (
+                <div
+                  id={`update-details-${row.id}`}
+                  className="settings-list-note flex flex-col gap-2"
+                >
+                  <p className="settings-prose">{row.error.message}</p>
+                  <p className="settings-micro">{row.error.nextAction}</p>
+                  {row.error.detail && (
+                    <>
+                      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap settings-micro font-mono">
+                        {row.error.detail}
+                      </pre>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-fit"
+                        onClick={() =>
+                          copyToClipboard(row.error?.detail ?? row.id, 'Update details copied')
+                        }
+                      >
+                        Copy details
+                      </Button>
+                    </>
                   )}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
-      </Row>
-
-      <Row
-        label="Fleet default channel"
-        description="Machines follow this unless one has been pinned to its own source."
-      >
-        {channel === null ? (
-          <span className="settings-micro">Loading…</span>
-        ) : (
-          <div className="flex gap-1">
-            {options.map((o) => (
+          ))
+        )}
+      </Section>
+      <Section title="Troubleshooting">
+        <DiagnosticLoggingSubsection />
+        {admin &&
+          desktop &&
+          (desktop.launchMode !== 'client' || desktop.repairPayload !== undefined) && (
+            <Row
+              label="Repair this installation"
+              description="Downloads the current version again and restarts. Desktop app only."
+            >
               <Button
-                key={o.value}
                 type="button"
                 size="sm"
-                variant={channel === o.value ? 'default' : 'outline'}
-                aria-pressed={channel === o.value}
-                disabled={envForced}
-                onClick={() => void choose(o.value)}
+                variant="outline"
+                disabled={repairing}
+                aria-busy={repairing}
+                onClick={() => void repairPayload()}
               >
-                {o.label}
+                {repairing ? 'Starting repair…' : 'Repair'}
               </Button>
-            ))}
-          </div>
-        )}
-      </Row>
-      {envForced && (
-        <p className="mt-2 settings-prose text-warning">
-          {channelSource === 'file' ? 'config.json' : 'PODIUM_UPDATE_CHANNEL'} overrides the
-          configured channel. Remove the override to choose the fleet default here.
-        </p>
+              {repairNote && (
+                <span className="settings-micro" role="status">
+                  {repairNote}
+                </span>
+              )}
+            </Row>
+          )}
+      </Section>
+      {developing && admin && (
+        <Section title="Development release">
+          {proposal ? (
+            <Row
+              label="Build and publish"
+              description="Build this proposal, then choose when to apply it."
+            >
+              <div className="flex w-full flex-col gap-2" data-testid="settings-release-proposal">
+                <p className="settings-prose">
+                  Build {formatDisplayedVersion(proposal.version)} for the fleet.
+                </p>
+                {proposal.runningVersion && (
+                  <p
+                    className="settings-micro"
+                    data-testid="settings-release-proposal-server-transition"
+                  >
+                    Server: {formatDisplayedVersion(proposal.runningVersion)} →{' '}
+                    {formatDisplayedVersion(proposal.version)}
+                  </p>
+                )}
+                <p className="settings-micro">
+                  {proposal.branch} · {proposal.headSha}
+                </p>
+                {proposal.commits.length > 0 ? (
+                  <ul aria-label="Commits in proposed release">
+                    {proposal.commits.map((commit) => (
+                      <li key={commit.sha} className="settings-micro">
+                        <code className="mr-2">{commit.sha}</code>
+                        {commit.summary}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="settings-micro">No changes since what this server is running.</p>
+                )}
+                {proposal.addedMigrations.length > 0 && (
+                  <p
+                    className="settings-micro"
+                    data-testid="settings-release-proposal-migration-warning"
+                  >
+                    <span className="text-warning">
+                      Adds {proposal.addedMigrations.length}{' '}
+                      {proposal.addedMigrations.length === 1 ? 'migration; ' : 'migrations; '}
+                      releasing commits fleet databases to this branch until it merges.
+                    </span>
+                  </p>
+                )}
+                {proposal.approval && (
+                  <p className="settings-micro">
+                    Approved by <code>{proposal.approval.approvedBy}</code>.
+                  </p>
+                )}
+                {proposal.failure && (
+                  <details className="settings-micro">
+                    <summary className="text-destructive">{proposal.failure.message}</summary>
+                    <pre className="mt-2 whitespace-pre-wrap">{proposal.failure.logs}</pre>
+                  </details>
+                )}
+                {proposalError && (
+                  <p className="settings-micro" role="alert">
+                    <span className="text-destructive">{proposalError}</span>
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-fit"
+                  disabled={approvingProposal || proposal.state === 'building'}
+                  pending={approvingProposal || proposal.state === 'building'}
+                  pendingLabel="Building…"
+                  onClick={() => void approveProposal()}
+                >
+                  {proposal.state === 'failed' ? 'Try build again' : 'Build and publish'}
+                </Button>
+              </div>
+            </Row>
+          ) : (
+            <p className="settings-list-note settings-prose">
+              No development release is waiting to be built.
+            </p>
+          )}
+        </Section>
       )}
-      {updateScope === 'fleet-only' && (
-        <p className="mt-2 settings-prose text-muted-foreground">
-          Server updates are managed by this deployment; machines still update from the{' '}
-          {channel ?? 'configured'} feed.
-        </p>
-      )}
-      {channelError && <p className="mt-2 settings-prose text-destructive">{channelError}</p>}
-      {readError && <p className="mt-2 settings-prose text-destructive">{readError}</p>}
-    </Section>
+    </>
   )
 })
+
+function LastChecked({
+  checks,
+  channel,
+}: {
+  checks: ChannelCheck[] | null
+  channel: FleetChannel | null
+}) {
+  const check = checks?.find((record) => record.channel === channel)
+  const now = useAgeNow(check?.checkedAt ?? 0, 0, Boolean(check))
+  const reading = lastChecked(check, now)
+  return (
+    <span className="settings-micro" title={reading.title}>
+      {checks === null ? 'Loading…' : reading.label}
+    </span>
+  )
+}
 
 const SettingsUpdateMachine = observer(function SettingsUpdateMachine({
   id,
   fleetMachines,
   serverVersion,
   channel,
+  actions,
 }: {
   id: string
   fleetMachines: FleetMachine[]
   serverVersion: string | null
   channel: FleetChannel | null
+  actions: MachineUpdateActions
 }): JSX.Element | null {
   const machine = useSettingsMachine(id)
-  if (!machine) return null
-  const wave = fleetMachines.find((candidate) => candidate.id === id)
-  return (
+  return machine ? (
     <UpdateMachineRow
+      machine={machine}
+      wave={fleetMachines.find((row) => row.id === id) ?? null}
+      serverVersion={serverVersion}
       channel={channel}
-      machine={{
-        reason: wave?.reason,
-        id,
-        label: machine.name || machine.hostname || id,
-        version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
-        channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
-        targetUnavailableReason: machine.targetUnavailableReason ?? null,
-        skew: machineVersionSkew(
-          machine,
-          serverVersion,
-          wave?.reason ? 'rejected' : (wave?.state ?? null),
-        ),
-      }}
+      actions={actions}
     />
-  )
+  ) : null
 })
-function UpdateMachineRow({
+
+const UpdateMachineRow = observer(function UpdateMachineRow({
   machine,
+  wave,
+  serverVersion,
   channel,
+  actions,
 }: {
-  machine: MachineVersionRow
+  machine: MachineModel
+  wave: FleetMachine | null
+  serverVersion: string | null
   channel: FleetChannel | null
-}): JSX.Element {
+  actions: MachineUpdateActions
+}) {
+  const trpc = useSettingsTrpc()
+  const status = updateStatus()
+  const developing = useFeature('podium-development')
+  const skew = machineVersionSkew(
+    machine,
+    serverVersion,
+    wave?.reason ? 'rejected' : (wave?.state ?? null),
+  )
+  const target = machine.targetVersion
+  const waiting = Boolean(target && machine.appVersion !== target)
+  const inFlight = wave && ['granted', 'downloading', 'restarting'].includes(wave.state)
   return (
-    <div
-      data-testid={`update-machine-${machine.id}`}
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2"
-    >
-      {/* A machine reads as prose ink lifted to `--foreground` over its
-                      version in the machine voice — the same name-then-answer pair
-                      the rows above make, one step in because this panel sits
-                      inside a row rather than beside one. */}
-      <div className="min-w-0">
-        <p className="truncate settings-prose text-foreground">{machine.label}</p>
-        <code className="settings-micro font-mono">{machine.version}</code>
-      </div>
-      <span className="settings-micro text-right">
-        {/* Behind is not one state. A machine waiting for someone to
-                        accept an offer is the mechanism working — nothing on any
-                        channel applies itself (§8c decision 14) — and a machine
-                        that took the grant and never arrived is not. The verdict
-                        below is the same one the machine rows in Settings →
-                        Machines wear, so the two pages say one thing. */}
-        <span className={machine.skew.mark === 'unexpected' ? 'text-warning' : ''}>
-          {machine.skew.label}
-        </span>
-        {/* Only the rows that are somebody's problem carry their
-                        reason. The expected case is said ONCE, in this row's
-                        description — a fleet of ten waiting machines repeating
-                        the same sentence ten times is noise, and noise is what
-                        makes the two lines that matter unreadable. */}
-        <MachineFailureReason reason={machine.reason} />
-        {machine.skew.mark === 'unexpected' && machine.skew.note && (
-          <span className="block max-w-[36ch]">{machine.skew.note}</span>
-        )}
-        {/* An override is disclosed HERE, on the page that is always
-                        visible, so hiding the per-machine selector behind the
-                        Podium-development flag can never hide the fact that a
-                        machine is not on the fleet default (POD-1882). */}
-        {machine.channelOverride && (
-          <span className="block text-warning">
-            Pinned: {CHANNEL_LABELS[machine.channelOverride]}
-          </span>
-        )}
-        {machine.targetUnavailableReason && (
-          <span className="block max-w-[36ch] text-warning" title={machine.targetUnavailableReason}>
-            {channelUnavailableProse(
-              machine.channelOverride ?? channel ?? 'stable',
-              machine.targetUnavailableReason,
+    <div data-testid={`update-machine-${machine.id}`}>
+      <EntityRow
+        leading={machine.platform === 'darwin' ? <Laptop size={16} /> : <Server size={16} />}
+        title={machine.name || machine.hostname || machine.id}
+        subtitle={
+          <>
+            <span className="font-mono">
+              {formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported')}
+              {waiting && target ? ` → ${formatDisplayedVersion(target)}` : ''}
+            </span>
+            {!machine.online && <span> · Offline</span>}
+            {machine.installKind === 'source' && <span> · Source checkout</span>}
+            {developing && machine.updateChannelOverride && (
+              <span> · Pinned: {CHANNEL_LABELS[machine.updateChannelOverride]}</span>
             )}
-          </span>
-        )}
-      </span>
+            <MachineFailureReason reason={wave?.reason} />
+            {skew.mark === 'unexpected' && skew.note && (
+              <span className="block text-warning">{skew.note}</span>
+            )}
+            {machine.transferable !== true && machine.targetUnavailableReason && (
+              <span className="block">
+                {channelUnavailableProse(
+                  machine.updateChannelOverride ?? channel ?? 'stable',
+                  machine.targetUnavailableReason,
+                )}
+              </span>
+            )}
+          </>
+        }
+        trailing={
+          <>
+            {!inFlight &&
+              (skew.label === 'Failed' ? (
+                <Badge variant="destructive">Failed</Badge>
+              ) : waiting ? (
+                <Badge variant="warning">Update waiting</Badge>
+              ) : target ? (
+                <span className="settings-micro">Current</span>
+              ) : (
+                <span className="settings-micro">{skew.label}</span>
+              ))}
+            {machine.transferable === true &&
+              machine.podiumManaged !== false &&
+              !machine.revokedAt &&
+              !machine.supersededBy && (
+                <MachineUpdateControls
+                  compact
+                  machine={machine}
+                  trpc={trpc}
+                  action={actions.row(machine)}
+                  convergence={wave}
+                  onApplied={() => void status.refresh()}
+                />
+              )}
+          </>
+        }
+      />
     </div>
   )
-}
+})

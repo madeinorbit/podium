@@ -40,8 +40,8 @@ vi.mock('@/lib/workspace-request', async (importOriginal) => ({
 }))
 
 import { observer } from '@podium/client-graph/react'
-import { MachineUpdateControls, useFleetConvergence } from '@/app/MachinesPanel'
 import { resetUpdateStatus } from '@/lib/update-status'
+import { MachineUpdateControls, useFleetConvergence } from './machine-update-controls'
 import { useSettingsMachines } from './readers'
 import { SettingsOpening } from './SettingsOpening'
 
