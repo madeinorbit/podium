@@ -8,7 +8,7 @@ import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
@@ -105,7 +105,10 @@ async function mount() {
 }
 const snapshot = (f: Awaited<ReturnType<typeof mount>>) => ({
   html: f.view.container.innerHTML,
-  controls: f.header.innerHTML,
+  controls: Array.from(
+    f.header.querySelectorAll('button'),
+    (button) => button.getAttribute('aria-label') ?? button.textContent,
+  ),
 })
 it('preserves saved thread, return marker, concierge and dock controls', async () => {
   const enabled = await mount()
@@ -150,11 +153,15 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
 it('keeps the existing mutation and navigation owner for clear, terminal and concierge actions', async () => {
   const enabled = await mount()
   await act(async () =>
-    fireEvent.click(enabled.header.querySelector('button[title^="Clear context"]')!),
+    fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' })),
   )
   await act(async () =>
-    fireEvent.click(enabled.header.querySelector('button[title^="Open this conversation"]')!),
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear conversation' })),
   )
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' })),
+  )
+  await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: 'Open in terminal' })))
   await waitFor(() => expect(referenceState(enabled.runtime).paneA).toBe('synthetic-session-3'))
   fireEvent.click(enabled.view.container.querySelector('button[aria-label="Concierge"]')!)
   expect(enabled.data.actions).toMatchObject({ cleared: 1, opened: 1 })

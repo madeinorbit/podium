@@ -7,6 +7,7 @@ import {
   issueEventRowId,
   type SuperagentThreadWire,
 } from '@podium/model'
+import { fireEvent, screen } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -120,6 +121,7 @@ const fakeTrpc = {
   superagent: {
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
+    restart: { mutate: vi.fn(async () => {}) },
     openInTerminal: { mutate: vi.fn(async () => ({ sessionId: asSessionId('pty-1') })) },
     ensureSession: {
       mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: asSessionId('hp-1') })),
@@ -311,16 +313,14 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
     expect(container.textContent).not.toContain('One thread across every task and session')
   })
 
-  it('lends its two actions to the dock title bar instead of a bar of its own', async () => {
+  it('lends its conversation menu to the dock title bar', async () => {
     await mount()
     expect(
-      dockHeaderSlot.querySelector('button[title="Clear context — start the global chat fresh"]'),
+      dockHeaderSlot.querySelector('button[aria-label="Superagent conversation actions"]'),
     ).not.toBeNull()
     expect(
-      dockHeaderSlot.querySelector('button[title="Open this conversation in a terminal session"]'),
-    ).not.toBeNull()
-    // …and nowhere else: two clear buttons is the failure this replaces.
-    expect(container.querySelector('button[title^="Clear context"]')).toBeNull()
+      container.querySelector('button[aria-label="Superagent conversation actions"]'),
+    ).toBeNull()
   })
 
   // "remove the tray functionality completely. code, ui, all incl. traces."
@@ -410,13 +410,11 @@ describe('standing event feed removal (POD-113)', () => {
 describe('Clear context', () => {
   it('routes through superagent.clear so the global thread restarts fresh', async () => {
     await mount()
-    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
-      'button[title="Clear context — start the global chat fresh"]',
-    )
-    expect(btn).not.toBeNull()
     await act(async () => {
-      btn?.click()
-      await Promise.resolve()
+      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Clear conversation' }))
     })
     expect(fakeTrpc.superagent.clear.mutate).toHaveBeenCalledWith({ threadId: 'global' })
   })
@@ -425,15 +423,13 @@ describe('Clear context', () => {
 describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
     await mount()
-    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
-      'button[title="Open this conversation in a terminal session"]',
-    )
-    expect(btn).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
     // The resumed PTY session lands in the sessions broadcast a beat later.
     storeSessions = [{ sessionId: asSessionId('pty-1'), cwd: '/home/u' }]
     await act(async () => {
-      btn?.click()
-      await Promise.resolve()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Open in terminal' }))
     })
     await flush()
 
@@ -464,5 +460,19 @@ describe('legacy chrome stays gone (#66 preview correction)', () => {
     await mount()
     expect(container.textContent).not.toContain('Earlier conversation')
     expect(container.querySelector('input[placeholder="Search transcript…"]')).toBeNull()
+  })
+})
+
+describe('Start a fresh session', () => {
+  it('restarts the global harness without clearing the conversation', async () => {
+    await mount()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Start a fresh session' }))
+    })
+    expect(fakeTrpc.superagent.restart.mutate).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(fakeTrpc.superagent.clear.mutate).not.toHaveBeenCalled()
   })
 })

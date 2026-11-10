@@ -418,10 +418,34 @@ describe('AgentPanel active wiring', () => {
     })
     await flush()
     expect(mountSessionMock).not.toHaveBeenCalled()
-    expect(stableStoreFns.setPanelMode).toHaveBeenCalledWith(asSessionId('s1'), 'chat')
-    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalledWith(asSessionId('s1'), 'native')
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
     expect(
       container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+  })
+
+  it('follows a changed Agents default reactively until the session has its own choice', async () => {
+    storePanelMode = {}
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    storeStartScreen = 'chat'
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(
+      container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
+    storePanelMode = { s1: 'native' }
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(
+      container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected'),
     ).toBe('true')
   })
 

@@ -52,28 +52,6 @@ const section = (id: string, label: string, help: string, keywords = ''): Settin
   keywords,
 })
 
-const roleRows = (id: string, defaults = false): SettingsSearchRow[] => [
-  row(
-    id,
-    defaults ? 'Default account' : 'Account',
-    'The login or API key this role uses.',
-    'agent harness credential provider billing',
-  ),
-  row(id, 'Harness', 'Which agent CLI runs with the selected account.', 'coding backend'),
-  row(
-    id,
-    defaults ? 'Default model' : 'Model',
-    'Auto uses the agent’s default model.',
-    'llm inference',
-  ),
-  row(
-    id,
-    defaults ? 'Default effort' : 'Effort',
-    'How long the model thinks before acting.',
-    'reasoning thinking',
-  ),
-]
-
 /** Page copy and the search catalog live together. Page tasks can replace their
  * content independently while keeping these destinations and row targets. */
 export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
@@ -89,43 +67,86 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       section(
         'sessions',
         'New sessions',
-        'Defaults for coding agents you start from the sidebar, a task, or the phone.',
-      ),
-      ...roleRows('sessions'),
-      row(
-        'sessions',
-        'Model for subagents',
-        'Applied when the selected harness supports a native subagent-model override.',
-        'helpers subagent model',
+        'The default for coding agents you start from the sidebar, a task, or the phone.',
       ),
       row(
         'sessions',
-        'New session opens on',
-        'Choose the terminal, chat or automatic view for new sessions.',
-        'terminal chat auto phone',
+        'Agent',
+        'Which CLI runs, and which login or key it uses.',
+        'harness account login api key subscription billing shared',
       ),
       row(
         'sessions',
-        'Match agent theme to Podium',
-        'Start each agent in a theme that fits the current Podium theme.',
-        'cli colours colors appearance',
+        'Model',
+        'Auto shows the model it resolves to. Compatible choices survive agent changes.',
+        'llm opus sonnet gpt availability not offered machines',
       ),
+      row('sessions', 'Effort', 'How long the model thinks before acting.', 'reasoning thinking'),
       row(
         'sessions',
+        'Subagent model',
+        'Model for the helpers the agent starts on its own.',
+        'helpers subagent task tool',
+      ),
+      section(
+        'session-behaviour',
+        'Session behaviour',
+        'How new sessions open, look and recover from errors.',
+      ),
+      row(
+        'session-behaviour',
+        'Open new sessions in',
+        'Auto shows chat on a phone and the terminal on a computer.',
+        'start screen native terminal chat auto phone default',
+      ),
+      row(
+        'session-behaviour',
+        'Match agent colours to Podium',
+        'Starts each CLI in a theme that fits the current Podium theme. Your own agent config is never changed.',
+        'seed cli theme colors appearance',
+      ),
+      row(
+        'session-behaviour',
         'Keep going after errors',
         'Retry after rate limits and server errors, with a growing pause.',
         'auto continue autocontinue retry rate limit tokens',
-        'Enabled',
       ),
-      section('superagent', 'Superagent', 'The orchestrator you talk to in the Flight Deck.'),
-      ...roleRows('superagent', true),
+      section(
+        'superagent',
+        'Superagent',
+        'The orchestrator you talk to in the Flight Deck. It plans, starts and checks on other agents.',
+      ),
+      row(
+        'superagent',
+        'Agent',
+        'Uses a CLI login, so its usage counts against that subscription.',
+        'harness account login subscription billing',
+      ),
+      row('superagent', 'Model', 'Auto shows the model it resolves to.', 'llm inference'),
+      row('superagent', 'Effort', 'How long the model thinks before acting.', 'reasoning thinking'),
       section(
         'workllm',
-        'Background work LLM',
-        'Small API calls for titles, summaries and other background work.',
-        'background model',
+        'Background model',
+        'Small jobs Podium runs for you: naming sessions, summarising tasks, reading what an agent is doing.',
       ),
-      ...roleRows('workllm'),
+      row(
+        'workllm',
+        'Runs on',
+        'Your API keys, keys shared with you, or your Codex login.',
+        'provider openrouter anthropic openai chatgpt',
+      ),
+      row(
+        'workllm',
+        'Model',
+        'A model for fast, inexpensive background work.',
+        'llm gemini flash haiku mini',
+      ),
+      section(
+        'workllm',
+        'Status',
+        'If a run fails, the error shows here.',
+        'last failed error machine',
+      ),
     ],
   },
   {

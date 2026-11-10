@@ -2,21 +2,8 @@ import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
 import { draftLaunchEffect } from '@podium/client-core'
 // @vitest-environment happy-dom
-/**
- * WHICH HARNESS THE BOX OPENS ON, AND WHAT REMEMBERS IT (POD-1469).
- *
- * The sidebar's deleted `New <Agent> in <Repo>` chip showed the last harness the
- * operator chose, and the mechanism was not clever: its menu WROTE the pick to
- * `roles.coding.accountId`, and the chip read that back through
- * `resolveDefaultAgent`. The composer had the read and not the write — the pick
- * lived in its own ui-state draft, so the issue page, the dock and the CLI never
- * learned it and a cleared draft forgot it.
- *
- * So the assertions are a pair: the box opens on the persisted harness, and
- * choosing one in the box persists it. Availability comes after, never before —
- * a default that cannot start on the chosen machine steps aside for one that
- * can.
- */
+/** Launch reads the synced Agents default. A per-task choice never writes it;
+ * availability can pick another runnable harness for this launch only. */
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -239,7 +226,7 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
   })
 
-  it('remembers a pick made here — on LAUNCH, the way the chip did', async () => {
+  it('keeps a launch choice local without changing the saved Agents default', async () => {
     render(<ColdStartComposer first={false} />)
     await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
 
@@ -247,20 +234,13 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Codex' }))
     await waitFor(() => expect(chip().textContent).toContain('Codex'))
 
-    // MERELY LOOKING IS NOT CHOOSING. The deleted menu persisted and spawned as
-    // one action, so the operator's global harness only ever moved when work
-    // started on it — opening the chip to consider Codex and walking away must
-    // not silently retarget the issue page, the dock and the CLI.
     expect(updatePersonal).not.toHaveBeenCalled()
-
     fireEvent.click(screen.getByTestId('cold-start-launch'))
-
-    // The same key and the same account spelling the deleted sidebar menu wrote.
-    await waitFor(() =>
-      expect(updatePersonal).toHaveBeenCalledWith({
-        values: { 'roles.coding.accountId': 'native:codex' },
-      }),
-    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(updatePersonal).not.toHaveBeenCalled()
+    expect(state.accountId).toBe('')
   })
 
   it('reads a session scan only when the setting arrives unresolved', async () => {

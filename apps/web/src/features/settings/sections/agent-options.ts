@@ -1,14 +1,11 @@
 import { AUTO, type ModelChoice } from '@podium/client-core/agent-models'
-import { asAccountId, type AccountId, type AccountView } from '@podium/model/browser'
+import { type AccountId, type AccountView, asAccountId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { HarnessAgent, RoleBackend } from '@podium/runtime'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { managedCodingHarnesses } from '@/lib/managed-harness-pairing'
 
-export type AgentGroup =
-  | 'Signed in on your machines'
-  | 'Using your API key'
-  | 'Shared with you'
+export type AgentGroup = 'Signed in on your machines' | 'Using your API key' | 'Shared with you'
 
 export interface AgentOption {
   value: string
@@ -45,15 +42,17 @@ export function agentOptions(
     if (account.source === 'native' && account.harness) {
       const harness = account.harness
       const label = descriptors.find((d) => d.kind === harness)?.label ?? harness
-      return [{
-        value: agentOptionValue(accountId, harness),
-        accountId,
-        harness,
-        group: 'Signed in on your machines',
-        label,
-        hint: [account.identity, account.machines?.join(', ')].filter(Boolean).join(' · '),
-        help: 'Runs the CLI with the login already on the machine. Usage counts against that subscription or account.',
-      }]
+      return [
+        {
+          value: agentOptionValue(accountId, harness),
+          accountId,
+          harness,
+          group: 'Signed in on your machines',
+          label,
+          hint: [account.identity, account.machines?.join(', ')].filter(Boolean).join(' · '),
+          help: 'Runs the CLI with the login already on the machine. Usage counts against that subscription or account.',
+        },
+      ]
     }
     if (nativeOnly || account.source !== 'managed') return []
     const provider = providerNames[account.provider] ?? account.provider
@@ -86,17 +85,29 @@ export function backendForAgent(
   reported?: readonly ModelChoice[],
 ): RoleBackend {
   const known = reported !== undefined && reported.length > 0
-  const model = !backend.model || backend.model === AUTO
-    ? AUTO
-    : known
-      ? reported.some((entry) => entry.value === backend.model) ? backend.model : AUTO
-      : next.harness === currentHarness ? backend.model : AUTO
-  const efforts = reported?.find((entry) => entry.value === model)?.efforts
-  const effort = !backend.effort || backend.effort === AUTO
-    ? AUTO
-    : efforts
-      ? efforts.includes(backend.effort) ? backend.effort : AUTO
-      : !known && next.harness === currentHarness && model === backend.model ? backend.effort : AUTO
+  const model =
+    !backend.model || backend.model === AUTO
+      ? AUTO
+      : known
+        ? reported.some((entry) => entry.value === backend.model)
+          ? backend.model
+          : AUTO
+        : next.harness === currentHarness
+          ? backend.model
+          : AUTO
+  const efforts = (
+    model === AUTO ? reported?.[0] : reported?.find((entry) => entry.value === model)
+  )?.efforts
+  const effort =
+    !backend.effort || backend.effort === AUTO
+      ? AUTO
+      : efforts
+        ? efforts.includes(backend.effort)
+          ? backend.effort
+          : AUTO
+        : !known && next.harness === currentHarness && model === backend.model
+          ? backend.effort
+          : AUTO
   return { ...backend, accountId: next.accountId, harness: next.harness, model, effort }
 }
 

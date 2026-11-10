@@ -18,9 +18,9 @@ import {
   modelOptionsForDescriptor,
   parseServedDescriptors,
   providerOf,
+  type ResolvedDescriptor,
   refuseUnsupportedOperation,
   resolveDescriptors,
-  type ResolvedDescriptor,
 } from './browser.js'
 
 /** A served descriptor for a harness this build never shipped (no adapter,
@@ -79,6 +79,16 @@ describe('unknown harness renders from the served descriptor', () => {
       { value: 'auto', label: 'Auto' },
       { value: 'low', label: 'Low' },
     ])
+  })
+
+  it('preserves the optional subagent-model support flag without inferring it for older frames', () => {
+    const descriptor = futureCliDescriptor()
+    const withOverride = {
+      ...descriptor,
+      capabilities: { argvPrompt: false, effort: true, systemPrompt: false, subagentModel: true },
+    }
+    expect(parseServedDescriptors([withOverride])[0]?.capabilities.subagentModel).toBe(true)
+    expect(parseServedDescriptors([descriptor])[0]?.capabilities.subagentModel).toBeUndefined()
   })
 
   it('an unsupported operation fails with a typed refusal, nothing crashes', () => {

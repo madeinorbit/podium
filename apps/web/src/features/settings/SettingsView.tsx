@@ -28,6 +28,7 @@ import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
+import { AgentsSection } from './sections/agents'
 import { AppearanceSection } from './sections/appearance'
 import { HibernationSection } from './sections/hibernation'
 import { InstanceLoginSection } from './sections/instance-login'
@@ -37,15 +38,12 @@ import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
-import { SessionsSection } from './sections/sessions'
 import {
   type AccountView,
   SettingsControlsContext,
   type SettingsControlsState,
 } from './sections/shared'
-import { SuperagentSection } from './sections/superagent'
 import { WorkflowSection } from './sections/workflow'
-import { WorkLlmSection } from './sections/workllm'
 import { SettingsPageSection } from './settings-anchors'
 import { SettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
@@ -127,17 +125,7 @@ interface SectionContext {
  *  they need from the store hook. Network owns a separate staged config draft. */
 const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
   agents: ({ settings, accounts, patch }) => (
-    <>
-      <SettingsPageSection id="sessions">
-        <SessionsSection settings={settings} accounts={accounts} patch={patch} />
-      </SettingsPageSection>
-      <SettingsPageSection id="superagent">
-        <SuperagentSection settings={settings} accounts={accounts} patch={patch} />
-      </SettingsPageSection>
-      <SettingsPageSection id="workllm">
-        <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
-      </SettingsPageSection>
-    </>
+    <AgentsSection settings={settings} accounts={accounts} patch={patch} />
   ),
   appearance: ({ settings, patch }) => (
     <SettingsPageSection id="appearance">

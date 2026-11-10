@@ -94,6 +94,7 @@ function assembleDescriptor(manifest: AgentManifest): HarnessDescriptorWire {
       argvPrompt: manifest.capabilities.argvPrompt,
       effort: manifest.capabilities.effortFlag !== 'none',
       systemPrompt: manifest.capabilities.systemPromptFlag,
+      subagentModel: manifest.capabilities.subagentModelEnv,
     },
     catalog: {
       models: catalog.models.map((model) => ({ ...model })),
