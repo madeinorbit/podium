@@ -2,90 +2,49 @@ import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-grap
 import type { MobxPool } from '@podium/client-graph/pool'
 import { useOpeningView } from '@podium/client-graph/react'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
+import { now } from '@podium/mobx-helpers'
+import { History, KeyRound, MessageSquare, Server, Users } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
-import { Section } from './shared'
+import {
+  auditDayLabel,
+  auditEventSentence,
+  groupAuditEvents,
+  type SecurityEvent,
+} from './audit-events'
+import { EntityRow, Section } from './shared'
 
-interface Party {
-  kind: string
-  id: string | null
-  name: string
-}
-
-/** One security event as `/auth/admin/audit` projects it (POD-6299). */
-export interface SecurityEvent {
-  id: number
-  at: string
-  command: string
-  result: 'applied' | 'refused'
-  actor: Party
-  onBehalfOf: Party | null
-  target: Party | null
-  facts: Record<string, string>
-}
+export type { SecurityEvent } from './audit-events'
 
 interface AuditPage {
   events: SecurityEvent[]
   nextBefore: number | null
 }
 
-/** What happened, in words. An unknown command shows as stored. */
-const EVENT_LABEL: Record<string, string> = {
-  'members.invite': 'Invited',
-  'members.inviteRevoked': 'Revoked an invitation',
-  'members.join': 'Joined',
-  'members.setRole': 'Changed role',
-  'members.disable': 'Disabled',
-  'members.enable': 'Enabled',
-  'members.remove': 'Removed',
-  'members.signOut': 'Signed out everywhere',
-  'members.revokeSignIn': 'Signed out one device',
-  'members.recoveryIssued': 'Created a recovery link',
-  'members.resetMailed': 'Mailed a password reset',
-  'members.recover': 'Reset their password',
-  takeover: 'Took custody',
-  'machines.adopt': 'Gave an unowned machine to',
-  'machines.transferOwnership': 'Transferred custody',
-  'machines.revoke': 'Revoked machine',
-  'machines.supersede': 'Replaced machine',
-  'machines.replace': 'Re-enrolled machine',
-  'machines.enrollSetup': 'Enrolled machine',
-  'machines.adoptLegacyHost': 'Adopted the host machine',
-  'settings.setSecret': 'Set secret',
-  'settings.clearSecret': 'Cleared secret',
-  'accounts.unsend': 'Took a key back',
-  'issues.editComment': 'Edited another member’s comment',
-  'issues.deleteComment': 'Deleted another member’s comment',
-}
-
-function factsText(facts: Record<string, string>): string {
-  const parts: string[] = []
-  if (facts.from && facts.to) parts.push(`${facts.from} → ${facts.to}`)
-  else if (facts.role) parts.push(`as ${facts.role}`)
-  if (facts.previousOwner || facts.newOwner)
-    parts.push(`custody ${facts.previousOwner ?? '—'} → ${facts.newOwner ?? '—'}`)
-  return parts.join(' · ')
-}
-
-function actorText(event: SecurityEvent): string {
-  // An agent acts for one human; say who (design §2.3).
-  if (event.onBehalfOf && event.onBehalfOf.id !== event.actor.id)
-    return `${event.actor.name} for ${event.onBehalfOf.name}`
-  return event.actor.name
-}
+const EVENT_KINDS = [
+  { value: '', label: 'All events' },
+  { value: 'people', label: 'People' },
+  { value: 'machines', label: 'Machines' },
+  { value: 'credentials', label: 'Credentials' },
+  { value: 'comments', label: 'Comments' },
+  { value: 'refused', label: 'Refused only' },
+]
 
 const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
 
-/**
- * AUDIT (POD-6299; design §2.6): member, role, admission and custody events,
- * secret writes and comment moderation, newest first. The server sends only
- * who, for whom, on what, the result and when; never a secret, a token, an
- * email or any task or session text.
- */
+/** The existing admin-only, cursor-filtered request answer owns these pages. */
 export const AuditSection = observer(function AuditSection(): JSX.Element {
   const answer = useMemo(() => new RequestAnswer<SecurityEvent[]>(), [])
   const directory = useOpeningView(useWorklistPool(), createDirectory)
@@ -120,91 +79,152 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
     return () => answer.close()
   }, [answer, loadPage])
   const events = answer.answer
+  const filtered = Boolean(actor || kind)
+  const people = [
+    { value: '', label: 'Anyone' },
+    ...(directory?.members.map((member) => ({ value: member.id, label: member.displayName })) ?? []),
+  ]
+  const filters = (
+    <div className="flex flex-wrap gap-2">
+      <Select items={people} value={actor} onValueChange={(value) => setActor(value ?? '')}>
+        <SelectTrigger className="min-w-37.5" aria-label="Person">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {people.map((person) => (
+            <SelectItem key={person.value} value={person.value}>
+              {person.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select items={EVENT_KINDS} value={kind} onValueChange={(value) => setKind(value ?? '')}>
+        <SelectTrigger className="min-w-37.5" aria-label="Event kind">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {EVENT_KINDS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
   return (
-    <Section
-      title="Audit"
-      hint="Security events on this instance: members, roles, invitations, machine custody, secrets and comment moderation. Values, transcripts and task text are never recorded here."
-    >
-      <div className="mb-4 flex flex-wrap gap-3 text-[13px]">
-        <label>
-          Person
-          <select
-            className="mt-1 block min-w-40 rounded border border-input bg-background p-2"
-            value={actor}
-            onChange={(event) => setActor(event.target.value)}
+    <Section list={false} action={filters}>
+      {directory?.error && (
+        <p className="settings-prose mb-3 text-destructive" role="alert">
+          {directory.error}
+        </p>
+      )}
+      {answer.error && (
+        <div className="mb-3 flex flex-wrap items-center gap-2" role="alert">
+          <p className="settings-prose text-destructive">{answer.error}</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadPage(events && nextBefore !== null ? nextBefore : undefined)}
           >
-            <option value="">Anyone</option>
-            {directory?.members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Event kind
-          <select
-            className="mt-1 block min-w-40 rounded border border-input bg-background p-2"
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-          >
-            <option value="">All events</option>
-            <option value="people">People</option>
-            <option value="machines">Machines</option>
-            <option value="credentials">Credentials</option>
-            <option value="comments">Comments</option>
-            <option value="refused">Refused only</option>
-          </select>
-        </label>
+            Try again
+          </Button>
+        </div>
+      )}
+      <div aria-label="Security events" aria-busy={answer.loading}>
+        {events === undefined && !answer.error && <AuditSkeleton />}
+        {events?.length === 0 && (
+          <Section list>
+            <div className="settings-list-note py-8 text-center" role="status">
+              <p className="settings-label">{filtered ? 'Nothing matches' : 'No events yet'}</p>
+              <p className="settings-prose mx-auto mt-1">
+                {filtered
+                  ? 'Try another person or kind.'
+                  : 'Security-relevant changes will appear here.'}
+              </p>
+            </div>
+          </Section>
+        )}
+        {events &&
+          groupAuditEvents(events).map((day) => (
+            <AuditDay key={day.key} at={day.at} events={day.events} />
+          ))}
+        {answer.loading && events !== undefined && <AuditSkeleton />}
       </div>
-      {directory?.error && <p role="alert">{directory.error}</p>}
-      {answer.error && <p role="alert">{answer.error}</p>}
-      {events && events.length === 0 && (
-        <p className="settings-prose">{actor || kind ? 'No matching events.' : 'No events yet.'}</p>
-      )}
-      {events && events.length > 0 && (
-        <table className="w-full text-[13px]" aria-label="Security events">
-          <thead className="text-left text-muted-foreground">
-            <tr>
-              <th className="py-1 font-normal">When</th>
-              <th className="py-1 font-normal">Who</th>
-              <th className="py-1 font-normal">What</th>
-              <th className="py-1 font-normal">Target</th>
-              <th className="py-1 font-normal">Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((event) => (
-              <tr key={event.id} className="border-hairline-soft/50 border-t align-top">
-                <td className="py-1.5 pr-2 whitespace-nowrap">
-                  {new Date(event.at).toLocaleString()}
-                </td>
-                <td className="py-1.5 pr-2">{actorText(event)}</td>
-                <td className="py-1.5 pr-2">
-                  {EVENT_LABEL[event.command] ?? event.command}
-                  {factsText(event.facts) && (
-                    <span className="settings-prose block">{factsText(event.facts)}</span>
-                  )}
-                </td>
-                <td className="py-1.5 pr-2">{event.target?.name ?? '—'}</td>
-                <td className={event.result === 'refused' ? 'py-1.5 text-destructive' : 'py-1.5'}>
-                  {event.result === 'refused' ? 'Refused' : 'Done'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
       {nextBefore !== null && (
-        <Button
-          variant="ghost"
-          className="mt-3"
-          disabled={answer.loading}
-          onClick={() => void loadPage(nextBefore)}
-        >
-          Show older events
-        </Button>
+        <div className="mt-3.5 text-center">
+          <Button variant="ghost" size="sm" disabled={answer.loading} onClick={() => void loadPage(nextBefore)}>
+            Show older events
+          </Button>
+        </div>
       )}
     </Section>
   )
 })
+
+const AuditDay = observer(function AuditDay({
+  at,
+  events,
+}: {
+  at: string
+  events: SecurityEvent[]
+}): JSX.Element {
+  return (
+    <div className="mt-5">
+      <Section title={auditDayLabel(at, now(60_000))} list>
+        {events.map((event) => (
+          <EntityRow
+            key={event.id}
+            leading={<EventIcon command={event.command} />}
+            title={<span className="font-normal">{auditEventSentence(event)}</span>}
+            pills={event.result === 'refused' ? <Badge variant="destructive">Refused</Badge> : undefined}
+            trailing={
+              <time
+                dateTime={event.at}
+                title={new Date(event.at).toLocaleString()}
+                className="settings-micro font-mono whitespace-nowrap tabular-nums"
+              >
+                {new Date(event.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
+              </time>
+            }
+          />
+        ))}
+      </Section>
+    </div>
+  )
+})
+
+function EventIcon({ command }: { command: string }): JSX.Element {
+  const Icon = command.startsWith('members.')
+    ? Users
+    : command.startsWith('machines.') || command === 'takeover'
+      ? Server
+      : command.startsWith('issues.')
+        ? MessageSquare
+        : command.startsWith('settings.') || command === 'accounts.unsend'
+          ? KeyRound
+          : History
+  return (
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+      <Icon size={15} aria-hidden="true" />
+    </span>
+  )
+}
+
+/** Still placeholders in the same shared rows as the loaded events. */
+function AuditSkeleton(): JSX.Element {
+  return (
+    <div className="mt-5" role="status" aria-label="Loading security events">
+      <Section list>
+        {[0, 1, 2].map((index) => (
+          <EntityRow
+            key={index}
+            leading={<span className="block size-8 rounded-lg bg-muted" aria-hidden="true" />}
+            title={<span className="block h-3 w-full max-w-80 rounded bg-muted" aria-hidden="true" />}
+            trailing={<span className="block h-3 w-10 rounded bg-muted" aria-hidden="true" />}
+          />
+        ))}
+      </Section>
+    </div>
+  )
+}
