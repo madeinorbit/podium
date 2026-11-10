@@ -394,6 +394,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   findRequest = 0,
   initialPendingText,
   onInitialPendingSettled,
+  topInset = 0,
 }: {
   pool: ReturnType<typeof useMobilePool>
   session: SessionView | SessionModel
@@ -411,6 +412,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
   onInitialPendingSettled?: () => void
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
+  /** Height of chrome floating over the top of the feed (the mission deck bar):
+   *  the transcript scrolls under it and rests below it. */
+  topInset?: number
 }) {
   const storeHandle = useStoreHandle<MobileTrpc>()
   const store = useMemo(() => {
@@ -751,7 +755,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       />
       {offlineMachineName ? (
         <View
-          style={styles.offlineBanner}
+          style={[styles.offlineBanner, topInset > 0 && { marginTop: topInset }]}
           testID="machine-offline-banner"
           accessibilityRole="alert"
         >
@@ -783,6 +787,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
               onQuote={quoteIntoDraft}
               mailReply={model.reply}
               bottomInset={composerHeight + askHeight + keyboardLift}
+              topInset={topInset}
               streaming={streamingActive}
               tail={tailState}
               refreshControl={refreshControl}

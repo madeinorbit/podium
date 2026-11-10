@@ -667,11 +667,7 @@ function FeedRowFrame({
     <Animated.View
       style={[
         styles.feedRow,
-        turn === 'open'
-          ? styles.turnOpen
-          : turn === 'bind'
-            ? styles.turnBind
-            : styles.turnBeat,
+        turn === 'open' ? styles.turnOpen : turn === 'bind' ? styles.turnBind : styles.turnBeat,
         highlighted && styles.searchHit,
         dimmed && styles.searchDim,
         {
@@ -1229,6 +1225,7 @@ export const TranscriptList = observer(function TranscriptList({
   emptyComponent,
   footer,
   bottomInset = 0,
+  topInset = 0,
   hidePendingQuestion = false,
   findRequest = 0,
   pinRequest = 0,
@@ -1295,6 +1292,11 @@ export const TranscriptList = observer(function TranscriptList({
    * composer. Without it the last row rests under the capsule forever.
    */
   bottomInset?: number
+  /**
+   * Room at the top for chrome the feed scrolls UNDER — the mission's deck bar
+   * (POD-2381). The first row rests below it; scrolled rows pass beneath it.
+   */
+  topInset?: number
   /** Keep the active ask out of the feed when screen chrome renders its band. */
   hidePendingQuestion?: boolean
   /** Incremented by header/menu chrome to reveal the find bar. */
@@ -1625,7 +1627,10 @@ export const TranscriptList = observer(function TranscriptList({
                   : [row.key]
               }
         }
-        contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: space.xl + topInset, paddingBottom: space.md + bottomInset },
+        ]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
         ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
@@ -1706,7 +1711,7 @@ export const TranscriptList = observer(function TranscriptList({
       />
 
       {findOpen ? (
-        <View style={styles.findBar}>
+        <View style={[styles.findBar, topInset > 0 && { top: space.sm + topInset }]}>
           <TextInput
             autoFocus
             accessibilityLabel="Find in transcript"
