@@ -25,6 +25,7 @@ const instanceService = (state: {
   store?: { settings: import('../../store/settings').SettingsRepository }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
   loginPolicy?: (() => Promise<import('./service').InstanceLoginPolicy>) | undefined
+  hostLocalRequest?: boolean | undefined
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
@@ -55,6 +56,7 @@ const instanceService = (state: {
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,
     loginPolicy: state.loginPolicy,
+    hostLocalRequest: state.hostLocalRequest,
     // POD-2766: `setup.activate` reads readiness live and refuses anything that is
     // not activation-pending, so the restart cannot become a general bounce lever.
     readiness: state.readiness,

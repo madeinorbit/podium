@@ -2776,6 +2776,7 @@ type Output_agentProfiles_show = {
 type Output_auth_status = {
     canManageInstance: boolean;
     hasOwnCredential: boolean;
+    hostLocalRequest: boolean;
     loginPolicySource: SettingSource;
     loginRequired: boolean;
     loginRequiredReason: "hosted" | "several-members" | null;

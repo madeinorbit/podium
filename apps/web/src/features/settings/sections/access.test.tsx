@@ -37,14 +37,18 @@ function serve({
   mode = 'server',
   capped = false,
   hasOwnCredential = true,
+  hostLocalRequest = true,
   loginRequiredReason = null,
+  initiallyRequired = true,
 }: {
   mode?: string
   capped?: boolean
   hasOwnCredential?: boolean
+  hostLocalRequest?: boolean
   loginRequiredReason?: 'hosted' | 'several-members' | null
+  initiallyRequired?: boolean
 } = {}) {
-  let loginRequired = true
+  let loginRequired = initiallyRequired
   let signIns = [
     signIn('Browser', 'login'),
     signIn('Phone', 'mobile'),
@@ -87,6 +91,7 @@ function serve({
           loginRequired,
           loginRequiredReason,
           hasOwnCredential,
+          hostLocalRequest,
           canManageInstance: true,
           loginPolicySource: 'settings',
         })),
@@ -168,7 +173,7 @@ describe('Access', () => {
     const disable = screen.getByRole('button', { name: 'Turn off sign-in' })
     expect((disable as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'the password' } })
-    await userEvent.click(screen.getByText(/^I understand that anyone who can reach/))
+    await userEvent.click(screen.getByText(/^I understand that Podium can only be used/))
     fireEvent.click(disable)
     await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('false'))
     expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
@@ -193,7 +198,7 @@ describe('Access', () => {
     render(<AccessSection />)
     fireEvent.click(await screen.findByRole('switch', { name: 'Require sign-in' }))
     expect(screen.queryByLabelText('Your password')).toBeNull()
-    await userEvent.click(screen.getByText(/^I understand that anyone who can reach/))
+    await userEvent.click(screen.getByText(/^I understand that Podium can only be used/))
     fireEvent.click(screen.getByRole('button', { name: 'Turn off sign-in' }))
     await waitFor(() =>
       expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
@@ -213,6 +218,28 @@ describe('Access', () => {
     expect(await screen.findByText(reason)).toBeTruthy()
     expect(screen.queryByRole('switch', { name: 'Require sign-in' })).toBeNull()
     expect(fixture.trpc.auth.setLoginRequired.mutate).not.toHaveBeenCalled()
+  })
+
+  it('keeps sign-in on for an administrator viewing Access remotely', async () => {
+    serve({ hostLocalRequest: false })
+    render(<AccessSection />)
+    expect(await screen.findByText('Can only be turned off on the server machine itself.')).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'Require sign-in' })).toBeNull()
+  })
+
+  it('lets an already signed-in remote administrator restore required sign-in', async () => {
+    const fetchMock = serve({ hostLocalRequest: false, initiallyRequired: false })
+    render(<AccessSection />)
+    const control = await screen.findByRole('switch', { name: 'Require sign-in' })
+    fireEvent.click(control)
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'the password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Require sign-in' }))
+    expect(await screen.findByText('Can only be turned off on the server machine itself.')).toBeTruthy()
+    expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
+      required: true,
+      current: 'the password',
+    })
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/auth/login'))).toBe(false)
   })
 
   it('keeps host policy and sign-ins off a worker page', async () => {

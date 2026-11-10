@@ -41,7 +41,7 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
     try {
       // Open mode can be a synthetic host sign-in. Take a real cookie BEFORE
       // requiring sign-in, so this device keeps access to the change it made.
-      if (required && data?.hasOwnCredential) {
+      if (required && data?.hostLocalRequest && data.hasOwnCredential) {
         const profile = await trpc.auth.profile.query()
         await authRequest(serverConfig(window.location).httpOrigin, 'login', {
           email: profile.email ?? 'user:sole',
@@ -98,7 +98,9 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
       ? 'Always on for hosted workspaces'
       : data.loginRequiredReason === 'several-members'
         ? 'Required while more than one person uses this workspace'
-        : null
+        : data.loginRequired && !data.hostLocalRequest
+          ? 'Can only be turned off on the server machine itself.'
+          : null
   const source = forced.forced
     ? forcedNotice(forced)
     : data.loginPolicySource === 'file'
@@ -116,8 +118,9 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
               'Everyone signs in with their own account.'
             ) : (
               <>
-                <strong>Anyone who can reach the address can use Podium as any account.</strong>{' '}
-                Only safe on a private network.
+                <strong>
+                  Without sign-in, Podium only accepts this server machine itself, as any account.
+                </strong>
               </>
             )}
             {source && <span className="mt-1 block">{source}</span>}
@@ -151,7 +154,7 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
           acknowledgement={
             confirmRequired
               ? undefined
-              : 'I understand that anyone who can reach this Podium can use it as any account.'
+              : 'I understand that Podium can only be used from the server machine without signing in.'
           }
           destructive={!confirmRequired}
           pending={busy}

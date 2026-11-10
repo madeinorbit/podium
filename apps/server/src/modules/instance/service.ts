@@ -83,6 +83,7 @@ export interface InstanceDeps {
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readonly loginPolicy?: (() => Promise<InstanceLoginPolicy>) | undefined
+  readonly hostLocalRequest?: boolean | undefined
   /**
    * Called after the fleet default channel is written (POD-1882). Machines with
    * no pin of their own resolve against that value, so their projected channel
@@ -545,8 +546,7 @@ export class InstanceService {
     return userId ? await this.deps.users?.credentialFor(userId) : undefined
   }
 
-  /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
-   *  Still never the password or its hash — there is nothing else to return. */
+  /** Instance policy and whether this caller can change it. Never credential material. */
   async status() {
     const policy = (await this.deps.loginPolicy?.()) ?? {
       loginRequired: (await this.deps.loginRequired?.()) ?? false,
@@ -554,6 +554,7 @@ export class InstanceService {
     }
     return {
       ...policy,
+      hostLocalRequest: this.deps.hostLocalRequest === true,
       loginPolicySource: (
         this.deps.settings?.resolve('authOpenMode') ?? resolveSetting('authOpenMode')
       ).source,
@@ -640,6 +641,12 @@ export class InstanceService {
     current: string
     acknowledgeNoPassword?: true | undefined
   }) {
+    if (!input.required && this.deps.hostLocalRequest !== true) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Turn off sign-in from the server machine itself.',
+      })
+    }
     if (!input.required && !input.acknowledgeNoPassword) {
       throw new TRPCError({
         code: 'BAD_REQUEST',

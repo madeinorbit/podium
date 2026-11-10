@@ -1970,6 +1970,7 @@ export async function startServer(
           // login as OFF over tRPC no matter how many credentials existed.
           loginRequired: credentialsRequired,
           loginPolicy,
+          hostLocalRequest: isHostLocalRequest(hono.req.raw),
           modules: registry.modules,
           // Absent at profile level `off`, and absent until the level resolves
           // during listen — `perf.snapshot` then omits its `loop` section, which

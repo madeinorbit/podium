@@ -139,6 +139,7 @@ export interface FamilyState {
    *  the ONE joined reader of open mode and per-user credentials. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readonly loginPolicy?: Context['loginPolicy'] | undefined
+  readonly hostLocalRequest?: boolean | undefined
   /**
    * The hosted-runtime provider, absent on deployments with no cloud. On the
    * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather
@@ -469,6 +470,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   ...(ctx.users ? { users: ctx.users } : {}),
   ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
   ...(ctx.loginPolicy ? { loginPolicy: ctx.loginPolicy } : {}),
+  hostLocalRequest: ctx.hostLocalRequest,
   cloud: ctx.cloud,
   ...(ctx.readiness ? { readiness: ctx.readiness } : {}),
   ...(ctx.requestCoordinatorRestart

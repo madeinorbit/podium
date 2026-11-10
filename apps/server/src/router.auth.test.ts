@@ -23,6 +23,7 @@ import { attachHostDaemon } from './test-support/host-daemon'
 async function harness(
   member = false,
   loginPolicy?: import('./modules/instance/service').InstanceLoginPolicy,
+  hostLocalRequest = true,
 ) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   await attachHostDaemon(registry, () => {})
@@ -52,17 +53,23 @@ async function harness(
         onBehalfOf: memberId,
       }
     : OPERATOR
-  const caller = appRouter.createCaller({
+  const context = {
     registry,
     repos,
     superagent,
     users,
     loginRequired,
+    hostLocalRequest,
     ...(loginPolicy ? { loginPolicy: async () => loginPolicy } : {}),
     capability,
     principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
-  })
-  return { caller, users, loginRequired }
+  }
+  return {
+    caller: appRouter.createCaller(context),
+    localCaller: appRouter.createCaller({ ...context, hostLocalRequest: true }),
+    users,
+    loginRequired,
+  }
 }
 
 const hashOf = async (users: {
@@ -93,6 +100,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       loginRequired: false,
       hasOwnCredential: false,
       canManageInstance: true,
+      hostLocalRequest: true,
       loginPolicySource: 'default',
       loginRequiredReason: null,
     })
@@ -105,6 +113,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       loginRequired: true,
       hasOwnCredential: true,
       canManageInstance: true,
+      hostLocalRequest: true,
       loginPolicySource: 'default',
       loginRequiredReason: null,
     })
@@ -223,6 +232,35 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     await expect(
       caller.auth.setLoginRequired({ required: false, current: 'hunter2' }),
     ).rejects.toThrow()
+    expect(await loginRequired()).toBe(true)
+  })
+
+  it('refuses remote turn-off but lets an authenticated admin restore required sign-in', async () => {
+    const { caller, localCaller, loginRequired } = await harness(false, undefined, false)
+    await caller.auth.setPassword({ next: 'hunter2' })
+    expect(await caller.auth.status()).toMatchObject({
+      canManageInstance: true,
+      hostLocalRequest: false,
+      loginRequired: true,
+    })
+    await expect(
+      caller.auth.setLoginRequired({
+        required: false,
+        current: 'hunter2',
+        acknowledgeNoPassword: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Turn off sign-in from the server machine itself.',
+    })
+    expect(await loginRequired()).toBe(true)
+    await localCaller.auth.setLoginRequired({
+      required: false,
+      current: 'hunter2',
+      acknowledgeNoPassword: true,
+    })
+    expect(await loginRequired()).toBe(false)
+    await caller.auth.setLoginRequired({ required: true, current: 'hunter2' })
     expect(await loginRequired()).toBe(true)
   })
 
