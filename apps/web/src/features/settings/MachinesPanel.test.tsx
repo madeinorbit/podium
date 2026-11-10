@@ -63,7 +63,7 @@ function render(isAdmin = true) {
   const view = renderSettingsPool(frame(<MachinesPanel />, isAdmin))
   return { ...view, refresh: () => view.rerender(frame(<MachinesPanel />, isAdmin)) }
 }
-function machine(over: Partial<MachineWire> = {}): MachineWire {
+function machine(over: Partial<MachineWire> & { custodian?: string | null } = {}): MachineWire {
   return {
     id: asMachineId('m-1'),
     name: 'Build box',
