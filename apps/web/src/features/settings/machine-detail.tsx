@@ -43,6 +43,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
   const { closeTakeover } = useSettingsFrame()
   const { rename } = useCommands().machines
   const view = useMemo(() => new SettingsMachine(machine), [machine])
+  const replacement = useSettingsMachine(machine.supersededBy ?? null)
   const serverAppVersion = useServerAppVersion(trpc)
   const convergence = useFleetConvergence()
   const update = convergence.rows.get(machine.id) ?? null
@@ -126,6 +127,11 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           label="Status"
           description={
             <>
+              {machine.supersededBy && (
+                <span className="block">
+                  Replaced by {replacement?.name ?? machine.supersededBy}
+                </span>
+              )}
               {view.runsServer && (
                 <span className="block">This machine also runs the Podium server.</span>
               )}
