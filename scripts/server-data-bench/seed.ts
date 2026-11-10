@@ -150,7 +150,7 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
     await store.transact(async () => {
       for (const issue of issues.slice(start, start + chunk)) {
         const closed = issue.stage === 'done' || issue.stage === 'cancelled'
-        await store.issues.upsertIssue({
+        await store.issues.upsertIssue(fixtureWriteScope(), {
           id: issueId(issue.id),
           ownerUserId: owner,
           visibility: 'personal',
