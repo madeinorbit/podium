@@ -1,10 +1,12 @@
 import type { MachineModel } from '@podium/client-graph'
+import { here } from '@podium/client-graph/lookup'
 import type { RosterFacts } from '@podium/client-graph/worklist/view-model'
 import { lazy } from '@podium/mobx-helpers'
 import { type MachineGrantEntry, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model/browser'
 import { compareShallow } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -14,7 +16,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useMemberRoster } from '@/lib/member-roster'
-import { useSettingsMachine } from './readers'
 import { ConfirmInline, Row, Subsection } from './sections/shared'
 
 /** The fleet commands this control sends. */
@@ -67,7 +68,8 @@ export const MachineCustody = observer(function MachineCustody({
   transferable: boolean
   trpc: MachineShareApi
 }) {
-  const machine = useSettingsMachine(machineId)
+  const pool = useWorklistPool()
+  const machine = pool ? here(pool.model('machine', machineId)) : undefined
   return machine ? (
     <MachineGrants machine={machine} transferable={transferable} trpc={trpc} />
   ) : null

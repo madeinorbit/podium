@@ -44,6 +44,7 @@ import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import {
   type AccountView,
   SettingsControlsContext,
+  useSettingsPermitted,
   type SettingsControlsState,
 } from './sections/shared'
 import { WorkflowSection } from './sections/workflow'
@@ -230,6 +231,11 @@ function HibernationSettingsSection({
   settings,
   patch,
 }: Pick<SectionContext, 'settings' | 'patch'>) {
+  const permitted = useSettingsPermitted('records.instancePreferences.edit')
+  return permitted ? <IdleSessionLimits settings={settings} patch={patch} /> : null
+}
+
+function IdleSessionLimits({ settings, patch }: Pick<SectionContext, 'settings' | 'patch'>) {
   const idleCapUnmet = usePoolIdleCapUnmetCount()
   return <HibernationSection settings={settings} patch={patch} idleCapUnmet={idleCapUnmet} />
 }
@@ -571,12 +577,11 @@ const SettingsViewBody = observer(function SettingsViewBody({
           // so, and only when it is true.
           <SettingsControlsContext.Provider value={{ settings, permitted, feedback }}>
             <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
-              {(tab === 'projects' || tab === 'machines') &&
-                permitted['records.instancePreferences.edit'] !== true && (
-                  <p className="settings-prose mb-4">
-                    Only admins can change these. You can see what is set.
-                  </p>
-                )}
+              {tab === 'projects' && permitted['records.instancePreferences.edit'] !== true && (
+                <p className="settings-prose mb-4">
+                  Only admins can change these. You can see what is set.
+                </p>
+              )}
               {SECTION_VIEWS[tab]({
                 settings,
                 accounts,
