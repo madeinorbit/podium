@@ -625,6 +625,18 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "Gives a member row its membership and account at boot (POD-6746, `ensureLocalIdentity`): membership, account and workspace revision rows written by the identity package through the store's `createOrJoinTransaction`, and the member row through `UsersRepository.writeMemberRow`, whose own effects are analysed where it is declared. Everything joins the one boot transaction and rolls back with it; nothing is sent outside the process.",
   },
+  'packages/identity/src/types.ts#AccountOperations.create': {
+    kind: 'contained',
+    why: 'The local upgrade creates the account and copies an existing hash through the identity port. Those writes use the same store transaction as the member and membership rows.',
+  },
+  'packages/identity/src/types.ts#AccountOperations.updateProfile': {
+    kind: 'contained',
+    why: 'The local upgrade copies the avatar before adopting the member. The account write joins the store transaction, and there is no membership for that account to notify yet.',
+  },
+  'packages/identity/src/membership/legacy-link.ts#LegacyLinkImporter.<anonymous>': {
+    kind: 'contained',
+    why: 'The internal legacy link import writes the stored hash and expiry through the workspace transaction. It does not issue or send a link.',
+  },
   'packages/identity/src/types.ts#TransactionPort.fn': {
     kind: 'opaque',
     why: "the body the identity package runs in a transaction of the server's store (POD-6746): `SessionStore.identityDatabase()` hands the package `createOrJoinTransaction`, and this is the package's callback inside it. Its statements go through the store's one drizzle handle and join that transaction; what the package does there is its own membership, account and device sign-in writes, and the member row write, which is `UsersRepository.writeMemberRow` and is analysed where it is declared.",

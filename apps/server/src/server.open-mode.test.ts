@@ -97,9 +97,27 @@ it('keeps the all-in-one server’s shared password and a pending legacy invitat
       prompt: 'password',
     })
     expect(existsSync(join(dir, 'auth.json'))).toBe(false)
-    await expect(server.identity.memberships.inspectInvitation(token)).resolves.toMatchObject({
-      email,
-    })
+    const claim = () =>
+      fetch(`${origin}/auth/members/complete`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          email,
+          displayName: 'Invitee',
+          password: 'invitee-fixture-password',
+        }),
+      })
+    const admitted = await claim()
+    expect(admitted.status).toBe(200)
+    const { userId } = (await admitted.json()) as { userId: string }
+    expect(userId).not.toBe(member.id)
+    expect(
+      (await server.identity.memberships.list()).find((entry) => entry.memberId === userId),
+    ).toMatchObject({ role: 'member', status: 'active', account: { email } })
+    const reused = await claim()
+    expect(reused.status).toBe(400)
+    expect(await reused.json()).toMatchObject({ code: 'invitation-invalid' })
   } finally {
     await server?.close()
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
