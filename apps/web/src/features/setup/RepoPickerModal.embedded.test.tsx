@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RepoPickerModal } from './RepoPickerModal'
 
-vi.mock('@/features/settings/stable-access', () => ({ useSettingsTrpc: () => ({}) }))
+const trpc = vi.hoisted(() => ({}))
+
+vi.mock('@/features/settings/stable-access', () => ({ useSettingsTrpc: () => trpc }))
 vi.mock('./GitHubProjectIntake', () => ({ GitHubProjectIntake: () => null }))
 
 afterEach(cleanup)
