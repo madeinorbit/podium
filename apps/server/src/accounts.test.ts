@@ -7,6 +7,7 @@ import type { HarnessDescriptorWire } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
 import { AccountsRepository, SHARED_WITH_EVERYONE } from './store/accounts'
+import { ServerSecretsRepository } from './store/server-secrets'
 import type { MachineRecord } from './store/types'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
 import { stageASeam } from './test-support/stage-a-seam'
@@ -18,6 +19,7 @@ const OTHER = asUserId('user:accounts-other')
 let home: string
 let codexHome: string
 let accounts: AccountsRepository
+let secrets: ServerSecretsRepository
 const prevCodexHome = process.env.CODEX_HOME
 const prevGrokHome = process.env.GROK_HOME
 const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -25,7 +27,9 @@ const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
   const db = openMigratedTestDatabase()
-  return new AccountsRepository(stageASeam(db))
+  const queries = stageASeam(db)
+  secrets = new ServerSecretsRepository(queries)
+  return new AccountsRepository(queries)
 }
 
 beforeEach(() => {
@@ -91,6 +95,28 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 describe('accountViews', () => {
+  it('disconnect stays disconnected even when a retired legacy key remains', async () => {
+    await secrets.set('apiKeys.anthropic', 'sk-ant-legacy-key', '2026-11-01T00:00:00.000Z')
+    await accounts.connect({
+      ownerUserId: VIEWER,
+      accountKey: asAccountId('managed:anthropic'),
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-managed-key',
+      identity: 'sk-a…-key',
+      scope: 'role',
+      createdAt: 1,
+    })
+    expect(
+      (await accountViews(accounts, VIEWER, home)).find((row) => row.id === 'managed:anthropic')
+        ?.status,
+    ).toBe('connected')
+    await accounts.disconnect(VIEWER, asAccountId('managed:anthropic'))
+    expect(
+      (await accountViews(accounts, VIEWER, home)).find((row) => row.id === 'managed:anthropic'),
+    ).toMatchObject({ status: 'not-configured' })
+  })
+
   it('trusts an explicit logged-in report even when an older daemon omits identity metadata', async () => {
     const claude = (
       await accountViews(accounts, VIEWER, [machineWithLogin('in', 'mike@example.com')])
@@ -212,7 +238,14 @@ describe('accountViews', () => {
     expect(views.find((v) => v.id === 'managed:openai')!.status).toBe('not-configured')
   })
 
-  it('marks a stored credential as stored, so it is removable', async () => {
+  it('ignores retired settings keys and marks managed credentials as stored', async () => {
+    await secrets.set('apiKeys.anthropic', 'sk-ant-abcdefgh1234', '2026-11-01T00:00:00.000Z')
+    const legacy = (await accountViews(accounts, VIEWER, home)).find(
+      (v) => v.id === 'managed:anthropic',
+    )!
+    expect(legacy.status).toBe('not-configured')
+    expect(legacy.credentialSource).toBeUndefined()
+
     await accounts.connect({
       ownerUserId: VIEWER,
       accountKey: asAccountId('managed:anthropic'),
@@ -317,6 +350,7 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 3,
     })
+    await secrets.set('apiKeys.openai', 'sk-legacy-abcd1234', '2026-11-01T00:00:00.000Z')
     const views = await accountViews(accounts, VIEWER, home)
     const openai = views.find((v) => v.id === 'managed:openai')!
     expect(openai.identity).toBe('sk-s…9999')

@@ -48,12 +48,6 @@ export const ACCOUNT_QUERIES = {
       },
     }))
   }),
-  // POD-419 moved the provider keys out of the settings blob into the
-  // server-only keyed store, narrowing `accountViews` from the whole blob to a
-  // resolver for the ONE member it reads. POD-314 derived this list from a base
-  // that predated that, so the derived form is repointed here rather than the
-  // blob read being reinstated — taking either side wholesale would have
-  // silently undone one of the two.
   list: query(noInput, async (state) => {
     // ONE MEMBER'S HUB (POD-6300, design §2.5). The caller's own managed
     // connections or explicitly shared keys; native logins on machines in their

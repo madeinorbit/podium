@@ -7,7 +7,7 @@
 
 import { providerOf, resolveDescriptors } from '@podium/harness/browser'
 import { harnessDetectLogin } from '@podium/harness/metadata'
-import { asAccountId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
+import { asAccountId, type HarnessAgent, type UserId } from '@podium/model'
 import { type HarnessDescriptorWire, isBuiltinHarnessKind } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
 import {
@@ -152,7 +152,7 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * sharing list); else not configured. Another
  * user's unshared key is never shown.
  *
- * The fourth argument accepts an explicit HOME only for legacy unit tests. The
+ * The third argument accepts an explicit HOME only for legacy unit tests. The
  * production query passes machine records and therefore has no homedir fallback.
  */
 export async function accountViews(

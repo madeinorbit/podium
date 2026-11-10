@@ -131,6 +131,22 @@ describe('the derived settings router CALLS the gate', () => {
     await store.secrets.clear('notifications.telegramBotToken')
     expect(await call.settings.telegramBotPresence({})).toBe(false)
   })
+  it.each([
+    'apiKeys.openai',
+    'apiKeys.anthropic',
+    'apiKeys.openrouter',
+  ] as const)('an admin cannot write retired %s through the real router', async (key) => {
+    const { call, store, audit } = await harness('admin')
+    await expect(call.settings.setSecret({ key, value: SECRET })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message:
+        'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
+    })
+    expect(await store.secrets.get(key)).toBeUndefined()
+    expect((await audit()).at(-1)?.outcome).toBe('refused')
+    expect(JSON.stringify(await audit())).not.toContain(SECRET)
+  })
+
   it('an admin may read the secret presence surface', async () => {
     // THE POSITIVE ARM FIRST. Every refusal below is worthless without it: a
     // gate that refused everything satisfies them all.

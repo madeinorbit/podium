@@ -314,7 +314,7 @@ describe('no secret is ever on the instance record', () => {
 
   it('a feed sample after a secret is set carries no secret material', async () => {
     const o = await makeOracle()
-    await o.call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })
+    await o.call.settings.setSecret({ key: 'integrations.linearApiKey', value: SECRET })
     await expectAppliedOnPath(
       o,
       envelope(

@@ -324,29 +324,37 @@ describe('the blob write may not carry a secret', () => {
 })
 
 describe('setSecret / clearSecret own integration tokens', () => {
-  it('refuses new writes to the retired workspace provider key path', async () => {
-    for (const key of ['apiKeys.openai', 'apiKeys.anthropic', 'apiKeys.openrouter'] as const) {
-      await expect(service.setSecret(key, 'never-stored')).rejects.toThrow('AI accounts')
-      expect(await secrets.get(key)).toBeUndefined()
-    }
+  it.each([
+    'apiKeys.openai',
+    'apiKeys.anthropic',
+    'apiKeys.openrouter',
+  ] as const)('refuses retired %s writes without changing the secret or publishing settings', async (key) => {
+    await secrets.set(key, 'old-upgrade-key', '2026-07-30T00:00:00.000Z')
+    const changed = vi.fn()
+    bus.on('settings.changed', changed)
+    await expect(service.setSecret(key, 'new-refused-key')).rejects.toThrow('AI accounts')
+    expect(await secrets.get(key)).toBe('old-upgrade-key')
+    expect(changed).not.toHaveBeenCalled()
+    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('new-refused-key')
   })
+
   it('writes the material and returns a projection WITHOUT it', async () => {
-    const wire = await service.setSecret('integrations.linearApiKey', 'sk-live-value')
+    const wire = await service.setSecret('integrations.linearApiKey', 'lin-live-value')
     // POD-419: the material lands in the server-only keyed store, and NOT in the
     // blob — which is the object that round-trips to a browser.
-    expect(await secrets.get('integrations.linearApiKey')).toBe('sk-live-value')
+    expect(await secrets.get('integrations.linearApiKey')).toBe('lin-live-value')
     expect((await service.getSettingsFor(USER)).integrations.linearApiKey).toBe('')
-    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('sk-live-value')
+    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('lin-live-value')
     expect(wire.key).toBe('integrations.linearApiKey')
     expect(wire.present).toBe(true)
     expect(wire.fingerprint).toMatch(/^[0-9a-f]{16}$/)
-    expect(JSON.stringify(wire)).not.toContain('sk-live-value')
+    expect(JSON.stringify(wire)).not.toContain('lin-live-value')
   })
 
   it('the fingerprint changes on rotation and is stable without one', async () => {
-    const first = await service.setSecret('integrations.linearApiKey', 'sk-one')
-    const again = await service.setSecret('integrations.linearApiKey', 'sk-one')
-    const rotated = await service.setSecret('integrations.linearApiKey', 'sk-two')
+    const first = await service.setSecret('integrations.linearApiKey', 'lin-one')
+    const again = await service.setSecret('integrations.linearApiKey', 'lin-one')
+    const rotated = await service.setSecret('integrations.linearApiKey', 'lin-two')
     expect(again.fingerprint).toBe(first.fingerprint)
     expect(rotated.fingerprint).not.toBe(first.fingerprint)
   })

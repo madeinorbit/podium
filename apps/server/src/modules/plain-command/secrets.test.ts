@@ -69,7 +69,7 @@ describe('the plain path stores no result', () => {
       'settings.setSecret',
       admin,
       async () => ({ deps: { principal: admin, role: 'admin' }, service: settings }),
-      { key: 'apiKeys.anthropic', value: SERVER_SECRET },
+      { key: 'integrations.linearApiKey', value: SERVER_SECRET },
     )
 
     // accounts.connect, through the plain entry with the family's real handler.
@@ -102,7 +102,7 @@ describe('the plain path stores no result', () => {
     expect(password.outcome).toBe('applied')
 
     // The positive control: each write landed, so a miss below is not a no-op.
-    expect(await store.secrets.get('apiKeys.anthropic')).toBe(SERVER_SECRET)
+    expect(await store.secrets.get('integrations.linearApiKey')).toBe(SERVER_SECRET)
     expect(tablesHolding(store, ACCOUNT_CREDENTIAL)).toEqual(['accounts'])
     expect(tablesHolding(store, SERVER_SECRET)).toEqual(['server_secrets'])
     // A password is kept only as a hash: the plaintext is nowhere.
