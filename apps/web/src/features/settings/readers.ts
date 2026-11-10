@@ -101,7 +101,7 @@ export function useSettingsMachineTargets(channel: string | null): Record<string
 
 const readTab = (pool: MobxPool) => {
   const row = omitGone(pool.row('settingsWindow', 'window'))
-  return loaded(row) ? row.settingsTab : 'sessions'
+  return loaded(row) ? row.settingsTab : 'agents'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
   return useWorklistPoolProjection(readTab, 'sessions')

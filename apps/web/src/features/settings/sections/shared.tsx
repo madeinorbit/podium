@@ -1,4 +1,5 @@
 import { observer } from 'mobx-react-lite'
+import { useSettingsRowId } from '../settings-anchors'
 /**
  * Shared building blocks for the settings sections (P5d, issue #264): the
  * Section/Row layout primitives, the account/provider label helpers, and the
@@ -81,11 +82,12 @@ export function Row({
   description?: React.ReactNode
   children: React.ReactNode
 }): JSX.Element {
+  const searchId = useSettingsRowId(label)
   // Every Row holds exactly one control, but the type system can't prove that to
   // the a11y lint — a div keeps it honest; the visible text still sits beside it.
   // Layout, type and the control-cell gap are all `.settings-row` in styles.css.
   return (
-    <div className="settings-row">
+    <div id={searchId} className="settings-row" tabIndex={searchId ? -1 : undefined}>
       <div className="min-w-0">
         <span className="settings-label">{label}</span>
         {description && <p className="settings-prose mt-1">{description}</p>}

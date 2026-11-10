@@ -16,7 +16,7 @@ import type { PodiumClientApi } from '../api'
 import type { NoticeSink } from '../notices'
 import type { SocketHub } from '../socket-transport'
 import type { FileScrollPosition, MainView, RoutedUiState, Router } from '../ui-state'
-import { readStoredPanelModes, UI_STATE_KEYS, uiStateRoute } from '../ui-state'
+import { canonicalSettingsPage, readStoredPanelModes, UI_STATE_KEYS, uiStateRoute } from '../ui-state'
 import type {
   DockTab,
   FileScope,
@@ -389,7 +389,7 @@ export class UiStore {
 
   @actionBound setSettingsTab(tab: string | null): void {
     if (this.view === 'settings' || tab !== null)
-      this.patch({ view: 'settings', settingsTab: tab, openIssueId: null })
+      this.patch({ view: 'settings', settingsTab: tab === null ? null : canonicalSettingsPage(tab), openIssueId: null })
   }
   @actionBound setOpenIssueId(id: IssueId | null): void {
     this.patch({ view: 'issues', openIssueId: id, settingsTab: null })
