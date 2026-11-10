@@ -21,6 +21,7 @@ import { MachinesRepository } from './machines'
  * capability.
  */
 
+import type { MemberRows, MemberWrite } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
@@ -388,6 +389,79 @@ const deleteInvitesOfMember = prepared((db: StoreDrizzle) =>
   db
     .delete(memberInvites)
     .where(eq(memberInvites.memberId, param(memberInvites.memberId, 'memberId')))
+    .prepare(),
+)
+
+// ---- the member row as apply-membership writes it (POD-6745) ---------------
+
+/** A member row made by a membership that became active. */
+const insertMemberRow = prepared((db: StoreDrizzle) =>
+  db
+    .insert(users)
+    .values({
+      id: sql.placeholder('id'),
+      displayName: sql.placeholder('displayName'),
+      email: sql.placeholder('email'),
+      cloudAccountId: sql.placeholder('accountId'),
+      avatar: sql.placeholder('avatar'),
+      role: sql.placeholder('role'),
+      createdAt: sql.placeholder('createdAt'),
+      disabledAt: null,
+      membershipVersion: sql.placeholder('membershipVersion'),
+    })
+    .returning()
+    .prepare(),
+)
+
+/** Every identity fact of one member row, with the membership version applied. */
+const writeMemberFacts = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({
+      role: sql.placeholder('role'),
+      disabledAt: sql.placeholder('disabledAt'),
+      displayName: sql.placeholder('displayName'),
+      avatar: sql.placeholder('avatar'),
+      email: sql.placeholder('email'),
+      cloudAccountId: sql.placeholder('accountId'),
+      membershipVersion: sql.placeholder('membershipVersion'),
+    })
+    .where(eq(users.id, param(users.id, 'id')))
+    .returning()
+    .prepare(),
+)
+
+/** The member row that holds an address, in any state. */
+const memberHoldingEmail = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(sql`lower(${users.email})`, sql.placeholder('email')))
+    .prepare(),
+)
+
+/** The member row that holds an account id, in any state. */
+const memberHoldingAccount = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.cloudAccountId, param(users.cloudAccountId, 'accountId')))
+    .prepare(),
+)
+
+const clearMemberEmail = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ email: null })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
+const clearMemberAccount = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ cloudAccountId: null })
+    .where(eq(users.id, param(users.id, 'id')))
     .prepare(),
 )
 
@@ -1096,6 +1170,158 @@ export class UsersRepository {
       await deleteInvitesOfMember(this.db).run({ memberId: userId })
       await this.bumpAuthorization(userId, 'signed-out')
       await this.audit('members.recover', null, { memberId: userId }, at)
+    })
+  }
+
+  /**
+   * THE MEMBER ROWS OF THE IDENTITY PACKAGE (POD-6745;
+   * docs/design/people-and-sign-in.md section 2.6). The package's
+   * apply-membership is the only caller of `write`.
+   */
+  readonly memberRows: MemberRows = {
+    write: (change) => this.writeMemberRow(change),
+    exists: async (memberId) =>
+      (await accountById(this.db).get({ id: asUserId(memberId) })) !== undefined,
+  }
+
+  /**
+   * ONE MEMBERSHIP, APPLIED TO ITS MEMBER ROW (POD-6745). The only writer of a
+   * member's identity facts: role, disabled, removed, name, picture, email and
+   * account id. In one transaction with the membership change where the two
+   * share a database.
+   *
+   * A change of what the member may do steps the authorization generation,
+   * which publishes the access change that closes sockets and refuses queued
+   * work (POD-6293). A change of name, picture, email or account id does not.
+   * A removed member is a disabled member row; only the membership tells the
+   * two apart, so no gate learns a new fact. Removal releases machine custody
+   * and deletes the member's incoming grants, as removing a member always did.
+   *
+   * `membership_version` makes it safe to apply a membership twice, or an
+   * older one after a newer one: such a change does nothing.
+   */
+  private async writeMemberRow(change: MemberWrite): Promise<void> {
+    await this.claimTransaction(async () => {
+      const memberId = asUserId(change.memberId)
+      const existing = await accountById(this.db).get({ id: memberId })
+      if (existing && change.version <= existing.membershipVersion) return
+      const at = new Date().toISOString()
+      const actor = 'memberId' in change.actor ? asUserId(change.actor.memberId) : null
+      const removed = change.state === 'removed'
+
+      // The address and the account id are unique among member rows. A removed
+      // member keeps neither, so the person can come back as a new member. A
+      // row that is no longer active gives way to the member being written;
+      // an active one keeps what it holds.
+      let email = removed ? null : change.profile ? change.profile.email : (existing?.email ?? null)
+      if (email !== null) {
+        const parsed = LoginEmail.safeParse(email)
+        if (parsed.success) email = parsed.data
+        const holder = await memberHoldingEmail(this.db).get({ email: email.toLowerCase() })
+        if (holder && holder.id !== memberId) {
+          if (holder.disabledAt !== null) await clearMemberEmail(this.db).run({ id: holder.id })
+          else email = null
+        }
+      }
+      let accountId = removed ? null : change.accountId
+      if (accountId !== null) {
+        const holder = await memberHoldingAccount(this.db).get({ accountId })
+        if (holder && holder.id !== memberId) {
+          if (holder.disabledAt !== null) await clearMemberAccount(this.db).run({ id: holder.id })
+          else accountId = null
+        }
+      }
+
+      if (!existing) {
+        // No member exists before a membership is active.
+        if (change.state !== 'active') return
+        await this.committed.write(
+          async () =>
+            await insertMemberRow(this.db).all({
+              id: memberId,
+              displayName: change.profile?.name ?? 'Member',
+              email,
+              accountId,
+              avatar: change.profile?.image ?? null,
+              role: change.role,
+              createdAt: at,
+              membershipVersion: change.version,
+            }),
+          'upsert',
+        )
+        this.accountsWritten()
+        await this.audit('members.join', actor, { memberId, role: change.role }, at)
+        return
+      }
+
+      const wasDisabled = existing.disabledAt !== null
+      const disabled = change.state !== 'active'
+      const roleChanged = existing.role !== change.role
+      // The strongest change names the step; one membership steps once.
+      const reason: MemberAccessChange['reason'] | undefined = removed
+        ? 'removed'
+        : disabled !== wasDisabled
+          ? disabled
+            ? 'disabled'
+            : 'enabled'
+          : roleChanged
+            ? 'role'
+            : undefined
+
+      await this.committed.write(async () => {
+        const [written] = await writeMemberFacts(this.db).all({
+          id: memberId,
+          role: change.role,
+          disabledAt: disabled ? (existing.disabledAt ?? at) : null,
+          displayName: change.profile?.name ?? existing.displayName,
+          avatar: change.profile ? change.profile.image : existing.avatar,
+          email,
+          accountId,
+          membershipVersion: change.version,
+        })
+        this.accountsWritten()
+        const bumped = reason ? await this.bumpAuthorization(memberId, reason) : undefined
+        const row = bumped ?? written
+        return row ? [row] : []
+      }, 'upsert')
+
+      if (roleChanged) {
+        await this.audit(
+          'members.setRole',
+          actor,
+          { memberId, from: existing.role, to: change.role },
+          at,
+        )
+      }
+      if (disabled !== wasDisabled && !removed) {
+        await this.audit(
+          disabled ? 'members.disable' : 'members.enable',
+          actor,
+          { memberId, runningAgentPolicy: 'let-finish' },
+          at,
+        )
+      }
+      if (removed) {
+        const held = await custodyMachinesOf(this.db).all({ grantee: memberId })
+        for (const machine of held) {
+          await this.machinesRepository.setMachineOwner(machine.id, null)
+          await this.audit(
+            'members.remove',
+            actor,
+            {
+              memberId,
+              machineId: machine.id,
+              previousOwnerUserId: memberId,
+              newOwnerUserId: null,
+            },
+            at,
+          )
+        }
+        if (held.length === 0) await this.audit('members.remove', actor, { memberId }, at)
+        // Keep other members' shares, including shares granted by this member.
+        // Only the removed member's incoming grants are invalidated.
+        await this.grantsRepository.removeAllForGrantee(memberId)
+      }
     })
   }
 
