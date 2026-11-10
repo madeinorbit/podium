@@ -46,6 +46,10 @@ export class SettingsMachine {
     return this.canManage && this.machine.supersedable === true
   }
 
+  @lazy get canFindRepositories(): boolean {
+    return this.canManage && this.machine.online && this.machine.use === 'granted'
+  }
+
   @lazy get runsServer(): boolean {
     return this.machine.hostsServer === true || this.machine.serviceAssignment?.server === true
   }

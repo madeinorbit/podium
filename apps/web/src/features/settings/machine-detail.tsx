@@ -223,7 +223,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
       )}
       <MachineProjects
         machine={machine}
-        onFind={view.canManage && machine.online ? () => setFindingRepos(true) : undefined}
+        onFind={view.canFindRepositories ? () => setFindingRepos(true) : undefined}
       />
       <MachineRemove view={view} />
       {/* The Updates task moves these controls after this page lands. */}

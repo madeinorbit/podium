@@ -60,3 +60,14 @@ test('presence, recovery and deliberate hosting-off remain distinct', () => {
     new SettingsMachine(machine({ serviceAssignment: { agentExecution: false } })).status,
   ).toMatchObject({ label: 'Online · Agent hosting off', tone: 'off' })
 })
+
+test('repository discovery needs execution consent as well as management and presence', () => {
+  expect(new SettingsMachine(machine({ use: 'granted' })).canFindRepositories).toBe(true)
+  expect(new SettingsMachine(machine({ use: 'denied' })).canFindRepositories).toBe(false)
+  expect(new SettingsMachine(machine({ use: 'granted', online: false })).canFindRepositories).toBe(
+    false,
+  )
+  expect(
+    new SettingsMachine(machine({ use: 'granted', transferable: false })).canFindRepositories,
+  ).toBe(false)
+})
