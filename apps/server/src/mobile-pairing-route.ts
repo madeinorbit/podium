@@ -11,16 +11,19 @@ import {
   RevokeMobileClientSessionRequest,
 } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
+import { deleteCookie } from 'hono/cookie'
 import {
   type ClientCredentialHeaders,
   hashToken,
   isHttps,
+  parseSessionCookie,
   resolveClientCredential,
+  SESSION_COOKIE,
   SESSION_TTL_MS,
   setSessionCookie,
 } from './auth-route'
 import type { MobilePairingManager } from './mobile-pairing'
-import type { AuthRepository } from './store/auth'
+import type { AuthRepository, ClientSessionRow } from './store/auth'
 
 const PAIRING_UNAVAILABLE = { error: 'pairing unavailable' } as const
 
@@ -177,6 +180,51 @@ export interface MobilePairingRouteOptions {
     maxEntries?: number
   }
   onCredentialRevoked?: (tokenHash: string) => void
+}
+
+const SESSION_PLATFORMS = new Set(['ios', 'android', 'web', 'unknown', 'macos', 'windows', 'linux'])
+
+/**
+ * One stored sign-in as its owner sees it (POD-6701). A phone names itself as
+ * it paired. A password login in a browser or the desktop app records which of
+ * the two in `deviceId` and a name from its user agent at login; one written
+ * before POD-6701 carries neither and reads as a browser.
+ */
+function signInView(row: ClientSessionRow & { sessionId: string }, current: boolean) {
+  const kind =
+    row.label === 'mobile'
+      ? ('mobile' as const)
+      : row.deviceId === 'desktop'
+        ? ('desktop' as const)
+        : ('browser' as const)
+  const fallbackName =
+    row.label === 'mobile'
+      ? 'Mobile device'
+      : row.label === 'break-glass'
+        ? 'Host recovery session'
+        : kind === 'desktop'
+          ? 'Podium desktop'
+          : 'Web browser'
+  return {
+    sessionId: row.sessionId,
+    userId: row.userId,
+    label: row.label as 'login' | 'mobile' | 'break-glass',
+    kind,
+    deviceId: row.deviceId ?? kind,
+    deviceName: row.deviceName ?? fallbackName,
+    platform: (row.platform && SESSION_PLATFORMS.has(row.platform) ? row.platform : 'unknown') as
+      | 'ios'
+      | 'android'
+      | 'web'
+      | 'unknown'
+      | 'macos'
+      | 'windows'
+      | 'linux',
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    lastSeenAt: row.lastSeenAt ?? null,
+    current,
+  }
 }
 
 function headersFor(c: Context): ClientCredentialHeaders {
@@ -382,24 +430,19 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const credential = await resolveClientCredential(opts.store, headersFor(c), now())
-    const sessions = (await opts.store.listMobileClientSessions(userId)).flatMap((row) =>
+    // The plain list stays phones only: phone builds from before POD-6701 parse
+    // `label: 'mobile'` strictly. `?include=all` is every sign-in of the caller.
+    const rows =
+      c.req.query('include') === 'all'
+        ? await opts.store.listSignInsOfUser(userId, new Date(now()).toISOString())
+        : await opts.store.listMobileClientSessions(userId)
+    const sessions = rows.flatMap((row) =>
       row.sessionId
         ? [
-            {
-              sessionId: row.sessionId,
-              userId: row.userId,
-              label: 'mobile' as const,
-              deviceId: row.deviceId ?? 'unknown',
-              deviceName: row.deviceName ?? 'Mobile device',
-              platform:
-                row.platform === 'ios' || row.platform === 'android' || row.platform === 'web'
-                  ? row.platform
-                  : ('unknown' as const),
-              createdAt: row.createdAt,
-              expiresAt: row.expiresAt,
-              lastSeenAt: row.lastSeenAt ?? null,
-              current: row.tokenHash === credential?.tokenHash,
-            },
+            signInView(
+              { ...row, sessionId: row.sessionId },
+              row.tokenHash === credential?.tokenHash,
+            ),
           ]
         : [],
     )
@@ -415,13 +458,19 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     const parsed = RevokeMobileClientSessionRequest.safeParse(
       await c.req.json().catch(() => undefined),
     )
+    // Any one of the caller's own sign-ins: a phone, a browser, the desktop app (POD-6701).
     const revokedTokenHash = parsed.success
-      ? await opts.store.deleteOwnedMobileClientSession(parsed.data.sessionId, userId)
+      ? await opts.store.deleteOwnedSignIn(parsed.data.sessionId, userId)
       : undefined
     if (!revokedTokenHash) {
-      return c.json({ error: 'mobile session not found' }, 404)
+      return c.json({ error: 'session not found' }, 404)
     }
     opts.onCredentialRevoked?.(revokedTokenHash)
+    // Revoking the sign-in this browser holds signs this browser out too.
+    const cookie = parseSessionCookie(c.req.header('cookie'))
+    if (cookie && hashToken(cookie) === revokedTokenHash) {
+      deleteCookie(c, SESSION_COOKIE, { path: '/' })
+    }
     return c.json({ ok: true })
   })
 }

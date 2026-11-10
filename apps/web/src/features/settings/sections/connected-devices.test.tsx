@@ -85,6 +85,7 @@ function mobileSession(overrides: Partial<MobileClientSession> = {}): MobileClie
     sessionId: 'a'.repeat(24),
     userId: 'user-one',
     label: 'mobile',
+    kind: 'mobile',
     deviceId: 'device-one',
     deviceName: 'Travel phone',
     platform: 'android',
@@ -158,7 +159,7 @@ describe('mobile pairing REST adapter', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'https://podium.example/auth/mobile-pair/start',
       'https://podium.example/auth/mobile-pair/status',
-      'https://podium.example/auth/client-sessions',
+      'https://podium.example/auth/client-sessions?include=all',
       'https://podium.example/auth/client-sessions/revoke',
     ])
     for (const [, init] of fetchMock.mock.calls) {
@@ -284,7 +285,7 @@ describe('ConnectedDevicesSection', () => {
   ] as const)('maps start HTTP %s to safe actionable copy', async (status, expected) => {
     const openNetwork = vi.fn()
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.endsWith('/auth/client-sessions'))
+      if (url.endsWith('/auth/client-sessions?include=all'))
         return Promise.resolve(jsonResponse({ sessions: [] }))
       return Promise.resolve(jsonResponse({ error: 'pairCode=do-not-render-this' }, status))
     })
@@ -313,7 +314,7 @@ describe('ConnectedDevicesSection', () => {
 
   it('distinguishes a network failure without reflecting arbitrary error text', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.endsWith('/auth/client-sessions')) {
+      if (url.endsWith('/auth/client-sessions?include=all')) {
         return Promise.resolve(jsonResponse({ sessions: [] }))
       }
       return Promise.reject(new TypeError('pairCode=do-not-render-this'))
@@ -402,7 +403,9 @@ describe('ConnectedDevicesSection', () => {
     const confirmation = screen.getByRole('group', {
       name: 'Confirm revoking This browser phone',
     })
-    expect(screen.getByText(/this browser will be signed out immediately/i)).toBeTruthy()
+    expect(
+      screen.getByText(/you are using now, so it will be signed out immediately/i),
+    ).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(confirmation))
   })
 
@@ -419,13 +422,51 @@ describe('ConnectedDevicesSection', () => {
 
     const view = render(<ConnectedDevicesSection api={staleApi} />)
     view.rerender(<ConnectedDevicesSection api={currentApi} />)
-    expect(await screen.findByText('No mobile devices are connected to your account.')).toBeTruthy()
+    expect(await screen.findByText('No devices are signed in to your account.')).toBeTruthy()
 
     await act(async () => {
       resolveStale?.([mobileSession()])
       await Promise.resolve()
     })
     expect(screen.queryByText('Travel phone')).toBeNull()
+  })
+
+  it('lists browser and desktop sign-ins beside phones, each revocable (POD-6701)', async () => {
+    const api = pairingApi()
+    const laptopId = 'c'.repeat(24)
+    vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
+      mobileSession({
+        sessionId: laptopId,
+        label: 'login',
+        kind: 'browser',
+        deviceId: 'browser',
+        deviceName: 'Firefox on Linux',
+        platform: 'linux',
+        current: true,
+      }),
+      mobileSession({
+        sessionId: 'd'.repeat(24),
+        label: 'login',
+        kind: 'desktop',
+        deviceId: 'desktop',
+        deviceName: 'Podium desktop on macOS',
+        platform: 'macos',
+      }),
+      mobileSession(),
+    ])
+
+    render(<ConnectedDevicesSection api={api} />)
+    expect(await screen.findByText('Firefox on Linux')).toBeTruthy()
+    expect(screen.getByText(/Browser · Linux/)).toBeTruthy()
+    expect(screen.getByText('Podium desktop on macOS')).toBeTruthy()
+    expect(screen.getByText(/Desktop app · macOS/)).toBeTruthy()
+    expect(screen.getByText(/Phone · Android/)).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(3)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0]!)
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
+    await waitFor(() =>
+      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ sessionId: laptopId }),
+    )
   })
 
   it('remotely revokes only the selected device', async () => {

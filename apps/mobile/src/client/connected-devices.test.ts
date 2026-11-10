@@ -8,6 +8,7 @@ const body = {
       sessionId: 'abcdefghijklmnopqrstuvwx',
       userId: 'user:one',
       label: 'mobile',
+      kind: 'mobile',
       deviceId: 'phone-one',
       deviceName: 'Operator iPhone',
       platform: 'ios',

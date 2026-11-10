@@ -39,6 +39,7 @@ const EVENT_LABEL: Record<string, string> = {
   'members.enable': 'Enabled',
   'members.remove': 'Removed, releasing a machine',
   'members.signOut': 'Signed out everywhere',
+  'members.revokeSignIn': 'Signed out one device',
   'members.recoveryIssued': 'Created a recovery link',
   'members.resetMailed': 'Mailed a password reset',
   'members.recover': 'Reset their password',

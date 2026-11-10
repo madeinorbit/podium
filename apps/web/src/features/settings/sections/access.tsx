@@ -1,7 +1,8 @@
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { observer } from 'mobx-react-lite'
-import { type JSX, useEffect, useMemo } from 'react'
+import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
+import { Button } from '@/components/ui/button'
 import { authRequest } from '@/features/setup/member-api'
 import { Row, Section, Subsection } from './shared'
 
@@ -15,7 +16,11 @@ export interface AccessAnswer {
     activeMembers: number
     disabledMembers: number
   }
+  /** How many unexpired sign-ins exist in all; the list carries at most 200. */
+  signInsTotal?: number
   signIns: {
+    /** The public id `POST /auth/admin/sign-ins/revoke` takes; null on a row an older binary wrote. */
+    id?: string | null
     memberId: string
     memberName: string
     kind: string
@@ -43,12 +48,35 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
  */
 export const AccessSection = observer(function AccessSection(): JSX.Element {
   const answer = useMemo(() => new RequestAnswer<AccessAnswer>(), [])
+  const origin = serverConfig(window.location).httpOrigin
+  const reload = useCallback(
+    () => void answer.load(async () => await authRequest<AccessAnswer>(origin, 'admin/access')),
+    [answer, origin],
+  )
   useEffect(() => {
-    const origin = serverConfig(window.location).httpOrigin
-    void answer.load(async () => await authRequest<AccessAnswer>(origin, 'admin/access'))
+    reload()
     return () => answer.close()
-  }, [answer])
+  }, [answer, reload])
+  const [revoking, setRevoking] = useState<string | null>(null)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
+  // Ends that one sign-in (POD-6701): the device is signed out at once.
+  const revoke = useCallback(
+    async (id: string) => {
+      setRevoking(id)
+      setRevokeError(null)
+      try {
+        await authRequest(origin, 'admin/sign-ins/revoke', { id })
+        reload()
+      } catch (error) {
+        setRevokeError(error instanceof Error ? error.message : 'Couldn’t sign out this device.')
+      } finally {
+        setRevoking(null)
+      }
+    },
+    [origin, reload],
+  )
   const data = answer.answer
+  const total = data?.signInsTotal ?? data?.signIns.length ?? 0
   return (
     <Section title="Access" hint="How people join this instance, and where each one is signed in.">
       {answer.error && <p role="alert">{answer.error}</p>}
@@ -85,8 +113,18 @@ export const AccessSection = observer(function AccessSection(): JSX.Element {
           </Row>
           <Subsection
             title="Sign-ins"
-            hint="Every sign-in that has not expired. To end a member’s sign-ins, use Sign out everywhere under People."
+            hint="Every sign-in that has not expired. Sign out ends that one device; to end all of a member’s sign-ins, use Sign out everywhere under People."
           >
+            {revokeError && (
+              <p role="alert" className="settings-prose text-destructive">
+                {revokeError}
+              </p>
+            )}
+            {data.signIns.length > 0 && total > data.signIns.length && (
+              <p className="settings-prose">
+                Showing {data.signIns.length} of {total} sign-ins, latest expiry first.
+              </p>
+            )}
             {data.signIns.length === 0 ? (
               <p className="settings-prose">Nobody is signed in.</p>
             ) : (
@@ -98,12 +136,18 @@ export const AccessSection = observer(function AccessSection(): JSX.Element {
                     <th className="py-1 font-normal">Signed in</th>
                     <th className="py-1 font-normal">Last seen</th>
                     <th className="py-1 font-normal">Expires</th>
+                    <th className="py-1 font-normal">
+                      <span className="sr-only">Action</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.signIns.map((signIn) => (
                     <tr
-                      key={`${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`}
+                      key={
+                        signIn.id ??
+                        `${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`
+                      }
                       className="border-hairline-soft/50 border-t"
                     >
                       <td className="py-1.5">{signIn.memberName}</td>
@@ -113,6 +157,24 @@ export const AccessSection = observer(function AccessSection(): JSX.Element {
                       <td className="py-1.5">{day(signIn.createdAt)}</td>
                       <td className="py-1.5">{day(signIn.lastSeenAt)}</td>
                       <td className="py-1.5">{day(signIn.expiresAt)}</td>
+                      <td className="py-1.5 text-right">
+                        {signIn.id && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            aria-label={`Sign out ${signIn.memberName}’s ${
+                              signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind
+                            }`}
+                            disabled={revoking !== null}
+                            pending={revoking === signIn.id}
+                            pendingLabel="Signing out…"
+                            onClick={() => void revoke(signIn.id!)}
+                          >
+                            Sign out
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

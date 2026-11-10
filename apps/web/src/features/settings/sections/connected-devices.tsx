@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  Globe,
+  Monitor,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -209,7 +211,8 @@ export function createMobilePairingApi(httpOrigin: string): MobilePairingApi {
       mobilePairingDeny: { mutate: (input) => post('/auth/mobile-pair/deny', input) },
       mobileSessions: {
         query: async () => {
-          const response = await requestJson(`${httpOrigin}/auth/client-sessions`, {
+          // Every sign-in of the caller, not only phones (POD-6701).
+          const response = await requestJson(`${httpOrigin}/auth/client-sessions?include=all`, {
             cache: 'no-store',
             credentials: 'include',
             referrerPolicy: 'no-referrer',
@@ -231,12 +234,30 @@ export function createMobilePairingApi(httpOrigin: string): MobilePairingApi {
   }
 }
 
-function displayPlatform(platform: string): string {
-  const normalized = platform.trim().toLowerCase()
-  if (normalized === 'ios') return 'iOS'
-  if (normalized === 'android') return 'Android'
-  if (normalized === 'web') return 'Web'
-  return platform.trim() || 'Mobile'
+function displayPlatform(session: Pick<MobileSessionView, 'kind' | 'platform'>): string {
+  const normalized = session.platform.trim().toLowerCase()
+  const os =
+    normalized === 'ios'
+      ? 'iOS'
+      : normalized === 'android'
+        ? 'Android'
+        : normalized === 'macos'
+          ? 'macOS'
+          : normalized === 'windows'
+            ? 'Windows'
+            : normalized === 'linux'
+              ? 'Linux'
+              : normalized === 'web'
+                ? 'Web'
+                : undefined
+  const kind =
+    session.kind === 'desktop' ? 'Desktop app' : session.kind === 'browser' ? 'Browser' : 'Phone'
+  return os ? `${kind} · ${os}` : kind
+}
+
+function DeviceIcon({ kind }: { kind: MobileSessionView['kind'] }): JSX.Element {
+  const Icon = kind === 'desktop' ? Monitor : kind === 'browser' ? Globe : Smartphone
+  return <Icon className="mt-0.5 size-4 flex-none text-muted-foreground" aria-hidden="true" />
 }
 
 function formatActivity(value: string | null, now: number): string {
@@ -446,7 +467,9 @@ function ClaimRequest({
           <Smartphone className="mt-0.5 size-4 flex-none text-warning" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <h4 className="settings-h2">{stage.deviceName} wants to connect</h4>
-            <p className="settings-micro mt-1">{displayPlatform(stage.platform)}</p>
+            <p className="settings-micro mt-1">
+              {displayPlatform({ kind: 'mobile', platform: stage.platform })}
+            </p>
             <p className="settings-prose mt-3">Confirm that the phone shows these exact words:</p>
             <div
               role="group"
@@ -596,13 +619,13 @@ const MobileSessions = observer(function MobileSessions({
 
   return (
     <Subsection
-      title="Connected phones"
-      hint="Each phone has its own revocable session. Revoking one phone does not sign out your other devices."
+      title="Signed-in devices"
+      hint="Every browser, desktop app and phone signed in to your account. Revoking one signs out only that device."
     >
       <div
         ref={sessionsRegionRef}
         role="region"
-        aria-label="Connected phones"
+        aria-label="Signed-in devices"
         className="outline-none"
         tabIndex={-1}
       >
@@ -610,7 +633,7 @@ const MobileSessions = observer(function MobileSessions({
         {loadError && (
           <div className="flex flex-wrap items-center gap-2">
             <p role="alert" className="settings-prose text-destructive">
-              Couldn’t load connected phones.
+              Couldn’t load your signed-in devices.
             </p>
             <Button type="button" size="xs" variant="outline" onClick={load}>
               <RefreshCw aria-hidden="true" />
@@ -619,7 +642,7 @@ const MobileSessions = observer(function MobileSessions({
           </div>
         )}
         {sessions?.length === 0 && (
-          <p className="settings-prose">No mobile devices are connected to your account.</p>
+          <p className="settings-prose">No devices are signed in to your account.</p>
         )}
         {sessions && sessions.length > 0 && (
           <div className="divide-y divide-hairline-soft/70 border-y border-hairline-soft/70">
@@ -672,10 +695,7 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
     <div className="py-3.5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <Smartphone
-            className="mt-0.5 size-4 flex-none text-muted-foreground"
-            aria-hidden="true"
-          />
+          <DeviceIcon kind={session.kind} />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="settings-label truncate text-foreground">{session.deviceName}</p>
@@ -686,8 +706,7 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
               )}
             </div>
             <p className="settings-micro mt-1">
-              {displayPlatform(session.platform)} · Last active{' '}
-              <MobileDeviceActivity session={session} />
+              {displayPlatform(session)} · Last active <MobileDeviceActivity session={session} />
             </p>
           </div>
         </div>
@@ -716,7 +735,7 @@ const MobileDeviceRow = observer(function MobileDeviceRow({
           <p className="settings-prose">
             Revoke <strong>{session.deviceName}</strong>?{' '}
             {session.current
-              ? 'This is your current device, so this browser will be signed out immediately.'
+              ? 'This is the device you are using now, so it will be signed out immediately.'
               : 'It will lose access immediately; your other devices stay signed in.'}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">

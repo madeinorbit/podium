@@ -308,6 +308,26 @@ const deleteClientSessionsOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** One sign-in by its public id, through `idx_client_sessions_session_id` (POD-6701). */
+const clientSessionBySessionId = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      tokenHash: clientSessions.tokenHash,
+      userId: clientSessions.userId,
+      label: clientSessions.label,
+    })
+    .from(clientSessions)
+    .where(eq(clientSessions.sessionId, param(clientSessions.sessionId, 'sessionId')))
+    .prepare(),
+)
+
+const deleteClientSessionByToken = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
 const insertSettingsAudit = prepared((db: StoreDrizzle) =>
   db
     .insert(settingsAuditEvents)
@@ -1020,6 +1040,35 @@ export class UsersRepository {
         detailJson: JSON.stringify({ memberId: userId }),
         createdAt: new Date().toISOString(),
       })
+    })
+  }
+
+  /**
+   * AN ADMIN ENDS ONE SIGN-IN (POD-6701): the sign-in with that public id is
+   * deleted and the event audited, in one transaction. The member's other
+   * sign-ins and their authorization generation stay as they are; the caller
+   * closes the device's open connections with the returned token hash. Returns
+   * undefined when no sign-in has that id.
+   */
+  async revokeSignIn(
+    sessionId: string,
+    actor: UserId,
+  ): Promise<{ tokenHash: string; memberId: UserId } | undefined> {
+    return await this.claimTransaction(async () => {
+      await this.requireActiveAdmin(actor)
+      const row = await clientSessionBySessionId(this.db).get({ sessionId })
+      if (!row) return undefined
+      await deleteClientSessionByToken(this.db).run({ tokenHash: row.tokenHash })
+      await insertSettingsAudit(this.db).run({
+        command: 'members.revokeSignIn',
+        outcome: 'applied',
+        actorKind: 'user',
+        actorId: actor,
+        onBehalfOf: actor,
+        detailJson: JSON.stringify({ memberId: row.userId, label: row.label }),
+        createdAt: new Date().toISOString(),
+      })
+      return { tokenHash: row.tokenHash, memberId: row.userId }
     })
   }
 

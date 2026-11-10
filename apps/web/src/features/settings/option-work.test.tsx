@@ -75,6 +75,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       sessionId: String(i).padStart(24, '0'),
       userId: 'operator',
       label: 'mobile',
+      kind: 'mobile',
       deviceId: `device-${i}`,
       deviceName: `Phone ${i}`,
       platform: 'ios',

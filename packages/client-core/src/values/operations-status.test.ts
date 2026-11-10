@@ -129,10 +129,12 @@ describe('visibleFleetOperations', () => {
     const assigned = machine('agent-host')
     const readings = { [assigned.id]: { state: 'ready' as const, value: breakdown } }
     const disconnected = visibleFleetOperations({
-      machines: [{
-        ...assigned,
-        availability: { epoch: 'test', server: false, daemon: false, supervisor: true },
-      }],
+      machines: [
+        {
+          ...assigned,
+          availability: { epoch: 'test', server: false, daemon: false, supervisor: true },
+        },
+      ],
       hosts: [],
       capacityReadings: readings,
       nowMs: Date.parse('2026-08-31T00:05:01.000Z'),
@@ -160,11 +162,13 @@ describe('visibleFleetOperations', () => {
 
   it('keeps a disconnected server-only host offline even though execution is unassigned', () => {
     const fleet = visibleFleetOperations({
-      machines: [machine('server-only', {
-        online: false,
-        serviceAssignment: { server: true, agentExecution: false },
-        availability: { epoch: 'test', server: false, daemon: false, supervisor: false },
-      })],
+      machines: [
+        machine('server-only', {
+          online: false,
+          serviceAssignment: { server: true, agentExecution: false },
+          availability: { epoch: 'test', server: false, daemon: false, supervisor: false },
+        }),
+      ],
       hosts: [],
     })
 
@@ -299,6 +303,7 @@ describe('connectedDeviceViews', () => {
     sessionId,
     userId: 'user:one',
     label: 'mobile',
+    kind: 'mobile',
     deviceId: `device-${sessionId}`,
     deviceName: sessionId,
     platform: 'ios',
@@ -328,11 +333,20 @@ describe('connectedDeviceViews', () => {
   })
 })
 
-
 it('shows daemon recovery reasons and counts in the mobile machine list', () => {
   const fleet = visibleFleetOperations({
-    machines: [machine('recovering', { daemonReadiness: { state: 'recovering', reason: 'retrying handshake', quarantinedBindings: 3 } })],
-    hosts: [], capacityReadings: {}, loadPerCore: 1.5,
+    machines: [
+      machine('recovering', {
+        daemonReadiness: {
+          state: 'recovering',
+          reason: 'retrying handshake',
+          quarantinedBindings: 3,
+        },
+      }),
+    ],
+    hosts: [],
+    capacityReadings: {},
+    loadPerCore: 1.5,
   })
   expect(fleet.machines[0]?.statusLabel).toBe('not ready · retrying handshake · 3 quarantined')
 })

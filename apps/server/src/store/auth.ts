@@ -24,8 +24,9 @@
  * belong to the wrong person.
  */
 
+import { randomBytes } from 'node:crypto'
 import type { UserId } from '@podium/model'
-import { and, desc, eq, gt, lte, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm'
 import { clientSessions, users } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { executeRaw, param, prepared } from './executor/sync-drizzle'
@@ -112,7 +113,16 @@ const setClientSessionLastSeenAt = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const ownedMobileClientSessionTokenHash = prepared((db: StoreDrizzle) =>
+/**
+ * The labels of a PERSON'S sign-ins (POD-6701): a password login in a browser
+ * or the desktop app, a paired phone, a host recovery session. The others are
+ * not a device someone signed in on: 'upstream' links a node to its hub and
+ * 'server-transfer-claim' lives for one server move. A member lists and
+ * revokes only these.
+ */
+export const PERSONAL_SIGN_IN_LABELS = ['login', 'mobile', 'break-glass'] as const
+
+const ownedSignInTokenHash = prepared((db: StoreDrizzle) =>
   db
     .select({ tokenHash: clientSessions.tokenHash })
     .from(clientSessions)
@@ -120,9 +130,18 @@ const ownedMobileClientSessionTokenHash = prepared((db: StoreDrizzle) =>
       and(
         eq(clientSessions.sessionId, param(clientSessions.sessionId, 'sessionId')),
         eq(clientSessions.userId, param(clientSessions.userId, 'userId')),
-        eq(clientSessions.label, 'mobile'),
+        inArray(clientSessions.label, [...PERSONAL_SIGN_IN_LABELS]),
       ),
     )
+    .prepare(),
+)
+
+/** How many sign-ins have not expired, for Access's "showing N of M" (POD-6701). */
+const unexpiredClientSessionCount = prepared((db: StoreDrizzle) =>
+  db
+    .select({ total: count() })
+    .from(clientSessions)
+    .where(gt(clientSessions.expiresAt, param(clientSessions.expiresAt, 'nowIso')))
     .prepare(),
 )
 
@@ -149,6 +168,7 @@ const deleteClientSessionsExpiredBy = prepared((db: StoreDrizzle) =>
 const unexpiredClientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
   db
     .select({
+      sessionId: clientSessions.sessionId,
       userId: clientSessions.userId,
       createdAt: clientSessions.createdAt,
       expiresAt: clientSessions.expiresAt,
@@ -166,6 +186,8 @@ const unexpiredClientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
 
 /** A sign-in as the admin area shows it: who, how and when, never its token. */
 export interface SignInRow {
+  /** The public id an admin revokes it by; null only for a row an older binary wrote. */
+  sessionId: string | null
   userId: UserId
   label: string
   deviceName: string | null
@@ -194,6 +216,11 @@ export interface ClientSessionRow {
   deviceName?: string
   platform?: string
   lastSeenAt?: string
+}
+
+/** A sign-in's public id: 24 URL-safe characters, never derived from its token. */
+export function newClientSessionId(): string {
+  return randomBytes(18).toString('base64url')
 }
 
 export class DisabledMemberError extends Error {
@@ -246,7 +273,9 @@ export class AuthRepository {
         createdAt: new Date().toISOString(),
         expiresAt,
         label,
-        sessionId: metadata.sessionId ?? null,
+        // Every sign-in gets a public id, so one device can be listed and
+        // signed out without its token hash leaving the server (POD-6701).
+        sessionId: metadata.sessionId ?? newClientSessionId(),
         deviceId: metadata.deviceId ?? null,
         deviceName: metadata.deviceName ?? null,
         platform: metadata.platform ?? null,
@@ -277,6 +306,7 @@ export class AuthRepository {
   async listUnexpiredSignIns(nowIso: string, limit: number): Promise<SignInRow[]> {
     const rows = await unexpiredClientSessionsNewestFirst(this.db).all({ nowIso, limit })
     return rows.map((r) => ({
+      sessionId: r.sessionId ?? null,
       userId: r.userId,
       label: r.label,
       deviceName: r.deviceName ?? null,
@@ -285,6 +315,11 @@ export class AuthRepository {
       expiresAt: r.expiresAt,
       lastSeenAt: r.lastSeenAt ?? null,
     }))
+  }
+
+  /** How many sign-ins of every member have not expired (POD-6701). */
+  async countUnexpiredSignIns(nowIso: string): Promise<number> {
+    return (await unexpiredClientSessionCount(this.db).get({ nowIso }))?.total ?? 0
   }
 
   /** Revoke every session minted under `label`, leaving the other classes alone.
@@ -327,14 +362,22 @@ export class AuthRepository {
     )
   }
 
-  async deleteOwnedMobileClientSession(
-    sessionId: string,
-    userId: UserId,
-  ): Promise<string | undefined> {
-    const row = await ownedMobileClientSessionTokenHash(this.db).get({ sessionId, userId })
-    if (!row) return undefined
-    await deleteClientSessionByTokenHash(this.db).run({ tokenHash: row.tokenHash })
-    return row.tokenHash
+  /** Every unexpired sign-in of the person: browser, desktop, phone (POD-6701). */
+  async listSignInsOfUser(userId: UserId, nowIso: string): Promise<ClientSessionRow[]> {
+    const personal: ReadonlySet<string> = new Set(PERSONAL_SIGN_IN_LABELS)
+    return (await this.listClientSessionsOfUser(userId)).filter(
+      (session) => personal.has(session.label) && session.expiresAt > nowIso,
+    )
+  }
+
+  /** Sign out one of the person's own sign-ins by its public id; returns its token hash. */
+  async deleteOwnedSignIn(sessionId: string, userId: UserId): Promise<string | undefined> {
+    return await this.createOrJoinTransaction(async () => {
+      const row = await ownedSignInTokenHash(this.db).get({ sessionId, userId })
+      if (!row) return undefined
+      await deleteClientSessionByTokenHash(this.db).run({ tokenHash: row.tokenHash })
+      return row.tokenHash
+    })
   }
 
   /** True iff the session exists and has not expired as of `nowIso`. */

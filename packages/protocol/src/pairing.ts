@@ -443,13 +443,37 @@ export const MobilePairCompleteResult = z.union([
 ])
 export type MobilePairCompleteResult = z.infer<typeof MobilePairCompleteResult>
 
+/**
+ * What a sign-in runs on (POD-6701). A phone names its OS as it paired; a
+ * browser or desktop sign-in names the OS its user agent reported.
+ */
+export const ClientSessionPlatform = z.enum([
+  ...MobilePlatform.options,
+  'macos',
+  'windows',
+  'linux',
+])
+export type ClientSessionPlatform = z.infer<typeof ClientSessionPlatform>
+/** Which kind of client holds a sign-in: a browser tab, the desktop app or a phone. */
+export const ClientSessionKind = z.enum(['browser', 'desktop', 'mobile'])
+export type ClientSessionKind = z.infer<typeof ClientSessionKind>
+/** Why the sign-in exists: a password login, a paired phone, a host recovery session. */
+export const ClientSessionLabel = z.enum(['login', 'mobile', 'break-glass'])
+export type ClientSessionLabel = z.infer<typeof ClientSessionLabel>
+
+/**
+ * One sign-in of the caller, as `GET /auth/client-sessions` lists it. The plain
+ * list carries phones only (`label: 'mobile'`), which is what phone builds from
+ * before POD-6701 parse; `?include=all` adds every browser and desktop sign-in.
+ */
 export const MobileClientSession = z.object({
   sessionId: z.string(),
   userId: z.string(),
-  label: z.literal('mobile'),
+  label: ClientSessionLabel,
+  kind: ClientSessionKind.default('mobile'),
   deviceId: safeDeviceId,
   deviceName: safeDeviceName,
-  platform: MobilePlatform,
+  platform: ClientSessionPlatform,
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   lastSeenAt: z.string().datetime().nullable(),

@@ -158,6 +158,16 @@ function userAccountCount(db: {
  * the discoverable path as the interim boundary on 2026-08-11. Actual containment still
  * requires separate OS users, a privileged issuance boundary, or per-user storage.
  */
+function hasSessionIdColumn(db: { prepare(sql: string): { get(): unknown } }): boolean {
+  return (
+    db
+      .prepare(
+        "SELECT 1 AS present FROM pragma_table_info('client_sessions') WHERE name = 'session_id'",
+      )
+      .get() != null
+  )
+}
+
 export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const root = opts.stateDir ?? stateDir()
   const path = databasePath(root)
@@ -207,15 +217,24 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
     // as a required parameter for the same reason. A break-glass session is
     // minted from local state-dir access, which is the first admin's authority —
     // the same owner `ensureHostMachine` and the password login resolve to.
-    db.prepare(
-      'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, ?, ?)',
-    ).run(
+    const row = [
       createHash('sha256').update(token).digest('hex'),
       owner,
       new Date(nowMs).toISOString(),
       expiresAt,
       BREAK_GLASS_LABEL,
-    )
+    ]
+    // A public id, so the owner and admins can list and sign out this one
+    // sign-in (POD-6701). A schema from before phone pairing has no column for it.
+    if (hasSessionIdColumn(db)) {
+      db.prepare(
+        'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label, session_id) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(...row, randomBytes(18).toString('base64url'))
+    } else {
+      db.prepare(
+        'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, ?, ?)',
+      ).run(...row)
+    }
   } finally {
     db.close?.()
   }

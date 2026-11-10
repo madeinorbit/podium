@@ -18,6 +18,7 @@ import { verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, setCookie } from 'hono/cookie'
 import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
+import { browserSignInMetadata } from './sign-in-device'
 import { DisabledMemberError } from './store/auth'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
@@ -184,7 +185,7 @@ export async function isRequestAuthed(
   return (await requestUserId(store, cookieHeader, nowMs)) !== undefined
 }
 
-function parseSessionCookie(cookieHeader: string | undefined): string | undefined {
+export function parseSessionCookie(cookieHeader: string | undefined): string | undefined {
   if (!cookieHeader) return undefined
   for (const part of cookieHeader.split(';')) {
     const [name, ...rest] = part.trim().split('=')
@@ -539,6 +540,11 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       session.userId,
       new Date(now() + SESSION_TTL_MS).toISOString(),
       'login',
+      browserSignInMetadata(
+        c.req.header('user-agent'),
+        c.req.header('origin'),
+        new Date(now()).toISOString(),
+      ),
     )
     setSessionCookie(c, replacement, opts.trustedProxyHops)
     return c.redirect(next, 303)
@@ -686,7 +692,18 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
           expiresAt,
         })
       }
-      await store?.createClientSession(hashToken(token), userId, expiresAt)
+      // Named for its owner's device list and Access (POD-6701).
+      await store?.createClientSession(
+        hashToken(token),
+        userId,
+        expiresAt,
+        'login',
+        browserSignInMetadata(
+          c.req.header('user-agent'),
+          c.req.header('origin'),
+          new Date(at).toISOString(),
+        ),
+      )
     } catch (error) {
       if (error instanceof DisabledMemberError) return c.json({ error: 'invalid password' }, 401)
       throw error

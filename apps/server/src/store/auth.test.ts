@@ -32,7 +32,9 @@ it('defaults an unlabelled session to the browser-login label', async () => {
 it('records the label a session was minted under', async () => {
   await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE, 'break-glass')
   await repo.createClientSession('hash-b', firstAdminMemberId(), FUTURE, 'upstream')
-  const byHash = new Map((await repo.listClientSessionsOfUser(firstAdminMemberId())).map((s) => [s.tokenHash, s.label]))
+  const byHash = new Map(
+    (await repo.listClientSessionsOfUser(firstAdminMemberId())).map((s) => [s.tokenHash, s.label]),
+  )
   expect(byHash.get('hash-a')).toBe('break-glass')
   expect(byHash.get('hash-b')).toBe('upstream')
 })
@@ -64,12 +66,10 @@ it('round-trips mobile device metadata, activity, and owner-scoped row revocatio
   ])
   await repo.touchClientSession('mobile-a', '2026-01-02T00:00:00.000Z')
   expect((await repo.getClientSession('mobile-a'))?.lastSeenAt).toBe('2026-01-02T00:00:00.000Z')
-  expect(
-    await repo.deleteOwnedMobileClientSession('session-bbbbbbbbbbbb', firstAdminMemberId()),
-  ).toBeUndefined()
-  expect(
-    await repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', firstAdminMemberId()),
-  ).toBe('mobile-a')
+  expect(await repo.deleteOwnedSignIn('session-bbbbbbbbbbbb', firstAdminMemberId())).toBeUndefined()
+  expect(await repo.deleteOwnedSignIn('session-aaaaaaaaaaaa', firstAdminMemberId())).toBe(
+    'mobile-a',
+  )
 })
 
 it('re-pairing a mobile session replaces its old token', async () => {

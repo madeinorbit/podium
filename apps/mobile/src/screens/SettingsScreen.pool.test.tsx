@@ -247,6 +247,7 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
       sessionId: `device-${i}`,
       userId: 'operator',
       label: 'mobile',
+      kind: 'mobile',
       deviceId: `device-${i}`,
       deviceName: `Phone ${i}`,
       platform: 'ios',

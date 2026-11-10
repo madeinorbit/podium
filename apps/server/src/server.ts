@@ -41,8 +41,8 @@ import {
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
-  resolveUpdateScope,
   resolveUpdateFeedPolling,
+  resolveUpdateScope,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
@@ -131,6 +131,7 @@ import { MobilePairingManager } from './mobile-pairing'
 import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
+import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { directSessionPort, MessagingService } from './modules/messaging'
@@ -186,7 +187,6 @@ import {
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
-import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -801,7 +801,9 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    ...(role.hub
+      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
+      : {}),
     // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
     servesHub: role.hub,
     installationId: installation.installationId,
@@ -1777,6 +1779,8 @@ export async function startServer(
       ),
     resolveUserId: memberOfRequest,
     loginRequired: credentialsRequired,
+    // An admin ending one sign-in closes that device's open sockets at once (POD-6701).
+    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
     allowedOrigins,
   })
   registerMobilePairingRoutes(app, {

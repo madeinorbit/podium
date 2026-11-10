@@ -101,7 +101,38 @@ const pin = (path: string): StatementPin<Fixture> => ({
 
 describe('admin area reads', () => {
   it('Access runs a constant number of statements', async () => {
-    await expectConstantStatements(pin('/auth/admin/access'), 4)
+    await expectConstantStatements(pin('/auth/admin/access'), 5)
+  })
+  it('ending one sign-in runs a constant number of statements (POD-6701)', async () => {
+    await expectConstantStatements(
+      {
+        name: 'POST /auth/admin/sign-ins/revoke',
+        setup,
+        target: (fixture) => fixture.store,
+        run: async (fixture) => {
+          const [first] = await fixture.store.auth.listUnexpiredSignIns(at, 1)
+          const id = first!.sessionId!
+          const response = await fixture.app.request(
+            'http://podium.test/auth/admin/sign-ins/revoke',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+          )
+          return { status: response.status, id }
+        },
+        check: async (result, fixture, size) => {
+          const { status, id } = result as { status: number; id: string }
+          expect(status).toBe(200)
+          const left = await fixture.store.auth.listUnexpiredSignIns(at, 1000)
+          expect(left.map((row) => row.sessionId)).not.toContain(id)
+          expect(left.length).toBe(size - 1)
+        },
+        teardown: async (fixture) => await fixture.store.close(),
+      },
+      6,
+    )
   })
   it('Audit runs a constant number of statements', async () => {
     await expectConstantStatements(pin('/auth/admin/audit?limit=200'), 4)

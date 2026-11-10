@@ -1,0 +1,12 @@
+-- EVERY SIGN-IN HAS A PUBLIC ID (POD-6701).
+--
+-- A member lists every one of their sign-ins and signs out any one of them,
+-- and an admin ends any single sign-in from Access, by the row's `session_id`.
+-- Until now only a paired phone had one: browser, desktop and host recovery
+-- sign-ins were written without it, and the server now writes one for every
+-- new row. This gives each existing row without one a random id (144 bits,
+-- 36 hex characters; `idx_client_sessions_session_id` keeps them unique).
+--
+-- DATA-ONLY. ROLLBACK: a binary swap; an older server ignores `session_id` on
+-- every row but a phone's, and lists only phones.
+UPDATE `client_sessions` SET `session_id` = lower(hex(randomblob(18))) WHERE `session_id` IS NULL;

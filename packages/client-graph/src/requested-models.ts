@@ -142,6 +142,7 @@ registerModels(
         sessionId: 'id',
         userId: 'id',
         label: 'string',
+        kind: 'enum',
         deviceId: 'id',
         deviceName: 'string',
         platform: 'enum',
@@ -176,7 +177,10 @@ registerModels(
         ...scan,
         fields: {
           ...scan.fields,
-          id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'replica:checkouts' } },
+          id: {
+            type: 'id',
+            source: { schema: 'RequestRecordKey', arrivesOn: 'replica:checkouts' },
+          },
         },
       }
     })(),

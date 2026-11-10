@@ -9,14 +9,20 @@
  *   signed-in member asks; a member who is not an admin gets none, and the
  *   client draws no admin area from that answer.
  * - `GET /auth/admin/access`: how people are admitted and every unexpired
- *   sign-in, by member and device. No token or token hash leaves.
+ *   sign-in, by member and device, with how many there are in all
+ *   (`signInsTotal`; at most {@link ADMIN_PAGE_LIMIT} are listed). Each
+ *   sign-in carries its public `id`. No token or token hash leaves.
+ * - `POST /auth/admin/sign-ins/revoke {id}`: end that one sign-in (POD-6701).
+ *   The device is signed out at once: its row goes, its open connections
+ *   close, and the event is audited as `members.revokeSignIn`. The member's
+ *   other sign-ins stay.
  * - `GET /auth/admin/audit`: the security events, newest first, as actor,
  *   delegated human, target, result and time. A stored row's detail is never
  *   sent as it is: only the ids and the few fields named in
  *   {@link projectSecurityEvent} are read out of it, so a preference value, a
  *   secret or any task or transcript text cannot reach the page.
  *
- * Access and Audit refuse anyone but an enabled admin with 403.
+ * Access, Audit and the revoke refuse anyone but an enabled admin with 403.
  */
 
 import type { UserId, UserRole } from '@podium/model'
@@ -25,7 +31,7 @@ import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
 import type { AuthRepository } from './store/auth'
 import type { SecurityEventRow, SettingsAuditRepository } from './store/settings-audit'
-import type { UsersRepository } from './store/users'
+import { MemberChangeRefused, type UsersRepository } from './store/users'
 
 /** The admin area's sections, in the order the client shows them. */
 export const ADMIN_SECTIONS = ['people', 'access', 'machines', 'instance', 'audit'] as const
@@ -147,6 +153,8 @@ export function registerAdminRoutes(
     machineNames: (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>
     resolveUserId: (request: Request) => Promise<UserId | undefined>
     loginRequired: () => Promise<boolean>
+    /** Close the open connections of a sign-in that was just revoked, by its token hash. */
+    onCredentialRevoked?: (tokenHash: string) => void
     allowedOrigins?: ReadonlySet<string>
     now?: () => number
   },
@@ -185,10 +193,12 @@ export function registerAdminRoutes(
     const who = await caller(c)
     if (who?.role !== 'admin') return adminRequired(c)
     const at = now()
-    const [members, invites, signIns, signInRequired] = await Promise.all([
+    const nowIso = new Date(at).toISOString()
+    const [members, invites, signIns, signInsTotal, signInRequired] = await Promise.all([
       users.listIncludingDisabled(),
       users.pendingInvites(),
-      options.auth.listUnexpiredSignIns(new Date(at).toISOString(), ADMIN_PAGE_LIMIT),
+      options.auth.listUnexpiredSignIns(nowIso, ADMIN_PAGE_LIMIT),
+      options.auth.countUnexpiredSignIns(nowIso),
       options.loginRequired(),
     ])
     const names = new Map(members.map((m) => [m.id as string, m.displayName]))
@@ -203,7 +213,9 @@ export function registerAdminRoutes(
         activeMembers: members.filter((m) => !m.disabledAt).length,
         disabledMembers: members.filter((m) => m.disabledAt).length,
       },
+      signInsTotal,
       signIns: signIns.map((row) => ({
+        id: row.sessionId,
         memberId: row.userId,
         memberName: names.get(row.userId) ?? 'Removed member',
         kind: row.label,
@@ -214,6 +226,26 @@ export function registerAdminRoutes(
         expiresAt: row.expiresAt,
       })),
     })
+  })
+
+  routes.post('/sign-ins/revoke', async (c) => {
+    const who = await caller(c)
+    if (!who) return c.json({ error: 'Sign in required' }, 401)
+    if (who.role !== 'admin') return adminRequired(c)
+    const { id } = z
+      .object({ id: z.string().regex(/^[A-Za-z0-9_-]{20,64}$/) })
+      .parse(await c.req.json().catch(() => ({})))
+    let revoked: Awaited<ReturnType<UsersRepository['revokeSignIn']>>
+    try {
+      revoked = await users.revokeSignIn(id, who.id)
+    } catch (error) {
+      if (error instanceof MemberChangeRefused && error.code === 'admin-required')
+        return adminRequired(c)
+      throw error
+    }
+    if (!revoked) return c.json({ error: 'Sign-in not found' }, 404)
+    options.onCredentialRevoked?.(revoked.tokenHash)
+    return c.json({ ok: true })
   })
 
   routes.get('/audit', async (c) => {
