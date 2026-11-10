@@ -4,7 +4,7 @@
  * Two jobs, both read-only on the copy (it is opened with `readOnly`, inside
  * one read transaction, so every read shares one snapshot):
  *
- *   parity  For each of the 31 kinds built from the database, compare `build(ids)` and
+ *   parity  For each of the 33 kinds built from the database, compare `build(ids)` and
  *           `streamAll()` with the `change_latest` payloads, record for record.
  *           The effect kind is built with the server's real effect executors,
  *           taken from a server booted on an empty temporary store.
