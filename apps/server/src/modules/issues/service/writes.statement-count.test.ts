@@ -86,7 +86,11 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // f97c15fe73, design §4.4). The first-writer start record reads that
       // member's row (#923cf158) and writes it (#e7334576): 11 -> 13, constant
       // in the number of issues.
-      13,
+      // POD-6769: compare at save. The issue and its members' personal records
+      // are listed and built before the write and again after it, in place of
+      // one read of the stored copies: 13 -> 19, constant in the number of
+      // issues.
+      19,
     )
   })
 
@@ -94,7 +98,8 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
     await expectConstantStatements(
       pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
         (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
-      8,
+      // POD-6769: compare at save, as for `crud.create`: 8 -> 13.
+      13,
     )
   })
 

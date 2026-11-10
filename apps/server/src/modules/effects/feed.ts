@@ -12,7 +12,7 @@
  */
 
 import type { EffectRecordWire } from '@podium/model'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import type { EffectFeedCapture, EffectRow } from '../../store/effects'
 import type { EffectExecutorRegistry } from './registry'
 
@@ -60,16 +60,30 @@ export function effectRecordOf(row: EffectRow, registry: EffectExecutorRegistry)
   }
 }
 
-export function effectChangeOf(row: EffectRow, registry: EffectExecutorRegistry): EntityChangeSpec {
-  if (row.deletedAt !== undefined) return { entity: 'effect', id: row.id, op: 'remove' }
-  return { entity: 'effect', id: row.id, op: 'upsert', value: effectRecordOf(row, registry) }
-}
-
-export function makeEffectFeedCapture(
-  ledger: Pick<LedgerWriter, 'capture'>,
-  registry: EffectExecutorRegistry,
-): EffectFeedCapture {
+/**
+ * The capture installed on the repository: it names the rows a write returned.
+ *
+ * NAMED AFTER THE WRITE (POD-6769). Every effect write is one statement that
+ * RETURNS the rows it changed (a claim, a settlement, a sweep by criteria), so
+ * the ids are known only once it ran, and a returned row did change: its
+ * revision moved. `effect` is therefore on the closed list of kinds whose
+ * writer names its records after the write (`NAMED_AFTER_WRITE_KINDS`): the
+ * Authority builds each from the stored row and appends it as it is, and a
+ * tombstoned row's remove on the repository's word. A write that changes
+ * nothing returns no row, so the repository does not call this and nothing is
+ * logged.
+ */
+export function makeEffectFeedCapture(ledger: Pick<LedgerWriter, 'commit'>): EffectFeedCapture {
   return async (rows) => {
-    await ledger.capture(rows.map((row) => effectChangeOf(row, registry)))
+    await ledger.commit({
+      // The rows are already written, in this same transaction.
+      write: async () => {},
+      wrote: () =>
+        rows.map((row) => ({
+          entity: 'effect' as const,
+          id: row.id,
+          removed: row.deletedAt !== undefined,
+        })),
+    })
   }
 }

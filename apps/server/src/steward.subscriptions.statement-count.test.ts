@@ -175,7 +175,9 @@ async function subscriptionRowsRead(size: number): Promise<number> {
 describe('steward subscription matching (POD-6208)', () => {
   it('runs a fixed number of statements, however many subscriptions cannot match', async () => {
     // POD-6218: each earliest-admin lookup is one statement (the row), not two: 62 -> 59.
-    await expectConstantStatements(pin, 59)
+    // POD-6769: the poll's issue writes build the issue and its personal
+    // records before and after (compare at save): 59 -> 66.
+    await expectConstantStatements(pin, 66)
   })
 
   it('reads the same subscription rows, however many cannot match', async () => {

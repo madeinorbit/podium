@@ -1629,17 +1629,23 @@ export class SessionRegistry {
       },
       online: (machineId) => machines.hasDaemon(machineId),
       writer: () => ({
-        capture: async (specs) =>
+        commit: async (op) =>
           await asSystemWrite(
-            async () => await this.writes.system('checkouts.scan').capture(specs),
+            async () => await this.writes.system('checkouts.scan').commit(op),
           ),
       }),
       // Scan-reported origins are the server's own write (POD-6417).
-      publishRepos: async () => {
+      commitRepoWrite: async (write) => {
         try {
-          await asSystemWrite(async () => await this.modules.issues.reports.store.publishRepos())
+          await asSystemWrite(
+            async () =>
+              await this.modules.issues.reports.store.commitRepoWrite(
+                this.writes.system('checkouts.scan'),
+                write,
+              ),
+          )
         } catch (err) {
-          log.warn('repo projection publish failed', { err })
+          log.warn('scanned repo origins were not recorded', { err })
         }
       },
       now: () => new Date(this.now()).toISOString(),
@@ -4306,7 +4312,7 @@ export class SessionRegistry {
     // the one after-commit trigger and the recovery sweep. Kinds register their
     // executors on `modules.effects.executors`.
     this.store.effects.setFeedCapture(
-      makeEffectFeedCapture(writes.system('feed.effects'), effectExecutors),
+      makeEffectFeedCapture(writes.system('feed.effects')),
     )
     this.effectsRunner = new EffectsRunner({
       repo: this.store.effects,

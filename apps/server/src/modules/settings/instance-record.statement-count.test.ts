@@ -64,11 +64,12 @@ const instanceEdit = {
 
 describe('statement counts of the instance settings edit', () => {
   it('does not grow with the members or the preferences the store holds', async () => {
-    await expectConstantStatements(instanceEdit, 15)
+    // POD-6769: the record is built before and after the blob write (15 -> 16).
+    await expectConstantStatements(instanceEdit, 16)
   })
 
   it('is armed: a read per member on the edit path fails it', async () => {
-    await expectArmed(instanceEdit, 15, (o, size) => {
+    await expectArmed(instanceEdit, 16, (o, size) => {
       const users = o.store.users
       const original = users.roleOf.bind(users)
       users.roleOf = async (user) => {

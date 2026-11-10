@@ -521,3 +521,41 @@ describe('effect records are written only inside their commit (ADR 12 D9)', () =
     void typeOnly
   })
 })
+
+describe('an effect write that changes nothing logs nothing (POD-6769)', () => {
+  // The effect kind names its records after the write, with no compare: what
+  // keeps an unchanged write off the log is that the repository's statements
+  // return only the rows they changed. The scan bug of 2026-11-09 was an
+  // effect row rewritten, and so logged, on every poll.
+  it('a claim that takes no row and sweeps with nothing due append no row', async () => {
+    const h = await harness()
+    const id = newId()
+    appliedReply(await submit(h.o, createEnv(id)))
+    await h.effects.runner.idle()
+    await h.effects.runner.stop()
+    expect(await statusOf(h, id)).toBe('succeeded')
+
+    const repo = h.o.store.effects
+    const scope = fixtureWriteScope()
+    const before = await changeRows(h.o)
+    // The record is settled: it cannot be claimed, staged or cancelled again,
+    // and nothing is due or old enough to sweep.
+    expect(await repo.claim(scope, id, h.clock)).toBeUndefined()
+    expect(await repo.setStage(scope, id, 'late', h.clock)).toBeUndefined()
+    expect(await repo.requestCancel(scope, id, h.clock)).toBeUndefined()
+    expect(await repo.expireDue(scope, h.clock, 100)).toEqual([])
+    expect(await repo.pruneFinished(scope, h.clock - EFFECT_RETENTION_MS, h.clock, 100)).toEqual(
+      [],
+    )
+    expect(await changeRows(h.o)).toEqual(before)
+
+    // A write that does change the record logs it once: its tombstone is the
+    // record's remove.
+    expect(await repo.tombstone(scope, id, h.clock)).toBeDefined()
+    const after = (await changeRows(h.o)).slice(before.length)
+    expect(after.map((row) => [row.entity, row.entityId, row.op])).toEqual([['effect', id, 'remove']])
+    // And tombstoning it again changes nothing.
+    expect(await repo.tombstone(scope, id, h.clock)).toBeUndefined()
+    expect(await changeRows(h.o)).toHaveLength(before.length + 1)
+  })
+})

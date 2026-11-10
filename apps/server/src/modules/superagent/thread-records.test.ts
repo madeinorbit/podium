@@ -288,3 +288,32 @@ describe('the boot reconcile', () => {
     expect(await authority.cursor()).toBe(head)
   })
 })
+
+describe('a thread write that changes nothing logs nothing (POD-6769)', () => {
+  // The thread kind names its records after the write, with no compare: what
+  // keeps an unchanged write off the log is that the repository's statements
+  // return only the rows they changed.
+  it('seeding threads that exist and syncing a turn state that already holds append no row', async () => {
+    const o = await makeOracle()
+    const threadRows = async () =>
+      (await o.store.sync.changesSince(0)).filter((row) => row.entity === 'superagentThread')
+    await o.store.superagent.seedMemberGlobalThreads()
+    await o.store.superagent.syncTurnRunningWithPendingTurns()
+    const before = await threadRows()
+    const head = await o.reg.changeLedger.cursor()
+
+    await o.store.superagent.seedGlobalThread()
+    await o.store.superagent.seedMemberGlobalThreads()
+    await o.store.superagent.syncTurnRunningWithPendingTurns()
+
+    expect(await threadRows()).toEqual(before)
+    expect(await o.reg.changeLedger.cursor()).toBe(head)
+
+    // A write that does change a thread logs that thread, once.
+    const id = await btwThread(o)
+    const after = await threadRows()
+    expect(after.slice(before.length).map((row) => [row.entityId, row.op])).toEqual([
+      [superagentThreadRowId(ME, id), 'upsert'],
+    ])
+  })
+})

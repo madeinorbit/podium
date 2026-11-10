@@ -16,10 +16,9 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import type { MachineRecordWriter } from '../machines/service'
+import { recordTestWriter } from '../../test-support/record-writer'
 import { CheckoutsService, checkoutDiff, checkoutsFromScan } from './service'
 
-type Spec = Parameters<MachineRecordWriter['capture']>[0][number]
 const M = asMachineId('m1')
 const ROOT = '/home/u/podium'
 const WT = '/home/u/.worktrees/podium-feature'
@@ -41,7 +40,10 @@ async function world(opts: { online?: boolean } = {}) {
     assignment: { server: false, agentExecution: true },
   })
   await store.repos.addRepo(ROOT, M, 'git@github.com:acme/podium.git')
-  const captured: Spec[][] = []
+  // The service's writer: an Authority that builds each named checkout before
+  // and after the write (compare at save); `captured` holds what it appended.
+  const records = recordTestWriter({ checkouts: store.checkouts }, { kinds: ['checkout'] })
+  const captured = records.appended
   const published: number[] = []
   let answer: { repositories: GitRepositoryWire[]; diagnostics: [] } = {
     repositories: [],
@@ -51,13 +53,11 @@ async function world(opts: { online?: boolean } = {}) {
     store,
     scan: async () => answer,
     online: () => opts.online ?? true,
-    writer: () => ({
-      capture: async (specs) => {
-        captured.push([...specs])
-        return []
-      },
-    }),
-    publishRepos: async () => void published.push(1),
+    writer: () => records.writer,
+    commitRepoWrite: async (write) => {
+      await write()
+      published.push(1)
+    },
     now: () => '2026-11-09T00:00:00.000Z',
   })
   return {

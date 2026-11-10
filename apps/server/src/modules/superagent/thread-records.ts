@@ -36,7 +36,7 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { SessionStore, SuperagentThreadRow } from '../../store'
 import type { SuperagentThreadFeedCapture } from '../../store/superagent'
@@ -66,21 +66,31 @@ export function superagentThreadWireOf(row: SuperagentThreadRow): SuperagentThre
   }
 }
 
-export function superagentThreadChangeOf(row: SuperagentThreadRow): EntityChangeSpec {
-  return {
-    entity: 'superagentThread',
-    id: superagentThreadRowId(row.ownerUserId, row.id),
-    op: 'upsert',
-    value: superagentThreadWireOf(row),
-  }
-}
-
-/** The capture installed on the repository: a mirror of the rows each write made. */
+/**
+ * The capture installed on the repository: it names the rows a write returned.
+ *
+ * NAMED AFTER THE WRITE (POD-6769). Every thread write is one statement that
+ * RETURNS the rows it wrote (a seed inserts only the missing threads, a turn
+ * sync returns only the threads whose state moved), so the ids are known only
+ * once it ran. `superagentThread` is on the closed list of kinds whose writer
+ * names its records after the write (`NAMED_AFTER_WRITE_KINDS`): the Authority
+ * builds each from the stored row and appends it as it is. A write that
+ * changes nothing returns no row, so the repository does not call this and
+ * nothing is logged.
+ */
 export function makeThreadFeedCapture(
-  ledger: Pick<LedgerWriter, 'capture'>,
+  ledger: Pick<LedgerWriter, 'commit'>,
 ): SuperagentThreadFeedCapture {
   return async (rows) => {
-    await ledger.capture(rows.map(superagentThreadChangeOf))
+    await ledger.commit({
+      // The rows are already written, in this same transaction.
+      write: async () => {},
+      wrote: () =>
+        rows.map((row) => ({
+          entity: 'superagentThread' as const,
+          id: superagentThreadRowId(row.ownerUserId, row.id),
+        })),
+    })
   }
 }
 

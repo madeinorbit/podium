@@ -37,7 +37,7 @@ import {
 import type { SessionStore } from '../../store'
 import { type CheckoutRow, checkoutWireOf } from '../../store/checkouts'
 import { normalizeRepoPath } from '../../store/repos'
-import type { MachineRecordWriter } from '../machines/service'
+import type { LedgerWriter } from '@podium/sync'
 
 const log = createLogger('server:checkouts')
 
@@ -54,14 +54,16 @@ export interface CheckoutsDeps {
   ): Promise<{ repositories: GitRepositoryWire[]; diagnostics: GitDiscoveryDiagnosticWire[] }>
   /** Whether the machine's daemon is connected now (a scan asks it). */
   online(machineId: MachineId): boolean
-  /** The server's own writer for the change rows. */
-  writer(): MachineRecordWriter
-  /** Publish the logical repos after scanned origins moved one (POD-6246). */
-  publishRepos(): Promise<void>
+  /** The server's own writer: the checkout rows are written inside its commit. */
+  writer(): Pick<LedgerWriter, 'commit'>
+  /**
+   * Run a write of the repo registry (scanned origins that moved, POD-6246) in
+   * one commit with the logical repo records it changes: the records are built
+   * before and after the write (compare at save, POD-6769).
+   */
+  commitRepoWrite(write: () => Promise<void>): Promise<void>
   now(): string
 }
-
-type Spec = Parameters<MachineRecordWriter['capture']>[0][number]
 
 /** The fields a change compares: everything on the record. */
 const sameCheckout = (a: CheckoutRow, b: CheckoutRow): boolean =>
@@ -270,7 +272,8 @@ export class CheckoutsService {
   /**
    * The origins a scan reported for registered roots are recorded: a late or
    * changed remote upgrades a path-derived repo id, and can rename the logical
-   * repo (POD-6246), which is then republished. An unchanged one does nothing.
+   * repo (POD-6246), whose record is published in the same commit. An
+   * unchanged one does nothing.
    */
   private async recordOrigins(
     machineId: MachineId,
@@ -278,16 +281,20 @@ export class CheckoutsService {
     repositories: readonly GitRepositoryWire[],
   ): Promise<boolean> {
     const stored = new Map(registered.map((root) => [machinePathKey(root.path), root.originUrl]))
-    let moved = false
-    for (const repo of repositories) {
-      if (!repo.originUrl) continue
+    const moved = repositories.flatMap((repo) => {
+      if (!repo.originUrl) return []
       const key = machinePathKey(normalizeRepoPath(repo.path))
-      if (!stored.has(key) || stored.get(key) === repo.originUrl) continue
-      await this.deps.store.repos.updateRepoOrigin(machineId, repo.path, repo.originUrl)
-      moved = true
-    }
-    if (moved) await this.deps.publishRepos()
-    return moved
+      if (!stored.has(key) || stored.get(key) === repo.originUrl) return []
+      return [{ path: repo.path, originUrl: repo.originUrl }]
+    })
+    if (moved.length === 0) return false
+    // The origins and the logical repo records they move, in one commit.
+    await this.deps.commitRepoWrite(async () => {
+      for (const repo of moved) {
+        await this.deps.store.repos.updateRepoOrigin(machineId, repo.path, repo.originUrl)
+      }
+    })
+    return true
   }
 
   /** The registrations moved (a repo added or removed): write the roots without scanning. */
@@ -307,21 +314,16 @@ export class CheckoutsService {
       const stored = await this.deps.store.checkouts.ofMachine(machineId)
       const { upserts, removes } = checkoutDiff(machineId, registered, stored, scanned)
       if (upserts.length === 0 && removes.length === 0) return
-      await this.deps.store.checkouts.apply(upserts, removes, this.deps.now())
-      const specs: Spec[] = [
-        ...upserts.map(
-          (row): Spec => ({
-            entity: 'checkout',
-            id: checkoutRowId(machineId, row.path),
-            op: 'upsert',
-            value: checkoutWireOf(row) satisfies CheckoutWire,
-          }),
-        ),
-        ...removes.map(
-          (row): Spec => ({ entity: 'checkout', id: checkoutRowId(machineId, row.path), op: 'remove' }),
-        ),
-      ]
-      await this.deps.writer().capture(specs)
+      // The rows this diff writes or removes are named, and the Authority
+      // builds each before and after the write (compare at save, POD-6769).
+      await this.deps.writer().commit({
+        affects: [...upserts, ...removes].map((row) => ({
+          entity: 'checkout' as const,
+          id: checkoutRowId(machineId, row.path),
+        })),
+        write: async () =>
+          await this.deps.store.checkouts.apply(upserts, removes, this.deps.now()),
+      })
     })
   }
 

@@ -388,10 +388,10 @@ export class Authority implements AuthorityPort {
               (r) => !namedKeys.has(entityOverlayKey(r.entity, r.entityId)),
             )
       const compared = await this.compareAtSave(
-        [...named, ...created, ...wrote],
+        [...named, ...created, ...wrote.map(({ removed: _removed, ...record }) => record)],
         before,
         ambient,
-        new Set(wrote.map((r) => entityOverlayKey(r.entity, r.entityId))),
+        new Map(wrote.map((r) => [entityOverlayKey(r.entity, r.entityId), r.removed === true])),
       )
       const declared = op.changes === undefined ? [] : await op.changes(result)
       this.refuseMovedKinds(declared)
@@ -651,12 +651,12 @@ export class Authority implements AuthorityPort {
   /** The named records, once each in the order first named. Refuses a kind
    *  that has not moved, and a record named after the write (`wrote`) of a
    *  kind outside the closed list. */
-  private namedRecords(
-    affects: readonly AffectedRecord[] | undefined,
+  private namedRecords<R extends AffectedRecord>(
+    affects: readonly R[] | undefined,
     how: 'affects' | 'wrote' = 'affects',
-  ): AffectedRecord[] {
+  ): R[] {
     if (affects === undefined || affects.length === 0) return []
-    const named = new Map<string, AffectedRecord>()
+    const named = new Map<string, R>()
     for (const record of affects) {
       if (this.deps.records?.comparesAtSave(record.entity) !== true) {
         throw new ChangeDetectionPathMismatch(record.entity, 'affects')
@@ -717,8 +717,9 @@ export class Authority implements AuthorityPort {
     named: readonly AffectedRecord[],
     before: ReadonlyMap<string, BuiltState>,
     ambient: ChangeProvenanceFields | undefined,
-    /** Keys named after the write: appended as built now, with no compare. */
-    uncompared: ReadonlySet<string> = new Set(),
+    /** Keys named after the write: appended as built now, with no compare.
+     *  The value is the writer's word that the write removed the record. */
+    uncompared: ReadonlyMap<string, boolean> = new Map(),
   ): Promise<StagedRow[]> {
     if (named.length === 0) return []
     const after = await this.buildRecords(named)
@@ -728,7 +729,10 @@ export class Authority implements AuthorityPort {
       const was = before.get(key)
       const now = after.get(key)
       if (now === undefined) {
-        if (was === undefined || uncompared.has(key)) continue
+        // Gone: a remove, when it was there before the write, or when a writer
+        // that named it after the write says the write removed it.
+        const removed = uncompared.has(key) ? uncompared.get(key) === true : was !== undefined
+        if (!removed) continue
         const [spec] = stampProvenance([{ ...record, op: 'remove' }], ambient)
         rows.push({ spec: spec as StagedChangeSpec, payload: null })
         continue

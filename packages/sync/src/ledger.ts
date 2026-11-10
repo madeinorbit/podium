@@ -109,6 +109,10 @@ export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string
  *  `AffectedRecord` (POD-6769). */
 export type AffectedRecordSpec = Omit<EntityChangeSpec, 'op' | 'value'>
 
+/** One record a write says it wrote, named after the write; `removed` is the
+ *  writer's word that the write took it away: see `WrittenRecord`. */
+export type WrittenRecordSpec = AffectedRecordSpec & { readonly removed?: boolean }
+
 /** A commit's named records: a list, or a read run inside the transaction
  *  before the first build, when the writer must read to know them. */
 export type AffectedRecordsOf =
@@ -239,7 +243,7 @@ export interface LedgerCommitOp<T> {
   creates?: (result: T) => readonly AffectedRecordSpec[] | Promise<readonly AffectedRecordSpec[]>
   /** Records named after the write, for the closed list of kinds that allows
    *  it: see `AuthorityCommit.wrote`. */
-  wrote?: (result: T) => readonly AffectedRecordSpec[] | Promise<readonly AffectedRecordSpec[]>
+  wrote?: (result: T) => readonly WrittenRecordSpec[] | Promise<readonly WrittenRecordSpec[]>
   /** The declared changes of kinds that have not moved to compare at save. */
   changes?: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */

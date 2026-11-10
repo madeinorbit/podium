@@ -89,6 +89,7 @@ import {
   issueBodiesOfRow,
   issueDepToProjection,
   slimIssueProjectionOfRow,
+  repoProjectionRows,
 } from '../modules/issues/projection'
 import { storedMachineRecordFacts } from '../modules/machines/record-facts'
 import { machineRecordSpecs } from '../modules/machines/records'
@@ -114,6 +115,7 @@ export interface RecordReads {
   readonly store: Pick<
     SessionStore,
     | 'issues'
+    | 'repos'
     | 'sessions'
     | 'users'
     | 'shipping'
@@ -242,6 +244,26 @@ const machineAccess: Builder = {
         ),
       )
   },
+}
+
+// ---------------------------------------------------------------------------
+// Repos
+// ---------------------------------------------------------------------------
+
+/**
+ * The LOGICAL repo: several machine checkouts fold into one record (its
+ * prefix, base branch, chosen path and name), by the fold its publisher uses,
+ * `repoProjectionRows`. The registry is a handful of rows, so "these ids"
+ * reads it whole and filters.
+ */
+const repo: Builder = {
+  kind: 'repo',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    const asked = new Set(ids)
+    return repoProjectionRows(await store.repos.listRepos()).filter((row) => asked.has(row.id))
+  },
+  streamAll: ({ store }) => pagesOf(store.repos.listRepos().then(repoProjectionRows)),
 }
 
 // ---------------------------------------------------------------------------
@@ -901,6 +923,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   issueGitState,
   machine,
   machineAccess,
+  repo,
   issueProjection,
   issueBodies,
   ...ISSUE_PANEL_KINDS.map((kind): Builder => ({

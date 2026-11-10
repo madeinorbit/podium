@@ -236,13 +236,14 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const deleting = await svc.crud.prepareSoftDelete(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
+        affects: deleting.affects,
         write: deleting.write,
         changes: deleting.changes,
       })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.map((c) => c.entity)).toEqual(
-        expect.arrayContaining(['issueProjection', 'issueGitState', 'issueUserState']),
-      )
+      // The issue's own record and its git observation changed. The member's
+      // personal record is named too and did not change, so it is not appended.
+      expect(appended[0]?.map((c) => c.entity).sort()).toEqual(['issueGitState', 'issueProjection'])
       const projection = appended[0]?.find((c) => c.entity === 'issueProjection')
       expect(projection).toMatchObject({
         value: {
@@ -255,13 +256,12 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const restoring = await svc.crud.prepareRestore(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
+        affects: restoring.affects,
         write: restoring.write,
         changes: restoring.changes,
       })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.map((c) => c.entity)).toEqual(
-        expect.arrayContaining(['issueProjection', 'issueGitState', 'issueUserState']),
-      )
+      expect(appended[0]?.map((c) => c.entity).sort()).toEqual(['issueGitState', 'issueProjection'])
       expect(appended[0]?.find((c) => c.entity === 'issueProjection')).toMatchObject({
         value: { revision: (await store.issues.getIssue(issue.id))?.revision },
       })

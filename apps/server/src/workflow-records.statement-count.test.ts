@@ -245,7 +245,8 @@ describe('statement counts of the profile, workflow and subscription records', (
           `profile-${n}`,
         ),
       ),
-      11,
+      // POD-6769: the profile is built before and after the write (11 -> 12).
+      12,
     )
   })
 
@@ -256,12 +257,15 @@ describe('statement counts of the profile, workflow and subscription records', (
           'records.subscription.edit',
           {
             id: subscriptionRowId('session', f.session, 'sub_mine'),
-            patch: { enabled: n % 2 === 0 },
+            // Every fixture's subscription starts enabled, so this is a real
+            // change on each: a toggle that changes nothing appends nothing
+            // and would run fewer statements (compare at save, POD-6769).
+            patch: { enabled: false },
           },
           `sub-${n}`,
         ),
       ),
-      12,
+      14,
     )
   })
 
@@ -274,7 +278,9 @@ describe('statement counts of the profile, workflow and subscription records', (
           `bind-${n}`,
         ),
       ),
-      20,
+      // POD-6769: a workflow record is named after the write and built once,
+      // with no read of the stored copy (20 -> 19).
+      19,
     )
   })
 

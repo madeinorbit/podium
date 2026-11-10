@@ -1046,32 +1046,25 @@ export class IssueStore {
    * stamped with the causing command's provenance like every other synced write,
    * and the store write and its change rows commit or roll back together.
    *
-   * The declaration is still the full O(repos) truth, so nothing has to know
-   * which logical repo a checkout write touches: every row is declared as an
-   * upsert (the ledger's dedup drops the unchanged ones), and a logical repo
-   * that was there before the write and is gone after it is declared removed.
+   * The commit still covers the full O(repos) truth, so nothing has to know
+   * which logical repo a checkout write touches.
    */
   async commitRepoWrite<T>(writer: IssueWriter, write: () => Promise<T>): Promise<T> {
+    // Every logical repo is named before the write, and the set again after it
+    // for one the write created (compare at save, POD-6769): the Authority
+    // builds each both times, appends the ones that differ and removes one
+    // that is gone. O(repos), a handful of rows.
+    const repoRecords = async (): Promise<AffectedRecordSpec[]> =>
+      repoProjectionRows(await this.deps.store.repos.listRepos()).map((r) => ({
+        entity: 'repo' as const,
+        id: r.id,
+      }))
     const { result } = await this.arbitrated(writer).commit({
-      write: async () => {
-        const before = repoProjectionRows(await this.deps.store.repos.listRepos())
-        return { value: await write(), before: new Set<string>(before.map((r) => r.id)) }
-      },
-      changes: async ({ before }) => {
-        const after = repoProjectionRows(await this.deps.store.repos.listRepos())
-        const listed = new Set<string>(after.map((r) => r.id))
-        const specs: EntityChangeSpec[] = after.map((r) => ({
-          entity: 'repo',
-          id: r.id,
-          op: 'upsert',
-          value: r.value,
-        }))
-        for (const id of before)
-          if (!listed.has(id)) specs.push({ entity: 'repo', id, op: 'remove' })
-        return specs
-      },
+      affects: repoRecords,
+      write: async () => await write(),
+      creates: repoRecords,
     })
-    return result.value
+    return result
   }
 
   /** Reconcile own rows and companions at boot or after a hard delete. */

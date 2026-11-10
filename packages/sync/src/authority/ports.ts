@@ -145,6 +145,14 @@ export interface ProvenancePort {
 export type AffectedRecord = Pick<StagedChangeSpec, 'entity' | 'entityId'> & ChangeProvenanceFields
 
 /**
+ * One record a write says it wrote, named AFTER the write
+ * ({@link AuthorityCommit.wrote}). `removed` is the writer's word that this
+ * write took the record away (a tombstone): when the build then finds no
+ * record, a remove is appended. Without it a missing record appends nothing.
+ */
+export type WrittenRecord = AffectedRecord & { readonly removed?: boolean }
+
+/**
  * RECORDS AS THE DATABASE HOLDS THEM NOW, for compare at save (POD-6253 design
  * §3, POD-6769).
  *
@@ -406,11 +414,12 @@ export interface AuthorityCommit<T> {
    * wrote. There is no build before the write, so nothing is compared: each is
    * built once, after it, and appended as it is now. A write that changed
    * nothing therefore costs one redundant row, which is why the list is closed
-   * and short. A record that is not there appends nothing (these kinds are not
-   * deleted). A record also named in {@link affects} or {@link creates} is
+   * and short. A record that is not there appends nothing, unless the writer
+   * says it removed it ({@link WrittenRecord.removed}): then its remove is
+   * appended. A record also named in {@link affects} or {@link creates} is
    * handled as named there. Any other kind here is refused.
    */
-  wrote?: (result: T) => readonly AffectedRecord[] | Promise<readonly AffectedRecord[]>
+  wrote?: (result: T) => readonly WrittenRecord[] | Promise<readonly WrittenRecord[]>
   /**
    * What the write touched, declared by the writer, for kinds that have not
    * moved to compare at save. Never diffed from a list. A spec of a moved kind

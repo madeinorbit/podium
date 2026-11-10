@@ -328,6 +328,28 @@ describe('records named after the write', () => {
     expect(w.builds).toEqual([{ kind: 'workflowRun', ids: ['r1', 'r2', 'gone'] }])
   })
 
+  it('appends a remove only when the writer says the write removed the record', async () => {
+    const w = world()
+    const changes = await committed(
+      w.authority.commit({
+        write: async () => undefined,
+        wrote: () => [run('never-there'), { ...run('tombstoned'), removed: true }],
+      }),
+    )
+    expect(changes).toEqual([
+      { seq: 1, entity: 'workflowRun', entityId: 'tombstoned', op: 'remove' },
+    ])
+  })
+
+  it('a write that names nothing appends nothing and builds nothing', async () => {
+    const w = world()
+    const changes = await committed(
+      w.authority.commit({ write: async () => undefined, wrote: () => [] }),
+    )
+    expect(changes).toEqual([])
+    expect(w.builds).toEqual([])
+  })
+
   it('a record also named before the write is compared, not repeated', async () => {
     const w = world()
     w.set('workflowRun', 'r1', { status: 'active' })

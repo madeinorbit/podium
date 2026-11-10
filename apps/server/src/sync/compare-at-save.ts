@@ -50,6 +50,8 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'automationRun',
   'subscription',
   'instancePreferences',
+  'checkout',
+  'repo',
   'issueProjection',
   'issueBodies',
   'issueUserState',
@@ -58,23 +60,35 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'workflowRevision',
   'workflowBinding',
   'workflowRun',
+  'effect',
+  'superagentThread',
 ]
 
 /**
  * THE CLOSED LIST of kinds whose writer names its records AFTER the write
- * (`wrote` on the commit; coordinator decision of 2026-11-10 on POD-6769). A
- * workflow operation learns which records it wrote while it runs, so it cannot
- * name them first. Such a record is built once, after the write, and appended
- * as it is, with no compare: a write that changed nothing costs one redundant
- * row. That is acceptable for workflows and for nothing chatty, so this list
- * does not grow without a decision. The Authority refuses `wrote` for every
- * other kind.
+ * (`wrote` on the commit; coordinator decisions of 2026-11-10 on POD-6769).
+ * Such a record is built once, after the write, and appended as it is, with no
+ * compare, so a named record that did not change costs one redundant row. The
+ * list does not grow without a decision, and the Authority refuses `wrote` for
+ * every other kind.
+ *
+ *  - The four workflow kinds: a workflow operation learns which records it
+ *    wrote while it runs, so it cannot name them first. An operation that
+ *    touches a record without changing it logs it again; workflows are not
+ *    chatty.
+ *  - `effect` and `superagentThread`: each is written through one repository
+ *    funnel whose statements RETURN the rows they changed, so the named set is
+ *    exactly the changed set. A write that changes nothing returns no row and
+ *    logs nothing; each kind has a test for that (the scan bug of 2026-11-09
+ *    was an effect row rewritten on every poll).
  */
 export const NAMED_AFTER_WRITE_KINDS: readonly MetadataEntityKind[] = [
   'workflow',
   'workflowRevision',
   'workflowBinding',
   'workflowRun',
+  'effect',
+  'superagentThread',
 ]
 
 /**
