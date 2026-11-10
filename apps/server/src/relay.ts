@@ -1210,10 +1210,12 @@ export class SessionRegistry {
     this.configChangedBridge = bridgeConfigChanged(this.bus)
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
-      // Server-originated preference writes publish the person's record (POD-6673).
+      // The chat routing value is observed from Telegram, not supplied by the
+      // caller. Its server-owned projection also follows an online disconnect.
       // Read per call: the write contexts are built after this service.
       preferenceWriter: {
-        commit: async (op) => await this.writes.system('settings.preferences').commit(op),
+        commit: async (op) =>
+          await asSystemWrite(async () => await this.writes.system('settings.preferences').commit(op)),
       },
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.

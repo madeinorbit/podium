@@ -291,6 +291,35 @@ describe('member Telegram disconnect', () => {
       failure.mockRestore()
     }
   })
+
+  it('rolls back a new binding if its synced route cannot be saved', async () => {
+    const { call, store, alice } = await connected()
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    const failure = vi
+      .spyOn(store.settings, 'applyPreferencePatch')
+      .mockRejectedValueOnce(new Error('preference write failed'))
+    try {
+      await expect(call.settings.telegramSetupPoll({ setupId: setup.setupId })).rejects.toThrow(
+        'preference write failed',
+      )
+      expect((await store.telegramBindings.listForUser(alice)).map((row) => row.chatId).sort()).toEqual([
+        '111',
+        '222',
+      ])
+      expect((await store.settings.getSettingsFor(alice)).notifications.telegramChatId).toBe('222')
+      expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
+        status: 'connected',
+        chatId: '444',
+      })
+    } finally {
+      failure.mockRestore()
+    }
+  })
 })
 
 describe('the derived settings router WRITES the trail', () => {

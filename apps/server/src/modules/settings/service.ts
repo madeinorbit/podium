@@ -692,25 +692,44 @@ export class SettingsService {
   async disconnectTelegram(actor: UserId): Promise<void> {
     if (!this.preferenceWriter)
       throw new Error('Telegram disconnect requires the preference writer')
-    const previous = await this.store.getSettingsFor(actor)
-    const { result: next } = await this.preferenceWriter.commit({
-      write: async () => {
-        await this.telegramBindings.removeForUser(actor)
-        const settings = await this.store.applyPreferencePatch(
-          actor,
-          {
-            'notifications.telegramChatId': '',
-          },
-          new Date(this.now()).toISOString(),
-        )
-        return { settings, record: await this.store.preferenceRecordFor(actor) }
-      },
-      changes: ({ record }) => [userPreferencesChange(record)],
-    })
+    const { previous, next } = await this.writeTelegramRoute(
+      actor,
+      '',
+      async () => await this.telegramBindings.removeForUser(actor),
+    )
     for (const [id, setup] of this.telegramSetups) {
       if (setup.mint.userId === actor) this.telegramSetups.delete(id)
     }
-    await this.emitSettingsChanged(previous, next.settings, actor)
+    await this.emitSettingsChanged(previous, next, actor)
+  }
+
+  /** The authenticated binding and the outgoing notification route change together. */
+  private async writeTelegramRoute(
+    actor: UserId,
+    chatId: string,
+    writeBinding: () => Promise<void>,
+  ): Promise<{ previous: PodiumSettings; next: PodiumSettings }> {
+    const previous = await this.store.getSettingsFor(actor)
+    const write = async () => {
+      await writeBinding()
+      return await this.store.applyPreferencePatch(
+        actor,
+        { 'notifications.telegramChatId': chatId },
+        this.nowIso(),
+      )
+    }
+    const next = this.preferenceWriter
+      ? (
+          await this.preferenceWriter.commit({
+            write: async () => {
+              const settings = await write()
+              return { settings, record: await this.store.preferenceRecordFor(actor) }
+            },
+            changes: ({ record }) => [userPreferencesChange(record)],
+          })
+        ).result.settings
+      : await write()
+    return { previous, next }
   }
 
   /**
@@ -831,24 +850,15 @@ export class SettingsService {
       this.telegramSetups.delete(setupId)
       return { status: 'expired' }
     }
-    await this.telegramBindings.upsert(binding)
-
-    // The INBOUND half is the binding above. This write is the OUTBOUND routing
-    // address — a different fact on a different row (`preferences-personal`) —
-    // and POD-1213 made it PER-USER, which is what ADR 9 D8 S3 asked for and
-    // POD-1080 recorded as still outstanding.
-    //
-    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The caller
-    // must own the setup above, and naming the mint's user keeps ownership inside
-    // the ceremony: the whole mechanism of D22.1 is
-    // that identity is captured at MINT time on an authenticated transport, and a
-    // routing address derived from whoever happened to poll would be a second,
-    // weaker answer sitting beside it. Both halves of the ceremony now name one
-    // user, from one place.
-    const next = await this.updatePreferences(setup.mint.userId, {
-      'notifications.telegramChatId': chatId,
-    })
+    // The inbound binding and outgoing routing preference both belong to the
+    // user captured by the mint. The observed chat id never comes from the caller.
+    const { previous, next } = await this.writeTelegramRoute(
+      setup.mint.userId,
+      chatId,
+      async () => await this.telegramBindings.upsert(binding),
+    )
     this.telegramSetups.delete(setupId)
+    await this.emitSettingsChanged(previous, next, setup.mint.userId)
     await this.telegramSetup.sendMessage(
       { botToken, chatId },
       'Telegram notifications are connected to Podium.',
