@@ -133,6 +133,10 @@ export function SettingsFrame({
   children: ReactNode
 }) {
   const definition = settingsPage(page)
+  const description =
+    page === 'members' && !viewer.sections.includes('people')
+      ? 'People who can sign in to this workspace.'
+      : definition.description
   const groups = visibleSettingsGroups(SETTINGS_GROUPS, viewer.sections)
   const pages = groups.flatMap((group) => group.tabs)
   const [query, setQuery] = useState('')
@@ -436,7 +440,7 @@ export function SettingsFrame({
                             </span>
                           )}
                         </h3>
-                        <p className="settings-prose mt-1.5">{definition.description}</p>
+                        <p className="settings-prose mt-1.5">{description}</p>
                       </div>
                       <div ref={setActionSlot} className="settings-page-actions" />
                     </header>
