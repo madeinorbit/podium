@@ -1,6 +1,6 @@
 # Sign-in carry-over: design
 
-Status: written for review by the coordinator of PDM-107. Not approved yet. Nothing in it is built.
+Status: reviewed and approved by the coordinator of PDM-107 on 2026-11-10. The open questions of section 13 are decided as recommended, each with its state there. Nothing in it is built.
 It is the contract for POD-6751 (Sign-in carry-over) and binds POD-6746, POD-6747, POD-6748, POD-6750 and POD-6752 where section 8 says so.
 
 | Written against | Commit |
@@ -281,13 +281,13 @@ Must not: rewrite `expires_at`; delete expired rows of the three labels (harmles
 - **POD-6747 People and invitations** and **POD-6745** (`MemberRows.write`) need no change. POD-6751 adds the calls of R16 into their files afterwards.
 - None of the three lists old sign-ins anywhere. The device list and the Access screen show device sign-ins only (section 13, question 4).
 
-**A release rule for the coordinator.** POD-6746 to POD-6750 must not reach any build that people run, `dev/mw` included, without POD-6751. A server that runs them without the carry-over signs every browser out. If that happens anyway, nothing is lost for good: the old rows stay, and a later build with the carry-over carries those that have not expired.
+**The release rule (accepted by the coordinator, 2026-11-10).** POD-6746 to POD-6750 must not reach any build that people run, `dev/mw` included, without POD-6751. A server that runs them without the carry-over signs every browser out. If that happens anyway, nothing is lost for good: the old rows stay, and a later build with the carry-over carries those that have not expired.
 
 ### 8.3 POD-6752 Hand-written sign-in removal
 
 May drop in its own change, with no regard to the carry-over: `user_credentials`, `member_invites`, `POST /auth/users`, the unused handshake strategies, `packages/runtime/src/session-mint.ts` except what reads an old-form cache file, and everything else specification section 9 gives it.
 
-Must **not** drop yet, and must schedule with one `LEGACY(remove-after: …)` line each, all with the same date:
+Must **not** drop yet, and must schedule with one `LEGACY(remove-after: 2027-06)` line each:
 
 - the table `client_sessions` and its definition;
 - the table `carried_sign_ins`;
@@ -440,7 +440,7 @@ One route can now write on a `GET`. It writes only for a token that matches an u
 
 ## 12. Where this document differs from the specification and the briefs
 
-For the coordinator. None changes a goal.
+All accepted by the coordinator on 2026-11-10 and recorded in the specification's section 16 (rows 20 to 26); the specification's sections 2.6, 6, 8.5, 9, 13.2 and 14 were changed to agree. The table shows the specification as it was before. None changes a goal.
 
 | # | Specification or brief | This document | Why |
 |---|---|---|---|
@@ -448,7 +448,7 @@ For the coordinator. None changes a goal.
 | 2 | Specification 6: "`mobile` … If not [carried], the phone pairs again" | A `mobile` sign-in held as a cookie is carried; one held as a bearer is not | section 6.2 |
 | 3 | The package's operations as listed in specification 2.6 | One more read, `memberships.accountOfActiveMember(memberId)` | The carry needs the account of one member; `list()` reads every membership |
 | 4 | Files owned by POD-6745, POD-6746, POD-6747 and POD-6748 (specification 14) | POD-6751 adds one call each to `auth-route.ts`, `member-routes.ts`, `MemberRows.write` and `control-socket.ts`, after those tasks have landed | R16, R17, R18 |
-| 5 | Specification 14 names no owner for the desktop shell | The shell copies the cookie named `podium_session` when the window follows a moved server (`main.rs`, `bootstrap.rs`). After the upgrade the sign-in is in a cookie of another name, so the copy finds nothing and the person signs in at the new address. This is not a carry-over matter and is not built by POD-6751. It needs an owner; POD-6748 ("the matching client code") is the natural one | found while reading; reported by mail |
+| 5 | Specification 14 names no owner for the desktop shell | The shell copies the cookie named `podium_session` when the window follows a moved server (`main.rs`, `bootstrap.rs`). After the upgrade the sign-in is in a cookie of another name, so the copy finds nothing and the person signs in at the new address. This is not a carry-over matter and is not built by POD-6751. The coordinator gave it to POD-6748 | found while reading |
 | 6 | Specification 9: POD-6752 drops `SESSION_COOKIE` and `client_sessions` "when the carry-over's leftover period has passed, otherwise scheduled with a date" | Always scheduled with a date. The period is per server, so no release can know it has passed everywhere | section 8.3 |
 | 7 | Specification 13.2: an old cookie is honoured "until its original expiry, for an active membership, once" | The same, plus two limits it did not name: 30 days after the upgrade, and the ten-minute repeat | sections 4.3, 7 |
 | 8 | Brief: "the old row deleted" on exchange | Deleted, and for ten minutes a record keyed by the old token's hash remains | section 4.4 |
@@ -457,6 +457,8 @@ For the coordinator. None changes a goal.
 ## 13. Open questions, each with a recommendation
 
 The document is written to the recommendation in every case. The place to change is named.
+
+State after the coordinator's review of 2026-11-10: questions 1 to 7 are **decided as recommended**. On question 3 the security review (POD-6754) may still narrow the rule to no `mobile` row at all. Question 5: the date is `2027-06`. Question 8 follows the user's answer on plain HTTP and is the only one still open.
 
 1. **The ten-minute repeat.** Strictly, "once" could mean one answer and nothing after it. Then a second tab that asks at the same moment, and a browser whose answer was lost, show the sign-in form, and the user's requirement is not met for them. **Recommendation: keep the repeat.** It creates no second sign-in, it needs the old token, and it ends by itself. The strict form is sections 4.3 and 4.4 deleted, with tests 5 and 7 turned into "one answer signs in, the others do not".
 2. **A `break-glass` sign-in on a server with several members.** A new host session is refused there. **Recommendation: carry the old one.** It keeps its fixed expiry and its authority is the one it has today; refusing it would cut the host's `podium` command off at the upgrade with no way to get a new session. The other choice is one more condition in step 2 of section 4.2.

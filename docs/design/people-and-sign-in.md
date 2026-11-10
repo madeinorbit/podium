@@ -1,6 +1,7 @@
 # People and sign-in: specification
 
 Status: reviewed and accepted by the coordinator of PDM-107 on 2026-11-10, with one change that is made in this text (section 16, row 19). Nothing in it is built.
+Amended the same day by the approved sign-in carry-over design, `docs/design/sign-in-carry-over.md` (section 16, rows 20 to 26); the changed places are sections 2.6, 6, 8.5, 9, 13.2 and 14.
 It is the detailed reference for every task under "Shared sign-in core" (PDM-513). Where a task brief and this document disagree, the difference is listed in section 16 for the coordinator.
 
 | Written against | Commit |
@@ -513,6 +514,8 @@ export interface MembershipOperations {
   remove(input: { actor: Actor; memberId: string }): Promise<void>
   /** Cloud: every live membership of this account in the given workspaces becomes removed. */
   endForAccount(input: { accountId: string; workspaceIds: string[] | 'all'; by: 'organisation' | 'account-deleted' }): Promise<void>
+  /** The account of a member whose membership here is active. One statement by primary key. Added for the sign-in carry-over (POD-6751). */
+  accountOfActiveMember(memberId: string): Promise<string | undefined>
 }
 
 export type Actor = { memberId: string } | { system: 'host' | 'setup' | 'organisation' | 'upgrade' }
@@ -928,7 +931,7 @@ git grep -nE "INSERT (OR REPLACE )?INTO client_sessions" f92564c0d7 -- apps pack
 | Label | Written today by | Future form | Old rows at upgrade |
 |---|---|---|---|
 | `login` | `POST /auth/login` (cookie), `POST /auth/server-transfer-claim` | a device sign-in of kind `browser` or `desktop`, 30 days, renewing | left in place for the carry-over (section 8.5) |
-| `mobile` | `POST /auth/login` with native delivery, `POST /auth/mobile-pair/complete` | a device sign-in of kind `phone`, 30 days, renewing, bearer or cookie | left in place; whether they are carried over is the carry-over design's choice (POD-6755). If not, the phone pairs again and the app says so |
+| `mobile` | `POST /auth/login` with native delivery, `POST /auth/mobile-pair/complete` | a device sign-in of kind `phone`, 30 days, renewing, bearer or cookie | left in place. One held as a cookie is carried over; one held as a bearer is not, so that phone pairs again and the app says so (`sign-in-carry-over.md`, section 6.2) |
 | `break-glass` | `podium auth mint-session`, by a direct insert from `packages/runtime/src/session-mint.ts` | a device sign-in of kind `host` with a fixed expiry, made by redeeming a `host-sign-in` code from the control socket | left in place for the carry-over |
 | `upstream` | nothing. The node-to-hub link is retired (`upstream-retirement.ts`); no code writes or accepts this label | none | deleted by the upgrade (POD-6750): `delete from client_sessions where label = 'upstream'`, with the count in the boot log. The rows carry a member id and a ten-year expiry and must never be honoured by the carry-over |
 | `server-transfer-claim` | the server-move coordinator (`relay.ts`, `prepareClientRelocations`) | no device sign-in: a `transfer-claim` code, 10 minutes, redeemed on the moved server | deleted by the upgrade. A server move does not span an upgrade |
@@ -1023,13 +1026,14 @@ Expired rows are not carried.
 
 ### 8.5 What the sign-in carry-over needs left in place
 
-The carry-over is designed by POD-6755 and built by POD-6751. Until POD-6752 the following stays exactly as it is, and POD-6748 and POD-6750 must not remove or change it:
+The carry-over is designed in `docs/design/sign-in-carry-over.md` (POD-6755, approved by the coordinator on 2026-11-10) and built by POD-6751. Its section 8 is the full list of what each task leaves and may drop; this table agrees with it. Until POD-6752 the following stays exactly as it is, and POD-6748 and POD-6750 must not remove or change it:
 
 | Kept | Why |
 |---|---|
 | The table `client_sessions` with all its columns and indexes | the old sign-ins |
 | Every row with label `login`, `mobile` or `break-glass`, unchanged, including its original `expires_at` | the carry-over honours a sign-in only until its original expiry |
-| `hashToken` and the reads `getClientSession(tokenHash)` and `deleteClientSession(tokenHash)` of `AuthRepository` | to recognise an old token and to use it once |
+| The table definition `clientSessions` in `apps/server/src/migrations/schema.ts` | the carry-over brings its own statements on it. `hashToken`, `getClientSession` and `deleteClientSession` need not be kept: an old sign-in is consumed by one `delete … returning` (`sign-in-carry-over.md`, section 4.2) |
+| An old-form `cli-session.json`, unread and undeleted when the `podium` command finds one | the host's cached session is carried over once |
 | The old cookie name `podium_session` (`SESSION_COOKIE` in `@podium/protocol`) as a constant | old browsers still send it. New sign-ins never use this name (section 2.3), so the two cannot be confused |
 | Member ids unchanged, and for every member with an old sign-in a membership that names an account | the carry-over turns "old sign-in of member M" into "device sign-in of M's account" |
 | `user_credentials` and `member_invites`, unread | rollback (section 8.4) |
@@ -1045,10 +1049,11 @@ What changes under the carry-over's feet, and is allowed: the upgrade deletes th
 | `clientAuthGuard`'s credential logic, `resolveClientCredential`, `maintainClientCredentialByHash`, `perRequestCredential`, `requestUserId`, `isRequestAuthed`, `resolveLoginIdentifier`, the login throttle map in `auth-route.ts` | POD-6746 (the guard and the routes stay, on the package) |
 | `startServer` options `sendMemberInviteMail`, `sendMemberRecoveryMail` | POD-6746 |
 | `MemberInvites` (`member-invites.ts`); `GET /auth/members/recovery-options`; `POST /auth/members/reset-request`; `UsersRepository.setRole`, `disable`, `enable`, `removeMember`, `signOutEverywhere`, `recoverPassword`, `createUnclaimed`, `attachAccount`, `writeProfile`, `setEmail` and the invite methods, replaced by the one `MemberRows.write` | POD-6747 (the store methods when their last caller goes; `MemberRows.write` itself is added by POD-6745) |
-| `MobilePairingManager` (`mobile-pairing.ts`); `UsersRepository.revokeSignIn`; the writes of `AuthRepository` (`createClientSession`, `extendClientSession`, `touchClientSession`, `deleteOwnedSignIn`, the list methods); the direct insert in `packages/runtime/src/session-mint.ts`; `ClientSessionLabel` | POD-6748. It keeps the reads section 8.5 names |
+| `MobilePairingManager` (`mobile-pairing.ts`); `UsersRepository.revokeSignIn`; the writes of `AuthRepository` (`createClientSession`, `extendClientSession`, `touchClientSession`, `deleteOwnedSignIn`, the list methods); the direct insert in `packages/runtime/src/session-mint.ts`; `ClientSessionLabel` | POD-6748. It keeps what section 8.5 names, and may delete every method of `AuthRepository` |
 | In clients: every branch on `mode === 'cloud'` and on `signInUrl`; `mailAvailable`; the label names in the Access screen | POD-6749 |
 | The `upstream` and `server-transfer-claim` rows of `client_sessions` | POD-6750 |
-| `POST /auth/users`; the rest of `store/auth.ts`; `SESSION_COOKIE`; `packages/runtime/src/session-mint.ts`; the tables `user_credentials` and `member_invites`; `client_sessions` when the carry-over's leftover period has passed, otherwise scheduled with a date | POD-6752 |
+| `POST /auth/users`; the rest of `store/auth.ts`; `packages/runtime/src/session-mint.ts` except what reads an old-form cache file; the tables `user_credentials` and `member_invites` | POD-6752 |
+| `client_sessions`, `carried_sign_ins`, `SESSION_COOKIE`, the carry-over module and its calls, the old-form cache reading of the `podium` command | not in this release. POD-6752 marks each with `LEGACY(remove-after: 2027-06)`; the removal after that date is one later change (`sign-in-carry-over.md`, section 8.3) |
 | podium-cloud: `packages/platform/src/auth.ts` as the owner of the sign-in configuration, `principal.ts`, `principal-store.ts`, `installWorkspaceAuth`, the table `workspace_invitation`, `createMemberForAccount` at request time, the cloud-mode assertion | PDM-495 |
 | podium-cloud: `packages/platform/src/handoff.ts`, the table `handoff`, the `desktop-handoff` rows in `verification`; the workspace-invitation controls on the organisation page | PDM-510 |
 
@@ -1246,7 +1251,7 @@ All are stored only as hashes (section 1.6). A link carries its token in the URL
 
 - A cookie of a device that signed out, was revoked, or whose account reset its password: the row is gone; the cookie resolves to nobody.
 - A cookie of a disabled or removed member: self-hosted, the sign-in was deleted with the change; hosted, the cookie still names an account and `resolve` answers `not-a-member` for the workspace on the next request, with open sockets closed within 15 seconds.
-- A cookie from before the upgrade (`podium_session`): it is not a credential of the package. Whatever it still opens is decided, bounded and tested by the carry-over (POD-6755, POD-6751): until its original expiry, for an active membership, once.
+- A cookie from before the upgrade (`podium_session`): it is not a credential of the package. Whatever it still opens is decided, bounded and tested by the carry-over (`sign-in-carry-over.md`, POD-6751): only at `GET /auth/status`, until its original expiry and at most 30 days after the upgrade, for an active membership, for one device sign-in. For ten minutes after that the same cookie gets the same answer again and creates nothing.
 - A copy of the database, old or new: it holds hashes of tokens, invitation tokens and codes, password hashes and the signing secret. None of it signs anyone in. The password hashes can be attacked offline, as today.
 - A stolen live cookie works until it expires or is ended. An admin's role and credential changes still ask for the current password, so a stolen cookie alone cannot promote, disable, remove or reset anyone (POD-6298, kept).
 
@@ -1288,10 +1293,10 @@ In the cloud the per-identifier counter is per process, so an attacker who reach
 | 1.3, 1.4, 1.5 (invitation), 1.8; 2.5 (the membership part of `resolve`, `revalidate`, the same-machine statement); 2.6; 10 (cases 14 to 23) | POD-6745 Memberships and invitations | `packages/identity/src/membership/**`; the server migration for the membership tables and `users.membership_version`; `MemberRows.write` in `apps/server/src/store/users.ts`; in podium-cloud one platform migration |
 | 3 (open-source side); 4.1 except the transfer claim; 4.6; 5; 7; the signing secret at boot; the hourly `sweep` | POD-6746 Server sign-in path | `auth-route.ts`, `plugin-auth.ts`, `plugins.ts`, the credential resolution in `server.ts`, the gateway's client authentication, `first-admin-password.ts`, the `auth.*` and setup parts of `modules/instance/`, `test-support/two-member-instance.ts` |
 | 4.2; 4.3 except the sign-in routes; 4.5 rows 1 to 3 | POD-6747 People and invitations | `member-routes.ts`, `admin-routes.ts`, `member-invites.ts`, the three recovery routes of `control-socket.ts`, the `recovery-link` part of `apps/cli/src/auth-cli.ts` |
-| 4.1 transfer claim; 4.3 sign-in routes; 4.4; 4.5 rows 4 and 5; 6 | POD-6748 Devices and pairing | `mobile-pairing.ts`, `mobile-pairing-route.ts`, new `sign-in-routes.ts`, the client-session parts of `store/auth.ts`, the transfer-claim route and `prepareClientRelocations` in `relay.ts`, the host-session routes of `control-socket.ts`, `packages/runtime/src/session-mint.ts`, the rest of `apps/cli/src/auth-cli.ts`, `packages/protocol/src/pairing.ts`, the matching client code |
+| 4.1 transfer claim; 4.3 sign-in routes; 4.4; 4.5 rows 4 and 5; 6 | POD-6748 Devices and pairing | `mobile-pairing.ts`, `mobile-pairing-route.ts`, new `sign-in-routes.ts`, the client-session parts of `store/auth.ts`, the transfer-claim route and `prepareClientRelocations` in `relay.ts`, the host-session routes of `control-socket.ts`, `packages/runtime/src/session-mint.ts`, the rest of `apps/cli/src/auth-cli.ts`, `packages/protocol/src/pairing.ts`, the matching client code, and the desktop shell's copy of the sign-in cookie when the window follows a moved server (`retarget_session_cookie` in `apps/desktop/src-tauri/src/main.rs`, `session_cookie_for_target` in `bootstrap.rs`), which must copy the new cookie names |
 | 2.9 as read by clients; 7.3 | POD-6749 Capability-driven screens | `apps/web` LoginGate, InviteView, settings People and Access, connected devices; the matching phone and desktop views; `packages/client-core/src/accounts/auth.ts` |
 | 8.1 to 8.4; the deletions of section 6 | POD-6750 Existing server upgrade | `ensureLocalIdentity` in `apps/server`, its fixtures and rehearsal |
-| 8.5 as a contract; its own document | POD-6755 Sign-in carry-over design, POD-6751 Sign-in carry-over | `docs/design/sign-in-carry-over.md`, then what that document names |
+| 8.5 as a contract; its own document | POD-6755 Sign-in carry-over design, POD-6751 Sign-in carry-over | `docs/design/sign-in-carry-over.md`, then what its section 9 names: `apps/server/src/sign-in-carry-over.ts`, `apps/server/src/store/sign-in-carry-over.ts`, the migration for `carried_sign_ins`, `memberships.accountOfActiveMember` in the package, and one call each in `auth-route.ts`, `member-routes.ts`, `MemberRows.write` and `control-socket.ts` after their owners have landed |
 | 9 | POD-6752 Hand-written sign-in removal | what section 9 lists for it |
 | 3 (cloud side); the cloud configuration of 2.1; the Postgres leg from then on; memberships from existing cloud rows | PDM-495 Cloud memberships | podium-cloud `packages/platform`, `apps/hosted-server` |
 | 11 | PDM-509 Membership apply and revocation | podium-cloud, and the timer and cursor in `apps/server` behind the seam |
@@ -1355,6 +1360,13 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 17 | PDM-509: a podium-cloud task | The timer and the cursor are open-source code behind the seam | The server calls `catchUp`; podium-cloud cannot reach into it |
 | 18 | PDM-510 | Also removes `handoff.ts` and its table (section 12) | The hand-over becomes the shared code |
 | 19 | PDM-510: "Alice ends one of Bob's device sign-ins; that device is signed out, his other one is not", and "the device list and single sign-out reach the cloud device sign-ins" for an admin | Overridden. In a hosted workspace an admin ends no device sign-in of another person (`adminEndDeviceSignIn` is false); the Access screen lists them read-only. A person ends their own on their account page. POD-6748's line "An admin can end a single sign-in of Bob's" holds for a self-hosted server only | Coordinator's decision on review, 2026-11-10: those sign-ins belong to the person's cloud account and serve their other workspaces |
+| 20 | Section 8.5 as first written: POD-6748 keeps `hashToken`, `getClientSession` and `deleteClientSession` | Not kept. POD-6748 keeps the table definition, `SESSION_COOKIE` and an old-form `cli-session.json`; the carry-over brings its own statements | The carry-over design consumes an old sign-in with one `delete … returning`; a read followed by a delete would be a race (`sign-in-carry-over.md`, section 4.2) |
+| 21 | Section 6 as first written: whether `mobile` rows are carried is open | A `mobile` sign-in held as a cookie is carried; one held as a bearer is not. The security review may narrow it to no `mobile` row at all | Coordinator's decision on the carry-over design, 2026-11-10 |
+| 22 | Section 2.6: the membership operations | One more read, `memberships.accountOfActiveMember(memberId)`, built by POD-6751 | The carry-over needs the account of one member |
+| 23 | Section 14: files owned by POD-6745, POD-6746, POD-6747, POD-6748 | POD-6751 adds one call each to `auth-route.ts`, `member-routes.ts`, `MemberRows.write` and `control-socket.ts`, after those tasks have landed | Whatever ends a member's device sign-ins must also end that member's old sign-ins |
+| 24 | Section 9 as first written: POD-6752 drops `SESSION_COOKIE` and `client_sessions` "when the carry-over's leftover period has passed, otherwise scheduled with a date" | Never in this release. They, `carried_sign_ins` and the carry-over module are marked `LEGACY(remove-after: 2027-06)` | The leftover period is per server, so no release can know it has passed everywhere |
+| 25 | Section 14 names no owner for the desktop shell | POD-6748 owns the shell's copy of the sign-in cookie on a server move | Found by the carry-over design: the shell copies the cookie by its old name |
+| 26 | No brief says it | POD-6746 to POD-6750 reach no build that people run, `dev/mw` included, without POD-6751. They land only on the integration branch, which reaches `dev/mw` as a whole | A server with the new sign-in path and without the carry-over signs every browser out |
 
 ## 17. Product questions this document could not settle
 
