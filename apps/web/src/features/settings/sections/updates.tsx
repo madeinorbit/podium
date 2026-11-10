@@ -2,7 +2,7 @@ import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
-import { History, Laptop, Server } from 'lucide-react'
+import { History, Server } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -783,7 +783,7 @@ const UpdateMachineRow = observer(function UpdateMachineRow({
   return (
     <div data-testid={`update-machine-${machine.id}`}>
       <EntityRow
-        leading={machine.platform === 'darwin' ? <Laptop size={16} /> : <Server size={16} />}
+        leading={<Server size={16} />}
         title={machine.name || machine.hostname || machine.id}
         subtitle={
           <>

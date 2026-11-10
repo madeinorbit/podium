@@ -261,7 +261,7 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByRole('button', { name: 'Stable' })
+    await waitFor(() => expect(screen.getByTestId('running-version').textContent).toBe('0.4.1'))
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
     expect(screen.getByTestId('running-version').textContent).toBe('0.4.1')
     expect(screen.queryByText('Server')).toBeNull()
@@ -289,7 +289,7 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByRole('button', { name: 'Stable' })
+    await waitFor(() => expect(screen.getByTestId('running-version').textContent).toBe('0.4.1'))
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
   })
 
@@ -383,11 +383,8 @@ describe('UpdatesSection', () => {
   })
 
   /**
-   * Spec §2.1 durability layer 3, and the reason the Interface row exists at
-   * all: the shell fell back to the copy baked into the .app, which can be
-   * frozen at whatever shipped. Every version agrees here, so the ONLY thing
-   * that can open the breakdown is the row having actually asked where this
-   * document came from.
+   * A cached or built-in copy with matching build identity remains one line.
+   * Source provenance alone does not open the version breakdown.
    */
   it('keeps a matching built-in copy on one line', async () => {
     pageServedFrom('tauri://localhost/')
@@ -431,6 +428,7 @@ describe('UpdatesSection', () => {
       targetVersion: '0.1.1-dev.8+77f0e91',
     })
 
+    firstMachine.targetVersion = '0.1.1-dev.8+77f0e91'
     render(<UpdatesSection />)
 
     expect((await screen.findByTestId('component-version-server')).textContent).toContain(
