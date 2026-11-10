@@ -60,8 +60,7 @@ export const PrivacySection = observer(function PrivacySection({
         if (alive) setState(next)
       })
       .catch((error: unknown) => {
-        if (alive)
-          setError({ message: error instanceof Error ? error.message : String(error) })
+        if (alive) setError({ message: error instanceof Error ? error.message : String(error) })
       })
     return () => {
       alive = false
@@ -101,7 +100,11 @@ export const PrivacySection = observer(function PrivacySection({
   return (
     <>
       <Section title="Reports to the Podium team">
-        {!state && !error && <p className="settings-prose" role="status">Loading…</p>}
+        {!state && !error && (
+          <p className="settings-prose" role="status">
+            Loading…
+          </p>
+        )}
         {suppressed && (
           <p data-testid="telemetry-suppressed" className="settings-prose mb-3 text-warning">
             {suppressed} is set in this server's environment — reports from this workspace are
@@ -139,7 +142,9 @@ export const PrivacySection = observer(function PrivacySection({
             </Row>
           ))}
         {error && !error.tier && (
-          <p role="alert" className="settings-prose text-destructive">{error.message}</p>
+          <p role="alert" className="settings-prose text-destructive">
+            {error.message}
+          </p>
         )}
         <Row label="See exactly what is sent">
           <Button
@@ -171,6 +176,7 @@ function ReportTakeover(): JSX.Element {
   const forcedSince = useForcedSetting('telemetrySince')
   const [state, setState] = useState<TelemetryStateWire | null>(null)
   const [preview, setPreview] = useState<unknown>(null)
+  const [loadingPreview, setLoadingPreview] = useState(true)
   const [example, setExample] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -191,6 +197,9 @@ function ReportTakeover(): JSX.Element {
         if (alive) setPreview(next)
       })
       .catch(() => {})
+      .finally(() => {
+        if (alive) setLoadingPreview(false)
+      })
     // The same browser-safe example the CLI prints. Keep it out of the initial chunk.
     import('@podium/telemetry/example').then((module) => {
       if (alive) setExample(module.EXAMPLE_USAGE_REPORT_DISPLAY)
@@ -201,7 +210,7 @@ function ReportTakeover(): JSX.Element {
   }, [trpc])
 
   const resetId = async (): Promise<void> => {
-    if (busy || forcedIdentity.forced || forcedSince.forced) return
+    if (busy || loadingPreview || forcedIdentity.forced || forcedSince.forced) return
     setBusy(true)
     setError(null)
     try {
@@ -219,7 +228,10 @@ function ReportTakeover(): JSX.Element {
 
   return (
     <>
-      <Section title={preview ? 'Next report from this workspace' : 'What a report looks like'}>
+      <Section list={false}>
+        <p className="settings-micro mb-2">
+          {preview ? 'Next report from this workspace' : 'What a report looks like'}
+        </p>
         <pre
           data-testid="telemetry-report"
           className="settings-prose max-w-full overflow-x-auto rounded bg-muted p-4 font-mono"
@@ -227,7 +239,7 @@ function ReportTakeover(): JSX.Element {
           {preview ? JSON.stringify(preview, null, 2) : example || 'Loading…'}
         </pre>
       </Section>
-      <Section title="Install id">
+      <Section>
         <Row
           label="Install id"
           description={
@@ -252,7 +264,7 @@ function ReportTakeover(): JSX.Element {
                 type="button"
                 size="sm"
                 variant="ghost"
-                disabled={busy || forcedIdentity.forced || forcedSince.forced}
+                disabled={busy || loadingPreview || forcedIdentity.forced || forcedSince.forced}
                 onClick={() => void resetId()}
               >
                 Reset
