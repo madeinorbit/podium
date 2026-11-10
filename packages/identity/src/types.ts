@@ -509,7 +509,7 @@ export interface OneTimeCodeOperations {
   redeemPasswordReset(input: {
     code: string
     password: string
-  }): Promise<{ accountId: string } | undefined>
+  }): Promise<{ accountId: string; endedSignInIds: string[] } | undefined>
 }
 
 /** Where a pairing attempt stands, for the signed-in device that polls it. */

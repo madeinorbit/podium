@@ -1110,12 +1110,14 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
           await core.codes.redeem({ code: reset.code }, { kind: 'browser' }, 'cookie', https()),
         ).toBe(undefined)
 
-        expect(
-          await core.codes.redeemPasswordReset({
-            code: reset.code,
-            password: 'bob has a new password',
-          }),
-        ).toEqual({ accountId: bob.id })
+        const redeemed = await core.codes.redeemPasswordReset({
+          code: reset.code,
+          password: 'bob has a new password',
+        })
+        expect(redeemed?.accountId).toBe(bob.id)
+        expect(redeemed?.endedSignInIds.slice().sort()).toEqual(
+          [bobBrowser.deviceSignInId, bobPhone.deviceSignInId].sort(),
+        )
         // Every device sign-in of Bob's ended; Alice's did not.
         expect(await resolved(bobBrowser)).toBe('unauthenticated')
         expect(await resolved(bobPhone)).toBe('unauthenticated')
@@ -1144,7 +1146,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
             code: first.code,
             password: 'carol first password',
           }),
-        ).toEqual({ accountId: carol.id })
+        ).toEqual({ accountId: carol.id, endedSignInIds: [] })
         expect(await core.accounts.verifyPassword(carol.id, 'carol first password')).toBe(true)
         // setPassword replaces a password and ends no device sign-in.
         await core.accounts.setPassword(alice.id, 'alice changed it')
@@ -1157,9 +1159,9 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         // Anything that is not a hash of this edition is refused and changes
         // nothing: a password in clear, an empty string, another format.
         for (const notAHash of ['carol in clear', '', 'bcrypt$2b$10$abcdefghijklmnopqrstuv']) {
-          expect(
-            await refusedWith(() => core.accounts.setPasswordHash(carol.id, notAHash)),
-          ).toBe('password-hash-invalid')
+          expect(await refusedWith(() => core.accounts.setPasswordHash(carol.id, notAHash))).toBe(
+            'password-hash-invalid',
+          )
         }
         expect(await core.accounts.verifyPassword(carol.id, 'carol staged it')).toBe(true)
         expect(await core.accounts.verifyPassword(carol.id, 'carol in clear')).toBe(false)

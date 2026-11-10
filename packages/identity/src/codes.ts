@@ -305,8 +305,8 @@ export function oneTimeCodeOperations(
           })
         }
         // Every device sign-in of the account ends, the one using the link included.
-        await deleteSignInsOfAccount(runtime.db()).run({ accountId })
-        return { accountId }
+        const ended = await deleteSignInsOfAccount(runtime.db()).run({ accountId })
+        return { accountId, endedSignInIds: ended.map((row) => row.id) }
       })
     },
   }
