@@ -1408,6 +1408,8 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 53 | Section 5.2: an unauthenticated request is answered 401 | A request over plain HTTP that is not same-machine is answered 400 `https_required` on every transport, also when it carries no credential at all | Section 2.5 says so ("before anything is read"); the table of 5.2 is right and this row only states what a test of today's behaviour had to change (`server.open-mode.test.ts`) |
 | 54 | Section 3: the seam's function receives `memberRows`, `appliedCursor` and `existingMembers` | Also `recoveryOnly: boolean`. True on a start whose workspace database cannot be written (a server move's recovery start): the function must write nothing through `memberRows` or the cursor, and the server does not call `catchUp()` | Found by PDM-495: the function adopts existing member rows at boot and must know when it may not |
 
+| 55 | Section 2.6: the last admin and self-change refusals | The last-admin check precedes the self-disable or self-remove check. A sole admin receives `last-admin`; an admin with another active admin still receives `self` | POD-6747 route acceptance requires the clear last-admin explanation for every such action; the shared suite checks both editions |
+
 ## 17. Product questions this document could not settle
 
 Each had a recommendation. Their state after the coordinator's review of 2026-11-10 is given with each. Nothing an implementing task depends on waits for the two that are still open: the document is written to the recommendation, and the place to change is named.

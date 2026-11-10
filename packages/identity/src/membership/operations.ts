@@ -409,10 +409,10 @@ export function membershipOperations(
           return refuse('unavailable')
         }
         if (row.status === 'disabled') return
+        if (await isLastAdmin(row)) return refuse('last-admin')
         if ('memberId' in input.actor && input.actor.memberId === row.memberId) {
           return refuse('self')
         }
-        if (await isLastAdmin(row)) return refuse('last-admin')
         await engine.write({ ...row, status: 'disabled' }, 'update', input.actor)
         // A local account exists for this membership alone: its devices sign out.
         if (localAccounts && row.accountId !== null) {
@@ -442,10 +442,10 @@ export function membershipOperations(
         if (!row || (row.status !== 'active' && row.status !== 'disabled')) {
           return refuse('unavailable')
         }
+        if (await isLastAdmin(row)) return refuse('last-admin')
         if ('memberId' in input.actor && input.actor.memberId === row.memberId) {
           return refuse('self')
         }
-        if (await isLastAdmin(row)) return refuse('last-admin')
         const now = runtime.now()
         await revokeInvitationsOfMember(db()).run({ workspaceId, memberId: row.memberId, now })
         // A local account ends with its membership; a shared one is the person's own.

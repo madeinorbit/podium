@@ -681,17 +681,17 @@ export function membershipCases(context: MembershipCasesContext): void {
       // An ordinary member beside her changes nothing about that.
       const bob = await join()
       for (const attempt of lastAdmin) expect(await refusedWith(attempt)).toBe('last-admin')
-      // Nobody disables or removes themselves, a second admin or not.
+      // A sole admin gets the last-admin explanation, even when acting on themselves.
       expect(
         await refusedWith(() =>
           workspace.memberships.disable({ actor: asAlice(), memberId: alice.memberId }),
         ),
-      ).toBe('self')
+      ).toBe('last-admin')
       expect(
         await refusedWith(() =>
           workspace.memberships.remove({ actor: asAlice(), memberId: alice.memberId }),
         ),
-      ).toBe('self')
+      ).toBe('last-admin')
       await aliceUnchanged()
 
       // A disabled admin does not count as one.
