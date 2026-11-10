@@ -7,13 +7,17 @@
  */
 import { asInviteId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { Hono } from 'hono'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { registerAdminRoutes } from './admin-routes'
 import { MemberInvites } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
+import {
+  expectArmed,
+  expectConstantStatements,
+  type StatementPin,
+} from './test-support/statement-count'
 
 const at = '2026-11-04T12:00:00.000Z'
 const future = '2999-01-01T00:00:00.000Z'
@@ -60,6 +64,16 @@ async function setup(size: number): Promise<Fixture> {
       redactedPaths: [],
       createdAt: at,
     })
+    await store.settingsAudit.append({
+      command: 'machines.revoke',
+      outcome: 'refused',
+      actorKind: 'agent',
+      actorId: `session:pin-${i}`,
+      onBehalfOf: admin,
+      detail: { machineId },
+      redactedPaths: [],
+      createdAt: at,
+    })
     await store.users.audit('members.setRole', admin, { memberId: id, from: 'member', to: 'admin' })
   }
   const app = new Hono()
@@ -82,12 +96,14 @@ async function setup(size: number): Promise<Fixture> {
   return { store, app }
 }
 
-const pin = (path: string): StatementPin<Fixture> => ({
+const pin = (path: string | (() => string)): StatementPin<Fixture> => ({
   name: `GET ${path}`,
   setup,
   target: (fixture) => fixture.store,
   run: async (fixture) => {
-    const response = await fixture.app.request(`http://podium.test${path}`)
+    const response = await fixture.app.request(
+      `http://podium.test${typeof path === 'string' ? path : path()}`,
+    )
     return { status: response.status, body: await response.json() }
   },
   check: (result, _fixture, size) => {
@@ -136,6 +152,25 @@ describe('admin area reads', () => {
   })
   it('Audit runs a constant number of statements', async () => {
     await expectConstantStatements(pin('/auth/admin/audit?limit=200'), 4)
+  })
+  it('filtered Audit stays at four statements and its pin catches a per-event read', async () => {
+    const filtered = pin(
+      () =>
+        `/auth/admin/audit?limit=200&actor=${firstAdminMemberId()}&kind=machines&refusedOnly=true`,
+    )
+    await expectConstantStatements(filtered, 4)
+    await expectArmed(filtered, 4, (fixture) => {
+      const audit = fixture.store.settingsAudit
+      const original = audit.securityEvents.bind(audit)
+      const spy = vi.spyOn(audit, 'securityEvents').mockImplementation(async (...args) => {
+        const rows = await original(...args)
+        for (const row of rows) {
+          if (row.onBehalfOf) await fixture.store.users.get(asUserId(row.onBehalfOf))
+        }
+        return rows
+      })
+      return () => spy.mockRestore()
+    })
   })
   it('the People list runs a constant number of statements', async () => {
     await expectConstantStatements(pin('/auth/members/list'), 5)

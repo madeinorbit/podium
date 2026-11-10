@@ -537,6 +537,8 @@ export const settingsAuditEvents = sqliteTable(
   },
   (table) => [
     index('settings_audit_events_command').on(table.command, table.id),
+    index('settings_audit_events_person').on(table.onBehalfOf, table.id),
+    index('settings_audit_events_result').on(table.outcome, table.id),
     check('settings_audit_events_outcome', sql`outcome IN ('applied', 'refused')`),
     check(
       'settings_audit_events_actor_kind',

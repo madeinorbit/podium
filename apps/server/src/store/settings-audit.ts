@@ -44,11 +44,12 @@
  */
 
 import type { RedactionReport } from '@podium/commands'
-import { and, asc, desc, inArray, like, lt, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import { settingsAuditEvents } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { prefixUpperBound } from './prefix-range'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -160,25 +161,54 @@ export const SECURITY_EVENT_COMMANDS = [
   'issues.deleteComment',
 ] as const
 
-const securityEventsNewestFirst = prepared((db: StoreDrizzle) =>
-  db
+export const SECURITY_EVENT_KINDS = ['people', 'machines', 'credentials', 'comments'] as const
+export type SecurityEventKind = (typeof SECURITY_EVENT_KINDS)[number]
+export interface SecurityEventFilters {
+  /** The human actor, including agents acting on this member's behalf. */
+  actor?: string
+  kind?: SecurityEventKind
+  refusedOnly?: boolean
+}
+
+type SecurityEventShape = `${SecurityEventKind | 'all'}|${0 | 1}|${0 | 1}`
+
+const securityEventsNewestFirst = preparedFamily((db: StoreDrizzle, shape: SecurityEventShape) => {
+  const [kind, actor, refused] = shape.split('|')
+  const prefix = (value: string) =>
+    and(
+      gte(settingsAuditEvents.command, value),
+      lt(settingsAuditEvents.command, prefixUpperBound(value)),
+    )
+  const commands =
+    kind === 'people'
+      ? prefix('members.')
+      : kind === 'machines'
+        ? or(prefix('machines.'), eq(settingsAuditEvents.command, 'takeover'))
+        : kind === 'credentials'
+          ? inArray(settingsAuditEvents.command, ['settings.setSecret', 'settings.clearSecret'])
+          : kind === 'comments'
+            ? inArray(settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
+            : or(
+                ...SECURITY_EVENT_PREFIXES.map(prefix),
+                inArray(settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
+              )
+  return db
     .select()
     .from(settingsAuditEvents)
     .where(
       and(
         lt(settingsAuditEvents.id, param(settingsAuditEvents.id, 'beforeId')),
-        or(
-          ...SECURITY_EVENT_PREFIXES.map((prefix) =>
-            like(settingsAuditEvents.command, `${prefix}%`),
-          ),
-          inArray(settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
-        ),
+        commands,
+        actor === '1'
+          ? eq(settingsAuditEvents.onBehalfOf, param(settingsAuditEvents.onBehalfOf, 'actor'))
+          : undefined,
+        refused === '1' ? eq(settingsAuditEvents.outcome, 'refused') : undefined,
       ),
     )
     .orderBy(desc(settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
-    .prepare(),
-)
+    .prepare()
+})
 
 /** One stored security event, with its row id as the page cursor. */
 export interface SecurityEventRow extends SettingsAuditRow {
@@ -237,10 +267,16 @@ export class SettingsAuditRepository {
    * when given (POD-6299). The admin area projects these; it never sends a
    * row's detail as stored.
    */
-  async securityEvents(limit: number, beforeId?: number): Promise<SecurityEventRow[]> {
-    const rows = await securityEventsNewestFirst(this.db).all({
+  async securityEvents(
+    limit: number,
+    beforeId?: number,
+    filters: SecurityEventFilters = {},
+  ): Promise<SecurityEventRow[]> {
+    const shape: SecurityEventShape = `${filters.kind ?? 'all'}|${filters.actor ? 1 : 0}|${filters.refusedOnly ? 1 : 0}`
+    const rows = await securityEventsNewestFirst(this.db, shape).all({
       limit,
       beforeId: beforeId ?? Number.MAX_SAFE_INTEGER,
+      actor: filters.actor,
     })
     return rows.map((r) => ({ id: r.id, ...this.rowOf(r) }))
   }

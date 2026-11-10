@@ -1,9 +1,13 @@
+import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { useOpeningView } from '@podium/client-graph/react'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { observer } from 'mobx-react-lite'
-import { type JSX, useEffect, useMemo, useState } from 'react'
+import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { authRequest } from '@/features/setup/member-api'
+import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { Section } from './shared'
 
 interface Party {
@@ -37,7 +41,7 @@ const EVENT_LABEL: Record<string, string> = {
   'members.setRole': 'Changed role',
   'members.disable': 'Disabled',
   'members.enable': 'Enabled',
-  'members.remove': 'Removed, releasing a machine',
+  'members.remove': 'Removed',
   'members.signOut': 'Signed out everywhere',
   'members.revokeSignIn': 'Signed out one device',
   'members.recoveryIssued': 'Created a recovery link',
@@ -73,6 +77,8 @@ function actorText(event: SecurityEvent): string {
   return event.actor.name
 }
 
+const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
+
 /**
  * AUDIT (POD-6299; design §2.6): member, role, admission and custody events,
  * secret writes and comment moderation, newest first. The server sends only
@@ -81,34 +87,80 @@ function actorText(event: SecurityEvent): string {
  */
 export const AuditSection = observer(function AuditSection(): JSX.Element {
   const answer = useMemo(() => new RequestAnswer<SecurityEvent[]>(), [])
+  const directory = useOpeningView(useWorklistPool(), createDirectory)
+  const [actor, setActor] = useState('')
+  const [kind, setKind] = useState('')
   const [nextBefore, setNextBefore] = useState<number | null>(null)
   const origin = serverConfig(window.location).httpOrigin
-  const loadPage = (before?: number) =>
-    answer.load(
-      async () =>
-        await authRequest<AuditPage>(
-          origin,
-          `admin/audit?limit=100${before ? `&before=${before}` : ''}`,
-        ),
-      false,
-      (page) => {
-        setNextBefore(page.nextBefore)
-        return [...(before ? (answer.answer ?? []) : []), ...page.events]
-      },
-    )
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the first page loads once per open
   useEffect(() => {
+    if (directory) void directory.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list'))
+  }, [directory, origin])
+  const loadPage = useCallback(
+    (before?: number) => {
+      const query = new URLSearchParams({ limit: '100' })
+      if (actor) query.set('actor', actor)
+      if (kind === 'refused') query.set('refusedOnly', 'true')
+      else if (kind) query.set('kind', kind)
+      if (before !== undefined) query.set('before', String(before))
+      return answer.load(
+        () => authRequest<AuditPage>(origin, `admin/audit?${query}`),
+        before === undefined,
+        (page) => {
+          setNextBefore(page.nextBefore)
+          return [...(before !== undefined ? (answer.answer ?? []) : []), ...page.events]
+        },
+      )
+    },
+    [answer, origin, actor, kind],
+  )
+  useEffect(() => {
+    setNextBefore(null)
     void loadPage()
     return () => answer.close()
-  }, [answer])
+  }, [answer, loadPage])
   const events = answer.answer
   return (
     <Section
       title="Audit"
-      hint="Security events on this instance: members, roles, invitations, machine custody and secrets. Values, transcripts and task text are never recorded here."
+      hint="Security events on this instance: members, roles, invitations, machine custody, secrets and comment moderation. Values, transcripts and task text are never recorded here."
     >
+      <div className="mb-4 flex flex-wrap gap-3 text-[13px]">
+        <label>
+          Person
+          <select
+            className="mt-1 block min-w-40 rounded border border-input bg-background p-2"
+            value={actor}
+            onChange={(event) => setActor(event.target.value)}
+          >
+            <option value="">Anyone</option>
+            {directory?.members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Event kind
+          <select
+            className="mt-1 block min-w-40 rounded border border-input bg-background p-2"
+            value={kind}
+            onChange={(event) => setKind(event.target.value)}
+          >
+            <option value="">All events</option>
+            <option value="people">People</option>
+            <option value="machines">Machines</option>
+            <option value="credentials">Credentials</option>
+            <option value="comments">Comments</option>
+            <option value="refused">Refused only</option>
+          </select>
+        </label>
+      </div>
+      {directory?.error && <p role="alert">{directory.error}</p>}
       {answer.error && <p role="alert">{answer.error}</p>}
-      {events && events.length === 0 && <p className="settings-prose">No events yet.</p>}
+      {events && events.length === 0 && (
+        <p className="settings-prose">{actor || kind ? 'No matching events.' : 'No events yet.'}</p>
+      )}
       {events && events.length > 0 && (
         <table className="w-full text-[13px]" aria-label="Security events">
           <thead className="text-left text-muted-foreground">

@@ -1,5 +1,5 @@
 import '@/test-support/mock-request-pool.test.fixture'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { AccessSection } from './access'
 import { AuditSection } from './audit'
@@ -11,9 +11,19 @@ afterEach(() => {
 })
 
 function serve(answers: Record<string, unknown>) {
+  const directory = {
+    members: [
+      { id: 'alice', displayName: 'Alice', role: 'admin' },
+      { id: 'bob', displayName: 'Bob', role: 'member' },
+      { id: 'carol', displayName: 'Carol', role: 'member', disabledAt: '2026-11-01T00:00:00Z' },
+    ],
+    invites: [],
+    currentMemberId: 'alice',
+    mailAvailable: false,
+  }
   const fetchMock = vi.fn(async (url: string) => {
     const path = new URL(url).pathname + new URL(url).search
-    const body = answers[path]
+    const body = answers[path] ?? (path === '/auth/members/list' ? directory : undefined)
     return body === undefined
       ? { ok: false, status: 403, json: async () => ({ error: 'Administrator required' }) }
       : { ok: true, status: 200, json: async () => body }
@@ -134,4 +144,104 @@ test('Audit shows member, role, admission and custody events with who, for whom,
   await waitFor(() => expect(screen.getByText('Dana')).toBeTruthy())
   expect(screen.getByText('Spare build box')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
+})
+
+test('Audit filters on the server, pages with the same filters, and restarts when they change', async () => {
+  const fetchMock = serve({
+    '/auth/admin/audit?limit=100': {
+      events: [event(20, { command: 'members.invite' })],
+      nextBefore: 20,
+    },
+    '/auth/admin/audit?limit=100&actor=bob': {
+      events: [event(18, { command: 'machines.revoke' })],
+      nextBefore: 18,
+    },
+    '/auth/admin/audit?limit=100&actor=bob&kind=comments': {
+      events: [event(16, { command: 'issues.editComment' })],
+      nextBefore: 16,
+    },
+    '/auth/admin/audit?limit=100&actor=bob&kind=comments&before=16': {
+      events: [event(4, { command: 'issues.deleteComment' })],
+      nextBefore: null,
+    },
+    '/auth/admin/audit?limit=100&actor=bob&refusedOnly=true': { events: [], nextBefore: null },
+  })
+  render(<AuditSection />)
+  await screen.findByText('Invited')
+  fireEvent.change(screen.getByRole('combobox', { name: 'Person' }), { target: { value: 'bob' } })
+  await screen.findByText('Revoked machine')
+  expect(screen.queryByText('Invited')).toBeNull()
+  expect(screen.getByRole('option', { name: 'Carol' })).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
+    target: { value: 'comments' },
+  })
+  await screen.findByText('Edited another member’s comment')
+  expect(screen.queryByText('Revoked machine')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Show older events' }))
+  await screen.findByText('Deleted another member’s comment')
+  expect(screen.getByText('Edited another member’s comment')).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
+    target: { value: 'refused' },
+  })
+  await screen.findByText('No matching events.')
+  expect(screen.queryByRole('table')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
+  expect(
+    fetchMock.mock.calls.map(([url]) => new URL(url).pathname + new URL(url).search),
+  ).toContain('/auth/admin/audit?limit=100&actor=bob&refusedOnly=true')
+})
+
+test('Audit discards an older page that arrives after a filter change', async () => {
+  serve({
+    '/auth/admin/audit?limit=100': {
+      events: [event(20, { command: 'members.invite' })],
+      nextBefore: 20,
+    },
+    '/auth/admin/audit?limit=100&kind=credentials': {
+      events: [event(15, { command: 'settings.setSecret' })],
+      nextBefore: null,
+    },
+  })
+  const originalFetch = globalThis.fetch
+  let finishOlder!: (value: Response) => void
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) =>
+      url.includes('before=20')
+        ? new Promise<Response>((resolve) => {
+            finishOlder = resolve
+          })
+        : originalFetch(url, init),
+    ),
+  )
+  render(<AuditSection />)
+  await screen.findByText('Invited')
+  fireEvent.click(screen.getByRole('button', { name: 'Show older events' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
+    target: { value: 'credentials' },
+  })
+  await screen.findByText('Set secret')
+  await act(async () => {
+    finishOlder(
+      new Response(
+        JSON.stringify({ events: [event(1, { command: 'members.join' })], nextBefore: 1 }),
+      ),
+    )
+  })
+  expect(screen.queryByText('Joined')).toBeNull()
+  expect(screen.getByText('Set secret')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
+})
+
+test('Audit mentions moderation and labels a removal without inventing a machine release', async () => {
+  serve({
+    '/auth/admin/audit?limit=100': {
+      events: [event(1, { command: 'members.remove' })],
+      nextBefore: null,
+    },
+  })
+  render(<AuditSection />)
+  expect(await screen.findByText('Removed')).toBeTruthy()
+  expect(screen.getByText(/comment moderation/)).toBeTruthy()
+  expect(screen.queryByText(/releasing a machine/)).toBeNull()
 })

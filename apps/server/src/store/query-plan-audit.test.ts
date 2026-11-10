@@ -128,6 +128,12 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   string,
   readonly (string | number)[]
 >([
+  [
+    'apps/server/src/store/settings-audit.ts:securityEventsNewestFirst',
+    ['all', 'people', 'machines', 'credentials', 'comments'].flatMap((kind) =>
+      [0, 1].flatMap((actor) => [0, 1].map((refused) => `${kind}|${actor}|${refused}`)),
+    ),
+  ],
   ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', SIZES],
   ['apps/server/src/store/shipping.ts:ordersOfIds', SIZES],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', SIZES],

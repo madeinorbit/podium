@@ -30,7 +30,11 @@ import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
 import type { AuthRepository } from './store/auth'
-import type { SecurityEventRow, SettingsAuditRepository } from './store/settings-audit'
+import {
+  SECURITY_EVENT_KINDS,
+  type SecurityEventRow,
+  type SettingsAuditRepository,
+} from './store/settings-audit'
 import { MemberChangeRefused, type UsersRepository } from './store/users'
 
 /** The admin area's sections, in the order the client shows them. */
@@ -255,9 +259,21 @@ export function registerAdminRoutes(
       .object({
         limit: z.coerce.number().int().min(1).max(ADMIN_PAGE_LIMIT).default(100),
         before: z.coerce.number().int().min(1).optional(),
+        actor: z.string().min(1).optional(),
+        kind: z.enum(SECURITY_EVENT_KINDS).optional(),
+        refusedOnly: z
+          .enum(['true', 'false'])
+          .transform((value) => value === 'true')
+          .optional(),
       })
-      .parse({ limit: c.req.query('limit'), before: c.req.query('before') })
-    const rows = await options.audit.securityEvents(query.limit, query.before)
+      .parse({
+        limit: c.req.query('limit'),
+        before: c.req.query('before'),
+        actor: c.req.query('actor'),
+        kind: c.req.query('kind'),
+        refusedOnly: c.req.query('refusedOnly'),
+      })
+    const rows = await options.audit.securityEvents(query.limit, query.before, query)
     const machineIds = [
       ...new Set(
         rows.flatMap((row) => {
