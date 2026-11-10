@@ -56,3 +56,38 @@ it('keeps each phone reader independent while sharing its session draft and stre
     stops.forEach(stop => stop()); closeFirst(); closeSecond(); service.dispose(); pool.dispose(); drafts.dispose()
   }
 })
+
+it('writes a reply to the asker into its own draft and leaves the prompt draft alone (POD-2380)', async () => {
+  const sid = asSessionId('phone-reply')
+  const drafts = new DraftStore({ storage: { get: () => null, set() {} }, hub: {
+    on: () => () => {}, sendDraftEdit() { return true }, connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
+  } })
+  const pool = new MobxPool({ selectedIssueId: null })
+  pool.bindSessionDrafts(drafts)
+  const row = { sessionId: sid, status: 'live', cwd: '/repo', title: 'Chat', agentState: { phase: 'idle' }, lastActiveAt: '2026-10-10T10:00:00Z' }
+  pool.apply({ type: 'update', rows: [{ kind: 'session', id: sid, value: row as never }] })
+  const service = new MobileConversation({ sessionId: sid, drafts,
+    readSession: () => here(pool.model('session', sid)), headless: true,
+    transcript: { source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} } },
+    sends: { createDeliveryId: () => 'send', deliver: async () => {} },
+  })
+  const replyApi = { show: vi.fn(async () => ({})), reply: vi.fn(async () => ({})) }
+  const view = new MobileChatViewModel(service, pool, replyApi)
+  const close = view.open()
+  try {
+    view.setDraft('prompt words')
+    view.reply.start({ id: 'msg_q', from: 'issue:POD-1906' } as never)
+    expect(view.draft).toBe('')
+    view.setDraft('move it to the report')
+    expect(view.reply.draft).toBe('move it to the report')
+    expect(here(pool.model('session', sid))?.messageDraft).toBe('prompt words')
+    view.reply.cancel()
+    expect(view.draft).toBe('prompt words')
+    view.reply.start({ id: 'msg_q', from: 'issue:POD-1906' } as never)
+    close()
+    // Leaving the chat closes the reply, so the next visit writes a prompt.
+    expect(view.reply.active).toBe(false)
+  } finally {
+    service.dispose(); pool.dispose(); drafts.dispose()
+  }
+})
