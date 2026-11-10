@@ -1,7 +1,6 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared } from '../manifest.js'
 import type {
   HarnessRef,
   NotInConversationCause,
@@ -10,6 +9,7 @@ import type {
 } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { DeliveryFailureCause, RetractTooLate } from '@podium/protocol/daemon'
+import type { Declared } from '../manifest.js'
 
 // ---------------------------------------------------------------------------
 // Turns and control — the one write path (spec §3)
@@ -82,6 +82,14 @@ export interface TurnInput {
   requestDigest?: string
   /** Route SDK tool authorization through structured RuntimeDriver interactions. */
   structuredPermissions?: true
+  /**
+   * The managed account's credential env for THIS TURN ONLY (POD-6733),
+   * resolved by the server for the session's owner. Read by the headless
+   * family, whose turn is its own process; it is the turn child's explicitly
+   * selected env, so it survives the inherited-credential strip. A secret:
+   * never in `requestDigest` (`accountId` names its account).
+   */
+  env?: Record<string, string>
   /**
    * HEADLESS PER-TURN PROMPT CHANNELS (this issue).
    *

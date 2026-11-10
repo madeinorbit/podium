@@ -929,6 +929,8 @@ export class DaemonRpcService {
       timeoutMs?: number
       model?: string
       effort?: string
+      /** A headless turn's managed credential (POD-6733); never logged. */
+      env?: Record<string, string>
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -976,6 +978,7 @@ export class DaemonRpcService {
         ...(input.rowId && input.deliveryRecovery && input.held === 'durable'
           ? { held: 'durable' as const }
           : {}),
+        ...(input.env && Object.keys(input.env).length > 0 ? { env: { ...input.env } } : {}),
       }),
       machineId,
     )

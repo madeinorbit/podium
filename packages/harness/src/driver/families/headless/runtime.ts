@@ -1,5 +1,9 @@
 import { machinePathBasename } from '@podium/model'
-import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } from '../../contract.js'
+import {
+  createRuntimeEventStream,
+  DriverRefusalError,
+  headlessAskAndAwait,
+} from '../../contract.js'
 /**
  * THE HEADLESS RUNTIME DRIVER (POD-4392).
  *
@@ -186,6 +190,9 @@ export interface HeadlessDriverHost {
   turnChildEnv(input: {
     agent: HarnessAgent
     specEnv: Record<string, string> | undefined
+    /** The turn's managed credential (`TurnInput.env`, POD-6733): the only
+     *  explicitly selected credential a headless child carries. */
+    credentialEnv?: Record<string, string>
     snapshot: ResolvedHarnessInventory
     execEnv?: Record<string, string>
     envOverlay?: Record<string, string>
@@ -538,7 +545,11 @@ export function createHeadlessRuntime(
     session: HeadlessDriverSession,
     provenance: ObservationProvenance = 'bootstrap',
   ): void {
-    emit(session, { t: 'state', change: { kind: 'state_snapshot', state: session.state } }, provenance)
+    emit(
+      session,
+      { t: 'state', change: { kind: 'state_snapshot', state: session.state } },
+      provenance,
+    )
   }
 
   function summarizePermissionInput(input: unknown): string | undefined {
@@ -1065,11 +1076,18 @@ export function createHeadlessRuntime(
           }
         : undefined
       const specEnv = spec.env
+      const credentialEnv = input.env
       handle = runners.runTurn(
         {
           owner: host.engines(),
           childEnv: (invocation) =>
-            host.turnChildEnv({ agent, specEnv, snapshot, ...invocation }),
+            host.turnChildEnv({
+              agent,
+              specEnv,
+              ...(credentialEnv ? { credentialEnv } : {}),
+              snapshot,
+              ...invocation,
+            }),
           now: () => host.now(),
           isRoot: process.getuid?.() === 0,
         },
@@ -1161,7 +1179,11 @@ export function createHeadlessRuntime(
     session.ended = true
     // Ending the session also works between turns, after the last epoch closed.
     // A final snapshot is session bookkeeping, not a late update of that turn.
-    session.state = reduceAgentState(session.state, { kind: 'session_ended' }, new Date(host.now()).toISOString())
+    session.state = reduceAgentState(
+      session.state,
+      { kind: 'session_ended' },
+      new Date(host.now()).toISOString(),
+    )
     publishSnapshot(session, 'live')
     emit(
       session,
@@ -1360,7 +1382,12 @@ export function createHeadlessRuntime(
         }
         // Delivery yielded: completion, teardown or interrupt-and-send may
         // have retired the callback while its answer was being delivered.
-        if (session.disposed || session.ended || session.liveTurn !== live || !session.interactions.has(interactionId)) {
+        if (
+          session.disposed ||
+          session.ended ||
+          session.liveTurn !== live ||
+          !session.interactions.has(interactionId)
+        ) {
           return { ok: false, reason: 'delivery-failed', detail: 'the permission turn has ended' }
         }
         session.interactions.delete(interactionId)
@@ -1485,7 +1512,10 @@ export function createHeadlessRuntime(
     // Fail fast on a harness this build cannot drive headlessly — creating a
     // session that can never turn is worse than refusing.
     headlessNoTools(spec.harness)
-    if (spec.structuredPermissions !== undefined && !headlessSupportsStructuredPermissions(spec.harness)) {
+    if (
+      spec.structuredPermissions !== undefined &&
+      !headlessSupportsStructuredPermissions(spec.harness)
+    ) {
       throw new DriverRefusalError(
         {
           reason: 'unsupported',
@@ -1519,8 +1549,10 @@ export function createHeadlessRuntime(
       interactions: new Map(),
       answered: new Set(),
       state: {
-        phase: 'idle', since: new Date(host.now()).toISOString(),
-        nativeSubagentCount: 0, idle: { kind: 'done' },
+        phase: 'idle',
+        since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
       },
       sticky: {
         ...(spec.model.model !== undefined ? { model: spec.model.model } : {}),
@@ -1541,7 +1573,10 @@ export function createHeadlessRuntime(
     }
   }
 
-  async function createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle> {
+  async function createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle> {
     if (sessions.has(sessionId)) {
       throw new DriverRefusalError(
         { reason: 'invalid_value', detail: `headless session '${sessionId}' already exists` },
@@ -1659,8 +1694,10 @@ export function createHeadlessRuntime(
       interactions: new Map(),
       answered: new Set(),
       state: {
-        phase: 'idle', since: new Date(host.now()).toISOString(),
-        nativeSubagentCount: 0, idle: { kind: 'done' },
+        phase: 'idle',
+        since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
       },
       sticky: {},
       ended: false,
@@ -1696,7 +1733,9 @@ export function createHeadlessRuntime(
       askAndAwait: (handle, input, options) => {
         const turnId = input.id
         if (!turnId)
-          return Promise.reject(new Error('headless askAndAwait requires TurnInput.id turn identity'))
+          return Promise.reject(
+            new Error('headless askAndAwait requires TurnInput.id turn identity'),
+          )
         return headlessAskAndAwait(handle, input, { ...options, turnId }).then(
           (outcome) => outcome.terminal,
         )

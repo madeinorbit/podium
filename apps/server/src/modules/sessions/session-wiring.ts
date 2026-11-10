@@ -441,6 +441,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       ) === 'granted'
         ? 'allowed'
         : 'denied',
+    // The coding spawn's credential resolution, for a headless turn's owner
+    // on its machine (POD-6733).
+    accountEnv: ({ agentKind, accountId, ownerUserId, machineId }) =>
+      bag.launchConfig.accountEnv(agentKind, accountId, { ownerUserId, machineId }),
     // Late-bound: the gateway is constructed further down; reads inside the
     // closure stay legal per the file header.
     relay: () => bag.runtimeGateway,

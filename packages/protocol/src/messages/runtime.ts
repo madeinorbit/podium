@@ -1,5 +1,7 @@
 import { NativeBindingReceipt } from './native-binding'
+
 export { NativeBindingReceipt } from './native-binding'
+
 import {
   DriverFamilyWire,
   HarnessRef,
@@ -11,12 +13,12 @@ import {
   TranscriptItemRef,
 } from '@podium/model'
 import { z } from 'zod'
-import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 import {
   InteractionAnswerOutcome,
   InteractionEvent,
   PendingInteraction,
 } from './runtime-interactions'
+import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 
 // The interaction contract is one vocabulary with this file; it lives in its own
 // module only so the browser can take that half without the daemon plane
@@ -235,7 +237,6 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
 ])
 export type TurnReceipt = z.infer<typeof TurnReceipt>
 
-
 // ---------------------------------------------------------------------------
 // Failure vocabulary
 // ---------------------------------------------------------------------------
@@ -363,14 +364,23 @@ export const GitActivity = z.object({
  */
 export const SessionMetadataChange = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('title'), source: z.enum(['osc', 'native']), title: z.string() }),
-  z.object({ kind: z.literal('model'), source: z.enum(['transcript', 'native']), model: z.string(), effort: z.string().optional() }),
+  z.object({
+    kind: z.literal('model'),
+    source: z.enum(['transcript', 'native']),
+    model: z.string(),
+    effort: z.string().optional(),
+  }),
   z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
   z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
 ])
 export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
-export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.object({
-  t: z.literal('metadata'), change: SessionMetadataChange,
-}))
+export const SessionMetadataObservation = z.intersection(
+  CausalEnvelope,
+  z.object({
+    t: z.literal('metadata'),
+    change: SessionMetadataChange,
+  }),
+)
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
 
 /**
@@ -464,7 +474,11 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
   }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
-  z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),
+  z.object({
+    t: z.literal('transcript-reset'),
+    items: z.array(TranscriptItem).readonly(),
+    tail: z.string().optional(),
+  }),
   z.object({ t: z.literal('interaction'), ev: InteractionEvent }),
   z.object({ t: z.literal('turn'), ev: TurnEvent }),
   z.object({ t: z.literal('process'), ev: ProcessEvent }),
@@ -672,7 +686,10 @@ export const RuntimeSendRequestMessage = z.object({
   resumeValue: z.string().optional(),
   sessionUuid: z.string().optional(),
   accountId: z.string().optional(),
-  requestDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  requestDigest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   structuredPermissions: z.literal(true).optional(),
   // HEADLESS PER-TURN PROMPT CHANNELS + BUDGET (this issue). All optional;
   // absent means absent. Appended at the END so existing golden samples stay
@@ -692,6 +709,16 @@ export const RuntimeSendRequestMessage = z.object({
    * the recovery as unconfirmed, as it always did.
    */
   held: z.literal('durable').optional(),
+  /**
+   * HEADLESS PER-TURN CREDENTIAL (POD-6733): the managed account's env
+   * (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, …) the server resolved for
+   * the session's owner when the turn was sent. The headless driver runs one
+   * process per turn, so the credential rides each turn rather than the
+   * establish frame, which a re-adopted session never receives again. A
+   * secret, so never part of `requestDigest`: `accountId` already names the
+   * account it came from. Appended at the END; an older daemon strips it.
+   */
+  env: z.record(z.string(), z.string()).optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 
@@ -704,7 +731,6 @@ export const RuntimeDurableSendRequestMessage = RuntimeSendRequestMessage.extend
   initialPrompt: z.boolean(),
 })
 export type RuntimeDurableSendRequestMessage = z.infer<typeof RuntimeDurableSendRequestMessage>
-
 
 export const RuntimeStageAttachmentRequestMessage = z.object({
   type: z.literal('runtimeStageAttachmentRequest'),

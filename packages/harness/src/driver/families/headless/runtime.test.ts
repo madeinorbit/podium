@@ -78,7 +78,12 @@ interface FakeTurn {
   deps: HostedTurnDeps
   spec: HeadlessTurnSpec
   emit: HeadlessEmit
-  onPermission?: (request: { id: string; toolName: string; input?: unknown; suggestions?: readonly unknown[] }) => void
+  onPermission?: (request: {
+    id: string
+    toolName: string
+    input?: unknown
+    suggestions?: readonly unknown[]
+  }) => void
   answered: { interactionId: string; answer: { decision: string; feedback?: string } }[]
   interrupted: boolean
   interruptCalls: number
@@ -131,12 +136,19 @@ function makeRunners(): HeadlessDriverRunners & {
         turn.interrupted = true
         turn.interruptCalls += 1
       },
-      answerPermission: (interactionId: string, answer: { decision: string; feedback?: string }) => {
+      answerPermission: (
+        interactionId: string,
+        answer: { decision: string; feedback?: string },
+      ) => {
         turn.answered.push({ interactionId, answer })
       },
     }
   }
-  const runners: HeadlessDriverRunners & { turns: FakeTurn[]; acks: FakeAck[]; held?: HostedTurnIdentity } = {
+  const runners: HeadlessDriverRunners & {
+    turns: FakeTurn[]
+    acks: FakeAck[]
+    held?: HostedTurnIdentity
+  } = {
     turns,
     acks,
     runTurn: (deps, input) => start(input.identity, deps, input.spec, input.emit, input.hooks),
@@ -186,8 +198,8 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
     },
     snapshot: async () => testHarnessSnapshot(),
     engines: () => OWNER,
-    turnChildEnv: ({ specEnv, execEnv, envOverlay }) => ({
-      env: { ...specEnv, ...execEnv, ...envOverlay },
+    turnChildEnv: ({ specEnv, credentialEnv, execEnv, envOverlay }) => ({
+      env: { ...credentialEnv, ...specEnv, ...execEnv, ...envOverlay },
       stripEnv: [],
     }),
     assertNativeAccount: (_agent, accountId) => {
@@ -470,7 +482,11 @@ describe('headless dispatch', () => {
         effort: 'high',
       })
       const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-      expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready' })
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+      })
       expect(runners.turns).toHaveLength(1)
       const spec = runners.turns[0]?.spec
       expect(spec).toMatchObject({
@@ -648,9 +664,9 @@ describe('headless dispatch', () => {
         }
       }
       expect(partials).toEqual(['half', 'half done'])
-      expect(
-        events.some((event) => event.t === 'item' && event.item.kind === 'complete'),
-      ).toBe(false)
+      expect(events.some((event) => event.t === 'item' && event.item.kind === 'complete')).toBe(
+        false,
+      )
     } finally {
       runtime.dispose()
     }
@@ -684,6 +700,26 @@ describe('headless dispatch', () => {
       runtime.dispose()
     }
   })
+
+  it('hands the turn’s managed credential to the child env, outside the digest (POD-6733)', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      // The digest is minted without the env: a credential is not turn identity.
+      const input = {
+        ...makeTurn(sessionId, { turnId: 'cred-turn' }),
+        env: { ANTHROPIC_API_KEY: 'sk-chosen' },
+      }
+      const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.deps.childEnv({}).env).toMatchObject({
+        ANTHROPIC_API_KEY: 'sk-chosen',
+      })
+      expect(JSON.stringify(runners.turns[0]?.spec)).not.toContain('sk-chosen')
+    } finally {
+      runtime.dispose()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -695,10 +731,10 @@ describe('headless fences', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      const receipt = await handle.send(
-        makeTurn(sessionId, { digest: 'b'.repeat(64) }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      const receipt = await handle.send(makeTurn(sessionId, { digest: 'b'.repeat(64) }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       expect(receipt).toMatchObject({
         outcome: 'refused',
         refusal: { reason: 'invalid_value', detail: expect.stringContaining('digest') },
@@ -845,10 +881,10 @@ describe('headless fences', () => {
       expect(replay).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
       expect(runners.turns).toHaveLength(1)
       // Same turnId, different identity: never a reuse.
-      const clash = await handle.send(
-        makeTurn(sessionId, { turnId: 't', text: 'changed' }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      const clash = await handle.send(makeTurn(sessionId, { turnId: 't', text: 'changed' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       expect(clash).toMatchObject({
         outcome: 'refused',
         refusal: { reason: 'invalid_value', detail: expect.stringContaining('identity mismatch') },
@@ -1198,7 +1234,10 @@ describe('headless history and rebind', () => {
     try {
       const { handle } = await createHandle(runtime)
       const source = { bytes: new Uint8Array([1]), filename: 'a.zip', mediaType: 'application/zip' }
-      expect(await handle.stageAttachment(source)).toMatchObject({ filename: 'a.zip', kind: 'file' })
+      expect(await handle.stageAttachment(source)).toMatchObject({
+        filename: 'a.zip',
+        kind: 'file',
+      })
       await handle.kill()
       expect(await handle.stageAttachment(source)).toMatchObject({ reason: 'not_running' })
     } finally {
@@ -1206,7 +1245,10 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it.each(['/tmp/claude-session.jsonl', 'C:\\tmp\\claude-session.jsonl'])('machine paths: exports the harness-native transcript from %s', async path => {
+  it.each([
+    '/tmp/claude-session.jsonl',
+    'C:\\tmp\\claude-session.jsonl',
+  ])('machine paths: exports the harness-native transcript from %s', async (path) => {
     const { runtime, runners, host } = makeRuntime()
     host.archiveTranscript = async () => ({ path })
     try {
@@ -1269,7 +1311,10 @@ describe('headless history and rebind', () => {
       // Exact identity releases the host under THIS session's label.
       await runtime.acknowledge({ sessionId, turnId, requestDigest, accountId })
       expect(runners.acks).toEqual([
-        { label: handle.binding.process.key, identity: { sessionId, turnId, requestDigest, accountId } },
+        {
+          label: handle.binding.process.key,
+          identity: { sessionId, turnId, requestDigest, accountId },
+        },
       ])
     } finally {
       runtime.dispose()
@@ -1286,10 +1331,10 @@ describe('headless structured permissions', () => {
     const { runtime, host, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-1', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      await handle.send(makeTurn(sessionId, { turnId: 'perm-1', structuredPermissions: true }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       const turn = runners.turns[0]
       expect(turn?.spec).toMatchObject({ structuredPermissions: true })
       expect(typeof turn?.onPermission).toBe('function')
@@ -1329,9 +1374,9 @@ describe('headless structured permissions', () => {
         { interactionId: 'perm-ask-1', answer: { decision: 'deny', feedback: 'not today' } },
       ])
       expect(await handle.interactions()).toEqual([])
-      expect(await handle.answer('perm-ask-1', { kind: 'permission', decision: 'deny' })).toMatchObject(
-        { ok: false, reason: 'already-answered' },
-      )
+      expect(
+        await handle.answer('perm-ask-1', { kind: 'permission', decision: 'deny' }),
+      ).toMatchObject({ ok: false, reason: 'already-answered' })
       turn?.resolve({ harnessSessionId: 'h-perm-1', output: 'done' })
       await flush()
       expect((await handle.state()).phase).toBe('idle')
@@ -1344,10 +1389,10 @@ describe('headless structured permissions', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-2', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      await handle.send(makeTurn(sessionId, { turnId: 'perm-2', structuredPermissions: true }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       const turn = runners.turns[0]
       turn?.onPermission?.({ id: 'perm-ask-2', toolName: 'Edit' })
       await flush()
@@ -1361,9 +1406,9 @@ describe('headless structured permissions', () => {
       await flush()
       expect(await handle.interactions()).toEqual([])
       const events = await takeEvents(handle)
-      expect(
-        events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired'),
-      ).toBe(true)
+      expect(events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired')).toBe(
+        true,
+      )
     } finally {
       runtime.dispose()
     }
@@ -1422,10 +1467,10 @@ describe('headless structured permissions', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-3', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      await handle.send(makeTurn(sessionId, { turnId: 'perm-3', structuredPermissions: true }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       const turn = runners.turns[0]
       turn?.onPermission?.({
         id: 'perm-ask-3',
@@ -1454,11 +1499,9 @@ describe('headless procedures', () => {
       const handle = await driver.create(makeSpec('claude-code'))
       const sessionId = handle.binding.sessionId
       const procedures = resolveProcedures(driver)
-      const waited = procedures.askAndAwait(
-        handle,
-        makeTurn(sessionId, { turnId: 'proc-turn' }),
-        { origin: 'system' },
-      )
+      const waited = procedures.askAndAwait(handle, makeTurn(sessionId, { turnId: 'proc-turn' }), {
+        origin: 'system',
+      })
       await flush()
       expect(runners.turns).toHaveLength(1)
       runners.turns[0]?.emit({ kind: 'status', status: 'running', harnessSessionId: 'h-p' })

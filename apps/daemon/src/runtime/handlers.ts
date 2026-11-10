@@ -19,21 +19,21 @@
  * warns about two directories away. So every path below ends in a send.
  */
 
-import { isDriverRefusal } from '@podium/harness/driver/host'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import { isDriverRefusal } from '@podium/harness/driver/host'
 import { hasTurnEnded, type SessionId } from '@podium/model'
 import type {
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
-  RuntimeSnapshotResultMessage,
   RuntimeHistoryResultMessage,
+  RuntimeSnapshotResultMessage,
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import type { ControlHandlers, DaemonContext } from '../control/context'
 import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
 import { driverTiming } from './driver-timing'
-import type { ControlHandlers, DaemonContext } from '../control/context'
 
 /**
  * ONE LOOKUP ACROSS EVERY RUNTIME THIS DAEMON HOLDS (POD-2023).
@@ -225,7 +225,10 @@ export const runtimeHandlers: Pick<
           ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
           ...(msg.accountId ? { accountId: msg.accountId } : {}),
           ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
-          ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+          ...(msg.structuredPermissions
+            ? { structuredPermissions: msg.structuredPermissions }
+            : {}),
+          ...(msg.env ? { env: msg.env } : {}),
           ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
           ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
           ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
@@ -285,10 +288,21 @@ export const runtimeHandlers: Pick<
       return
     }
     if (msg.cancelRowId) {
-      if (!handle.cancelDelivery) { answer({ reason: 'not_running' }); return }
-      void handle.cancelDelivery(msg.cancelRowId).then((result) => {
-        ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
-      }).catch(() => answer({ reason: 'not_running' }))
+      if (!handle.cancelDelivery) {
+        answer({ reason: 'not_running' })
+        return
+      }
+      void handle
+        .cancelDelivery(msg.cancelRowId)
+        .then((result) => {
+          ctx.send({
+            type: 'runtimeLifecycleResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            result,
+          })
+        })
+        .catch(() => answer({ reason: 'not_running' }))
       return
     }
     // TURN-SCOPED (POD-6397): this daemon owns the turn marker, so it alone
@@ -339,8 +353,17 @@ export const runtimeHandlers: Pick<
 
   runtimeLifecycleRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
-    const answer = (result: { ok: true; retirement: 'confirmed' } | { reason: 'not_running' | 'no_resume_ref'; detail?: string }): void => {
-      ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+    const answer = (
+      result:
+        | { ok: true; retirement: 'confirmed' }
+        | { reason: 'not_running' | 'no_resume_ref'; detail?: string },
+    ): void => {
+      ctx.send({
+        type: 'runtimeLifecycleResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     // Refusal is checked before touching any process. Registry loss is not
     // proof of death: stop/kill must still reach the host's orphan reapers.
@@ -349,12 +372,24 @@ export const runtimeHandlers: Pick<
       return
     }
     void (async () => {
-      const retired = handle?.binding.family === 'terminal'
-        ? await (msg.verb === 'hibernate' ? handle.hibernate() : msg.verb === 'kill' ? handle.kill() : handle.stop()).then((result) => !result || 'ok' in result)
-        : await stopSessionProcess(ctx, { sessionId: msg.sessionId }, { retire: msg.verb === 'kill' })
-      answer(retired
-        ? { ok: true, retirement: 'confirmed' }
-        : { reason: 'not_running', detail: 'process retirement was not confirmed' })
+      const retired =
+        handle?.binding.family === 'terminal'
+          ? await (msg.verb === 'hibernate'
+              ? handle.hibernate()
+              : msg.verb === 'kill'
+                ? handle.kill()
+                : handle.stop()
+            ).then((result) => !result || 'ok' in result)
+          : await stopSessionProcess(
+              ctx,
+              { sessionId: msg.sessionId },
+              { retire: msg.verb === 'kill' },
+            )
+      answer(
+        retired
+          ? { ok: true, retirement: 'confirmed' }
+          : { reason: 'not_running', detail: 'process retirement was not confirmed' },
+      )
     })().catch((error) => answer({ reason: 'not_running', detail: String(error) }))
   },
 
@@ -428,26 +463,38 @@ export const runtimeHandlers: Pick<
    */
   runtimeDraftRequest: (ctx, msg) => {
     const answer = (result: RuntimeDraftResultMessage['result']): void => {
-      ctx.send({ type: 'runtimeDraftResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+      ctx.send({
+        type: 'runtimeDraftResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
       answer({ reason: 'not_running' })
       return
     }
-    void Promise.resolve().then(async () => {
-      if (msg.operation.verb === 'get') {
-        const result = await handle.draft.get()
-        answer(typeof result === 'string' ? { text: result } : result)
-      } else {
-        answer(await handle.draft.set(msg.operation.text))
-      }
-    }).catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
+    void Promise.resolve()
+      .then(async () => {
+        if (msg.operation.verb === 'get') {
+          const result = await handle.draft.get()
+          answer(typeof result === 'string' ? { text: result } : result)
+        } else {
+          answer(await handle.draft.set(msg.operation.text))
+        }
+      })
+      .catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
   },
 
   runtimeHistoryRequest: (ctx, msg) => {
     const answer = (result: RuntimeHistoryResultMessage['result']): void => {
-      ctx.send({ type: 'runtimeHistoryResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+      ctx.send({
+        type: 'runtimeHistoryResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
@@ -457,7 +504,9 @@ export const runtimeHandlers: Pick<
     void Promise.resolve()
       .then(() => handle.transcript.history(msg.range))
       .then((page) => answer({ page }))
-      .catch((err: unknown) => answer(isDriverRefusal(err) ? err.refusal : { reason: 'not_running' }))
+      .catch((err: unknown) =>
+        answer(isDriverRefusal(err) ? err.refusal : { reason: 'not_running' }),
+      )
   },
 
   runtimeSnapshotRequest: (ctx, msg) => {

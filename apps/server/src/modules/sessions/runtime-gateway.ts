@@ -264,6 +264,8 @@ export class SessionRuntimeGateway {
     timeoutMs?: number
     model?: string
     effort?: string
+    /** A headless turn's managed credential (POD-6733): direct sends only. */
+    env?: Record<string, string>
     /**
      * The party this send acts for.
      *

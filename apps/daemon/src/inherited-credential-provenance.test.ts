@@ -100,6 +100,21 @@ describe('an inherited credential never reaches a harness child as if it were ch
     expect(atProcessBoundary({ ...commandEnv, ...env }, strip).ANTHROPIC_API_KEY).toBeUndefined()
   })
 
+  it('headless turn: a managed key the server sent with the turn is kept (POD-6733)', () => {
+    const snapshot = snapshotWithInheritedKey()
+    const { env, strip } = headlessTurnChildEnv({
+      context: driverHarnessContextFrom(
+        { homeDir: '/state/agent-home' },
+        snapshot,
+        'claude-code',
+        undefined,
+      ),
+      credentialEnv: { ANTHROPIC_API_KEY: CHOSEN },
+      instanceEnv: { PODIUM_SESSION_ID: 's1' },
+    })
+    expect(atProcessBoundary({ ...commandEnv, ...env }, strip).ANTHROPIC_API_KEY).toBe(CHOSEN)
+  })
+
   it('engine (guard): an inherited key is removed and a key on the spawn frame is kept', () => {
     const buildEnv = engineEnvBuilder(() => ({}))
     const env = buildEnv({

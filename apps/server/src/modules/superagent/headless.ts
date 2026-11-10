@@ -13,7 +13,13 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asAccountId, asSessionId, type MachineId, machinePathBasename, machinePathsEqual } from '@podium/model'
+import {
+  asAccountId,
+  asSessionId,
+  type MachineId,
+  machinePathBasename,
+  machinePathsEqual,
+} from '@podium/model'
 import type {
   BindingMachineAccess,
   HeadlessActivityEvent,
@@ -30,6 +36,7 @@ import type {
 } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
+import { managedKeyName } from '../sessions/account-env'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
@@ -56,6 +63,7 @@ export interface HeadlessRuntimeRelay {
     timeoutMs?: number
     model?: string
     effort?: string
+    env?: Record<string, string>
   }): Promise<TurnReceipt>
   interrupt(sessionId: SessionId): Promise<{ ok: true } | { reason: string; detail?: string }>
   onEvent(listener: (sessionId: SessionId, event: RuntimeEvent) => void | Promise<void>): () => void
@@ -73,9 +81,12 @@ export interface HeadlessHistoryRelay {
   snapshot(
     sessionId: SessionId,
     machineId: MachineId,
-  ): Promise<
-    { sessionId: SessionId; result: { snapshot: { binding: { resume: { value: string } | null } } } | { reason: string; detail?: string } }
-  >
+  ): Promise<{
+    sessionId: SessionId
+    result:
+      | { snapshot: { binding: { resume: { value: string } | null } } }
+      | { reason: string; detail?: string }
+  }>
 }
 
 export interface HeadlessTurnResult {
@@ -102,7 +113,11 @@ export interface HeadlessDeps {
   readSession?(sessionId: SessionId): Promise<Session | undefined>
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): Promise<MachineId>
+  resolveMachine(
+    requested: string | undefined,
+    cwd: string,
+    agentKind: AgentKind,
+  ): Promise<MachineId>
   defaultMachine(): Promise<MachineId>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
@@ -114,13 +129,27 @@ export interface HeadlessDeps {
   /** Persist the row through the writer of whoever asked (ADR 12 D9, POD-6606). */
   persist(writer: SessionWriter, session: Session): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it through `writer` [POD-3330]. */
-  write(
-    writer: SessionWriter,
-    session: Session,
-    mutate: (draft: SessionDurableState) => void,
-  ): void
+  write(writer: SessionWriter, session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
   clients(): Iterable<{ send(msg: ServerMessage): void }>
+  /**
+   * The managed credential a headless turn runs with (POD-6733): the coding
+   * spawn's own resolution (`SessionLaunchConfig.accountEnv` →
+   * `resolveAccountEnv`), for the session's OWNER on its machine. Their own
+   * key, then one shared with them explicitly, never another member's
+   * unshared key; a foreign machine needs the key's owner to have sent it
+   * there. Throws `SpawnAccountRefusal` with the words a person reads.
+   *
+   * REQUIRED, like `CompleteForRoleDeps.apiKey`: optional-with-a-default would
+   * let a composition that forgot it run every managed turn on the machine's
+   * native login, which is the bug this port exists to close.
+   */
+  accountEnv(input: {
+    agentKind: AgentKind
+    accountId: AccountId
+    ownerUserId: UserId
+    machineId: MachineId
+  }): Promise<{ env?: Record<string, string> }>
   /** Driver-contract relay. Late-bound: read through the closure at call time,
    *  since the gateway is constructed after this service. */
   relay(): HeadlessRuntimeRelay
@@ -337,10 +366,7 @@ export class HeadlessService {
         ...(session.issueId ? { issueId: session.issueId } : {}),
       }).binding
       const observationLease = await this.deps.fenceObservation(session)
-      this.deps.toMachine(
-        session.machineId,
-        this.spawnFrameFor(session, binding, observationLease),
-      )
+      this.deps.toMachine(session.machineId, this.spawnFrameFor(session, binding, observationLease))
     } catch {
       // Establishment is best-effort; the ladder retry reports the outcome.
     }
@@ -417,7 +443,7 @@ export class HeadlessService {
       throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
     }
     const session = this.deps.getSession(input.sessionId)
-    const machineId = session?.machineId ?? await this.deps.defaultMachine()
+    const machineId = session?.machineId ?? (await this.deps.defaultMachine())
     const accountId = session?.accountId ?? asAccountId('')
     if (input.toolPolicy === 'none') {
       if (!accountId.startsWith(`native:${input.agent}:`)) {
@@ -429,6 +455,37 @@ export class HeadlessService {
         throw new Error(
           `tool-less headless session ${input.sessionId} has incomplete requester identity`,
         )
+      }
+    }
+    // A MANAGED ACCOUNT CARRIES ITS CREDENTIAL (POD-6733). Resolved at the
+    // moment of use, for the session's owner (a session always has one, so
+    // there is no requesting-user gap to fill), by the coding spawn's rule.
+    // It rides THIS turn: the headless driver runs a process per turn, and a
+    // session the daemon re-adopts after a restart never gets its establish
+    // frame again. A selection with no usable key is a verdict, not a
+    // transport gap: refused before anything is sent, and never run on the
+    // machine's native login instead (`managed:claude-oauth` included).
+    let credentialEnv: Record<string, string> | undefined
+    if (accountId.startsWith('managed:') && session) {
+      try {
+        credentialEnv = (
+          await this.deps.accountEnv({
+            agentKind: input.agent,
+            accountId,
+            ownerUserId: session.ownerUserId,
+            machineId,
+          })
+        ).env
+      } catch (error) {
+        return { ok: false, error: describeError(error) }
+      }
+      if (!credentialEnv || Object.keys(credentialEnv).length === 0) {
+        return {
+          ok: false,
+          error:
+            `The ${managedKeyName(accountId)} gives ${input.agent} no credential to run with; ` +
+            'select another account for this role in Settings → Accounts.',
+        }
       }
     }
     const model = input.model && input.model !== 'auto' ? input.model : undefined
@@ -484,13 +541,20 @@ export class HeadlessService {
         return
       }
       if (event.t === 'item' && onEvent) {
-        const item = (event as { item?: { kind?: string; item?: { id?: string; text?: string } } }).item
+        const item = (event as { item?: { kind?: string; item?: { id?: string; text?: string } } })
+          .item
         if (item?.kind === 'partial' && typeof item.item?.text === 'string') {
           const id = item.item.id ?? ''
-          const hint = id.startsWith(`headless:${input.turnId}:`) ? id.slice(`headless:${input.turnId}:`.length) || undefined : undefined
+          const hint = id.startsWith(`headless:${input.turnId}:`)
+            ? id.slice(`headless:${input.turnId}:`.length) || undefined
+            : undefined
           const text = item.item.text
           try {
-            onEvent(hint ? { kind: 'partial-text', text, itemHint: hint } : { kind: 'partial-text', text })
+            onEvent(
+              hint
+                ? { kind: 'partial-text', text, itemHint: hint }
+                : { kind: 'partial-text', text },
+            )
           } catch {
             // Progress fan-out is best-effort; it must not fail the turn.
           }
@@ -519,6 +583,7 @@ export class HeadlessService {
           timeoutMs: budgetMs,
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
+          ...(credentialEnv ? { env: credentialEnv } : {}),
         })
       } catch (error) {
         return {
@@ -551,7 +616,11 @@ export class HeadlessService {
         return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
       if (receipt.outcome === 'queued') {
-        return { ok: false, error: 'headless turn was queued; expected direct dispatch', retryable: true }
+        return {
+          ok: false,
+          error: 'headless turn was queued; expected direct dispatch',
+          retryable: true,
+        }
       }
       // accepted
       wantedEpoch = receipt.turnEpoch
@@ -568,24 +637,38 @@ export class HeadlessService {
         }
         return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
-      const term = (terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }).ev
+      const term = (
+        terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }
+      ).ev
       // Read the canonical output + resume after the fence. Best-effort: a
       // history/snapshot miss must not turn a completed turn into a failure.
       let output: string | undefined
       let harnessSessionId: string | undefined
       try {
-        const hist = await store.history({ sessionId: input.sessionId, direction: 'before', limit: 1000 })
+        const hist = await store.history({
+          sessionId: input.sessionId,
+          direction: 'before',
+          limit: 1000,
+        })
         const items = hist.items
         for (let i = items.length - 1; i >= 0; i--) {
           const item = items[i]
-          if (item && (item as { role?: string }).role === 'assistant' && typeof (item as { text?: string }).text === 'string' && (item as { text: string }).text) {
+          if (
+            item &&
+            (item as { role?: string }).role === 'assistant' &&
+            typeof (item as { text?: string }).text === 'string' &&
+            (item as { text: string }).text
+          ) {
             output = (item as { text: string }).text
             break
           }
         }
         if (output === undefined) {
           const texts = items
-            .filter((it) => typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text)
+            .filter(
+              (it) =>
+                typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text,
+            )
             .map((it) => (it as { text: string }).text)
           if (texts.length > 0) output = texts[texts.length - 1]
         }
@@ -649,7 +732,8 @@ export class HeadlessService {
     requestDigest: string,
     accountId: AccountId,
   ): Promise<void> {
-    const machineId = this.deps.getSession(sessionId)?.machineId ?? await this.deps.defaultMachine()
+    const machineId =
+      this.deps.getSession(sessionId)?.machineId ?? (await this.deps.defaultMachine())
     this.deps.toMachine(machineId, {
       type: 'headlessTurnAck',
       sessionId,
@@ -682,7 +766,7 @@ export class HeadlessService {
     resumeValue: string
   }): Promise<{ ok: boolean; error?: string }> {
     const session = this.deps.getSession(input.sessionId)
-    const machineId = session?.machineId ?? await this.deps.defaultMachine()
+    const machineId = session?.machineId ?? (await this.deps.defaultMachine())
     try {
       const ownerUserId = session?.ownerUserId
       const observationLease = session ? await this.deps.fenceObservation(session) : undefined

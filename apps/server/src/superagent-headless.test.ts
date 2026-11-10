@@ -60,6 +60,7 @@ type TurnReq = {
   timeoutMs?: number
   agent?: string
   cwd?: string
+  env?: Record<string, string>
 }
 type BindReq = Extract<ControlMessage, { type: 'reattach' }> & { resumeValue?: string }
 type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
@@ -124,6 +125,7 @@ async function harness() {
         ...(m.allowedTools ? { allowedTools: [...m.allowedTools] } : {}),
         ...(m.toolPolicy ? { toolPolicy: m.toolPolicy } : {}),
         ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
+        ...(m.env ? { env: { ...m.env } } : {}),
         ...(info ? { agent: info.agent, cwd: info.cwd } : {}),
       })
       return
@@ -373,6 +375,155 @@ describe('superagent response contract', () => {
     'Why is the walkthrough test failing?',
   ])('does not treat a negated or incidental cue as an opt-in: %s', (prompt) => {
     expect(explicitlyRequestsExpandedResponse(prompt)).toBe(false)
+  })
+})
+
+/**
+ * A MANAGED ACCOUNT SERVES A HEADLESS (SUPERAGENT) TURN (POD-6733), under the
+ * coding spawn's rule (POD-469, POD-6300): the acting member's own key, then
+ * one shared with them explicitly, never another member's unshared key — and
+ * a managed selection with no usable key is refused, never run on the
+ * machine's native login (`managed:claude-oauth` included).
+ *
+ * Alice is the first admin and looks after the host machine; Bob is a second
+ * member running there.
+ */
+describe('managed credential on headless turns (two members)', () => {
+  const ALICE = firstAdminMemberId()
+  const BOB = asUserId('user:bob-6733')
+  const ALICE_KEY = 'sk-ant-alice-6733-0000000000'
+  const ALICE_TOKEN = 'sk-ant-oat-alice-6733-000000'
+
+  const connect = async (
+    h: Awaited<ReturnType<typeof harness>>,
+    owner: typeof ALICE,
+    accountKey: string,
+    credential: string,
+  ) =>
+    await h.registry.sessionStore.accounts.connect({
+      ownerUserId: owner,
+      accountKey: asAccountId(accountKey),
+      provider: 'anthropic',
+      kind: accountKey === 'managed:claude-oauth' ? 'oauth' : 'api-key',
+      credential,
+      identity: `${credential.slice(0, 4)}…`,
+      scope: 'role',
+      createdAt: Date.now(),
+    })
+
+  const turnFor = async (
+    h: Awaited<ReturnType<typeof harness>>,
+    owner: typeof ALICE,
+    accountId: string,
+    turnId: string,
+  ) => {
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        sessionId: asSessionId(`managed-6733:${turnId}`),
+        ownerUserId: owner,
+        agentKind: 'claude-code',
+        cwd: '/r',
+        machineId: h.registry.sessionStore.hostMachineId,
+        accountId: asAccountId(accountId),
+      },
+    )
+    const before = h.turnReqs.length
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
+      turnId,
+      sessionId,
+      threadId: asThreadId(`managed-6733:${turnId}`),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'hi',
+    })
+    await h.settle()
+    const request = h.turnReqs.length > before ? h.turnReqs.at(-1) : undefined
+    if (request) h.resolveTurn(request, { output: 'ok' })
+    return { result: await turn, request }
+  }
+
+  it('runs on the member’s own key, never another member’s unshared one, then on an explicit share', async () => {
+    const h = await harness()
+    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+
+    // Alice's own key reaches her turn.
+    const alice = await turnFor(h, ALICE, 'managed:anthropic', 'alice-own')
+    expect(alice.result).toMatchObject({ ok: true })
+    expect(alice.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+
+    // Bob has no key and Alice shares none: refused before any dispatch, and
+    // Alice's key never leaves the server for Bob.
+    const bob = await turnFor(h, BOB, 'managed:anthropic', 'bob-unshared')
+    expect(bob.request).toBeUndefined()
+    expect(bob.result).toMatchObject({ ok: false })
+    expect(bob.result.error).toMatch(/No Anthropic API key is available to you/)
+    expect(JSON.stringify(h.turnReqs.filter((r) => r.turnId === 'bob-unshared'))).not.toContain(
+      ALICE_KEY,
+    )
+
+    // Once Alice shares it with Bob explicitly, Bob's turn runs on it.
+    expect(
+      await h.registry.sessionStore.accounts.share(ALICE, asAccountId('managed:anthropic'), [BOB]),
+    ).toBe(true)
+    const shared = await turnFor(h, BOB, 'managed:anthropic', 'bob-shared')
+    expect(shared.result).toMatchObject({ ok: true })
+    expect(shared.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+  })
+
+  it('a managed:claude-oauth selection with no token is refused, never run on the native login', async () => {
+    const h = await harness()
+    const missing = await turnFor(h, BOB, 'managed:claude-oauth', 'bob-oauth-missing')
+    expect(missing.request).toBeUndefined()
+    expect(missing.result.error).toMatch(/No Claude setup token is available to you/)
+
+    await connect(h, ALICE, 'managed:claude-oauth', ALICE_TOKEN)
+    const own = await turnFor(h, ALICE, 'managed:claude-oauth', 'alice-oauth')
+    expect(own.request?.env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: ALICE_TOKEN })
+    // Alice's token is hers: Bob still gets nothing without a share.
+    const bob = await turnFor(h, BOB, 'managed:claude-oauth', 'bob-oauth-unshared')
+    expect(bob.request).toBeUndefined()
+  })
+
+  it('a native account carries no credential env, as before', async () => {
+    const h = await harness()
+    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    const native = await turnFor(h, ALICE, 'native:claude-code', 'alice-native')
+    expect(native.result).toMatchObject({ ok: true })
+    expect(native.request?.env).toBeUndefined()
+  })
+
+  it('the superagent role’s managed account serves the superagent turn', async () => {
+    const h = await harness()
+    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    // The member's own preference row (it wins over the instance blob).
+    const current = await h.registry.sessionStore.settings.getSettingsFor(ALICE)
+    await h.registry.sessionStore.settings.setSettingsFor(
+      ALICE,
+      {
+        ...current,
+        roles: {
+          ...current.roles,
+          superagent: {
+            ...current.roles.superagent,
+            harness: 'claude-code',
+            accountId: asAccountId('managed:anthropic'),
+          },
+        },
+      },
+      new Date().toISOString(),
+    )
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: ALICE,
+      threadId: asThreadId('global'),
+      text: 'hi',
+    })
+    await h.settle()
+    expect(h.turnReqs[0]).toMatchObject({
+      agent: 'claude-code',
+      accountId: 'managed:anthropic',
+      env: { ANTHROPIC_API_KEY: ALICE_KEY },
+    })
   })
 })
 

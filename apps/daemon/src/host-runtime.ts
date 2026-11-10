@@ -1568,9 +1568,10 @@ export async function createDaemonHostRuntime(args: {
       engines: () => sessionEngines,
       // ONE RECIPE (POD-6535): the turn's account context over this snapshot,
       // the same credential home every other session child runs under.
-      turnChildEnv: ({ agent, specEnv, snapshot, execEnv, envOverlay }) => {
+      turnChildEnv: ({ agent, specEnv, credentialEnv, snapshot, execEnv, envOverlay }) => {
         const { env, strip } = headlessTurnChildEnv({
           context: driverHarnessContextFrom(ctx, snapshot, agent as BuiltinHarnessKind, undefined),
+          ...(credentialEnv ? { credentialEnv } : {}),
           ...(specEnv ? { instanceEnv: specEnv } : {}),
           ...(execEnv ? { execEnv } : {}),
           ...(envOverlay ? { envOverlay } : {}),

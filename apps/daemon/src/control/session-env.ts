@@ -57,9 +57,11 @@ export function shellChildEnv(
 /**
  * One hosted headless turn's child env (POD-4614 ports, POD-6535 recipe).
  *
- * A headless turn has no spawn-frame env: nothing on it was chosen for the
- * session, so every credential the command env carries is inherited and is
- * stripped (F10). The adapter's per-invocation env (codex's MCP bearer,
+ * A headless turn has no spawn-frame env. The one credential chosen for it is
+ * `credentialEnv`, the managed account the server resolved for the session's
+ * owner and sent with the turn (POD-6733): it is the recipe's `sessionEnv`, so
+ * it survives the strip. Every other credential the command env carries is
+ * inherited and is stripped (F10). The adapter's per-invocation env (codex's MCP bearer,
  * POD-1021) and the family's overlay (claude's IS_SANDBOX as root) are wiring.
  * `instanceEnv` is what the instance decided for this turn (the relay pair,
  * a tool-less turn's pinned config folder): it rides with Podium's vars, so
@@ -68,11 +70,13 @@ export function shellChildEnv(
  */
 export function headlessTurnChildEnv(input: {
   context: HarnessContext
+  credentialEnv?: Readonly<Record<string, string>>
   instanceEnv?: Readonly<Record<string, string>>
   execEnv?: Readonly<Record<string, string>>
   envOverlay?: Readonly<Record<string, string>>
 }): HarnessChildEnv {
   return harnessChildEnv(input.context, {
+    ...(input.credentialEnv ? { sessionEnv: input.credentialEnv } : {}),
     wiringEnv: { ...input.execEnv, ...input.envOverlay },
     ...(input.instanceEnv ? { podiumEnv: input.instanceEnv } : {}),
   })
