@@ -1,3 +1,8 @@
+import {
+  canonicalSettingsPage,
+  isSettingsPage,
+  type SettingsPage,
+} from '@podium/client-core/ui-state'
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
@@ -10,8 +15,7 @@ import {
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppSheet } from '@/app/AppSheet'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { usePoolIdleCapUnmetCount } from '@/app/header-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -20,10 +24,9 @@ import { WaitingForServer } from '@/components/WaitingForServer'
 import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
-import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { AdminViewerError } from './AdminViewerError'
 import { AdminViewerContext, useAdminSections } from './admin-viewer'
+import { SETTINGS_GROUPS } from './page-definitions'
 import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
@@ -43,16 +46,14 @@ import type { AccountView } from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
+import { SettingsPageSection } from './settings-anchors'
 import { SettingsEditDraft } from './settings-edit-draft'
+import { SettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
-import {
-  adminSectionOf,
-  SETTINGS_SURFACES,
-  type SettingsSurface,
-  SURFACE_COPY,
-  tabsOnSurface,
-  visibleSettingsGroups,
-} from './surfaces'
+import { adminSectionOf, visibleSettingsGroups } from './surfaces'
+
+export { SETTINGS_GROUPS, SETTINGS_TABS } from './page-definitions'
+export type SettingsTab = SettingsPage
 
 // Account connection and login controls are only needed on the Accounts tab.
 const AccountsSection = lazy(() =>
@@ -101,114 +102,13 @@ const UpdatesSection = lazy(() =>
   })),
 )
 
-export type SettingsTab =
-  | 'appearance'
-  | 'accounts'
-  | 'sessions'
-  | 'superagent'
-  | 'workllm'
-  | 'hibernation'
-  | 'notifications'
-  | 'workflow'
-  | 'network'
-  | 'devices'
-  | 'repos'
-  | 'machines'
-  | 'members'
-  | 'security'
-  | 'privacy'
-  | 'updates'
-  | 'experimental'
-  | 'secrets'
-  | 'access'
-  | 'audit'
-
-/** The human name of each tab. Separate from `TAB_SURFACE` so the class table
- *  stays a classification and does not become a place copy is edited. */
-const TAB_LABEL: Record<SettingsTab, string> = {
-  sessions: 'New sessions',
-  superagent: 'Superagent',
-  workllm: 'Background LLM',
-  notifications: 'Notifications',
-  appearance: 'Appearance',
-  accounts: 'Accounts',
-  privacy: 'Privacy',
-  hibernation: 'Hibernation',
-  workflow: 'Workflow',
-  experimental: 'Experimental',
-  repos: 'Repos',
-  machines: 'Machines',
-  network: 'Network',
-  devices: 'Connected devices',
-  members: 'People',
-  access: 'Access',
-  audit: 'Audit',
-  security: 'Profile & security',
-  updates: 'Updates',
-  secrets: 'Secrets',
-}
-
-/*
- * TAB_LABEL IS DECLARED BEFORE SETTINGS_GROUPS, AND THE ORDER IS LOAD-BEARING.
- *
- * `SETTINGS_GROUPS` is initialised at MODULE SCOPE and reads `TAB_LABEL` inside
- * its map. With the declaration below it, `TAB_LABEL` is in its temporal dead
- * zone when that map runs: the bundled app threw
- * `Cannot read properties of undefined (reading 'sessions')` on boot and the
- * entire shell failed to render — not the settings screen, the whole app.
- *
- * Nothing except a running browser could see it. The typecheck is happy (the
- * binding exists), and every unit test imports `surfaces.ts` directly rather
- * than through this module, so all 75 web tests stayed green against an app
- * that could not start. This is the case the brief has in mind when it requires
- * real clicks against a running app rather than unit assertions.
- */
-/**
- * THE NAV, GROUPED BY VISIBILITY CLASS (POD-421) — replacing POD-127's
- * topic-based grouping.
- *
- * POD-127 grouped seventeen tabs by subject (Agents / Connections / Workspace /
- * Instance), which was the right IA for one operator. Under multi-user the
- * question a user has when they open this screen is no longer "what is this
- * about" but "who does changing this affect, and may I" — and
- * `docs/multi-user-readiness.md` §3.1.1 answers that with three classes that
- * genuinely differ. The brief's requirement is that the distinction be legible
- * to the USER rather than only enforced in the backend, so it is the grouping.
- *
- * Membership is read off `surfaces.ts`'s `TAB_SURFACE`, which is
- * `satisfies Record<SettingsTab, SettingsSurface>` — a new tab is a compile
- * error rather than a tab with no declared class.
- *
- * Routes (/settings/:tab) are unchanged for the tabs that survive. `keys` and
- * `integrations` are GONE: their entire content was password inputs bound to
- * blob members, and both are absorbed into `secrets`, which shows presence and
- * fingerprint. That is a removal, and it ratchets `audit:client-secrets`'
- * NAMED_SITE census DOWN, which is how POD-419 recorded it should land.
- */
-export const SETTINGS_GROUPS: {
-  label: string
-  surface: SettingsSurface
-  tabs: { key: SettingsTab; label: string }[]
-}[] = SETTINGS_SURFACES.map((surface) => ({
-  label: SURFACE_COPY[surface].label,
-  surface,
-  tabs: tabsOnSurface(surface).map((key) => ({ key, label: TAB_LABEL[key] })),
-}))
-
-export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = SETTINGS_GROUPS.flatMap(
-  (g) => g.tabs,
-)
-
-/** Tabs that edit the shared blob and ride the dirty-bar Save. Network has a
- *  separate config store and supplies its own controller to that same bar. */
-const BLOB_TABS: ReadonlySet<SettingsTab> = new Set([
-  'sessions',
-  'superagent',
-  'workllm',
-  'hibernation',
+/** Pages retaining the existing staged preference controls. */
+const BLOB_TABS: ReadonlySet<SettingsPage> = new Set([
+  'agents',
+  'machines',
   'notifications',
-  'workflow',
-  'experimental',
+  'projects',
+  'labs',
 ])
 
 /** Everything a section can pull from the view: the loaded blob, the local
@@ -239,67 +139,120 @@ interface SectionContext {
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
  *  sections edit the shared blob via `patch`; instant-save sections pull what
  *  they need from the store hook. Network owns a separate staged config draft. */
-const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> = {
-  appearance: () => <AppearanceSection />,
-  accounts: () => <AccountsSection />,
-  sessions: ({ settings, accounts, patch }) => (
-    <SessionsSection settings={settings} accounts={accounts} patch={patch} />
-  ),
-  superagent: ({ settings, accounts, patch }) => (
-    <SuperagentSection settings={settings} accounts={accounts} patch={patch} />
-  ),
-  workllm: ({ settings, accounts, patch }) => (
-    <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
-  ),
-  hibernation: ({ settings, patch }) => (
-    <HibernationSettingsSection settings={settings} patch={patch} />
-  ),
-  notifications: (ctx) => (
-    <NotificationsSection
-      settings={ctx.settings}
-      patch={ctx.patch}
-      telegramSetup={ctx.telegramSetup}
-      onStartTelegramSetup={ctx.startTelegramSetup}
-      onResetTelegramSetup={ctx.resetTelegramSetup}
-    />
-  ),
-  workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
-  network: ({ setNetworkSaveState }) => <NetworkSection onSaveStateChange={setNetworkSaveState} />,
-  devices: ({ trpc, openNetworkSettings }) => (
-    <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
-  ),
-  repos: ({ settings }) => (
-    <ReposSection podiumDefault={settings.gitWorkflow?.defaultParentBranch ?? ''} />
-  ),
-  machines: () => <MachinesPanel />,
-  members: () => <MembersSection />,
-  access: () => <AccessSection />,
-  audit: () => <AuditSection />,
-  security: ({ trpc }) => (
+const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
+  agents: ({ settings, accounts, patch }) => (
     <>
-      <PodiumAccountSection />
-      <LoginPasswordSection trpc={trpc} />
+      <SettingsPageSection id="sessions">
+        <SessionsSection settings={settings} accounts={accounts} patch={patch} />
+      </SettingsPageSection>
+      <SettingsPageSection id="superagent">
+        <SuperagentSection settings={settings} accounts={accounts} patch={patch} />
+      </SettingsPageSection>
+      <SettingsPageSection id="workllm">
+        <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
+      </SettingsPageSection>
     </>
   ),
-  // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
-  privacy: ({ settings, patch }) => <PrivacySection settings={settings} patch={patch} />,
+  appearance: () => (
+    <SettingsPageSection id="appearance">
+      <AppearanceSection />
+    </SettingsPageSection>
+  ),
+  accounts: (ctx) => (
+    <>
+      <SettingsPageSection id="accounts">
+        <AccountsSection />
+      </SettingsPageSection>
+      <SettingsPageSection id="secrets">
+        <SecretsSection
+          state={ctx.secrets}
+          canManage={ctx.canManageSecrets}
+          onSet={ctx.setSecret}
+          onClear={ctx.clearSecret}
+          busy={ctx.secretBusy}
+          error={ctx.secretError}
+        />
+      </SettingsPageSection>
+    </>
+  ),
+  notifications: (ctx) => (
+    <SettingsPageSection id="notifications">
+      <NotificationsSection
+        settings={ctx.settings}
+        patch={ctx.patch}
+        telegramSetup={ctx.telegramSetup}
+        onStartTelegramSetup={ctx.startTelegramSetup}
+        onResetTelegramSetup={ctx.resetTelegramSetup}
+      />
+    </SettingsPageSection>
+  ),
+  account: ({ trpc, openNetworkSettings }) => (
+    <>
+      <SettingsPageSection id="podium-account">
+        <PodiumAccountSection />
+      </SettingsPageSection>
+      <SettingsPageSection id="security">
+        <LoginPasswordSection trpc={trpc} />
+      </SettingsPageSection>
+      <SettingsPageSection id="devices">
+        <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
+      </SettingsPageSection>
+    </>
+  ),
+  machines: ({ settings, patch }) => (
+    <>
+      <SettingsPageSection id="machines">
+        <MachinesPanel />
+      </SettingsPageSection>
+      <SettingsPageSection id="hibernation">
+        <HibernationSettingsSection settings={settings} patch={patch} />
+      </SettingsPageSection>
+    </>
+  ),
+  projects: ({ settings, patch }) => (
+    <>
+      <SettingsPageSection id="repos">
+        <ReposSection podiumDefault={settings.gitWorkflow?.defaultParentBranch ?? ''} />
+      </SettingsPageSection>
+      <SettingsPageSection id="workflow">
+        <WorkflowSection settings={settings} patch={patch} />
+      </SettingsPageSection>
+    </>
+  ),
+  members: () => (
+    <SettingsPageSection id="members">
+      <MembersSection />
+    </SettingsPageSection>
+  ),
+  access: ({ setNetworkSaveState }) => (
+    <>
+      <SettingsPageSection id="network">
+        <NetworkSection onSaveStateChange={setNetworkSaveState} />
+      </SettingsPageSection>
+      <SettingsPageSection id="access">
+        <AccessSection />
+      </SettingsPageSection>
+    </>
+  ),
+  audit: () => (
+    <SettingsPageSection id="audit">
+      <AuditSection />
+    </SettingsPageSection>
+  ),
+  privacy: ({ settings, patch }) => (
+    <SettingsPageSection id="privacy">
+      <PrivacySection settings={settings} patch={patch} />
+    </SettingsPageSection>
+  ),
   updates: () => (
-    <Suspense fallback={<p className="settings-micro py-6">Loading updates…</p>}>
+    <SettingsPageSection id="updates">
       <UpdatesSection />
-    </Suspense>
+    </SettingsPageSection>
   ),
-  experimental: ({ settings, patch, resetToDefaults }) => (
-    <ExperimentalSection settings={settings} patch={patch} onReset={resetToDefaults} />
-  ),
-  secrets: (ctx) => (
-    <SecretsSection
-      state={ctx.secrets}
-      canManage={ctx.canManageSecrets}
-      onSet={ctx.setSecret}
-      onClear={ctx.clearSecret}
-      busy={ctx.secretBusy}
-      error={ctx.secretError}
-    />
+  labs: ({ settings, patch, resetToDefaults }) => (
+    <SettingsPageSection id="experimental">
+      <ExperimentalSection settings={settings} patch={patch} onReset={resetToDefaults} />
+    </SettingsPageSection>
   ),
 }
 
@@ -341,16 +294,11 @@ const SettingsViewBody = observer(function SettingsViewBody({
   settingsTab: ReturnType<typeof useSettingsTab>
 }): JSX.Element {
   const { trpc, setSettingsTab, setPreferences, setInstancePreferences } = useSettingsClient()
-  const notificationsEnabled = useFeature('notifications')
-  // The nav filter is experimental (off by default) — Settings → Experimental.
-  const searchEnabled = useFeature('settings-search')
   // The admin area is drawn only from the server's answer (POD-6299).
   const adminViewer = useAdminSections()
   const adminSections = adminViewer.sections
   const offeredGroups = visibleSettingsGroups(SETTINGS_GROUPS, adminSections)
-  const settingsTabs = offeredGroups
-    .flatMap((g) => g.tabs)
-    .filter((tab) => tab.key !== 'notifications' || notificationsEnabled)
+  const settingsTabs = offeredGroups.flatMap((g) => g.tabs)
   const pool = useWorklistPool()
   // Both preference tiers are synced records: my `userPreferences` (POD-6673)
   // and the instance's `instancePreferences` (POD-6677). The draft reads each
@@ -391,7 +339,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
   const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
   const [savedAt, setSavedAt] = useState(0)
   const [networkSave, setNetworkSave] = useState<NetworkSaveController | null>(null)
-  const [filter, setFilter] = useState('')
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
    *
@@ -426,15 +373,15 @@ const SettingsViewBody = observer(function SettingsViewBody({
   // search, the Machines panel's "Change URL") land directly on their tab, tab
   // clicks push history entries (setSettingsTab), and back/forward moves
   // between visited tabs. A plain /settings shows the default tab.
-  const requestedTab =
-    settingsTab && Object.hasOwn(TAB_LABEL, settingsTab) ? (settingsTab as SettingsTab) : undefined
+  const canonicalTab = settingsTab ? canonicalSettingsPage(settingsTab) : null
+  const requestedTab = canonicalTab && isSettingsPage(canonicalTab) ? canonicalTab : undefined
   const tabOffered = settingsTabs.some((s) => s.key === requestedTab)
   const awaitingAdmin =
     requestedTab !== undefined &&
     adminViewer.status !== 'ready' &&
     adminSectionOf(requestedTab) !== undefined &&
     !tabOffered
-  const tab: SettingsTab = requestedTab && (awaitingAdmin || tabOffered) ? requestedTab : 'sessions'
+  const tab: SettingsTab = requestedTab && (awaitingAdmin || tabOffered) ? requestedTab : 'agents'
 
   /** Load presence rows, collapsing every failure into one state. A refusal,
    * missing surface and dropped connection keep the same visible answer. */
@@ -589,7 +536,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
     if (!botTokenPresent) {
       setTelegramSetup({
         status: 'failed',
-        message: 'An admin must save a Telegram bot token under Secrets first.',
+        message: 'An admin must save a Telegram bot token under AI accounts first.',
       })
       return
     }
@@ -652,7 +599,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   }, [savedFlash])
   const refusalText = refusalMessage(refusals)
   const blobSaveActive = BLOB_TABS.has(tab)
-  const networkSaveActive = tab === 'network' ? networkSave : null
+  const networkSaveActive = tab === 'access' ? networkSave : null
   const activeDirty = blobSaveActive ? dirty : (networkSaveActive?.dirty ?? false)
   const activeSaving = blobSaveActive ? saving : (networkSaveActive?.saving ?? false)
   const activeError = blobSaveActive ? error : (networkSaveActive?.error ?? null)
@@ -714,30 +661,10 @@ const SettingsViewBody = observer(function SettingsViewBody({
     onClose()
   }
 
-  const filterRef = useRef<HTMLInputElement | null>(null)
-  const query = searchEnabled ? filter.trim().toLowerCase() : ''
-  const visibleGroups = offeredGroups
-    .map((g) => ({
-      ...g,
-      tabs: g.tabs.filter(
-        (t) =>
-          (t.key !== 'notifications' || notificationsEnabled) &&
-          (query === '' || t.label.toLowerCase().includes(query)),
-      ),
-    }))
-    .filter((g) => g.tabs.length > 0)
-
-  // "/" focuses the nav filter; ⌘S saves when the dirty bar is up.
+  // ⌘S keeps the existing staged save behavior. The frame owns search keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = document.activeElement
-      const typing =
-        el instanceof HTMLElement &&
-        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
-      if (e.key === '/' && !typing && searchEnabled) {
-        e.preventDefault()
-        filterRef.current?.focus()
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (activeDirty && !activeSaving) {
           if (networkSaveActive) void networkSaveActive.save()
@@ -752,229 +679,133 @@ const SettingsViewBody = observer(function SettingsViewBody({
   })
 
   return (
-    <AppSheet
-      label="Settings"
-      title="Settings"
-      testId="settings-sheet"
-      className="app-sheet-settings"
-      // Escape, the backdrop and the ✕ all route through the guard — one answer
-      // to "close", however it was asked for.
+    <SettingsFrame
+      page={tab}
+      onPageChange={setSettingsTab}
       onClose={requestClose}
+      viewer={adminViewer}
       toolbar={
         error && !settings ? (
           <span className="text-[12px] text-destructive">{error}</span>
         ) : undefined
       }
-    >
-      {/* TWO PANES, FULL BLEED (POD-365). This was a 1100px column centred in the
-          viewport, which left ~45% of a 1600px window as empty chassis — a
-          documentation-site measure. The rail is fixed, the pane takes the rest,
-          and the 62ch cap that keeps prose readable lives INSIDE the pane. */}
-      <div className="settings-panes">
-        <nav
-          className="settings-rail [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          aria-label="Settings sections"
-        >
-          {searchEnabled && (
-            // Same 16px the class blocks put between themselves, so the filter
-            // reads as its own block rather than as a caption on the first one.
-            <div className="relative mb-4">
-              <input
-                ref={filterRef}
-                type="text"
-                value={filter}
-                placeholder="Find a setting"
-                className="h-8 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/40"
-                onChange={(e) => setFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const first = visibleGroups[0]?.tabs[0]
-                    if (first) setSettingsTab(first.key)
-                  } else if (e.key === 'Escape') {
-                    setFilter('')
-                    e.currentTarget.blur()
-                    e.stopPropagation()
-                  }
-                }}
-              />
-              {filter === '' && (
-                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[11px] text-text-dim">
-                  /
-                </kbd>
-              )}
-            </div>
+      footer={
+        <div
+          className={cn(
+            // The lifted tier read from the token rather than restated: black
+            // at that alpha is depth on navy and dirt on paper (POD-388).
+            // Left edge on the form's own left edge, and no wider than the
+            // form: a bar that spans further than the column it belongs to
+            // reads as the sheet's furniture rather than as this form's.
+            'absolute right-8 bottom-4 left-8 z-10 flex max-w-[var(--settings-form-w)] items-center gap-2 rounded-lg border border-border-strong bg-chip py-2 pr-2 pl-4 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+            showBar ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-16 opacity-0',
+            // One nudge when a close was refused — a single one-shot morph,
+            // then stillness, which is the shell's whole motion grammar. The
+            // ring is what makes the bar findable if it had scrolled out of
+            // the eye's attention.
+            closeBlocked && 'settings-bar-nudge ring-1 ring-attention/60',
           )}
-          {visibleGroups.map((g) => (
-            // The visibility class is a BLOCK, not a run of rows with a caption
-            // floating somewhere near it. Its seam and spacing belong to this
-            // wrapper — put on the label as a margin, they collapsed straight
-            // through it and the label ended up nearer the group above.
-            <div className="settings-rail-section" key={g.label}>
-              {/* The group's sentence is NOT repeated here. The pane's banner
-                    states it verbatim and both were on screen at once — the same
-                    three sentences twice, once ragged into a 20ch rail. A nav
-                    lists destinations; the destination explains itself. */}
-              <div className="settings-eyebrow settings-rail-group">{g.label}</div>
-              {g.tabs.map((t) => (
-                <button
-                  data-pressable
-                  key={t.key}
-                  type="button"
-                  className="settings-rail-item"
-                  // `page`, like every other nav cell in the shell (TopBar). It
-                  // was the boolean, which renders aria-current="false" on all
-                  // sixteen unselected rows instead of leaving them silent.
-                  aria-current={t.key === tab ? 'page' : undefined}
-                  onClick={() => setSettingsTab(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
+          aria-hidden={!showBar}
+        >
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-[13px]',
+              activeError || activeRefusalText ? 'text-destructive' : 'text-foreground',
+            )}
+            // A refusal — of a write, or of the close that would have thrown
+            // the edit away — is the message a user acts on, so it is
+            // announced rather than left to be noticed in a bar they were not
+            // reading.
+            role={activeRefusalText || closeBlocked ? 'alert' : undefined}
+            data-settings-refusal={activeRefusalText ? 'true' : undefined}
+            data-settings-close-blocked={closeBlocked ? 'true' : undefined}
+            title={activeRefusalText ?? undefined}
+          >
+            {activeError
+              ? activeError
+              : (activeRefusalText ??
+                (closeBlocked
+                  ? 'Unsaved changes — save or discard first'
+                  : activeDirty || activeSaving
+                    ? 'Unsaved changes'
+                    : 'Saved ✓'))}
+          </span>
+          {(activeDirty || activeError) && (
+            <Button type="button" variant="ghost" size="sm" onClick={discard}>
+              Discard
+            </Button>
+          )}
+          {(activeDirty || activeSaving || activeError) && (
+            <Button
+              type="button"
+              size="sm"
+              pending={activeSaving}
+              pendingLabel="Saving…"
+              onClick={() => {
+                if (networkSaveActive) void networkSaveActive.save()
+                else void save()
+              }}
+            >
+              Save changes
+            </Button>
+          )}
+        </div>
+      }
+    >
+      {awaitingAdmin ? (
+        <p role="status" className="settings-prose text-muted-foreground">
+          {adminViewer.status === 'loading'
+            ? 'Checking administrator access…'
+            : 'Administrator access is unavailable.'}
+        </p>
+      ) : settings ? (
+        // The tab body is a whole surface, and a lazy section that
+        // cannot be fetched leaves it blank — which is what the
+        // operator is staring at during a handover (POD-2762). It says
+        // so, and only when it is true.
+        <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
+          {SECTION_VIEWS[tab]({
+            settings,
+            accounts,
+            patch,
+            trpc,
+            telegramSetup,
+            startTelegramSetup: () => void startTelegramSetup(),
+            resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
+            openNetworkSettings: () => setSettingsTab('access'),
+            resetToDefaults: () => edits?.patch(DEFAULT_SETTINGS),
+            secrets,
+            canManageSecrets: permitted['settings.setSecret'] === true,
+            secretBusy,
+            secretError,
+            setSecret: (key, value) => {
+              void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
+            },
+            clearSecret: (key) => {
+              void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
+            },
+            setNetworkSaveState: setNetworkSave,
+          })}
+        </Suspense>
+      ) : (
+        // The skeleton is the row grammar at rest: same 14px padding,
+        // same control column, so nothing shifts when the blob lands.
+        <div className="animate-pulse" aria-hidden="true">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between gap-9 border-hairline-soft/50 border-b py-4 last:border-b-0"
+            >
+              <div className="min-w-0 space-y-2">
+                <div className="h-3.5 w-40 rounded bg-chip" />
+                {i % 2 === 0 && <div className="h-2.5 w-64 max-w-full rounded bg-chip/60" />}
+              </div>
+              <div className="h-8 w-[var(--settings-control-w)] flex-none rounded-md bg-chip/80" />
             </div>
           ))}
-          {query !== '' && visibleGroups.length === 0 && (
-            <p className="settings-prose px-2.5 pt-1">No section matches “{filter.trim()}”.</p>
-          )}
-          <AdminViewerError viewer={adminViewer} />
-        </nav>
-        <div className="settings-pane">
-          <div className="settings-pane-scroll">
-            <div className="settings-section-enter settings-measure" key={tab}>
-              {/* NO CLASS BANNER (POD-407). Every tab opened with the same
-                  sentence about the class it belongs to — the preferences one
-                  on seven tabs, the instance one on eight — above the heading
-                  that actually says what the tab is. A caption that is
-                  identical on eight destinations is not a caption; it is
-                  furniture the eye learns to jump, and it pushed the first real
-                  heading a third of the way down the pane.
-
-                  The class stays legible where a nav states it once: the rail's
-                  group headings (POD-421's requirement, satisfied by the
-                  grouping itself). What a specific surface genuinely has to
-                  explain — the secrets promise — now lives on that section's
-                  own hint, on the one tab where it is true. */}
-              {awaitingAdmin ? (
-                <p role="status" className="settings-prose text-muted-foreground">
-                  {adminViewer.status === 'loading'
-                    ? 'Checking administrator access…'
-                    : 'Administrator access is unavailable.'}
-                </p>
-              ) : settings ? (
-                // The tab body is a whole surface, and a lazy section that
-                // cannot be fetched leaves it blank — which is what the
-                // operator is staring at during a handover (POD-2762). It says
-                // so, and only when it is true.
-                <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
-                  {SECTION_VIEWS[tab]({
-                    settings,
-                    accounts,
-                    patch,
-                    trpc,
-                    telegramSetup,
-                    startTelegramSetup: () => void startTelegramSetup(),
-                    resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
-                    openNetworkSettings: () => setSettingsTab('network'),
-                    resetToDefaults: () => edits?.patch(DEFAULT_SETTINGS),
-                    secrets,
-                    canManageSecrets: permitted['settings.setSecret'] === true,
-                    secretBusy,
-                    secretError,
-                    setSecret: (key, value) => {
-                      void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
-                    },
-                    clearSecret: (key) => {
-                      void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
-                    },
-                    setNetworkSaveState: setNetworkSave,
-                  })}
-                </Suspense>
-              ) : (
-                // The skeleton is the row grammar at rest: same 14px padding,
-                // same control column, so nothing shifts when the blob lands.
-                <div className="animate-pulse" aria-hidden="true">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between gap-9 border-hairline-soft/50 border-b py-4 last:border-b-0"
-                    >
-                      <div className="min-w-0 space-y-2">
-                        <div className="h-3.5 w-40 rounded bg-chip" />
-                        {i % 2 === 0 && (
-                          <div className="h-2.5 w-64 max-w-full rounded bg-chip/60" />
-                        )}
-                      </div>
-                      <div className="h-8 w-[var(--settings-control-w)] flex-none rounded-md bg-chip/80" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div
-            className={cn(
-              // The lifted tier read from the token rather than restated: black
-              // at that alpha is depth on navy and dirt on paper (POD-388).
-              // Left edge on the form's own left edge, and no wider than the
-              // form: a bar that spans further than the column it belongs to
-              // reads as the sheet's furniture rather than as this form's.
-              'absolute right-8 bottom-4 left-8 z-10 flex max-w-[var(--settings-form-w)] items-center gap-2 rounded-lg border border-border-strong bg-chip py-2 pr-2 pl-4 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
-              showBar
-                ? 'translate-y-0 opacity-100'
-                : 'pointer-events-none translate-y-16 opacity-0',
-              // One nudge when a close was refused — a single one-shot morph,
-              // then stillness, which is the shell's whole motion grammar. The
-              // ring is what makes the bar findable if it had scrolled out of
-              // the eye's attention.
-              closeBlocked && 'settings-bar-nudge ring-1 ring-attention/60',
-            )}
-            aria-hidden={!showBar}
-          >
-            <span
-              className={cn(
-                'min-w-0 flex-1 truncate text-[13px]',
-                activeError || activeRefusalText ? 'text-destructive' : 'text-foreground',
-              )}
-              // A refusal — of a write, or of the close that would have thrown
-              // the edit away — is the message a user acts on, so it is
-              // announced rather than left to be noticed in a bar they were not
-              // reading.
-              role={activeRefusalText || closeBlocked ? 'alert' : undefined}
-              data-settings-refusal={activeRefusalText ? 'true' : undefined}
-              data-settings-close-blocked={closeBlocked ? 'true' : undefined}
-              title={activeRefusalText ?? undefined}
-            >
-              {activeError
-                ? activeError
-                : (activeRefusalText ??
-                  (closeBlocked
-                    ? 'Unsaved changes — save or discard first'
-                    : activeDirty || activeSaving
-                      ? 'Unsaved changes'
-                      : 'Saved ✓'))}
-            </span>
-            {(activeDirty || activeError) && (
-              <Button type="button" variant="ghost" size="sm" onClick={discard}>
-                Discard
-              </Button>
-            )}
-            {(activeDirty || activeSaving || activeError) && (
-              <Button
-                type="button"
-                size="sm"
-                pending={activeSaving}
-                pendingLabel="Saving…"
-                onClick={() => {
-                  if (networkSaveActive) void networkSaveActive.save()
-                  else void save()
-                }}
-              >
-                Save changes
-              </Button>
-            )}
-          </div>
         </div>
-      </div>
-    </AppSheet>
+      )}
+    </SettingsFrame>
   )
 })
 

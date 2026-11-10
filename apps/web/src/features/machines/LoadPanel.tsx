@@ -78,7 +78,7 @@ export function LoadPanel({
   const hibActive = memActive || loadActive
 
   const openHibernation = (): void => {
-    setSettingsTab('hibernation')
+    setSettingsTab('machines')
     setView('settings')
   }
 

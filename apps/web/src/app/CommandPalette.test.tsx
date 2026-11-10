@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => ({
   issues: [] as ReturnType<typeof makeIssue>[],
   paneA: null as string | null,
   enabledFeatures: new Set<string>(),
+  adminSections: [] as string[],
   store: {
     trpc: {
       settings: { get: { query: vi.fn(async () => ({})) } },
@@ -79,6 +80,9 @@ vi.mock('./store', async () => {
       }),
   }
 })
+vi.mock('@/features/settings/admin-viewer', () => ({
+  useAdminSections: () => ({ status: 'ready', sections: fixture.adminSections, retry: vi.fn() }),
+}))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: (id: string) => fixture.enabledFeatures.has(id),
 }))
@@ -120,6 +124,7 @@ afterEach(() => {
   fixture.issues = []
   fixture.paneA = null
   fixture.enabledFeatures.clear()
+  fixture.adminSections = []
   fixture.store.openIssueId = null
 })
 
@@ -292,5 +297,35 @@ describe('CommandPalette', () => {
     expect(fixture.store.closeIssue).toHaveBeenCalledWith('i1', 'done')
     expect(screen.queryByTestId('issue-close-concerns')).toBeNull()
     expect(screen.queryByText('Close this issue?')).toBeNull()
+  })
+})
+
+describe('settings page commands', () => {
+  it('has one entry per page, including Notifications without its old flag', () => {
+    fixture.adminSections = ['people', 'access', 'machines', 'instance', 'audit']
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Settings ·' } })
+    const entries = screen
+      .getAllByRole('option')
+      .filter((entry) => entry.textContent?.includes('Settings ·'))
+    expect(entries).toHaveLength(13)
+    expect(entries.map((entry) => entry.textContent).join(' ')).toContain('AI accounts')
+    expect(entries.map((entry) => entry.textContent).join(' ')).toContain('Audit log')
+    fireEvent.click(entries.find((entry) => entry.textContent?.includes('Agents'))!)
+    expect(fixture.store.setSettingsTab).toHaveBeenCalledWith('agents')
+  })
+
+  it('offers members Machines, Projects, Members and Updates, with no admin pages', () => {
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Settings ·' } })
+    const entries = screen
+      .getAllByRole('option')
+      .filter((entry) => entry.textContent?.includes('Settings ·'))
+    expect(entries).toHaveLength(9)
+    const labels = entries.map((entry) => entry.textContent).join(' ')
+    for (const label of ['Machines', 'Projects', 'Members', 'Updates'])
+      expect(labels).toContain(label)
+    for (const label of ['Access', 'Audit log', 'Privacy', 'Labs'])
+      expect(labels).not.toContain(`Settings · ${label}`)
   })
 })

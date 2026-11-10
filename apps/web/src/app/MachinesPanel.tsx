@@ -229,7 +229,7 @@ function MachinesPanelView({
   // Jump to Settings → Network to change the server's reachable URL.
   const goChangeUrl = (): void => {
     setAddOpen(false)
-    setSettingsTab('network')
+    setSettingsTab('access')
   }
 
   const closeAddMachine = useCallback((): void => {
@@ -1344,10 +1344,7 @@ const MachineRow = observer(function MachineRow({
 
             <ul className="settings-micro mt-1 space-y-0.5" aria-label="Recorded harness versions">
               {(machine.harnessVersions ?? []).map((row) => (
-                <li
-                  key={row.harness}
-                  title={`First seen ${row.firstSeen}`}
-                >
+                <li key={row.harness} title={`First seen ${row.firstSeen}`}>
                   <span className="font-mono">
                     {row.harness} {row.version}
                   </span>

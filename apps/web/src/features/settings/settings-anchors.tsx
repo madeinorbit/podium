@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, type ReactNode, useContext } from 'react'
 import { settingsRowId, settingsSectionId } from './page-definitions'
 
 const SettingsSectionContext = createContext<string | null>(null)

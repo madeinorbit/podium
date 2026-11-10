@@ -35,7 +35,6 @@ import {
   Play,
   Search,
   Settings,
-  SlidersHorizontal,
   Square,
   SquareKanban,
   SquarePlus,
@@ -59,7 +58,7 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { useAdminSections } from '@/features/settings/admin-viewer'
-import { SETTINGS_TABS } from '@/features/settings/SettingsView'
+import { SETTINGS_TABS } from '@/features/settings/page-definitions'
 import { adminSectionOf } from '@/features/settings/surfaces'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -333,7 +332,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
-  const notificationsEnabled = useFeature('notifications')
   // Admin tabs only for a viewer the server offers them to (POD-6299).
   const { sections: adminSections } = useAdminSections()
   const handoffEnabled = useFeature('session-handoff')
@@ -750,15 +748,14 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
 
     // ── Actions: settings destinations ────────────────────────────────────
     for (const tab of SETTINGS_TABS) {
-      if (tab.key === 'notifications' && !notificationsEnabled) continue
       const section = adminSectionOf(tab.key)
       if (section && !adminSections.includes(section)) continue
       add({
         id: `action:settings-${tab.key}`,
         group: 'action',
         label: `Settings · ${tab.label}`,
-        keywords: ['settings', 'preferences', 'config', tab.label],
-        icon: SlidersHorizontal,
+        keywords: ['settings', 'preferences', 'config', tab.label, tab.keywords],
+        icon: tab.icon,
         run: () => setSettingsTab(tab.key),
       })
     }

@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useRequestClient } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useRequestClient, useUiValue } from '@podium/client-core/react'
 import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -14,6 +12,7 @@ import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { usePoolHeaderMetrics, usePoolPanelMetric } from '@/app/header-data'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -181,7 +180,7 @@ function MemoryPanel({
     : (headline?.pct ?? null)
 
   const openHibernationSettings = (): void => {
-    setSettingsTab('hibernation')
+    setSettingsTab('machines')
     setView('settings')
     onClose()
   }

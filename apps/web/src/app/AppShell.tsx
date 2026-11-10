@@ -1,6 +1,6 @@
-import { useSocketHub } from '@podium/client-core/react'
 import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
 import type { JSX, ReactNode } from 'react'
@@ -877,6 +877,16 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === ','
+      ) {
+        event.preventDefault()
+        setView('settings')
+        return
+      }
+      if (
         commandPaletteEnabled &&
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
@@ -889,7 +899,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
+  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen, setView])
 
   const menuHost = (
     <DesktopMenuHost

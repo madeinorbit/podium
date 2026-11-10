@@ -66,7 +66,7 @@ export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.El
         </DialogHeader>
         <p className="text-[12px] text-muted-foreground">
           Heads up: this can keep an agent running indefinitely and consuming tokens with no one
-          watching. You can turn it off anytime in Settings → New sessions.
+          watching. You can turn it off anytime in Settings → Agents.
         </p>
         {error && (
           <p role="alert" className="text-xs text-destructive">

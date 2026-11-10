@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  */
 const storeState = {
   trpc: {} as import('@/app/trpc').Trpc,
-  settingsTab: 'sessions',
+  settingsTab: 'agents',
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
 }
@@ -49,7 +49,7 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 import { SettingsView } from './SettingsView'
 
 beforeEach(() => {
-  storeState.settingsTab = 'sessions'
+  storeState.settingsTab = 'agents'
   const settings = normalizeSettings({})
   storeState.trpc = {
     settings: {
@@ -113,47 +113,58 @@ describe('Settings rail — the admin area', () => {
     storeState.settingsTab = 'audit'
     render(<SettingsView onClose={vi.fn()} />)
 
-    expect(railGroups()).toEqual(['Your preferences'])
-    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
-      false,
-    )
+    expect(railGroups()).toEqual(['Personal', 'Workspace'])
+    expect(
+      screen.getByRole('navigation', { name: 'Settings sections' }).querySelector('[aria-current]'),
+    ).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
     expect(fetchMock.mock.calls.some(([url]) => url.includes('/auth/admin/audit'))).toBe(false)
     expect(screen.getByText('Checking administrator access…')).toBeTruthy()
 
     await act(async () => read.resolve(Response.json({ sections: ['audit'] })))
     expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: 'Audit log' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
   })
 
   it('falls back from a member deep link only after the viewer confirms no admin access', async () => {
     const { read } = delayedViewer()
     storeState.settingsTab = 'audit'
     render(<SettingsView onClose={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
-      false,
-    )
+    expect(
+      screen.getByRole('navigation', { name: 'Settings sections' }).querySelector('[aria-current]'),
+    ).toBeNull()
 
     await act(async () => read.resolve(Response.json({ sections: [] })))
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'New sessions' }).getAttribute('aria-current'),
-      ).toBe('page'),
+      expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-current')).toBe(
+        'page',
+      ),
     )
     expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
   })
 
-  it('Alice, an admin, sees People, Access, Machines, Instance settings and Audit', async () => {
+  it('Alice, an admin, sees all thirteen Personal and Workspace pages', async () => {
     const fetchMock = viewer(['people', 'access', 'machines', 'instance', 'audit'])
     render(<SettingsView onClose={vi.fn()} />)
-    await waitFor(() => expect(railGroups()).toContain('Administration'))
-    expect(railGroups()).toEqual([
-      'Your preferences',
-      'Administration',
-      'Instance settings',
-      'Secrets',
+    await screen.findByRole('button', { name: 'Audit log' })
+    expect(railGroups()).toEqual(['Personal', 'Workspace'])
+    for (const tab of [
+      'Agents',
+      'AI accounts',
+      'Notifications',
+      'Appearance',
+      'Account',
+      'Machines',
+      'Projects',
+      'Members',
+      'Access',
+      'Audit log',
+      'Privacy',
+      'Updates',
+      'Labs',
     ])
-    for (const tab of ['People', 'Access', 'Machines', 'Audit', 'Hibernation', 'Secrets'])
       expect(railTabs()).toContain(tab)
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/auth\/admin\/viewer$/),
@@ -161,7 +172,7 @@ describe('Settings rail — the admin area', () => {
     )
   })
 
-  it('Bob, a member, sees no admin area, only his preferences and his own machines', async () => {
+  it('Bob, a member, sees personal pages and shared workspace pages', async () => {
     const fetchMock = viewer([])
     render(<SettingsView onClose={vi.fn()} />)
     await waitFor(() =>
@@ -171,10 +182,12 @@ describe('Settings rail — the admin area', () => {
       ),
     )
     await screen.findByRole('navigation', { name: 'Settings sections' })
-    expect(railGroups()).toEqual(['Your preferences'])
-    expect(railTabs()).toContain('Profile & security')
-    expect(railTabs()).toContain('Machines')
-    for (const tab of ['People', 'Access', 'Audit', 'Hibernation', 'Secrets', 'Updates'])
+    expect(railGroups()).toEqual(['Personal', 'Workspace'])
+    await screen.findByRole('button', { name: 'Account' })
+    expect(railTabs()).toContain('Account')
+    for (const tab of ['Machines', 'Projects', 'Members', 'Updates'])
+      expect(railTabs()).toContain(tab)
+    for (const tab of ['Access', 'Audit log', 'Privacy', 'Labs'])
       expect(railTabs()).not.toContain(tab)
   })
 
@@ -185,9 +198,9 @@ describe('Settings rail — the admin area', () => {
     await screen.findByRole('navigation', { name: 'Settings sections' })
     expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'New sessions' }).getAttribute('aria-current'),
-      ).toBe('page'),
+      expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-current')).toBe(
+        'page',
+      ),
     )
   })
 
@@ -196,10 +209,10 @@ describe('Settings rail — the admin area', () => {
     storeState.settingsTab = 'audit'
     render(<SettingsView onClose={vi.fn()} />)
     expect(await screen.findByText('Couldn’t check administrator access.')).toBeTruthy()
-    expect(railGroups()).toEqual(['Your preferences'])
-    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
-      false,
-    )
+    expect(railGroups()).toEqual(['Personal', 'Workspace'])
+    expect(
+      screen.getByRole('navigation', { name: 'Settings sections' }).querySelector('[aria-current]'),
+    ).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
 
     const retry = pendingResponse()
@@ -211,10 +224,12 @@ describe('Settings rail — the admin area', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText('Checking administrator access…')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
-    expect(railGroups()).toEqual(['Your preferences'])
+    expect(railGroups()).toEqual(['Personal', 'Workspace'])
 
     await act(async () => retry.resolve(Response.json({ sections: ['audit'] })))
     expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: 'Audit log' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
   })
 })

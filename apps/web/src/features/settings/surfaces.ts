@@ -10,10 +10,19 @@ export const SURFACE_COPY = {
 } as const
 
 export const TAB_PATHS = {
-  agents: ['roles.coding', 'autoContinue.enabled', 'roles.superagent', 'roles.shipwright', 'roles.background'],
+  agents: [
+    'roles.coding',
+    'autoContinue.enabled',
+    'roles.superagent',
+    'roles.shipwright',
+    'roles.background',
+  ],
   accounts: [
-    'apiKeys.openrouter', 'apiKeys.anthropic', 'apiKeys.openai',
-    'integrations.linearApiKey', 'notifications.telegramBotToken',
+    'apiKeys.openrouter',
+    'apiKeys.anthropic',
+    'apiKeys.openai',
+    'integrations.linearApiKey',
+    'notifications.telegramBotToken',
   ],
   notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
   appearance: [],
@@ -23,25 +32,49 @@ export const TAB_PATHS = {
   members: [],
   access: [],
   audit: [],
-  privacy: ['transcripts', 'deployment.telemetryUsage', 'deployment.telemetryCrash', 'deployment.telemetryInstallId', 'deployment.telemetrySince'],
+  privacy: [
+    'transcripts',
+    'deployment.telemetryUsage',
+    'deployment.telemetryCrash',
+    'deployment.telemetryInstallId',
+    'deployment.telemetrySince',
+  ],
   updates: ['deployment.updateChannel'],
   labs: ['experimental'],
 } as const satisfies Record<SettingsPage, readonly string[]>
 
 export const TAB_SURFACE = {
-  agents: 'personal', accounts: 'personal', notifications: 'personal', appearance: 'personal', account: 'personal',
-  machines: 'workspace', projects: 'workspace', members: 'workspace', access: 'workspace',
-  audit: 'workspace', privacy: 'workspace', updates: 'workspace', labs: 'workspace',
+  agents: 'personal',
+  accounts: 'personal',
+  notifications: 'personal',
+  appearance: 'personal',
+  account: 'personal',
+  machines: 'workspace',
+  projects: 'workspace',
+  members: 'workspace',
+  access: 'workspace',
+  audit: 'workspace',
+  privacy: 'workspace',
+  updates: 'workspace',
+  labs: 'workspace',
 } as const satisfies Record<SettingsPage, SettingsSurface>
 
 // AI accounts temporarily hosts the existing server-secret presence controls.
 // Re-homing them does not turn those writes into personal preferences.
 export const PAGE_SETTINGS_TIER = {
-  agents: 'personal-preference', accounts: 'server-secret', notifications: 'personal-preference',
-  appearance: 'personal-preference', account: 'personal-preference',
-  machines: 'instance-preference', projects: 'instance-preference', members: 'instance-preference',
-  access: 'instance-preference', audit: 'instance-preference', privacy: 'instance-preference',
-  updates: 'instance-preference', labs: 'instance-preference',
+  agents: 'personal-preference',
+  accounts: 'server-secret',
+  notifications: 'personal-preference',
+  appearance: 'personal-preference',
+  account: 'personal-preference',
+  machines: 'instance-preference',
+  projects: 'instance-preference',
+  members: 'instance-preference',
+  access: 'instance-preference',
+  audit: 'instance-preference',
+  privacy: 'instance-preference',
+  updates: 'instance-preference',
+  labs: 'instance-preference',
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
@@ -72,22 +105,28 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number]
  * destinations; their existing controls enforce their own write authority. */
 export function adminSectionOf(page: SettingsPage): AdminSection | undefined {
   switch (page) {
-    case 'access': return 'access'
-    case 'audit': return 'audit'
+    case 'access':
+      return 'access'
+    case 'audit':
+      return 'audit'
     case 'privacy':
-    case 'labs': return 'instance'
-    default: return undefined
+    case 'labs':
+      return 'instance'
+    default:
+      return undefined
   }
 }
 
 export function visibleSettingsGroups<
   G extends { surface: SettingsSurface; tabs: readonly { key: SettingsPage; label: string }[] },
 >(groups: readonly G[], sections: readonly string[]): G[] {
-  return groups.map((group) => ({
-    ...group,
-    tabs: group.tabs.filter((page) => {
-      const section = adminSectionOf(page.key)
-      return section === undefined || sections.includes(section)
-    }),
-  })).filter((group) => group.tabs.length > 0)
+  return groups
+    .map((group) => ({
+      ...group,
+      tabs: group.tabs.filter((page) => {
+        const section = adminSectionOf(page.key)
+        return section === undefined || sections.includes(section)
+      }),
+    }))
+    .filter((group) => group.tabs.length > 0)
 }

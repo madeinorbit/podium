@@ -1,11 +1,9 @@
-import { issueWrites } from '@podium/commands/issues-synced'
-import { usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
-import { useMyCodingHarness } from '@/lib/my-preferences'
-import { observer } from 'mobx-react-lite'
+import { AUTO } from '@podium/client-core/agent-models'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { newTaskBase } from '@podium/client-graph/repo-base-branch'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
@@ -18,10 +16,25 @@ import {
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
 } from '@podium/model/browser'
-import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, GitBranch, Server, X, Zap } from 'lucide-react'
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  FolderGit2,
+  GitBranch,
+  Server,
+  X,
+  Zap,
+} from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
+import {
+  useCommandLaunchActions,
+  useCommandLaunchCatalog,
+  useCommandLaunchOrigin,
+  useCommandTargetMachines,
+} from '@/app/command-launch-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -44,7 +57,7 @@ import {
   capabilityReason,
   SIGNED_OUT_HINT,
 } from '@/lib/agent-capability'
-import { AUTO } from '@podium/client-core/agent-models'
+import { usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import {
   issueAgentIcon,
@@ -55,9 +68,10 @@ import {
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_RULE } from '@/lib/menu-surface'
 import { modChord } from '@/lib/mod-chord'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
-import { cn } from '@/lib/utils'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
+import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 
@@ -119,9 +133,9 @@ const PillButton = forwardRef<
 PillButton.displayName = 'PillButton'
 
 const BASE_BRANCH_TITLE = {
-  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings → Repositories.",
+  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings → Projects.",
   podium:
-    'The Podium default parent branch (Settings → Git workflow). This repository has no base branch of its own.',
+    'The Podium default parent branch (Settings → Projects). This repository has no base branch of its own.',
   auto: 'Podium picks main, master or the checked-out branch when the task is created.',
 } as const
 
@@ -307,11 +321,15 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const [error, setError] = useState('')
 
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
-  const repoOptions = useMemo<PropertyOption[]>(() => data.repoPaths.map(path => ({
-    value: path,
-    label: machinePathBasename(path),
-    icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
-  })), [data.repoPaths])
+  const repoOptions = useMemo<PropertyOption[]>(
+    () =>
+      data.repoPaths.map((path) => ({
+        value: path,
+        label: machinePathBasename(path),
+        icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
+      })),
+    [data.repoPaths],
+  )
   const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
     value: s,
     label: STAGE_LABELS[s],
@@ -362,7 +380,7 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
       .map((m) => m.id),
   )
   const targetMachines = useCommandTargetMachines(repoView, machines, [agentKind])
-  const autoMachine = machines.find(machine => machine.id === targetMachines[agentKind])
+  const autoMachine = machines.find((machine) => machine.id === targetMachines[agentKind])
   const pinnedMachine = machineChoice ? repoMachines.find((m) => m.id === machineChoice) : undefined
   // A host pinned while it was up can go down before you press Create. The pin is
   // not silently honoured and not silently dropped either: the pill says so, and

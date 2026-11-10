@@ -641,16 +641,35 @@ export type MainView =
 
 /** Public settings destinations. Old links are canonicalized before entering history. */
 export const SETTINGS_PAGE_IDS = [
-  'agents', 'accounts', 'notifications', 'appearance', 'account',
-  'machines', 'projects', 'members', 'access', 'audit', 'privacy', 'updates', 'labs',
+  'agents',
+  'accounts',
+  'notifications',
+  'appearance',
+  'account',
+  'machines',
+  'projects',
+  'members',
+  'access',
+  'audit',
+  'privacy',
+  'updates',
+  'labs',
 ] as const
 export type SettingsPage = (typeof SETTINGS_PAGE_IDS)[number]
 
 const LEGACY_SETTINGS_PAGES: Readonly<Record<string, SettingsPage>> = {
-  sessions: 'agents', superagent: 'agents', workllm: 'agents',
-  security: 'account', devices: 'account', secrets: 'accounts',
-  hibernation: 'machines', repos: 'projects', workflow: 'projects',
-  network: 'access', experimental: 'labs', people: 'members',
+  sessions: 'agents',
+  superagent: 'agents',
+  workllm: 'agents',
+  security: 'account',
+  devices: 'account',
+  secrets: 'accounts',
+  hibernation: 'machines',
+  repos: 'projects',
+  workflow: 'projects',
+  network: 'access',
+  experimental: 'labs',
+  people: 'members',
 }
 
 export function canonicalSettingsPage(page: string): string {
@@ -724,7 +743,11 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
     case 'issues':
       return { view: 'issues', ...base, issueId: second === undefined ? null : asIssueId(second) }
     case 'settings':
-      return { view: 'settings', ...base, settingsTab: second === undefined ? null : canonicalSettingsPage(second) }
+      return {
+        view: 'settings',
+        ...base,
+        settingsTab: second === undefined ? null : canonicalSettingsPage(second),
+      }
     case 'usage':
     case 'automations':
     case 'specs':
@@ -745,7 +768,9 @@ export function routePath(route: RouteState, currentSearch = ''): string {
       path = route.issueId ? `/issues/${encodeURIComponent(route.issueId)}` : '/issues'
       break
     case 'settings':
-      path = route.settingsTab ? `/settings/${encodeURIComponent(canonicalSettingsPage(route.settingsTab))}` : '/settings'
+      path = route.settingsTab
+        ? `/settings/${encodeURIComponent(canonicalSettingsPage(route.settingsTab))}`
+        : '/settings'
       break
     default:
       path = `/${route.view}`
@@ -809,8 +834,10 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
   }
   const onPopState = (): void => {
     route = parseRoute(win.location.pathname, win.location.search) ?? defaults('workspace')
-    if (parseRoute(win.location.pathname, win.location.search) === null ||
-      (route.view === 'settings' && isLegacySettingsPath(win.location.pathname))) {
+    if (
+      parseRoute(win.location.pathname, win.location.search) === null ||
+      (route.view === 'settings' && isLegacySettingsPath(win.location.pathname))
+    ) {
       win.history.replaceState(null, '', routePath(route, win.location.search))
     }
     notify()
@@ -824,7 +851,9 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
   attach()
   const apply = (next: RouteState, mode: 'push' | 'replace'): void => {
     // View callers use routeDefaults; retain the workspace even when they omit it.
-    next = { ...defaults(next.view), ...next,
+    next = {
+      ...defaults(next.view),
+      ...next,
       settingsTab: next.settingsTab === null ? null : canonicalSettingsPage(next.settingsTab),
     }
     const nextUrl = routePath(next, win.location.search)
