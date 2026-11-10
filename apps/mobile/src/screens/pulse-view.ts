@@ -138,7 +138,7 @@ export function projectSubtitle(row: ProjectCostRow): string {
 
 /** "82% attributed" for the Top projects header; nothing before a reading. */
 export function attributedLabel(view: ProjectCostView | null): string | undefined {
-  if (!view || view.windowTotalUsd <= 0) return undefined
+  if (view?.attributedPercent == null) return undefined
   // The desktop's attribution rule: attributed share of the window, one decimal.
-  return `${formatShare(Math.min(view.attributedUsd, view.windowTotalUsd), view.windowTotalUsd)} attributed`
+  return `${formatShare(view.attributedPercent, 100)} attributed`
 }

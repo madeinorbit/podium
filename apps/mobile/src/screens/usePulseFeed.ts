@@ -1,7 +1,7 @@
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
-import type { TaskCostView } from '@podium/client-graph/task-cost-view'
+import { headerView } from '@podium/client-graph/header-views'
+import type { PulseView } from '@podium/client-graph/pulse-view'
 import type {
-  HostMetricsWire,
   MachineId,
   MachineQuotaWire,
   MachineWire,
@@ -12,7 +12,6 @@ import type { HostMemoryBreakdown } from '@podium/protocol'
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
 import {
-  DEMO_HOST_METRICS,
   DEMO_MACHINES,
   DEMO_MEMORY_BREAKDOWNS,
   DEMO_QUOTA,
@@ -21,9 +20,9 @@ import {
   demoEnabled,
 } from '../client/demoData'
 import { useTrpc } from '../client/hooks'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
-import { usePulseLive } from '../client/use-inbox-data'
 import {
   beginCapacityRefresh,
   CapacityRefreshFence,
@@ -34,29 +33,11 @@ import {
   settleWithConcurrency,
 } from './capacity-refresh'
 
-/**
- * The Pulse tab's three readings [POD-662].
- *
- * TWO OF THEM ARE POLLED, ONE IS ALREADY LIVE. Quota comes from each provider's
- * own endpoint and usage from a transcript harvest — both are daemon-side reads
- * with no push channel, so they are fetched. Host metrics already stream into
- * the store, so nothing here fetches them; the hook only hands them along, and
- * they update at their own (faster) rate.
- *
- * CACHE-FIRST, like the desktop usage sheet. The tab stays mounted once
- * visited, but a cold app launch would otherwise open on an empty instrument,
- * and switching to Pulse to check one number is the most common thing this
- * screen is for. The last answer survives in the module so the second visit
- * paints real figures on the first frame; the fetch behind it is a refresh.
- *
- * MODULE-LOCAL, NOT PERSISTED — same reasoning as the web feed: these are the
- * operator's own consumption figures, and a store that outlives the session
- * would have to be bound to a principal to hold them honestly.
- *
- * `nowMs` IS THE READING'S CLOCK, NOT THE RENDER'S. Every derived figure on the
- * screen — the reset countdown, the rolling windows, the day slots — is
- * evaluated against the moment the payload was taken, so the whole screen
- * describes one instant instead of mixing a fresh clock with stale buckets.
+/** Quota/history and capacity keep their existing profile-scoped readings.
+ * Usage and task costs belong to the shared Pulse opening and publish as one
+ * harvest. Host metrics subscribe in the verdict and machines components.
+ * Polls run only while focused; machine-list changes affect capacity reads,
+ * never the usage/cost refresh cadence.
  */
 
 const REFRESH_MS = 60_000
@@ -64,7 +45,6 @@ const CAPACITY_CONCURRENCY = 3
 
 interface PulseCache {
   quota: MachineQuotaWire[]
-  buckets: UsageBucketWire[]
   history: QuotaWindowHistoryWire[]
   capacityReadings: MachineCapacityReadings
   loadPerCore: number | null
@@ -83,8 +63,6 @@ export interface PulseFeed {
   quota: MachineQuotaWire[] | null
   buckets: UsageBucketWire[] | null
   history: QuotaWindowHistoryWire[] | null
-  /** Streamed, so never cold in the way the polled pair is. */
-  hosts: readonly HostMetricsWire[]
   /** The same per-principal projection the desktop machine surface receives. */
   machines: readonly MachineWire[]
   /** Answers only for machines whose live `use` gate admitted the daemon walk. */
@@ -101,16 +79,16 @@ export interface PulseFeed {
   reload: () => void
 }
 
-/**
- * `costs` is the screen's shared `TaskCostView`: this hook only drives its
- * `cost.tasks` read on the usage cadence. The answer, its fencing and its
- * pricing live in that view model, not here [POD-2385].
- */
-export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
+const EMPTY_MACHINES: readonly MachineWire[] = []
+const readMachines = (pool: Parameters<typeof headerView>[0]) => headerView(pool).machines()
+
+export function usePulseFeed(pulse: PulseView | null): PulseFeed {
   // Subscribe only to the three live values Pulse paints. A whole-store
   // subscription would re-render this tab for unrelated replica publishes.
   const trpc = useTrpc()
-  const { hosts: hostMetrics, machines } = usePulseLive()
+  const machines = useMobilePoolProjection(readMachines, EMPTY_MACHINES)
+  const machinesRef = useRef(machines)
+  machinesRef.current = machines
   const { profile } = useServerProfile()
   const profileKey = serverProfileRequestKey(profile)
   const cached = cacheByProfile.get(profileKey)
@@ -118,7 +96,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
   const [answer, setAnswer] = useState<{
     profileKey: string
     quota: MachineQuotaWire[] | null
-    buckets: UsageBucketWire[] | null
     history: QuotaWindowHistoryWire[] | null
     capacityReadings: MachineCapacityReadings
     loadPerCore: number | null
@@ -128,7 +105,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
   }>(() => ({
     profileKey,
     quota: cached?.quota ?? null,
-    buckets: cached?.buckets ?? null,
     history: cached?.history ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
     loadPerCore: cached?.loadPerCore ?? null,
@@ -142,6 +118,7 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
   // start a fresh one from zero on every pull. Unfocused, there is no loader
   // and the pull is a no-op, which is correct: nothing is on screen to refresh.
   const loadRef = useRef<() => void>(() => {})
+  const capacityLoadRef = useRef<() => void>(() => {})
   const reload = useCallback(() => loadRef.current(), [])
   const capacityFence = useRef(new CapacityRefreshFence(profileKey)).current
   const capacityScheduler = useRef(new CapacityRefreshScheduler()).current
@@ -153,7 +130,10 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
   useFocusEffect(
     useCallback(() => {
       if (demo) {
-        void costs?.read(() => Promise.resolve([]))
+        void pulse?.refresh(
+          () => Promise.resolve({ buckets: DEMO_USAGE_BUCKETS }),
+          () => Promise.resolve([]),
+        )
         return
       }
       let cancelled = false
@@ -162,7 +142,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
         const prior = cacheByProfile.get(profileKey)
         const next: PulseCache = {
           quota: prior?.quota ?? [],
-          buckets: prior?.buckets ?? [],
           history: prior?.history ?? [],
           capacityReadings: prior?.capacityReadings ?? {},
           loadPerCore: prior?.loadPerCore ?? null,
@@ -175,7 +154,10 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
       const loadReadings = (): void => {
         Promise.all([
           trpc.quota.summary.query(),
-          trpc.usage.summary.query(),
+          pulse?.refresh(
+            () => trpc.usage.summary.query(),
+            () => trpc.cost.tasks.query(),
+          ),
           // The threshold the load meter means anything against. Best-effort:
           // without it the meter falls back to the documented default rather
           // than disappearing.
@@ -184,10 +166,10 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
             () => null,
           ),
         ]).then(
-          ([quota, usage, loadPerCore]) => {
+          ([quota, , loadPerCore]) => {
+            if (cancelled) return
             const cached = updateCache({
               quota,
-              buckets: usage.buckets,
               loadPerCore,
               fetchedAt: Date.now(),
             })
@@ -196,10 +178,9 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
                 ...current,
                 profileKey,
                 quota: cached.quota,
-                buckets: cached.buckets,
                 loadPerCore: cached.loadPerCore,
                 fetchedAt: cached.fetchedAt,
-                failed: false,
+                failed: pulse?.error != null,
               }))
             }
           },
@@ -213,6 +194,7 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
       const loadHistory = (): void => {
         void trpc.quota.history.query({ days: 42 }).then(
           (history) => {
+            if (cancelled) return
             updateCache({ history })
             if (!cancelled) {
               setAnswer((current) => ({
@@ -229,17 +211,9 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
         )
       }
 
-      // TOP TASKS AND PROJECTS [POD-2379, POD-2385]. The same `cost.tasks`
-      // read the desktop's by-task section polls; its rows are written by the
-      // usage harvest, so it rides the usage poll. The shared view owns the
-      // answer and fences overlapping reads; a failure keeps the last rows.
-      const loadTaskCosts = (): void => {
-        void costs?.read(() => trpc.cost.tasks.query())
-      }
-
       const runBreakdowns = (force: boolean): Promise<void> => {
         if (cancelled) return Promise.resolve()
-        const views = machineViewsFromWire(machines)
+        const views = machineViewsFromWire(machinesRef.current)
         const retained = views.filter((view) => view.grants.use).map((view) => view.machine)
         const available = views
           .filter((view) => view.grants.use && view.availability === 'available')
@@ -274,7 +248,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
                   ...current,
                   profileKey,
                   quota: null,
-                  buckets: null,
                   history: null,
                   capacityReadings: {},
                 }),
@@ -326,22 +299,30 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
 
       const load = (forceCapacity = false): void => {
         loadReadings()
-        loadTaskCosts()
         loadHistory()
         loadBreakdowns(forceCapacity)
       }
+      capacityLoadRef.current = () => loadBreakdowns(false)
       loadRef.current = () => load(true)
       load()
       const poll = setInterval(() => {
         loadReadings()
-        loadTaskCosts()
       }, REFRESH_MS)
       return () => {
         cancelled = true
         loadRef.current = () => {}
+        capacityLoadRef.current = () => {}
         clearInterval(poll)
+        pulse?.cancel()
       }
-    }, [capacityFence, capacityScheduler, costs, demo, machines, profileKey, trpc]),
+    }, [capacityFence, capacityScheduler, pulse, demo, profileKey, trpc]),
+  )
+
+  useFocusEffect(
+    useCallback(() => {
+      machinesRef.current = machines
+      capacityLoadRef.current()
+    }, [machines]),
   )
 
   if (demo) {
@@ -349,7 +330,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
       quota: DEMO_QUOTA,
       buckets: DEMO_USAGE_BUCKETS,
       history: DEMO_QUOTA_HISTORY,
-      hosts: DEMO_HOST_METRICS,
       machines: DEMO_MACHINES,
       capacityReadings: Object.fromEntries(
         Object.entries(DEMO_MEMORY_BREAKDOWNS).map(([machineId, value]) => [
@@ -371,7 +351,6 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
       quota: null,
       buckets: null,
       history: null,
-      hosts: hostMetrics,
       machines,
       capacityReadings: {},
       loadPerCore: null,
@@ -385,9 +364,9 @@ export function usePulseFeed(costs: TaskCostView | null): PulseFeed {
 
   return {
     ...answer,
-    hosts: hostMetrics,
+    buckets: pulse?.answer?.buckets ?? null,
     machines,
-    nowMs: answer.fetchedAt ?? Date.now(),
+    nowMs: pulse?.answer?.nowMs ?? answer.fetchedAt ?? Date.now(),
     reload,
   }
 }

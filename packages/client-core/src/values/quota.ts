@@ -407,6 +407,11 @@ export interface QuotaRowView {
   modelNote: string | null
 }
 
+/** Literal exhaustion, separate from the launch-headroom warning threshold. */
+export function quotaExhausted(usedPercent: number): boolean {
+  return usedPercent >= 100
+}
+
 function capitalise(text: string): string {
   return text ? `${text[0]?.toUpperCase()}${text.slice(1)}` : text
 }
@@ -444,7 +449,7 @@ export function gatingQuotaRows(
     const modelNote = modelLimitNote(group.agent, group.windows, served)
     for (const window of splitQuotaWindows(group.windows).gating) {
       const used = Math.max(0, Math.min(100, window.usedPercent))
-      const out = window.usedPercent >= 100
+      const out = quotaExhausted(window.usedPercent)
       const pace = windowPace(window, nowMs)
       readable.push({
         key: `${group.key}:${window.key}`,

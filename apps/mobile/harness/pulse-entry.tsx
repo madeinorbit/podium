@@ -29,6 +29,7 @@ import {
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
+import { MobxPool } from '@podium/client-graph/pool'
 import type { TaskCostRowWire } from '@podium/model'
 import { createRoot } from 'react-dom/client'
 import { StyleSheet, Text, View } from 'react-native'
@@ -88,6 +89,36 @@ const taskRows = TASKS.map(
     }) as unknown as TaskCostRowWire,
 )
 
+// The screenshot uses the same IssueModel identity path as the mounted tab.
+const pool = new MobxPool({ selectedIssueId: null, coarseNow: nowMs })
+const stamp = new Date(nowMs).toISOString()
+pool.apply({
+  type: 'replace',
+  rows: [
+    ...['POD', 'PDM', 'TFT', 'ONA'].map((prefix) => ({
+      kind: 'repo' as const,
+      id: prefix,
+      value: { id: prefix, prefix, repoPath: `/${prefix}` } as never,
+    })),
+    ...TASKS.map(([ref, title], i) => ({
+      kind: 'issue' as const,
+      id: `iss_${i}`,
+      value: {
+        id: `iss_${i}`,
+        seq: Number(ref.split('-')[1]),
+        title,
+        repoId: ref.split('-')[0],
+        stage: 'in_progress',
+        parentId: null,
+        deps: [],
+        archived: false,
+        createdAt: stamp,
+        updatedAt: stamp,
+      } as never,
+    })),
+  ],
+})
+
 /** The project each fixture task's repo prefix stands for, as the pool would say. */
 const REPO_BY_PREFIX: Record<string, string> = {
   POD: 'podium',
@@ -126,6 +157,7 @@ function Harness() {
       <Text style={styles.subtitle}>{pulseSubtitle(pulseHero(summary, range), range, cold)}</Text>
       <View style={styles.content}>
         <PulseBody
+          pool={pool}
           range={range}
           hero={pulseHero(summary, range)}
           summary={summary}

@@ -7,8 +7,9 @@ import {
 } from '@podium/client-core/values'
 import { lazy } from '@podium/mobx-helpers'
 import type { TaskCostRowWire } from '@podium/model'
+import { machinePathKey } from '@podium/model/browser'
 import { action } from 'mobx'
-import { readPageIssue } from './issue-page'
+import { here } from './lookup'
 import type { MobxPool } from './pool'
 import { RequestAnswer } from './request-answer'
 
@@ -22,9 +23,8 @@ import { RequestAnswer } from './request-answer'
  * this class only holds the answer and caches each derivation as its own
  * field, so a streamed host-metric or usage update never reprices the tasks.
  *
- * Projects are read off the pool's shared issue model (`repoName`), the same
- * field the task screen prints. An issue still loading, or one this principal
- * cannot see, stays unattributed until it resolves.
+ * Projects use the pool's declared issue/repo summaries. Stable repo identity
+ * separates equal display names without loading full cold task records.
  */
 export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
   constructor(private readonly pool: MobxPool) {
@@ -59,10 +59,16 @@ export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
     return answer ? projectCostGroups(answer, (issueId) => this.projectOf(issueId)) : null
   }
 
-  private projectOf(issueId: string): string | undefined {
-    const issue = readPageIssue(this.pool, issueId)
-    if (!issue || typeof issue === 'symbol') return undefined
-    return issueRepoName(issue) || undefined
+  private projectOf(issueId: string): { key: string; name: string } | undefined {
+    // These repo fields are declared by ISSUE_PAGE_SUMMARIES. Cold tasks use
+    // that summary and the joined repo row without fetching a full issue.
+    const issue = here(this.pool.row('issue', issueId, 'summary-fields')) as
+      | { repoId?: string | null; repoPath?: string; repoName?: string }
+      | undefined
+    if (!issue) return undefined
+    const key = issue.repoId ?? machinePathKey(issue.repoPath ?? '')
+    const name = issueRepoName({ repoName: issue.repoName, repoPath: issue.repoPath ?? '' })
+    return key && name ? { key, name } : undefined
   }
 
   dispose(): void {

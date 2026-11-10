@@ -5,21 +5,22 @@ import {
   useGrantedHostMetrics as grantedHostMetrics,
   useGrantedMachineQuota as grantedMachineQuota,
   groupQuotaByAccount,
-  modelShares,
-  projectCostShares,
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
+import { createPulseView } from '@podium/client-graph/pulse-view'
 import { useOpeningView } from '@podium/client-graph/react'
-import { createTaskCostView } from '@podium/client-graph/task-cost-view'
 import { router } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native'
+import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useMobilePool } from '../client/mobile-pool'
+import { usePulseLive } from '../client/use-inbox-data'
 import { NativePicker } from '../components/action-sheet-native'
 import { Icon } from '../components/Icon'
 import { ChevronDown } from '../components/icons'
+import { SectionHeader } from '../components/instruments'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
@@ -27,7 +28,7 @@ import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useBuildStamp } from '../lib/build-stamp'
 import { color, font, sans, space } from '../theme/theme'
-import { PulseBody } from './PulseBody'
+import { Machines, PulseBody } from './PulseBody'
 import {
   PULSE_RANGES,
   type PulseRange,
@@ -37,7 +38,7 @@ import {
   rangeLabel,
   rangeShort,
 } from './pulse-view'
-import { usePulseFeed } from './usePulseFeed'
+import { type PulseFeed, usePulseFeed } from './usePulseFeed'
 
 /**
  * PULSE — what the agents cost, and what can still run [POD-2379].
@@ -65,8 +66,10 @@ import { usePulseFeed } from './usePulseFeed'
  */
 
 export const PulseScreen = observer(function PulseScreen() {
-  const costs = useOpeningView(useMobilePool(), createTaskCostView)
-  const feed = usePulseFeed(costs)
+  const pool = useMobilePool()
+  const pulse = useOpeningView(pool, createPulseView)
+  const costs = pulse?.costs
+  const feed = usePulseFeed(pulse)
   const [range, setRange] = useState<PulseRange>('week')
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
@@ -80,57 +83,30 @@ export const PulseScreen = observer(function PulseScreen() {
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('pulse', onPull)
 
-  const cold = feed.quota === null && feed.buckets === null
-  const summary = useMemo(
-    () => usageSummary(feed.buckets ?? [], feed.nowMs),
-    [feed.buckets, feed.nowMs],
-  )
+  const cold = feed.buckets === null
+  const summary = pulse?.summary ?? EMPTY_SUMMARY
   const hero = useMemo(() => pulseHero(summary, range), [summary, range])
-  const models = useMemo(() => modelShares(summary, 6), [summary])
+  const models = pulse?.models ?? NO_MODELS
   const grantedQuota = useMemo(
     () => grantedMachineQuota(feed.machines, feed.quota ?? []),
     [feed.machines, feed.quota],
-  )
-  const grantedHosts = useMemo(
-    () => grantedHostMetrics(feed.machines, feed.hosts),
-    [feed.machines, feed.hosts],
   )
   const quota = useMemo(
     () => gatingQuotaRows(groupQuotaByAccount(grantedQuota), feed.nowMs),
     [grantedQuota, feed.nowMs],
   )
-  const verdict = useMemo(
-    () =>
-      feed.quota === null
-        ? null
-        : quotaVerdict(
-            capacityView({
-              machines: grantedQuota,
-              hosts: grantedHosts,
-              loadPerCore: feed.loadPerCore,
-              nowMs: feed.nowMs,
-            }),
-          ),
-    [feed.quota, grantedQuota, grantedHosts, feed.loadPerCore, feed.nowMs],
+  const projects = pulse?.projects ?? null
+  const quotaHeader = useCallback(
+    (open: boolean, onToggle: () => void) => (
+      <LiveQuotaHeader feed={feed} open={open} onToggle={onToggle} />
+    ),
+    [feed],
   )
-  const fleet = useMemo(
-    () =>
-      visibleFleetOperations({
-        machines: feed.machines,
-        hosts: grantedHosts,
-        capacityReadings: feed.capacityReadings,
-        loadPerCore: feed.loadPerCore,
-        nowMs: feed.nowMs,
-      }),
-    [feed.machines, grantedHosts, feed.capacityReadings, feed.loadPerCore, feed.nowMs],
-  )
-  // The grouping is the view's cached field; only the share against the
-  // separately-polled week total is computed here.
-  const projectGroups = costs?.projectGroups ?? null
-  const weekUsd = summary.week.estCostUsd
-  const projects = useMemo(
-    () => (projectGroups ? projectCostShares(projectGroups, weekUsd) : null),
-    [projectGroups, weekUsd],
+  const machinesSection = useCallback(
+    (open: boolean, onToggle: () => void) => (
+      <LiveMachines feed={feed} open={open} onToggle={onToggle} />
+    ),
+    [feed],
   )
   const tasks = costs?.topTasks ?? NO_TASKS
   const onOpenTask = useCallback(
@@ -162,12 +138,15 @@ export const PulseScreen = observer(function PulseScreen() {
             hero={hero}
             summary={summary}
             quota={quota}
-            verdict={verdict}
+            verdict={null}
+            quotaHeader={quotaHeader}
             projects={projects}
             tasks={tasks}
             tasksCold={costs?.answer === undefined}
             models={models}
-            fleet={fleet}
+            fleet={EMPTY_FLEET}
+            machinesSection={machinesSection}
+            pool={pool}
             cold={cold}
             failed={cold && feed.failed}
             onRetry={feed.reload}
@@ -180,7 +159,87 @@ export const PulseScreen = observer(function PulseScreen() {
   )
 })
 
+// Host samples subscribe only at the two regions that display them.
+function useHostReadings() {
+  const live = usePulseLive()
+  const machines = demoEnabled() ? DEMO_MACHINES : live.machines
+  const hosts = demoEnabled() ? DEMO_HOST_METRICS : live.hosts
+  return { machines, hosts: grantedHostMetrics(machines, hosts) }
+}
+
+function LiveQuotaHeader({
+  feed,
+  open,
+  onToggle,
+}: {
+  feed: PulseFeed
+  open: boolean
+  onToggle: () => void
+}) {
+  const { machines, hosts } = useHostReadings()
+  const verdict =
+    feed.quota === null
+      ? null
+      : quotaVerdict(
+          capacityView({
+            machines: grantedMachineQuota(machines, feed.quota),
+            hosts,
+            loadPerCore: feed.loadPerCore,
+            nowMs: feed.nowMs,
+          }),
+        )
+  return (
+    <SectionHeader
+      title="Quota"
+      open={open}
+      onToggle={onToggle}
+      trailing={verdict?.text}
+      trailingSignal={verdict?.signal}
+    />
+  )
+}
+
+function LiveMachines({
+  feed,
+  open,
+  onToggle,
+}: {
+  feed: PulseFeed
+  open: boolean
+  onToggle: () => void
+}) {
+  const { machines, hosts } = useHostReadings()
+  const fleet = visibleFleetOperations({
+    machines,
+    hosts,
+    capacityReadings: feed.capacityReadings,
+    loadPerCore: feed.loadPerCore,
+    nowMs: feed.nowMs,
+  })
+  return (
+    <>
+      <SectionHeader
+        title="Machines"
+        open={open}
+        onToggle={onToggle}
+        trailing={fleet.machines.length > 0 ? fleet.fleetLabel : undefined}
+      />
+      {open ? <Machines fleet={fleet} /> : null}
+    </>
+  )
+}
+
+const EMPTY_FLEET = visibleFleetOperations({
+  machines: [],
+  hosts: [],
+  capacityReadings: {},
+  loadPerCore: null,
+  nowMs: 0,
+})
+
 const NO_TASKS: never[] = []
+const NO_MODELS: never[] = []
+const EMPTY_SUMMARY = { ...usageSummary([], 0), days: [] }
 
 // ---------------------------------------------------------------------------
 // Range button

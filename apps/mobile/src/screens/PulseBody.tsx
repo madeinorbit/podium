@@ -12,8 +12,11 @@ import {
   type UsageSummaryView,
   type visibleFleetOperations,
 } from '@podium/client-core/values'
-import { issueDisplayRef } from '@podium/protocol'
-import { memo, useState } from 'react'
+import { LOADING } from '@podium/client-graph/loading'
+import { isGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { observer } from 'mobx-react-lite'
+import { memo, type ReactNode, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import {
   CARD_INSET,
@@ -35,9 +38,9 @@ import {
 } from './pulse-view'
 
 /**
- * The Pulse tab's content, presentational [POD-2379]: every figure arrives as
- * a prop, so the WebKit layout harness renders it from fixtures without the
- * router, the feed or the native header. PulseScreen owns the data.
+ * Pulse figures arrive from shared views. Each task row observes its identity
+ * in the pool; the WebKit harness supplies a synthetic pool for the same path.
+ * PulseScreen owns the opening, feed and native header.
  */
 
 export type Fleet = ReturnType<typeof visibleFleetOperations>
@@ -45,6 +48,9 @@ type SectionKey = 'quota' | 'projects' | 'tasks' | 'models' | 'machines'
 
 export interface PulseBodyProps {
   range: PulseRange
+  pool: MobxPool | null
+  quotaHeader?: (open: boolean, onToggle: () => void) => ReactNode
+  machinesSection?: (open: boolean, onToggle: () => void) => ReactNode
   hero: PulseHero
   summary: UsageSummaryView
   quota: QuotaRowView[]
@@ -64,7 +70,7 @@ export interface PulseBodyProps {
   buildStamp: string
 }
 
-export function PulseBody(props: PulseBodyProps) {
+export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
   const { range, hero, summary, cold } = props
   const [closed, setClosed] = useState<ReadonlySet<SectionKey>>(new Set())
   const toggle = (key: SectionKey) =>
@@ -121,13 +127,17 @@ export function PulseBody(props: PulseBodyProps) {
         </View>
       </Card>
 
-      <SectionHeader
-        title="Quota"
-        open={open('quota')}
-        onToggle={() => toggle('quota')}
-        trailing={props.verdict?.text}
-        trailingSignal={props.verdict?.signal}
-      />
+      {props.quotaHeader ? (
+        props.quotaHeader(open('quota'), () => toggle('quota'))
+      ) : (
+        <SectionHeader
+          title="Quota"
+          open={open('quota')}
+          onToggle={() => toggle('quota')}
+          trailing={props.verdict?.text}
+          trailingSignal={props.verdict?.signal}
+        />
+      )}
       {open('quota') ? (
         <Card>
           {props.quota.length === 0 ? (
@@ -164,7 +174,11 @@ export function PulseBody(props: PulseBodyProps) {
             />
           ) : (
             props.projects.rows.map((project, i) => (
-              <ProjectRow key={project.project} project={project} first={i === 0} />
+              <ProjectRow
+                key={project.projectKey ?? project.project}
+                project={project}
+                first={i === 0}
+              />
             ))
           )}
         </Card>
@@ -184,7 +198,14 @@ export function PulseBody(props: PulseBodyProps) {
             />
           ) : (
             props.tasks.map((task, i) => (
-              <TaskRow key={task.issueId} task={task} first={i === 0} onOpen={props.onOpenTask} />
+              <LiveTaskRow
+                key={task.issueId}
+                pool={props.pool}
+                issueId={task.issueId}
+                costUsd={task.windowCostUsd}
+                first={i === 0}
+                onOpen={props.onOpenTask}
+              />
             ))
           )}
         </Card>
@@ -210,13 +231,19 @@ export function PulseBody(props: PulseBodyProps) {
         </Card>
       ) : null}
 
-      <SectionHeader
-        title="Machines"
-        open={open('machines')}
-        onToggle={() => toggle('machines')}
-        trailing={props.fleet.machines.length > 0 ? props.fleet.fleetLabel : undefined}
-      />
-      {open('machines') ? <Machines fleet={props.fleet} /> : null}
+      {props.machinesSection ? (
+        props.machinesSection(open('machines'), () => toggle('machines'))
+      ) : (
+        <>
+          <SectionHeader
+            title="Machines"
+            open={open('machines')}
+            onToggle={() => toggle('machines')}
+            trailing={props.fleet.machines.length > 0 ? props.fleet.fleetLabel : undefined}
+          />
+          {open('machines') ? <Machines fleet={props.fleet} /> : null}
+        </>
+      )}
 
       <Text style={styles.foot}>
         {range === 'fiveHour'
@@ -235,9 +262,9 @@ export function PulseBody(props: PulseBodyProps) {
       </Text>
     </View>
   )
-}
+})
 
-function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
+const HeroBlock = memo(function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
   const daysLabel = hero.days.map((d) => `${d.weekday} ${formatCostRounded(d.costUsd)}`).join(', ')
   return (
     <View style={styles.hero}>
@@ -267,7 +294,7 @@ function HeroBlock({ hero, cold }: { hero: PulseHero; cold: boolean }) {
       ) : null}
     </View>
   )
-}
+})
 
 function Stat({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
   return (
@@ -326,32 +353,48 @@ function QuotaRowBase({ row, first }: { row: QuotaRowView; first: boolean }) {
   )
 }
 
-function TaskRowBase({
-  task,
-  first,
-  onOpen,
-}: {
-  task: TaskCostRowView
+interface TaskRowProps {
+  issueId: string
+  costUsd: number
   first: boolean
   onOpen: (issueId: string) => void
-}) {
-  const ref = issueDisplayRef(task)
+}
+
+const LiveTaskRow = observer(function LiveTaskRow({
+  pool,
+  ...props
+}: TaskRowProps & { pool: MobxPool | null }) {
+  const issue = pool?.model('issue', props.issueId) ?? LOADING
+  if (isGone(issue)) return <TaskRow {...props} title="Task unavailable" displayRef="" disabled />
+  if (issue === LOADING) return <TaskRow {...props} title="Loading task…" displayRef="" disabled />
+  return <TaskRow {...props} title={issue.title} displayRef={issue.displayRef} />
+})
+
+function TaskRowBase({
+  issueId,
+  title,
+  displayRef,
+  costUsd,
+  first,
+  onOpen,
+  disabled = false,
+}: TaskRowProps & { title: string; displayRef: string; disabled?: boolean }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${ref} ${task.title}, ${formatCostRounded(task.windowCostUsd)}`}
-      onPress={() => onOpen(task.issueId)}
+      accessibilityLabel={`${displayRef} ${title}, ${formatCostRounded(costUsd)}`}
+      disabled={disabled}
+      onPress={() => onOpen(issueId)}
       style={({ pressed }) => [styles.task, pressed && styles.pressed]}
     >
-      {/* Separator starts at the title column, as list rows inset theirs. */}
       {first ? null : <View style={styles.taskDivider} />}
       <Text style={styles.taskRef} numberOfLines={1}>
-        {ref}
+        {displayRef}
       </Text>
       <Text style={styles.taskTitle} numberOfLines={1}>
-        {task.title}
+        {title}
       </Text>
-      <Text style={styles.taskCost}>{formatCostRounded(task.windowCostUsd)}</Text>
+      <Text style={styles.taskCost}>{formatCostRounded(costUsd)}</Text>
     </Pressable>
   )
 }
@@ -417,7 +460,7 @@ const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
 
 const PREVIEW_MACHINES = 12
 
-function Machines({ fleet }: { fleet: Fleet }) {
+export function Machines({ fleet }: { fleet: Fleet }) {
   const [visible, setVisible] = useState(PREVIEW_MACHINES)
   if (fleet.machines.length === 0) {
     return (

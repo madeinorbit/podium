@@ -405,6 +405,8 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
 
 /** One project's share of the window's task spend — see `projectCostRows`. */
 export interface ProjectCostRow {
+  /** Stable repository identity; legacy label-only callers omit it. */
+  projectKey?: string
   /** The repository's display name, as the resolver returned it. */
   project: string
   /** Sum of each task's OWN window cost (`windowModels`), never the rollup. */
@@ -450,7 +452,7 @@ export interface ProjectCostView {
  */
 export function projectCostRows(
   rows: readonly TaskCostRowWire[],
-  projectOf: (issueId: string) => string | null | undefined,
+  projectOf: (issueId: string) => string | { key: string; name: string } | null | undefined,
   windowTotalUsd: number,
 ): ProjectCostView {
   return projectCostShares(projectCostGroups(rows, projectOf), windowTotalUsd)
@@ -473,11 +475,17 @@ export interface ProjectCostGroups {
  */
 export function projectCostGroups(
   rows: readonly TaskCostRowWire[],
-  projectOf: (issueId: string) => string | null | undefined,
+  projectOf: (issueId: string) => string | { key: string; name: string } | null | undefined,
 ): ProjectCostGroups {
   const groups = new Map<
     string,
-    { costUsd: number; taskCount: number; models: Map<string, number> }
+    {
+      project: string
+      projectKey?: string
+      costUsd: number
+      taskCount: number
+      models: Map<string, number>
+    }
   >()
   let attributedUsd = 0
   for (const row of rows) {
@@ -492,10 +500,17 @@ export function projectCostGroups(
     if (taskUsd <= 0) continue
     const project = projectOf(row.issueId)
     if (!project) continue
-    let group = groups.get(project)
+    const key = typeof project === 'string' ? project : project.key
+    let group = groups.get(key)
     if (!group) {
-      group = { costUsd: 0, taskCount: 0, models: new Map() }
-      groups.set(project, group)
+      group = {
+        project: typeof project === 'string' ? project : project.name,
+        ...(typeof project === 'string' ? {} : { projectKey: project.key }),
+        costUsd: 0,
+        taskCount: 0,
+        models: new Map(),
+      }
+      groups.set(key, group)
     }
     group.costUsd += taskUsd
     group.taskCount += 1
@@ -506,7 +521,7 @@ export function projectCostGroups(
   const sorted = [...groups.entries()].sort((a, b) => b[1].costUsd - a[1].costUsd)
   const peak = sorted[0]?.[1].costUsd ?? 0
   return {
-    rows: sorted.map(([project, g]) => {
+    rows: sorted.map(([, g]) => {
       let topModel: string | null = null
       let topUsd = 0
       for (const [model, usd] of g.models) {
@@ -516,7 +531,8 @@ export function projectCostGroups(
         }
       }
       return {
-        project,
+        project: g.project,
+        ...(g.projectKey === undefined ? {} : { projectKey: g.projectKey }),
         costUsd: g.costUsd,
         taskCount: g.taskCount,
         topModel,

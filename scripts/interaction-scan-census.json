@@ -497,6 +497,252 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "EMPTY_SUMMARY",
+      "rule": "reader-summary",
+      "tokens": "3d1d22b17d1a6d1314923b195e5b921372a8ce85dfa7ccb2716c02fc80958b40",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "9273fb4cf58b39585a213c6986ae6cc768f08353407cfde28aee70473f081fd1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2391",
+      "trigger": "Pulse module initialization.",
+      "bound": "Zero input buckets; one empty summary.",
+      "reason": "The loading fallback calls usageSummary with a literal empty array and zero clock, once at module load.",
+      "guard": "apps/mobile/src/client/use-inbox-data.pool.test.tsx"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "EMPTY_SUMMARY",
+      "rule": "spread",
+      "tokens": "3ea070c7b064de2d7fc1855c2b2a3d667eb7e15611e42ebd2ab99df18bf169e3",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "c7ad08f27f4d2b3179df8b6e8b1f859a29eee66651fc11f4435cc8ab664fa8ec",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2391",
+      "trigger": "Pulse module initialization before its pool attaches.",
+      "bound": "One summary of zero usage buckets; no record collection.",
+      "reason": "Copies the empty loading summary and omits its epoch calendar until the shared opening supplies its current calendar.",
+      "guard": "apps/mobile/src/screens/PulseScreen.tsx EMPTY_SUMMARY literal; packages/client-graph/src/pulse-view.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "LiveMachines",
+      "rule": "reader-summary",
+      "tokens": "4f3bbae74c4d0b0965e2dceeedc6f1a0d31297a85394f45f34d22e760bd0805e",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "f24bfe8bd4d394dda8446e79754d1aeb9ec2366934a6b65f4d3fff2f255aae66",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in LiveMachines.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "LiveMachines/fleet",
+      "rule": "helper-consumer",
+      "tokens": "e0fdb45ca65a25d569e008cf2aba55d3f024b1cafacdd7c34593275248d2be08",
+      "gate": [],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "4a756503d9d51c7d2b21e4e999b335259add977f195c029a1ee0d257470555b3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in LiveMachines/fleet.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 7d221a88afede7906ec3e92bcefaf5670dc4cd5d3fcbddfe896bd313348d13e0. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 6b28ec53e7d9f660f1c280db46a291e24e39a58a2e73a0472e94e1db7a88fd17."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "LiveQuotaHeader",
+      "rule": "reader-summary",
+      "tokens": "4f3bbae74c4d0b0965e2dceeedc6f1a0d31297a85394f45f34d22e760bd0805e",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "b598da2b1c4da167b1863b820337bf9cc237f4386c40b872cfd58cd769436fad",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in LiveQuotaHeader.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "LiveQuotaHeader/verdict",
+      "rule": "helper-consumer",
+      "tokens": "49f6bfa76630d6957732bd25363b816fe051a55fa7afa4725c7b9078b9fc213d",
+      "gate": [
+        "else:c3e3fd9044162e4c53fb34547b94862f1dc9d21c2003898bd438bff132c2d182"
+      ],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "260cac31fcaf20a982f4d48db8bb24c5b1a6ffa7a4104fabd31b71be78262d4a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "The granted per-machine quota and host lists the Pulse feed already holds; no new collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in LiveQuotaHeader/verdict.",
+      "reason": "POD-2385 feeds the existing Pulse quota/host collections into the shared capacityView for the Quota header verdict. Same origin and debt as the fleet/grantedHosts entries beside it; this does not repair it. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: fe8c11e87ca9221b75b37fcea31f133898565b886da1b89f5dd5c6258a04e402. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 1cb9d03905a704cb051e1261ef904a930a0b360d18c1c3d7a6cb2fae6dc0cf8e."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/PulseScreen",
+      "rule": "helper-consumer",
+      "tokens": "136c7a0d0a2859de01f3d9a8077cf54517987e784b438a0d773f294c9de44e70",
+      "gate": [
+        "else:3bdd7388d2ed9ad80e904ff8fef948a9bce37ac6a94a2e79ea20ebfca85e470b"
+      ],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "71cc90c91a0faccf2c7d7248d8279e801a45f2ce5b613c6b891dea1d0111ec5e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders its header subtitle.",
+      "bound": "One usage summary answer and the chosen range.",
+      "reason": "Formats the hero figure into the large-title subtitle; no collection is enumerated beyond the summary already derived. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 53d961aac65a1d37d1c8913f584a6b5cf0bfab579509825a24b4b79ce86e439b.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/PulseScreen/feed",
+      "rule": "reader-summary",
+      "tokens": "b97ab360a36adac0e8e5adffd1bd574dc633ee22b03560dc06a91c0fb0e9e45c",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in PulseScreen/PulseScreen/feed.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/PulseScreen/hero/useMemo:callback",
+      "rule": "helper-consumer",
+      "tokens": "31ea4710f56fca029313d4c488de70bba5c5cf393f73e4cc0414e19eb00235c4",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "fdc89673e5cefc909eecb7ba0acb084d8218c4ce62de4f0eb6d386713251936c",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "trigger": "Pulse tab renders the cost hero for the chosen range.",
+      "bound": "Seven days of 24 hour slots from one usage summary.",
+      "reason": "Projects the summary hour slots into the trace bars and day columns the hero draws. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 685295e7934dcc7da7ba1cc331caa66653d222b43a25e4cfe78e10740664a826.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "useHostReadings/hosts",
+      "rule": "helper-consumer",
+      "tokens": "2daedbf20a3fbc80c10b84caed30b5c2df24e6d7686f28fab809cadb02b06e78",
+      "gate": [],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "0b2403d11337cdc679028b3069800dc62cc7c359c387e40b34927b72e6aa09b9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in useHostReadings/hosts.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 182fb572af4a9081ca4fa0bd8c6363e34e987808ba9714791599184cd8569c1c. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 5dc98c0cb6a2345891baf047670b96236753823641a53b7abc4556195f0727a1."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "useHostReadings/hosts",
+      "rule": "reader-summary",
+      "tokens": "87c8bec228429df0b27bad592233ebbae1266f557fd6c6fbe454503b614d478a",
+      "gate": [],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "a6ba268dc86a7c2cca45cccd3f1208b9f9698e4d7e18a03b6de234ad713d32d7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in useHostReadings/hosts.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 105cd0e67f91d3188026e79db3bf62a9f44a4e7e6291b3430bffeebabc38220d. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 83ba59ee4c6da82f9c7e62316fb78e12253cd6d23fe7c9ee02e2655e042dd0e3."
+    },
+    {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "useHostReadings/live",
+      "rule": "reader-summary",
+      "tokens": "00627ad8df7760785a8a7ea48131d56bf042df315b3eaecde18ce7a9162f7faf",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "8e88811fd5243e5342fd183f14c4cbb458fa393ae832bd18363c7be477326b66",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in useHostReadings/live.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 186133b5d08fed3360ebf59ee939df32bfe9e529161e3d1fcd242bb513706079."
+    },
+    {
       "file": "apps/web/src/app/FlightDeck.tsx",
       "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
       "rule": "reader-summary",
@@ -863,200 +1109,6 @@
       "reason": "A native descriptor now reads canonical per-section fields instead of a section bundle. The underlying group ID lists are unchanged. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
     },
     {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/feed",
-      "rule": "reader-summary",
-      "tokens": "2e83a859c77f0814e4f5e74581d0c1de039e12af150ec9efdf1d6c2f2581e6dc",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/feed through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/fleet/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "8259fc4cf8358cc96717fa192b705651365291ae6d3d9057a942774e70a7452f",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "6b28ec53e7d9f660f1c280db46a291e24e39a58a2e73a0472e94e1db7a88fd17",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/fleet through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 7d221a88afede7906ec3e92bcefaf5670dc4cd5d3fcbddfe896bd313348d13e0.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/grantedHosts/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "af26af94894380ed595d83fbb32f4fbde3545cb31238784fe7bf0071ab3988f8",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "5dc98c0cb6a2345891baf047670b96236753823641a53b7abc4556195f0727a1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/grantedHosts through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 182fb572af4a9081ca4fa0bd8c6363e34e987808ba9714791599184cd8569c1c.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/grantedHosts/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "807aeec0a58572c0111fbb1fb1fe8fc6e0216c784de6badbba1ac63b5013a07c",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "83ba59ee4c6da82f9c7e62316fb78e12253cd6d23fe7c9ee02e2655e042dd0e3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/grantedHosts through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 105cd0e67f91d3188026e79db3bf62a9f44a4e7e6291b3430bffeebabc38220d.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/summary/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "e6a812e1e465625253ad00e19d82a5e4ea7f976b656936097e530eda9ee0aa6b",
-      "gate": [],
-      "origin": [
-        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
-      ],
-      "fingerprint": "7a8e94dc5c355ae5a636fa3ec9d9d6aab23b95343aabe1551c54035afc8534b0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/summary",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0904ea119756affd19ad4dfd272e1a3b02de8fa98a0ce6b948d62ea10fb34c21. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: c754630c956f88f264faefe23a30822deb20889dc051447229eed4cb847fa4fc.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen",
-      "rule": "helper-consumer",
-      "tokens": "136c7a0d0a2859de01f3d9a8077cf54517987e784b438a0d773f294c9de44e70",
-      "gate": [
-        "else:3bdd7388d2ed9ad80e904ff8fef948a9bce37ac6a94a2e79ea20ebfca85e470b"
-      ],
-      "origin": [
-        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
-      ],
-      "fingerprint": "71cc90c91a0faccf2c7d7248d8279e801a45f2ce5b613c6b891dea1d0111ec5e",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-2379",
-      "trigger": "Pulse tab renders its header subtitle.",
-      "bound": "One usage summary answer and the chosen range.",
-      "reason": "Formats the hero figure into the large-title subtitle; no collection is enumerated beyond the summary already derived. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 53d961aac65a1d37d1c8913f584a6b5cf0bfab579509825a24b4b79ce86e439b.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/models/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "8dfa2b05f906ff526de1e0b37121dae9082b0a6caae067f73e98faa674aac127",
-      "gate": [],
-      "origin": [
-        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
-      ],
-      "fingerprint": "c15f8557bcf317308e4b390490e989ccf412c42ba874d6bafaa22276641175f3",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-2379",
-      "trigger": "Pulse tab renders its Models card.",
-      "bound": "One usage summary answer; at most six displayed rows.",
-      "reason": "The memo hands the polled usage summary to modelRows for display; no pool collection is enumerated. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 460a7825428352e92907aaddcfaea44a4333f60a01f95e5c8aa81d253e411ce5.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/models/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "f1d00b72616a19a3a5530712373de3fe0f6b269a1083034b560c03a218f9526c",
-      "gate": [],
-      "origin": [
-        "b1bc4fc28a47a8b84024320fcf97e29324fc7fb133cd22ea25f375678c6aab44"
-      ],
-      "fingerprint": "9aa115444a88ad453fa6c15979c9dff46cecafe65d254bb214dc71a063cb7040",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-2379",
-      "trigger": "Pulse tab renders its Models card.",
-      "bound": "One usage summary answer; at most six displayed rows.",
-      "reason": "The memo hands the polled usage summary to modelRows for display; no pool collection is enumerated. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 4fd6cca265f29072b7904d7343f8028a41dd6bd827e57f5b189e6c88183f55f3.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/hero/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "31ea4710f56fca029313d4c488de70bba5c5cf393f73e4cc0414e19eb00235c4",
-      "gate": [],
-      "origin": [
-        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
-      ],
-      "fingerprint": "fdc89673e5cefc909eecb7ba0acb084d8218c4ce62de4f0eb6d386713251936c",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-2379",
-      "trigger": "Pulse tab renders the cost hero for the chosen range.",
-      "bound": "Seven days of 24 hour slots from one usage summary.",
-      "reason": "Projects the summary hour slots into the trace bars and day columns the hero draws. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 685295e7934dcc7da7ba1cc331caa66653d222b43a25e4cfe78e10740664a826.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/PulseScreen/verdict/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "f7cf485003eab06dae827e38fb7e861efb75dfb8b1f543783fd7ee24258d3024",
-      "gate": [
-        "else:c3e3fd9044162e4c53fb34547b94862f1dc9d21c2003898bd438bff132c2d182"
-      ],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "1cb9d03905a704cb051e1261ef904a930a0b360d18c1c3d7a6cb2fae6dc0cf8e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/useMemo:callback/verdict through the direct screen factory.",
-      "bound": "The granted per-machine quota and host lists the Pulse feed already holds; no new collection origin.",
-      "reason": "POD-2385 feeds the existing Pulse quota/host collections into the shared capacityView for the Quota header verdict. Same origin and debt as the fleet/grantedHosts entries beside it; this does not repair it. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: fe8c11e87ca9221b75b37fcea31f133898565b886da1b89f5dd5c6258a04e402.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "apps/mobile/src/screens/SessionScreen.tsx",
       "holder": "SessionScreen/absence",
       "rule": "reader-summary",
@@ -1240,30 +1292,6 @@
       "bound": "Settings returns at most twelve machine IDs; fleet scalar labels still request all machines.",
       "reason": "The first twelve displayed identities are capped, but this census origin also carries the catalog required by the visible fleet scalar labels. Preserve the conservative collection classification.",
       "guard": "Focused SettingsScreen.pool.test.tsx checks twelve displayed machine rows and flat cursor-only heartbeat reads at 1x and 4x."
-    },
-    {
-      "file": "apps/mobile/src/screens/usePulseFeed.ts",
-      "holder": "usePulseFeed",
-      "rule": "reader-summary",
-      "tokens": "00627ad8df7760785a8a7ea48131d56bf042df315b3eaecde18ce7a9162f7faf",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "186133b5d08fed3360ebf59ee939df32bfe9e529161e3d1fcd242bb513706079",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePulseFeed through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/web/src/app/AppShell.tsx",
@@ -3175,7 +3203,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -3197,7 +3225,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -4057,7 +4085,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -4077,7 +4105,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -13735,7 +13763,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -20114,7 +20142,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -29368,7 +29396,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -31444,6 +31472,42 @@
       "guard": "companion-joins.test.ts measures one addressed companion and no session writes at 1x/4x; synced-record-models.test.ts covers live merge, replacement and removal."
     },
     {
+      "file": "packages/client-graph/src/pulse-view.ts",
+      "holder": "PulseView/models",
+      "rule": "reader-summary",
+      "tokens": "9303005eaf021648c163ff75979232cac071ee2cf6c76f8c85f93b73aa2dd4a0",
+      "gate": [],
+      "origin": [
+        "b1bc4fc28a47a8b84024320fcf97e29324fc7fb133cd22ea25f375678c6aab44"
+      ],
+      "fingerprint": "f4979501e6567d0878001cc28ac79745ad9c057f7d87f26c34586e74f0f13365",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2379",
+      "bound": "One usage summary answer; at most six displayed rows.",
+      "guard": "scripts/check-interaction-scans.ts",
+      "trigger": "Pulse reading in PulseView/models.",
+      "reason": "The memo hands the polled usage summary to modelRows for display; no pool collection is enumerated. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 4fd6cca265f29072b7904d7343f8028a41dd6bd827e57f5b189e6c88183f55f3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 9aa115444a88ad453fa6c15979c9dff46cecafe65d254bb214dc71a063cb7040."
+    },
+    {
+      "file": "packages/client-graph/src/pulse-view.ts",
+      "holder": "PulseView/summary",
+      "rule": "reader-summary",
+      "tokens": "2cc5b2211346c21a51533dbac57febc3324af50212ad52cd2ec01a06b6a6c73c",
+      "gate": [],
+      "origin": [
+        "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
+      ],
+      "fingerprint": "9f4a6151c60bc9d982d7dde4e2596c505b5e72f85d5ed89fac8a345d93534416",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Pulse reading in PulseView/summary.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0904ea119756affd19ad4dfd272e1a3b02de8fa98a0ce6b948d62ea10fb34c21. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: c754630c956f88f264faefe23a30822deb20889dc051447229eed4cb847fa4fc. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 7a8e94dc5c355ae5a636fa3ec9d9d6aab23b95343aabe1551c54035afc8534b0. The loading calendar uses the opening timestamp until a harvest arrives; the collection scope is unchanged."
+    },
+    {
       "file": "packages/client-graph/src/query-result.ts",
       "holder": "createQueryResult/start/untracked:callback",
       "rule": "dynamic-question",
@@ -32211,7 +32275,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -34694,7 +34758,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch\u2026\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35366,7 +35430,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35385,7 +35449,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35403,7 +35467,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35422,7 +35486,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35441,7 +35505,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -36066,7 +36130,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },

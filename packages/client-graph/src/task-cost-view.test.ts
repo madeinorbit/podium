@@ -1,6 +1,7 @@
 import type { CostModelTotalWire, TaskCostRowWire } from '@podium/model'
 import { autorun } from 'mobx'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
+import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { MobxPool } from './pool'
 import { TaskCostView } from './task-cost-view'
 
@@ -93,4 +94,62 @@ it('prices once per answer and groups by the pool issue project', async () => {
   expect(reruns).toBe(1)
   stop()
   view.dispose()
+})
+
+it('separates equal repo labels, joins a shared repo id, and normalizes fallback paths', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.apply({
+    type: 'update',
+    rows: [
+      { kind: 'repo', id: 'r1', value: { id: 'r1', name: 'same', path: '/first/same' } },
+      { kind: 'repo', id: 'r2', value: { id: 'r2', name: 'same', path: '/second/same' } },
+      ...[
+        { ...issue('a', 'same'), repoId: 'r1' },
+        { ...issue('b', 'same'), repoId: 'r2' },
+        { ...issue('c', 'same'), repoId: 'r1' },
+        { ...issue('d', 'fallback'), repoPath: 'C:\\src\\fallback\\' },
+        { ...issue('e', 'fallback'), repoPath: 'c:/src/fallback' },
+      ].map((value) => ({ kind: 'issue', id: value.id, value })),
+    ],
+  } as never)
+  const view = new TaskCostView(pool)
+  await view.read(async () => ['a', 'b', 'c', 'd', 'e'].map((id) => row(id, 10)))
+  expect(view.projectGroups?.rows.map((g) => [g.projectKey, g.project, g.taskCount])).toEqual([
+    ['r1', 'same', 2],
+    ['c:\\src\\fallback', 'fallback', 2],
+    ['r2', 'same', 1],
+  ])
+})
+
+it('groups cold task summaries without hydrating full issues', async () => {
+  const cold = { ...issue('cold', 'project'), repoId: 'repo', stage: 'done', archived: true }
+  const load = vi.fn(() => cold)
+  const pool = new MobxPool(
+    { selectedIssueId: null, coarseNow: Date.parse('2026-11-10') },
+    undefined,
+    { load, summaries: ISSUE_PAGE_SUMMARIES, schedule: () => () => {} },
+  )
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'repo',
+        id: 'repo',
+        value: { id: 'repo', name: 'project', repoPath: '/project' } as never,
+      },
+      { kind: 'issue', id: cold.id, value: cold as never },
+    ],
+  })
+  const view = new TaskCostView(pool)
+  await view.read(async () => [row('cold', 10)])
+  expect(pool.tables.issue.size).toBe(0)
+  expect(view.projectGroups?.rows[0]?.project).toBe('project')
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+  // Positive control: a full record reader does request the cold payload.
+  pool.row('issue', 'cold')
+  expect(pool.hydrate()).toBe(1)
+  expect(load).toHaveBeenCalledTimes(1)
+  view.dispose()
+  pool.dispose()
 })

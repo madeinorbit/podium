@@ -1,10 +1,9 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -16,6 +15,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { type ReactNode, useEffect } from 'react'
 import { Linking } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createInboxFixture } from '../../test/inbox-fixture'
 import { mobileInboxSnapshot } from '../../test/pool-snapshots'
 import {
@@ -34,6 +34,7 @@ import type { MobilePool } from './mobile-pool'
 
 const state = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
+  chartRenders: 0,
   router: { push: vi.fn(), replace: vi.fn(), canGoBack: () => true, back: vi.fn() },
   profile: {
     id: 'synthetic',
@@ -53,6 +54,7 @@ vi.mock('./mobile-pool', async (original) => {
 })
 vi.mock('expo-router', () => ({
   useRouter: () => state.router,
+  router: state.router,
   useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
 }))
 vi.mock('./server-profile-context', () => ({
@@ -99,6 +101,20 @@ vi.mock('../components/Screen', () => ({
     </button>
   ),
 }))
+vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => ({}) }))
+vi.mock('../lib/build-stamp', () => ({
+  useBuildStamp: () => ({ text: 'test build', reload: () => {} }),
+}))
+vi.mock('../components/instruments', async (original) => {
+  const real = await original<typeof import('../components/instruments')>()
+  return {
+    ...real,
+    HourTrace: (props: Parameters<typeof real.HourTrace>[0]) => {
+      state.chartRenders++
+      return <real.HourTrace {...props} />
+    },
+  }
+})
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
@@ -129,10 +145,14 @@ vi.mock('../components/ScreeningCard', () => ({
   ),
 }))
 
+const { PulseScreen } = await import('../screens/PulseScreen')
 const { InboxScreen } = await import('../screens/InboxScreen')
 const { ProposalScreeningScreen } = await import('../screens/ProposalScreeningScreen')
 const { RefChip } = await import('../components/RefChip')
 const { PodiumLinkHost } = await import('../components/PodiumLinkHost')
+const { createPulseView } = await import('@podium/client-graph/pulse-view')
+const { useOpeningView } = await import('@podium/client-graph/react')
+const { usePulseLive } = await import('./use-inbox-data')
 const { usePulseFeed, resetPulseCache } = await import('../screens/usePulseFeed')
 const { createMobilePool, useMobilePool } = await import('./mobile-pool')
 const { reconcileScreeningIds } = await import('./use-inbox-data')
@@ -153,12 +173,14 @@ const tokens = [
   { token: 'UTF-8', kind: 'issue' as const, prefix: 'UTF' },
 ]
 function PulseProbe() {
-  const data = usePulseFeed(null)
+  const pulse = useOpeningView(useMobilePool(), createPulseView)
+  const data = usePulseFeed(pulse)
+  const { hosts } = usePulseLive()
   return (
     <output data-testid="pulse">
       {JSON.stringify({
         machines: data.machines,
-        hosts: data.hosts,
+        hosts,
         quota: data.quota,
         buckets: data.buckets,
         history: data.history,
@@ -202,6 +224,7 @@ async function mount(
   const data = createInboxFixture(),
     seen: (MobxPool | null)[] = [],
     errors: string[] = []
+  Object.assign(data.api, { cost: { tasks: { query: async () => [] } } })
   prepare?.(data)
   state.host = createMobilePool(false)
   let runtime!: ClientRuntime,
@@ -423,6 +446,16 @@ it('updates pulse machines and streamed health without rebuilding quota polling 
   await waitFor(() => expect(reading().hosts[0].load.one).toBe(0.5))
   expect(quota).not.toHaveBeenCalled()
   expect(history).not.toHaveBeenCalled()
+  const usage = vi.spyOn(app.data.api.usage.summary, 'query')
+  await act(async () => {
+    ;(app.runtime.hub as unknown as { emit: (kind: string, value: unknown) => void }).emit(
+      'machines',
+      reading().machines.map((machine: { name: string }) => ({ ...machine, name: 'Renamed host' })),
+    )
+  })
+  await waitFor(() => expect(reading().machines[0].name).toBe('Renamed host'))
+  expect(quota).not.toHaveBeenCalled()
+  expect(usage).not.toHaveBeenCalled()
   expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(app.errors).toEqual([])
 })
@@ -489,7 +522,9 @@ it('shows the original outbox pending count and optimistically renamed card', as
   })
   await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
   expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(referenceState(app.runtime).outboxSize)
+  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(
+    referenceState(app.runtime).outboxSize,
+  )
   await act(async () => {
     finish()
   })
@@ -597,4 +632,91 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
   })
   await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-7'))
   expect(views.route(target)).toBe('/issue/synthetic-7')
+})
+
+it('keeps the Pulse chart stable across host samples and follows live task identity', async () => {
+  const app = await mount(<PulseScreen />, (data) => {
+    Object.assign(data.api, {
+      cost: {
+        tasks: {
+          query: async () => [
+            {
+              issueId: 'synthetic-0',
+              title: 'Stale cost title',
+              seq: 1000,
+              displayRef: 'STALE-1000',
+              stage: 'proposed',
+              models: [],
+              messages: 1,
+              windowModels: [
+                {
+                  model: 'claude-opus-5',
+                  inputTokens: 1000000,
+                  outputTokens: 0,
+                  cacheReadTokens: 0,
+                  cacheCreationTokens: 0,
+                  cacheCreation1hTokens: 0,
+                  messages: 1,
+                },
+              ],
+              windowMessages: 1,
+              rollupModels: [],
+              rollupMessages: 1,
+              sessionCount: 1,
+              floor: 'none',
+              harnesses: ['claude-code'],
+              uncostedSessionCount: 0,
+            },
+          ],
+        },
+      },
+    })
+  })
+  await waitFor(() =>
+    expect(app.view.getByRole('button', { name: /SYN-1000 Synthetic task 0/ })).toBeTruthy(),
+  )
+  expect(app.view.queryByText('Stale cost title')).toBeNull()
+  const chartBefore = state.chartRenders
+  const costs = vi.spyOn(
+    (app.data.api as unknown as { cost: { tasks: { query: () => Promise<unknown[]> } } }).cost
+      .tasks,
+    'query',
+  )
+  const usage = vi.spyOn(app.data.api.usage.summary, 'query')
+  const beforeText = app.view.container.textContent
+  await act(async () => app.data.publishMetrics(4))
+  await waitFor(() => expect(app.view.container.textContent).not.toBe(beforeText))
+  expect(state.chartRenders).toBe(chartBefore)
+  await act(async () => {
+    app.data.patch('issueProjection', 'synthetic-0', { title: 'Renamed in pool' })
+  })
+  await waitFor(() =>
+    expect(app.view.getByRole('button', { name: /SYN-1000 Renamed in pool/ })).toBeTruthy(),
+  )
+  expect(costs).not.toHaveBeenCalled()
+  expect(usage).not.toHaveBeenCalled()
+  expect(state.chartRenders).toBe(chartBefore)
+  // Positive control: changing the displayed usage range must redraw its chart.
+  fireEvent.click(app.view.getByRole('button', { name: 'Range: Last 7 days' }))
+  expect(state.chartRenders).toBeGreaterThan(chartBefore)
+})
+
+it('shows an unreadable harvest instead of zero spend when the first cost read fails', async () => {
+  const app = await mount(<PulseScreen />, (data) => {
+    Object.assign(data.api, {
+      cost: {
+        tasks: {
+          query: async () => {
+            throw new Error('cost read failed')
+          },
+        },
+      },
+    })
+  })
+  await waitFor(() =>
+    expect(
+      app.view.getByText('Couldn’t reach the daemon for usage or quota. Pull down to try again.'),
+    ).toBeTruthy(),
+  )
+  expect(app.view.queryByText('$0.00')).toBeNull()
 })
