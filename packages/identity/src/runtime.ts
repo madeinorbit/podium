@@ -142,8 +142,8 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
       transaction(() => callback(adapterOfCurrentHandle(options))),
     )
 
-  const adapterOfCurrentHandle = (options: BetterAuthOptions): LibraryAdapter => {
-    const db = scope.getStore()?.db ?? root
+  /** The adapter bound to one handle, made once per handle. */
+  const adapterOfHandle = (db: object, options: BetterAuthOptions): LibraryAdapter => {
     let adapter = transactionAdapters.get(db)
     if (!adapter) {
       adapter = adapterFor(db, options)
@@ -151,6 +151,9 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
     }
     return adapter
   }
+
+  const adapterOfCurrentHandle = (options: BetterAuthOptions): LibraryAdapter =>
+    adapterOfHandle(scope.getStore()?.db ?? root, options)
 
   async function transaction<T>(fn: () => Promise<T>): Promise<T> {
     if (scope.getStore()) return await fn()
@@ -162,7 +165,7 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
       // the library's adapter already runs inside the transaction. On Postgres
       // the library must be told to use the adapter of this transaction.
       if (db === root || !adapterOptions) return await run()
-      return (await runWithAdapter(adapterOfCurrentHandle(adapterOptions), run)) as T
+      return (await runWithAdapter(adapterOfHandle(db, adapterOptions), run)) as T
     })
   }
 

@@ -2249,6 +2249,9 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'apps/server/src/migrations/',
   'packages/sync/src/adapters/sqlite/',
+  // The shared identity package defines its tables and its own statements for
+  // both the server's SQLite store and the cloud's Postgres (POD-6744).
+  'packages/identity/src/',
 ]
 
 /**

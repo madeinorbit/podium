@@ -62,22 +62,27 @@ export interface Statement<Values, Row> {
 // biome-ignore lint/suspicious/noExplicitAny: see the file header
 type Build = (db: any, t: any) => any
 
+let definitions = 0
+
 /**
  * Defines one statement. `build` ends its chain without `.prepare()`; the
- * definition prepares it, once per handle.
+ * definition prepares it, once per handle. The builder is the first argument,
+ * as with the server's own `prepared`, so the server's census of per-call
+ * builders reads this file the same way it reads a repository.
  */
 export function prepared<Values extends object, Row = never>(
-  name: string,
   build: Build,
 ): (db: object) => Statement<Values, Row> {
+  definitions += 1
+  // Postgres names a prepared statement; SQLite's prepare() ignores the argument.
+  const name = `identity_${definitions}`
   const cache = new WeakMap<object, Statement<Values, Row>>()
   return (db) => {
     const hit = cache.get(db)
     if (hit) return hit
     const facts = handles.get(db)
     if (!facts) throw new Error('identity: this database handle was never registered')
-    // SQLite's prepare() takes no name; the extra argument is ignored there.
-    const query = build(db, facts.tables).prepare(`identity_${name}`)
+    const query = build(db, facts.tables).prepare(name)
     const made: Statement<Values, Row> = {
       async run(values) {
         const result = await query.execute(values)
@@ -116,14 +121,14 @@ const accountColumns = (t: HandleFacts['tables']) => ({
   image: t.user.image,
 })
 
-export const accountById = prepared<{ id: string }, AccountRow>('account_by_id', (db, t) =>
+export const accountById = prepared<{ id: string }, AccountRow>((db, t) =>
   db
     .select(accountColumns(t))
     .from(t.user)
     .where(eq(t.user.id, p(t.user.id, 'id'))),
 )
 
-export const accountByEmail = prepared<{ email: string }, AccountRow>('account_by_email', (db, t) =>
+export const accountByEmail = prepared<{ email: string }, AccountRow>((db, t) =>
   db
     .select(accountColumns(t))
     .from(t.user)
@@ -132,7 +137,6 @@ export const accountByEmail = prepared<{ email: string }, AccountRow>('account_b
 
 /** The password login method of an account, if it has one. */
 export const passwordOfAccount = prepared<{ accountId: string }, { password: string | null }>(
-  'password_of_account',
   (db, t) =>
     db
       .select({ password: t.account.password })
@@ -149,20 +153,17 @@ export const passwordOfAccount = prepared<{ accountId: string }, { password: str
  * The first two accounts that have a password, through the provider index.
  * Two rows are enough to tell "exactly one" from "several" (section 7).
  */
-export const firstPasswordAccounts = prepared<Record<never, never>, { email: string }>(
-  'first_password_accounts',
-  (db, t) =>
-    db
-      .select({ email: t.user.email })
-      .from(t.account)
-      .innerJoin(t.user, eq(t.user.id, t.account.userId))
-      .where(and(eq(t.account.providerId, 'credential'), isNotNull(t.account.password)))
-      .limit(2),
+export const firstPasswordAccounts = prepared<Record<never, never>, { email: string }>((db, t) =>
+  db
+    .select({ email: t.user.email })
+    .from(t.account)
+    .innerJoin(t.user, eq(t.user.id, t.account.userId))
+    .where(and(eq(t.account.providerId, 'credential'), isNotNull(t.account.password)))
+    .limit(2),
 )
 
 /** The first two accounts with a generated identifier and a password (section 7.2, case 2). */
 export const firstGeneratedPasswordAccounts = prepared<Record<never, never>, { email: string }>(
-  'first_generated_password_accounts',
   (db, t) =>
     db
       .select({ email: t.user.email })
@@ -181,7 +182,7 @@ export const firstGeneratedPasswordAccounts = prepared<Record<never, never>, { e
 export const updatePassword = prepared<
   { accountId: string; password: string; now: Date },
   { id: string }
->('update_password', (db, t) =>
+>((db, t) =>
   db
     .update(t.account)
     .set({
@@ -200,7 +201,7 @@ export const updatePassword = prepared<
 export const insertPasswordMethod = prepared<
   { id: string; accountId: string; password: string; now: Date },
   { id: string }
->('insert_password_method', (db, t) =>
+>((db, t) =>
   db
     .insert(t.account)
     .values({
@@ -250,55 +251,49 @@ const signInColumns = (t: HandleFacts['tables']) => ({
  * account in the workspace joins onto this same statement (memberships task),
  * so resolving a request stays one statement.
  */
-export const signInByToken = prepared<{ token: string; now: Date }, SignInRow>(
-  'sign_in_by_token',
-  (db, t) =>
-    db
-      .select(signInColumns(t))
-      .from(t.session)
-      .innerJoin(t.user, eq(t.user.id, t.session.userId))
-      .where(
-        and(
-          eq(t.session.token, p(t.session.token, 'token')),
-          gt(t.session.expiresAt, p(t.session.expiresAt, 'now')),
-        ),
+export const signInByToken = prepared<{ token: string; now: Date }, SignInRow>((db, t) =>
+  db
+    .select(signInColumns(t))
+    .from(t.session)
+    .innerJoin(t.user, eq(t.user.id, t.session.userId))
+    .where(
+      and(
+        eq(t.session.token, p(t.session.token, 'token')),
+        gt(t.session.expiresAt, p(t.session.expiresAt, 'now')),
       ),
+    ),
 )
 
 /** Written at most once per five minutes per sign-in: `stale` is five minutes before now. */
-export const touchLastSeen = prepared<{ id: string; now: Date; stale: Date }>(
-  'touch_last_seen',
-  (db, t) =>
-    db
-      .update(t.session)
-      .set({ lastSeenAt: sql.placeholder('now') })
-      .where(
-        and(
-          eq(t.session.id, p(t.session.id, 'id')),
-          or(
-            isNull(t.session.lastSeenAt),
-            lt(t.session.lastSeenAt, p(t.session.lastSeenAt, 'stale')),
-          ),
+export const touchLastSeen = prepared<{ id: string; now: Date; stale: Date }>((db, t) =>
+  db
+    .update(t.session)
+    .set({ lastSeenAt: sql.placeholder('now') })
+    .where(
+      and(
+        eq(t.session.id, p(t.session.id, 'id')),
+        or(
+          isNull(t.session.lastSeenAt),
+          lt(t.session.lastSeenAt, p(t.session.lastSeenAt, 'stale')),
         ),
       ),
+    ),
 )
 
-export const signInsOfAccount = prepared<{ accountId: string; now: Date }, SignInRow>(
-  'sign_ins_of_account',
-  (db, t) =>
-    db
-      .select(signInColumns(t))
-      .from(t.session)
-      .where(
-        and(
-          eq(t.session.userId, p(t.session.userId, 'accountId')),
-          gt(t.session.expiresAt, p(t.session.expiresAt, 'now')),
-        ),
-      )
-      .orderBy(desc(t.session.createdAt)),
+export const signInsOfAccount = prepared<{ accountId: string; now: Date }, SignInRow>((db, t) =>
+  db
+    .select(signInColumns(t))
+    .from(t.session)
+    .where(
+      and(
+        eq(t.session.userId, p(t.session.userId, 'accountId')),
+        gt(t.session.expiresAt, p(t.session.expiresAt, 'now')),
+      ),
+    )
+    .orderBy(desc(t.session.createdAt)),
 )
 
-export const signInById = prepared<{ id: string; now: Date }, SignInRow>('sign_in_by_id', (db, t) =>
+export const signInById = prepared<{ id: string; now: Date }, SignInRow>((db, t) =>
   db
     .select(signInColumns(t))
     .from(t.session)
@@ -310,19 +305,17 @@ export const signInById = prepared<{ id: string; now: Date }, SignInRow>('sign_i
     ),
 )
 
-export const deleteSignIn = prepared<{ id: string }, { accountId: string }>(
-  'delete_sign_in',
-  (db, t) =>
-    db
-      .delete(t.session)
-      .where(eq(t.session.id, p(t.session.id, 'id')))
-      .returning({ accountId: t.session.userId }),
+export const deleteSignIn = prepared<{ id: string }, { accountId: string }>((db, t) =>
+  db
+    .delete(t.session)
+    .where(eq(t.session.id, p(t.session.id, 'id')))
+    .returning({ accountId: t.session.userId }),
 )
 
 export const deleteSignInOfAccount = prepared<
   { id: string; accountId: string },
   { accountId: string }
->('delete_sign_in_of_account', (db, t) =>
+>((db, t) =>
   db
     .delete(t.session)
     .where(
@@ -334,19 +327,17 @@ export const deleteSignInOfAccount = prepared<
     .returning({ accountId: t.session.userId }),
 )
 
-export const deleteSignInsOfAccount = prepared<{ accountId: string }, { id: string }>(
-  'delete_sign_ins_of_account',
-  (db, t) =>
-    db
-      .delete(t.session)
-      .where(eq(t.session.userId, p(t.session.userId, 'accountId')))
-      .returning({ id: t.session.id }),
+export const deleteSignInsOfAccount = prepared<{ accountId: string }, { id: string }>((db, t) =>
+  db
+    .delete(t.session)
+    .where(eq(t.session.userId, p(t.session.userId, 'accountId')))
+    .returning({ id: t.session.id }),
 )
 
 export const deleteSignInsOfAccountExcept = prepared<
   { accountId: string; except: string },
   { id: string }
->('delete_sign_ins_of_account_except', (db, t) =>
+>((db, t) =>
   db
     .delete(t.session)
     .where(
@@ -362,7 +353,7 @@ export const deleteSignInsOfAccountExcept = prepared<
 export const deleteEarlierSignInsOfDevice = prepared<
   { accountId: string; deviceId: string; except: string },
   { id: string }
->('delete_earlier_sign_ins_of_device', (db, t) =>
+>((db, t) =>
   db
     .delete(t.session)
     .where(
@@ -424,7 +415,7 @@ export const insertCode = prepared<{
   createdBy: string | null
   now: Date
   expiresAt: Date
-}>('insert_code', (db, t) =>
+}>((db, t) =>
   db.insert(t.oneTimeCode).values({
     id: sql.placeholder('id'),
     purpose: sql.placeholder('purpose'),
@@ -445,7 +436,7 @@ export const insertCode = prepared<{
 export const claimPairingCode = prepared<
   { codeHash: string; now: Date; claimId: string; challenge: string; device: string },
   { id: string; expiresAt: Date }
->('claim_pairing_code', (db, t) =>
+>((db, t) =>
   db
     .update(t.oneTimeCode)
     .set({
@@ -466,7 +457,7 @@ export const claimPairingCode = prepared<
     .returning({ id: t.oneTimeCode.id, expiresAt: t.oneTimeCode.expiresAt }),
 )
 
-export const codeById = prepared<{ id: string }, CodeRow>('code_by_id', (db, t) =>
+export const codeById = prepared<{ id: string }, CodeRow>((db, t) =>
   db
     .select(codeColumns(t))
     .from(t.oneTimeCode)
@@ -476,7 +467,7 @@ export const codeById = prepared<{ id: string }, CodeRow>('code_by_id', (db, t) 
 export const decideCode = prepared<
   { id: string; accountId: string; decision: string; now: Date },
   { id: string }
->('decide_code', (db, t) =>
+>((db, t) =>
   db
     .update(t.oneTimeCode)
     .set({ approval: sql.placeholder('decision') })
@@ -495,7 +486,7 @@ export const decideCode = prepared<
 export const openAttemptByChallenge = prepared<
   { challenge: string; now: Date },
   { id: string; expiresAt: Date }
->('open_attempt_by_challenge', (db, t) =>
+>((db, t) =>
   db
     .select({ id: t.oneTimeCode.id, expiresAt: t.oneTimeCode.expiresAt })
     .from(t.oneTimeCode)
@@ -520,7 +511,7 @@ export const authoriseAttempt = prepared<
     expiresAt: Date
   },
   { id: string }
->('authorise_attempt', (db, t) =>
+>((db, t) =>
   db
     .update(t.oneTimeCode)
     .set({
@@ -551,67 +542,59 @@ const redeemable = (t: HandleFacts['tables']) =>
  * THE REDEMPTION STATEMENT, by code. It changes one row for exactly one of two
  * redemptions made at the same moment.
  */
-export const consumeByCode = prepared<{ codeHash: string; now: Date }, CodeRow>(
-  'consume_by_code',
-  (db, t) =>
-    db
-      .update(t.oneTimeCode)
-      .set({ consumedAt: sql.placeholder('now') })
-      .where(
-        and(
-          eq(t.oneTimeCode.codeHash, p(t.oneTimeCode.codeHash, 'codeHash')),
-          ne(t.oneTimeCode.purpose, 'password-reset'),
-          redeemable(t),
-        ),
-      )
-      .returning(codeColumns(t)),
+export const consumeByCode = prepared<{ codeHash: string; now: Date }, CodeRow>((db, t) =>
+  db
+    .update(t.oneTimeCode)
+    .set({ consumedAt: sql.placeholder('now') })
+    .where(
+      and(
+        eq(t.oneTimeCode.codeHash, p(t.oneTimeCode.codeHash, 'codeHash')),
+        ne(t.oneTimeCode.purpose, 'password-reset'),
+        redeemable(t),
+      ),
+    )
+    .returning(codeColumns(t)),
 )
 
 /** The redemption statement, by the claim id of a claimed pairing code. */
-export const consumeByClaim = prepared<{ claimId: string; now: Date }, CodeRow>(
-  'consume_by_claim',
-  (db, t) =>
-    db
-      .update(t.oneTimeCode)
-      .set({ consumedAt: sql.placeholder('now') })
-      .where(and(eq(t.oneTimeCode.claimId, p(t.oneTimeCode.claimId, 'claimId')), redeemable(t)))
-      .returning(codeColumns(t)),
+export const consumeByClaim = prepared<{ claimId: string; now: Date }, CodeRow>((db, t) =>
+  db
+    .update(t.oneTimeCode)
+    .set({ consumedAt: sql.placeholder('now') })
+    .where(and(eq(t.oneTimeCode.claimId, p(t.oneTimeCode.claimId, 'claimId')), redeemable(t)))
+    .returning(codeColumns(t)),
 )
 
-export const consumeResetCode = prepared<{ codeHash: string; now: Date }, CodeRow>(
-  'consume_reset_code',
-  (db, t) =>
-    db
-      .update(t.oneTimeCode)
-      .set({ consumedAt: sql.placeholder('now') })
-      .where(
-        and(
-          eq(t.oneTimeCode.codeHash, p(t.oneTimeCode.codeHash, 'codeHash')),
-          eq(t.oneTimeCode.purpose, 'password-reset'),
-          redeemable(t),
-        ),
-      )
-      .returning(codeColumns(t)),
+export const consumeResetCode = prepared<{ codeHash: string; now: Date }, CodeRow>((db, t) =>
+  db
+    .update(t.oneTimeCode)
+    .set({ consumedAt: sql.placeholder('now') })
+    .where(
+      and(
+        eq(t.oneTimeCode.codeHash, p(t.oneTimeCode.codeHash, 'codeHash')),
+        eq(t.oneTimeCode.purpose, 'password-reset'),
+        redeemable(t),
+      ),
+    )
+    .returning(codeColumns(t)),
 )
 
 /** A live claim that still waits for its decision. */
-export const pendingClaim = prepared<{ claimId: string; now: Date }, { id: string }>(
-  'pending_claim',
-  (db, t) =>
-    db
-      .select({ id: t.oneTimeCode.id })
-      .from(t.oneTimeCode)
-      .where(
-        and(
-          eq(t.oneTimeCode.claimId, p(t.oneTimeCode.claimId, 'claimId')),
-          eq(t.oneTimeCode.approval, 'pending'),
-          live(t),
-        ),
+export const pendingClaim = prepared<{ claimId: string; now: Date }, { id: string }>((db, t) =>
+  db
+    .select({ id: t.oneTimeCode.id })
+    .from(t.oneTimeCode)
+    .where(
+      and(
+        eq(t.oneTimeCode.claimId, p(t.oneTimeCode.claimId, 'claimId')),
+        eq(t.oneTimeCode.approval, 'pending'),
+        live(t),
       ),
+    ),
 )
 
 /** One wrong verifier; the fifth denies the attempt. */
-export const recordWrongVerifier = prepared<{ id: string }>('record_wrong_verifier', (db, t) =>
+export const recordWrongVerifier = prepared<{ id: string }>((db, t) =>
   db
     .update(t.oneTimeCode)
     .set({
@@ -624,7 +607,7 @@ export const recordWrongVerifier = prepared<{ id: string }>('record_wrong_verifi
 export const liveResetCode = prepared<
   { codeHash: string; now: Date },
   { email: string; expiresAt: Date }
->('live_reset_code', (db, t) =>
+>((db, t) =>
   db
     .select({ email: t.user.email, expiresAt: t.oneTimeCode.expiresAt })
     .from(t.oneTimeCode)
@@ -639,6 +622,6 @@ export const liveResetCode = prepared<
 )
 
 /** Expired codes, through the expiry index. */
-export const deleteExpiredCodes = prepared<{ now: Date }>('delete_expired_codes', (db, t) =>
+export const deleteExpiredCodes = prepared<{ now: Date }>((db, t) =>
   db.delete(t.oneTimeCode).where(lt(t.oneTimeCode.expiresAt, p(t.oneTimeCode.expiresAt, 'now'))),
 )

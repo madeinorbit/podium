@@ -39,6 +39,9 @@ const BOOLEAN_COLUMNS = [
   'checkouts.prunable',
   'effects.cancel_requested',
   'grants.custody',
+  // The identity tables come from the shared identity package (POD-6744).
+  'identity_session.fixed_expiry',
+  'identity_user.email_verified',
   'issues.archived',
   'issues.draft',
   'issues.needs_human',
