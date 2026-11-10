@@ -39,6 +39,15 @@ const shots: { name: string; query: string; act?: Act }[] = [
       await p.getByLabel('I understand that we will share this machine’s account').check()
     },
   },
+  { name: 'alice-machines-grants', query: 'tab=machines' },
+  {
+    name: 'alice-machines-grant-removed',
+    query: 'tab=machines',
+    act: async (p) => {
+      await p.getByRole('button', { name: 'Remove Bob: can run agents' }).click()
+      await p.getByRole('status').waitFor()
+    },
+  },
   { name: 'alice-audit-light', query: 'tab=audit&theme=light' },
   { name: 'bob-rail', query: 'as=bob&tab=audit' },
 ]

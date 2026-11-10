@@ -16,7 +16,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function seed() {
+const UNSHARE = { mutate: vi.fn() }
+
+function seed(grants?: unknown[]) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({
@@ -37,7 +39,13 @@ function seed() {
         {
           kind: 'machine',
           id: 'm-1',
-          value: { id: 'm-1', name: 'Build box', custodian: 'alice', loggedOutHarnesses: [] },
+          value: {
+            id: 'm-1',
+            name: 'Build box',
+            custodian: 'alice',
+            loggedOutHarnesses: [],
+            ...(grants ? { grants } : {}),
+          },
         },
       ],
     }),
@@ -47,7 +55,13 @@ function seed() {
 test('names the custodian and gives use only after the warning is acknowledged', async () => {
   seed()
   const mutate = vi.fn().mockResolvedValue([])
-  render(<MachineCustody machineId="m-1" transferable trpc={{ machines: { share: { mutate } } }} />)
+  render(
+    <MachineCustody
+      machineId="m-1"
+      transferable
+      trpc={{ machines: { share: { mutate }, unshare: UNSHARE } }}
+    />,
+  )
   expect(await screen.findByText('Custody: Alice')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Give use…' }))
   expect(screen.getByRole('note').textContent).toBe(SHARED_MACHINE_ACCOUNT_WARNING)
@@ -76,9 +90,76 @@ test('offers no grant without custody authority', async () => {
     <MachineCustody
       machineId="m-1"
       transferable={false}
-      trpc={{ machines: { share: { mutate: vi.fn() } } }}
+      trpc={{ machines: { share: { mutate: vi.fn() }, unshare: UNSHARE } }}
     />,
   )
   expect(await screen.findByText('Custody: Alice')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Give use…' })).toBeNull()
+})
+
+/**
+ * WHO ELSE HAS ACCESS, AND REMOVING IT (POD-6700): the custodian or an admin
+ * reads the machine's grants and removes one through `machines.unshare`.
+ */
+const BOB_USE = {
+  grantee: 'bob',
+  verb: 'use',
+  grantedAt: '2026-11-08T10:00:00.000Z',
+  grantedBy: 'alice',
+}
+
+test('lists who else has access and removes a grant', async () => {
+  seed([BOB_USE])
+  const unshare = vi.fn().mockResolvedValue([])
+  render(
+    <MachineCustody
+      machineId="m-1"
+      transferable
+      trpc={{ machines: { share: { mutate: vi.fn() }, unshare: { mutate: unshare } } }}
+    />,
+  )
+  const list = await screen.findByRole('list', { name: 'Who else has access' })
+  await waitFor(() => expect(list.textContent).toContain('Bob can run agents'))
+  expect(list.textContent).toContain('given by Alice')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Bob: can run agents' }))
+  await waitFor(() =>
+    expect(unshare).toHaveBeenCalledExactlyOnceWith({ id: 'm-1', grantee: 'bob', verb: 'use' }),
+  )
+  expect(
+    await screen.findByText(
+      'Bob can no longer start agents here. Sessions already running finish.',
+    ),
+  ).toBeTruthy()
+})
+
+test('shows the server’s refusal of a removal', async () => {
+  seed([BOB_USE])
+  const unshare = vi
+    .fn()
+    .mockRejectedValue(new Error('only the machine owner or an admin may change sharing'))
+  render(
+    <MachineCustody
+      machineId="m-1"
+      transferable
+      trpc={{ machines: { share: { mutate: vi.fn() }, unshare: { mutate: unshare } } }}
+    />,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: /^Remove / }))
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'only the machine owner or an admin may change sharing',
+  )
+})
+
+test('shows no grants list without custody authority', async () => {
+  seed([BOB_USE])
+  render(
+    <MachineCustody
+      machineId="m-1"
+      transferable={false}
+      trpc={{ machines: { share: { mutate: vi.fn() }, unshare: UNSHARE } }}
+    />,
+  )
+  expect(await screen.findByText('Custody: Alice')).toBeTruthy()
+  expect(screen.queryByRole('list', { name: 'Who else has access' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull()
 })

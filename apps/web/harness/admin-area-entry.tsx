@@ -219,7 +219,20 @@ function MachinesStub(): JSX.Element {
       {
         kind: 'machine',
         id: 'm-1',
-        value: { id: 'm-1', name: 'alice-desk', custodian: 'alice', loggedOutHarnesses: [] },
+        value: {
+          id: 'm-1',
+          name: 'alice-desk',
+          custodian: 'alice',
+          loggedOutHarnesses: [],
+          grants: [
+            {
+              grantee: 'bob',
+              verb: 'use',
+              grantedAt: '2026-11-08T10:00:00.000Z',
+              grantedBy: 'alice',
+            },
+          ],
+        },
       },
     ],
   })
@@ -237,6 +250,12 @@ function MachinesStub(): JSX.Element {
                 share: {
                   mutate: async (input) => {
                     calls.push(`machines.share ${JSON.stringify(input)}`)
+                    return []
+                  },
+                },
+                unshare: {
+                  mutate: async (input) => {
+                    calls.push(`machines.unshare ${JSON.stringify(input)}`)
                     return []
                   },
                 },
