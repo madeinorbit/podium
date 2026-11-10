@@ -59,12 +59,12 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { useAdminSections } from '@/features/settings/admin-viewer'
-import { useMyCodingHarness } from '@/lib/my-preferences'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { adminSectionOf } from '@/features/settings/surfaces'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useSessionHandoff } from '@/lib/session-handoff'
 import { useFeature } from '@/lib/use-feature'
@@ -335,7 +335,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const automationsEnabled = useFeature('automations')
   const notificationsEnabled = useFeature('notifications')
   // Admin tabs only for a viewer the server offers them to (POD-6299).
-  const adminSections = useAdminSections()
+  const { sections: adminSections } = useAdminSections()
   const handoffEnabled = useFeature('session-handoff')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')

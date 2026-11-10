@@ -1,11 +1,8 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
 import { normalizeSettings } from '@podium/runtime'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-
-type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 /**
  * THE ADMIN AREA IN THE SETTINGS RAIL (POD-6299; design §2.6).
@@ -91,7 +88,61 @@ const railGroups = () =>
       .querySelectorAll('.settings-rail-group'),
   ].map((g) => g.textContent)
 
+function pendingResponse() {
+  let finish: (response: Response) => void
+  const promise = new Promise<Response>((resolve) => {
+    finish = resolve
+  })
+  return { promise, resolve: (response: Response) => finish(response) }
+}
+
+function delayedViewer() {
+  const read = pendingResponse()
+  const fetchMock = vi.fn((url: string) =>
+    url.endsWith('/auth/admin/viewer')
+      ? read.promise
+      : Promise.resolve(Response.json({ events: [], nextBefore: null })),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return { read, fetchMock }
+}
+
 describe('Settings rail — the admin area', () => {
+  it('keeps an admin deep link pending until the viewer answers, then opens that tab', async () => {
+    const { read, fetchMock } = delayedViewer()
+    storeState.settingsTab = 'audit'
+    render(<SettingsView onClose={vi.fn()} />)
+
+    expect(railGroups()).toEqual(['Your preferences'])
+    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
+      false,
+    )
+    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+    expect(fetchMock.mock.calls.some(([url]) => url.includes('/auth/admin/audit'))).toBe(false)
+    expect(screen.getByText('Checking administrator access…')).toBeTruthy()
+
+    await act(async () => read.resolve(Response.json({ sections: ['audit'] })))
+    expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
+  })
+
+  it('falls back from a member deep link only after the viewer confirms no admin access', async () => {
+    const { read } = delayedViewer()
+    storeState.settingsTab = 'audit'
+    render(<SettingsView onClose={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
+      false,
+    )
+
+    await act(async () => read.resolve(Response.json({ sections: [] })))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'New sessions' }).getAttribute('aria-current'),
+      ).toBe('page'),
+    )
+    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+  })
+
   it('Alice, an admin, sees People, Access, Machines, Instance settings and Audit', async () => {
     const fetchMock = viewer(['people', 'access', 'machines', 'instance', 'audit'])
     render(<SettingsView onClose={vi.fn()} />)
@@ -133,16 +184,37 @@ describe('Settings rail — the admin area', () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('navigation', { name: 'Settings sections' })
     expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'New sessions' }).getAttribute('aria-current')).toBe(
-      'page',
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'New sessions' }).getAttribute('aria-current'),
+      ).toBe('page'),
     )
   })
 
-  it('draws no admin area while the viewer read fails', async () => {
-    viewer('refused')
+  it('shows a quiet failure with Retry and recovers the original admin deep link', async () => {
+    const fetchMock = viewer('refused')
+    storeState.settingsTab = 'audit'
     render(<SettingsView onClose={vi.fn()} />)
-    await screen.findByRole('navigation', { name: 'Settings sections' })
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(await screen.findByText('Couldn’t check administrator access.')).toBeTruthy()
     expect(railGroups()).toEqual(['Your preferences'])
+    expect(screen.getByRole('button', { name: 'New sessions' }).hasAttribute('aria-current')).toBe(
+      false,
+    )
+    expect(screen.queryByRole('heading', { name: 'Audit' })).toBeNull()
+
+    const retry = pendingResponse()
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith('/auth/admin/viewer')
+        ? retry.promise
+        : Response.json({ events: [], nextBefore: null }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByText('Checking administrator access…')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(railGroups()).toEqual(['Your preferences'])
+
+    await act(async () => retry.resolve(Response.json({ sections: ['audit'] })))
+    expect(await screen.findByRole('heading', { name: 'Audit' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
   })
 })

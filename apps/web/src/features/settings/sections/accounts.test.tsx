@@ -14,7 +14,7 @@ const trpc = {
     send: { mutate: vi.fn() },
     useOnMyMachines: { mutate: vi.fn() },
     share: { mutate: vi.fn() },
-    keys: { mutate: vi.fn() },
+    keys: { query: vi.fn() },
   },
 }
 
@@ -22,7 +22,8 @@ const trpc = {
 const memberRequest = vi.fn(async (_origin: string, _action: string): Promise<unknown> => {
   throw new Error('The server refused this request (403).')
 })
-vi.mock('@/features/setup/member-api', () => ({ memberRequest }))
+const authRequest = vi.fn(async (_origin: string, _path: string) => ({ sections: [] as string[] }))
+vi.mock('@/features/setup/member-api', () => ({ memberRequest, authRequest }))
 const ADMIN_DIRECTORY = {
   currentMemberId: 'user:admin',
   mailAvailable: false,
@@ -35,6 +36,7 @@ const ADMIN_DIRECTORY = {
 }
 function asAdmin(): void {
   memberRequest.mockImplementation(async () => ADMIN_DIRECTORY)
+  authRequest.mockResolvedValue({ sections: ['people', 'access', 'machines', 'instance', 'audit'] })
 }
 const navigateToSession = vi.fn()
 let publication = 0
@@ -139,6 +141,7 @@ afterEach(() => {
   memberRequest.mockImplementation(async () => {
     throw new Error('The server refused this request (403).')
   })
+  authRequest.mockResolvedValue({ sections: [] })
   publication = 0
   storeSnapshot = {
     trpc,
@@ -149,6 +152,52 @@ afterEach(() => {
 })
 
 describe('AccountsSection', () => {
+  it('a member who can read names still cannot read or manage members’ keys', async () => {
+    serveList([])
+    memberRequest.mockResolvedValue({ ...ADMIN_DIRECTORY, currentMemberId: 'user:ana' })
+    trpc.accounts.keys.query.mockResolvedValue([])
+    render(<AccountsSection />)
+
+    await waitFor(() => expect(memberRequest).toHaveBeenCalled())
+    await act(async () => {})
+    expect(authRequest).toHaveBeenCalledWith(expect.any(String), 'admin/viewer')
+    expect(screen.queryByText("Members' keys")).toBeNull()
+    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+  })
+
+  it('waits for the viewer before reading members’ keys even when names are already available', async () => {
+    serveList([])
+    memberRequest.mockResolvedValue(ADMIN_DIRECTORY)
+    trpc.accounts.keys.query.mockResolvedValue([])
+    let finish: (answer: { sections: string[] }) => void
+    authRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    render(<AccountsSection />)
+
+    await waitFor(() => expect(memberRequest).toHaveBeenCalled())
+    await act(async () => {})
+    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+    expect(screen.queryByText("Members' keys")).toBeNull()
+
+    await act(async () => finish({ sections: ['people'] }))
+    expect(await screen.findByText("Members' keys")).toBeTruthy()
+    expect(trpc.accounts.keys.query).toHaveBeenCalledWith({})
+  })
+
+  it('offers an admin members’ keys even when the names read fails', async () => {
+    serveList([])
+    authRequest.mockResolvedValue({ sections: ['people'] })
+    trpc.accounts.keys.query.mockResolvedValue([])
+    render(<AccountsSection />)
+
+    expect(await screen.findByText("Members' keys")).toBeTruthy()
+    expect(trpc.accounts.keys.query).toHaveBeenCalledWith({})
+  })
+
   it('does not rerender native rows when a store publication leaves their fields unchanged', async () => {
     serveList([NATIVE])
     let updates = 0
@@ -461,7 +510,7 @@ describe('AccountsSection', () => {
       expect(await screen.findByText('Only you')).toBeTruthy()
       // No admin list for a member, and the admin read is never sent.
       expect(screen.queryByText("Members' keys")).toBeNull()
-      expect(trpc.accounts.keys.mutate).not.toHaveBeenCalled()
+      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
     })
 
     it('a member with nobody named is told only an admin can pick people', async () => {
@@ -477,7 +526,7 @@ describe('AccountsSection', () => {
 
     it('an admin shares their own key with named people, by name', async () => {
       asAdmin()
-      trpc.accounts.keys.mutate.mockResolvedValue([])
+      trpc.accounts.keys.query.mockResolvedValue([])
       serveList([OWN], [{ ...OWN, sharing: { everyone: false, users: ['user:ana', 'user:ben'] } }])
       trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
       render(<AccountsSection />)
@@ -514,7 +563,7 @@ describe('AccountsSection', () => {
         identity: 'sk-p…1234',
         sharing: { everyone: false, users: [] },
       }
-      trpc.accounts.keys.mutate
+      trpc.accounts.keys.query
         .mockResolvedValueOnce([{ ...anas, owner: 'user:admin', id: 'managed:anthropic' }, anas])
         .mockResolvedValue([{ ...anas, sharing: { everyone: true, users: [] } }])
       trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
@@ -545,14 +594,14 @@ describe('AccountsSection', () => {
           users: [],
         }),
       )
-      await waitFor(() => expect(trpc.accounts.keys.mutate).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(trpc.accounts.keys.query).toHaveBeenCalledTimes(2))
       await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
       expect(await screen.findByText('Everyone on this server')).toBeTruthy()
     })
 
     it('names who shared a key with the viewer when the directory knows them', async () => {
       asAdmin()
-      trpc.accounts.keys.mutate.mockResolvedValue([])
+      trpc.accounts.keys.query.mockResolvedValue([])
       serveList([
         {
           ...API_KEY_ROW,

@@ -2,7 +2,7 @@
  * THE NON-SYNC COMMANDS ON THE RUNNING ROUTER (ADR 12 D8, POD-6360).
  *
  * Against `appRouter` with a real registry, because the claim is about what the
- * server SERVES: each of the 27 commands is reached through the front door, so a
+ * server SERVES: each of the 26 commands is reached through the front door, so a
  * caller the coarse check refuses gets a permission error, never a validation
  * error and never the handler.
  */
@@ -27,7 +27,6 @@ import { SuperagentService } from '../superagent'
 const PLAIN_COMMANDS = [
   'accounts.connect',
   'accounts.disconnect',
-  'accounts.keys',
   'accounts.login',
   'accounts.share',
   'auth.setEmail',
@@ -129,8 +128,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 27', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(27)
+  it('a system principal with garbage input is refused as unauthorized by all 26', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(26)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
@@ -279,6 +278,10 @@ describe('every user manages their own harness accounts, and only their own (POD
 })
 
 describe("an admin lists every user's keys, never their credentials (POD-6390)", () => {
+  it('serves accounts.keys as a query', () => {
+    expect(appRouter._def.record.accounts.keys._def.type).toBe('query')
+  })
+
   const OTHER = asUserId('user:plain-family-other')
   const ANTHROPIC = asAccountId('managed:anthropic')
   const OAUTH = asAccountId('managed:claude-oauth')
@@ -338,7 +341,11 @@ describe("an admin lists every user's keys, never their credentials (POD-6390)",
   })
 
   it('a member and an agent are refused, and nothing is read', async () => {
-    for (const capability of [MEMBER_CAPABILITY, AGENT_CAPABILITY]) {
+    for (const capability of [
+      MEMBER_CAPABILITY,
+      AGENT_CAPABILITY,
+      { ...OPERATOR, actorSessionId: asSessionId('ses_admin_keys') },
+    ]) {
       const { caller, registry } = await harness({ capability })
       const summaries = vi.spyOn(registry.sessionStore.accounts, 'summaries')
       await registry.sessionStore.accounts.connect(key(OTHER, ANTHROPIC, SECRETS[0] as string))
@@ -346,6 +353,13 @@ describe("an admin lists every user's keys, never their credentials (POD-6390)",
       expect(refusal.code).toBe('FORBIDDEN')
       expect(summaries).not.toHaveBeenCalled()
     }
+    const { caller, registry } = await harness({
+      capability: OPERATOR,
+      principal: systemPrincipal('keys-test'),
+    })
+    const summaries = vi.spyOn(registry.sessionStore.accounts, 'summaries')
+    await expect(caller.accounts.keys({})).rejects.toThrow()
+    expect(summaries).not.toHaveBeenCalled()
   })
 })
 

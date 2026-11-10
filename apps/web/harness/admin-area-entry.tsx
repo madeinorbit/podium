@@ -9,6 +9,7 @@
 import { type JSX, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { AdminViewerError } from '@/features/settings/AdminViewerError'
 import { useAdminSections } from '@/features/settings/admin-viewer'
 import { MachineCustody } from '@/features/settings/machine-custody'
 import { AccessSection } from '@/features/settings/sections/access'
@@ -191,6 +192,12 @@ window.fetch = (async (input: RequestInfo | URL) => {
   const url = new URL(String(input), location.href)
   const path = url.pathname + url.search
   calls.push(path)
+  if (path === '/auth/admin/viewer') {
+    if (params.get('viewer') === 'slow') await new Promise((resolve) => setTimeout(resolve, 4000))
+    if (params.get('viewer') === 'error' && calls.filter((call) => call === path).length === 1) {
+      return Response.json({ error: 'Unavailable' }, { status: 503 })
+    }
+  }
   const [status, body] = answers[path]?.() ?? [404, { error: 'not stubbed' }]
   return new Response(JSON.stringify(body), {
     status,
@@ -269,10 +276,12 @@ function MachinesStub(): JSX.Element {
 }
 
 function Shell(): JSX.Element {
-  const sections = useAdminSections()
-  const rail = visibleSettingsGroups(groups, sections)
+  const viewer = useAdminSections()
+  const rail = visibleSettingsGroups(groups, viewer.sections)
   const [tab, setTab] = useState(params.get('tab') ?? 'members')
-  const shown = rail.some((g) => g.tabs.some((t) => t.key === tab)) ? tab : 'sessions'
+  const allowed = rail.some((g) => g.tabs.some((t) => t.key === tab))
+  const pending = !allowed && viewer.status !== 'ready'
+  const shown = allowed || pending ? tab : 'sessions'
   return (
     <div
       className="app-sheet-settings settings-panes"
@@ -296,16 +305,27 @@ function Shell(): JSX.Element {
             ))}
           </div>
         ))}
+        <AdminViewerError viewer={viewer} />
       </nav>
       <div className="settings-pane">
         <div className="settings-pane-scroll">
           <div className="settings-measure settings-section-enter" key={shown}>
-            {shown === 'members' && <MembersSection />}
-            {shown === 'access' && <AccessSection />}
-            {shown === 'audit' && <AuditSection />}
-            {shown === 'machines' && <MachinesStub />}
-            {!['members', 'access', 'audit', 'machines'].includes(shown) && (
-              <p className="settings-prose">({shown})</p>
+            {pending ? (
+              <p role="status" className="settings-prose text-muted-foreground">
+                {viewer.status === 'loading'
+                  ? 'Checking administrator access…'
+                  : 'Administrator access is unavailable.'}
+              </p>
+            ) : (
+              <>
+                {shown === 'members' && <MembersSection />}
+                {shown === 'access' && <AccessSection />}
+                {shown === 'audit' && <AuditSection />}
+                {shown === 'machines' && <MachinesStub />}
+                {!['members', 'access', 'audit', 'machines'].includes(shown) && (
+                  <p className="settings-prose">({shown})</p>
+                )}
+              </>
             )}
           </div>
         </div>

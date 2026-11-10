@@ -281,8 +281,8 @@ export class StoredKeys extends RequestAnswer<readonly StoredKey[]> {
 
 /**
  * Every OTHER member's stored keys, for an admin to manage their sharing. Drawn
- * only once the member directory has answered, which only an admin's can; the
- * server refuses `accounts.keys` below the admin floor regardless. The viewer's
+ * only when the admin viewer offers People; the server refuses `accounts.keys`
+ * below the admin floor regardless. The viewer's
  * own keys are not repeated here: their rows above carry the control.
  */
 export const MembersKeys = observer(function MembersKeys({
@@ -296,7 +296,7 @@ export const MembersKeys = observer(function MembersKeys({
 }): JSX.Element | null {
   const trpc = useSettingsTrpc()
   const [keys] = useState(() => new StoredKeys())
-  const reload = (): Promise<void> => keys.load(() => trpc.accounts.keys.mutate({}))
+  const reload = (): Promise<void> => keys.load(() => trpc.accounts.keys.query({}))
   // biome-ignore lint/correctness/useExhaustiveDependencies: one read per opening; Save reloads.
   useEffect(() => {
     void reload()

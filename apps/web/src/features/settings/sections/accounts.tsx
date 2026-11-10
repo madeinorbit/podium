@@ -12,6 +12,7 @@ import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { memberRequest } from '@/features/setup/member-api'
+import { useAdminSections } from '../admin-viewer'
 import { useSettingsSessionPresent } from '../readers'
 import { accountKey, useSettingsRecords } from '../record-readers'
 import { useSettingsClient, useSettingsTrpc } from '../stable-access'
@@ -499,8 +500,8 @@ const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
  * The member directory, for naming the people a key is shared with. Only an
  * admin can read it; for a member the read fails and the sharing control offers
  * what needs no names (only you, everyone, removing people already named).
- * Its answer is also what tells this screen the viewer is an admin, for the
- * members' keys list.
+ * The directory supplies names only; the admin viewer decides whether the
+ * members' keys list is offered.
  */
 function useKeyPeople(open: boolean): MemberDirectory | null {
   const directory = useOpeningView(useWorklistPool(), createDirectory, open)
@@ -520,6 +521,7 @@ function useKeyPeople(open: boolean): MemberDirectory | null {
  *  server's accounts table; the hub only ever reads back a masked identity. */
 export const AccountsSection = observer(function AccountsSection(): JSX.Element {
   const trpc = useSettingsTrpc()
+  const adminViewer = useAdminSections()
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
@@ -550,7 +552,7 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
             <ManagedAccountRow key={a.id} account={a} directory={directory} onChanged={refresh} />
           ))}
         </AccountGroup>
-        {directory?.answer && (
+        {adminViewer.sections.includes('people') && directory && (
           <MembersKeys
             directory={directory}
             labelOf={managedLabel}

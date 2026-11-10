@@ -1,6 +1,6 @@
 /**
  * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.share ·
- * accounts.keys · accounts.login · accounts.send · accounts.useOnMyMachines`.
+ * accounts.login · accounts.send · accounts.useOnMyMachines`.
  *
  * Credentials belong to the connecting member. Another member may use a managed
  * key only through an explicit share; foreign-machine sends still require the
@@ -285,57 +285,6 @@ export const accountsShareContract = {
     'Replaces the whole sharing list of one (owner, account id) row; last write wins, and the next spawn reads it',
 } as const satisfies CommandContract<typeof accountsShareInput>
 
-/**
- * `accounts.keys` — every stored key on this instance, for an admin (POD-6390).
- *
- * `list` shows the viewer only their own key or one shared with them, so an admin
- * could not see, let alone manage, another member's key. This read answers that
- * one question: whose keys exist, and who may use each. It returns no credential.
- */
-export const accountsKeysInput = z.object({})
-
-export const accountsKeysContract = {
-  name: 'accounts.keys',
-  version: 1,
-  visibility: ACCOUNT_VISIBILITY,
-  input: accountsKeysInput,
-  policy: {
-    action: 'read',
-    roleFloor: 'admin',
-    resource: 'secret',
-    confirmation: 'none',
-    rationale:
-      'A READ, contracted for its `roleFloor`: it lists every user’s stored keys with their owner ' +
-      'and sharing, which only an admin may see (POD-6390). The owner may already see and change ' +
-      'their own key through `list` and `share`; this is what lets an admin manage any key’s ' +
-      'sharing from Settings. `resource: secret` like the rest of the family (and it forces ' +
-      '`online-sensitive`). Agents are refused by the target check. `confirmation: "none"`: ' +
-      'reading destroys nothing.',
-  },
-  exposure: SERVED_ON,
-  delivery: ACCOUNT_DELIVERY,
-  redaction: {
-    reviewed: true,
-    inputPaths: [],
-    outputPaths: [],
-    note:
-      'EMPTY BY CONSTRUCTION. The input is `{}`. Each output row is built field by field from the ' +
-      'stored row (owner, account id, provider, kind, the masked identity, the sharing), never by ' +
-      'spreading it, so the credential and any field added to the stored row later cannot reach ' +
-      'the response. The identity is the mask `connect` stored, never derived from the secret here.',
-  } satisfies RedactionPolicy,
-  ownership: { creates: [], note: 'A read creates nothing.' },
-  attribution: ACCOUNT_ATTRIBUTION,
-  errorConsistency: {
-    callerSuppliedTargetId: false,
-    note:
-      'Takes no target id; it answers for every stored key at once, so there is no id to probe ' +
-      'with. A member or agent is refused before anything is read, and the refusal says nothing ' +
-      'about whether any key exists.',
-  } satisfies ErrorConsistency,
-  conflict: 'n/a',
-} as const satisfies CommandContract<typeof accountsKeysInput>
-
 export const accountsLoginContract = {
   name: 'accounts.login',
   version: 1,
@@ -498,7 +447,6 @@ export const ACCOUNT_CONTRACTS = {
   connect: accountsConnectContract,
   disconnect: accountsDisconnectContract,
   share: accountsShareContract,
-  keys: accountsKeysContract,
   login: accountsLoginContract,
   send: accountsSendContract,
   useOnMyMachines: accountsUseOnMyMachinesContract,

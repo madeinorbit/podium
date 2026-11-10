@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 29 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 28 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -20,12 +20,10 @@
  *  - first-run setup, as the bootstrap principal (the earliest admin);
  *  - the operator CLI (`podium logs level|daemon`, `podium join`, `podium setup`),
  *    on the operator's own credential;
- *  - agents and the daemon: none of the 29 today. The agent rows below pin what
+ *  - agents and the daemon: none of the 28 today. The agent rows below pin what
  *    one would get;
  *  - `accounts.share` (POD-6360): Settings → Accounts, the owner on their own key
  *    and an admin on any key (POD-6390);
- *  - `accounts.keys` (POD-6390): Settings → Accounts, admin only; the list of
- *    every member's keys an admin manages sharing from.
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -156,18 +154,6 @@ const CALLERS: readonly {
     expect: 'ok',
   },
   {
-    command: 'accounts.keys',
-    who: 'member',
-    caller: "every member's keys",
-    expect: 'floor',
-  },
-  {
-    command: 'accounts.keys',
-    who: 'admin',
-    caller: 'Settings → Accounts, all keys (admin)',
-    expect: 'ok',
-  },
-  {
     command: 'accounts.share',
     who: 'member',
     caller: 'share own key',
@@ -265,7 +251,6 @@ const CALLERS: readonly {
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'accounts.disconnect', who: 'agent', caller: 'none today', expect: 'floor' },
-  { command: 'accounts.keys', who: 'agent', caller: 'none today', expect: 'floor' },
   {
     command: 'accounts.share',
     who: 'agent',
@@ -275,9 +260,9 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 29 non-sync commands', () => {
-  it('covers the 29 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(29) // accounts.share/keys joined; the two settings writes are gone (record edits)
+describe('every current caller of the 28 non-sync commands', () => {
+  it('covers the 28 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(28) // accounts.keys is a query; the two settings writes are record edits
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -285,7 +270,7 @@ describe('every current caller of the 29 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(29)
+    expect(plain).toHaveLength(28)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 
@@ -331,7 +316,7 @@ describe("a member's harness sign-in touches only their own account (POD-6360)",
           ? undefined
           : 'you do not have access to start login on this machine',
       cwdForMachine: () => '/repo',
-      custodianOf: async (machineId) => machineId === MINE ? MEMBER : OTHER,
+      custodianOf: async (machineId) => (machineId === MINE ? MEMBER : OTHER),
     })
     return { service, createSession }
   }

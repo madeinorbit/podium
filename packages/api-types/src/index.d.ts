@@ -6372,7 +6372,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
-        "keys": TRPC.TRPCMutationProcedure<{
+        "keys": TRPC.TRPCQueryProcedure<{
             input: {};
             output: Output_accounts_keys;
             meta: unknown;

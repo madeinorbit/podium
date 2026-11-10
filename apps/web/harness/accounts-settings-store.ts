@@ -23,7 +23,8 @@ export const sceneName = (): SceneName => {
   return scene === 'member' || scene === 'custody' ? scene : 'admin'
 }
 
-const ME = sceneName() === 'admin' ? 'user:robin' : sceneName() === 'custody' ? 'user:bob' : 'user:ana'
+const ME =
+  sceneName() === 'admin' ? 'user:robin' : sceneName() === 'custody' ? 'user:bob' : 'user:ana'
 const sharedMachine = { id: asMachineId('machine-alice'), name: 'alice-desk' }
 const sent = new Set<string>()
 let ticked = false
@@ -101,8 +102,18 @@ function list(): AccountView[] {
       source: 'native',
       harness: 'claude-code',
       status: 'connected',
-      identity: ME === 'user:robin' ? 'robin@example.com' : ME === 'user:bob' ? 'bob@example.com' : 'ana@example.com',
-      machines: ME === 'user:robin' ? ['ludovico', 'flatblock'] : ME === 'user:bob' ? ['bob-laptop'] : ['ana-laptop'],
+      identity:
+        ME === 'user:robin'
+          ? 'robin@example.com'
+          : ME === 'user:bob'
+            ? 'bob@example.com'
+            : 'ana@example.com',
+      machines:
+        ME === 'user:robin'
+          ? ['ludovico', 'flatblock']
+          : ME === 'user:bob'
+            ? ['bob-laptop']
+            : ['ana-laptop'],
       loginMachines: [{ id: asMachineId(`machine-${ME.slice(5)}`), name: `${ME.slice(5)}-laptop` }],
     },
     {
@@ -111,14 +122,16 @@ function list(): AccountView[] {
       source: 'native',
       harness: 'codex',
       status: sceneName() === 'custody' ? 'connected' : 'not-configured',
-      ...(sceneName() === 'custody' ? {
-        identity: 'bob@example.com',
-        identityFingerprint: 'fp-bob-codex',
-        machines: ['bob-laptop'],
-        loginMachines: [{ id: asMachineId('machine-bob'), name: 'bob-laptop' }],
-        useOnMyMachines: ticked,
-        keptOn: ticked ? [{ id: asMachineId('machine-bob-desk'), name: 'bob-desk' }] : [],
-      } : {}),
+      ...(sceneName() === 'custody'
+        ? {
+            identity: 'bob@example.com',
+            identityFingerprint: 'fp-bob-codex',
+            machines: ['bob-laptop'],
+            loginMachines: [{ id: asMachineId('machine-bob'), name: 'bob-laptop' }],
+            useOnMyMachines: ticked,
+            keptOn: ticked ? [{ id: asMachineId('machine-bob-desk'), name: 'bob-desk' }] : [],
+          }
+        : {}),
     },
   ]
   const managed = [
@@ -162,15 +175,24 @@ const trpc = {
   accounts: {
     list: { query: () => later(list()) },
     keys: {
-      mutate: () =>
+      query: () =>
         sceneName() === 'admin'
           ? later(KEYS)
           : Promise.reject(new Error('accounts.keys is not permitted for this caller')),
     },
     send: {
-      mutate: async (input: { id: string; machineId: string; acknowledgeSharedMachine: boolean }) => {
-        if (!KEYS.some((key) => key.owner === ME && key.id === input.id)) throw new Error('no such stored key')
-        if (sceneName() !== 'custody' || input.machineId !== sharedMachine.id || !input.acknowledgeSharedMachine) {
+      mutate: async (input: {
+        id: string
+        machineId: string
+        acknowledgeSharedMachine: boolean
+      }) => {
+        if (!KEYS.some((key) => key.owner === ME && key.id === input.id))
+          throw new Error('no such stored key')
+        if (
+          sceneName() !== 'custody' ||
+          input.machineId !== sharedMachine.id ||
+          !input.acknowledgeSharedMachine
+        ) {
           throw new Error('Shared machine consent required')
         }
         sent.add(input.id)
@@ -211,6 +233,13 @@ export async function memberRequest<T>(_origin: string, action: string): Promise
     invites: [],
     mailAvailable: false,
     currentMemberId: ME,
+  }) as Promise<T>
+}
+
+export async function authRequest<T>(_origin: string, path: string): Promise<T> {
+  if (path !== 'admin/viewer') throw new Error('Not stubbed')
+  return later({
+    sections: sceneName() === 'admin' ? ['people', 'access', 'machines', 'instance', 'audit'] : [],
   }) as Promise<T>
 }
 

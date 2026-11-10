@@ -1,5 +1,5 @@
 /**
- * THE ACCOUNT QUERY — `list`.
+ * THE ACCOUNT QUERIES — `list` and the admin's `keys` directory.
  *
  * Native CLI logins on this machine (observed read-only) plus the managed
  * credentials Podium holds. Read at CALL TIME — native identity and quota drift,
@@ -14,6 +14,7 @@ import type { TransportTag } from '@podium/commands'
 import { asUserId, type MachineId } from '@podium/model'
 import { z } from 'zod'
 import { accountViews } from '../../accounts'
+import { SHARED_WITH_EVERYONE } from '../../store/accounts'
 import type { AccountState } from './registry'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
@@ -32,6 +33,21 @@ const query = <I extends z.ZodTypeAny, Out>(
 const noInput = z.object({}).passthrough().optional()
 
 export const ACCOUNT_QUERIES = {
+  /** Owner, masked identity and sharing only; credentials never leave the server. */
+  keys: query(z.object({}), async (state) => {
+    state.requireKeyAdmin()
+    return (await state.accounts.summaries()).map((row) => ({
+      owner: row.ownerUserId,
+      id: row.accountKey,
+      provider: row.provider,
+      kind: row.kind,
+      ...(row.identity ? { identity: row.identity } : {}),
+      sharing: {
+        everyone: row.sharedWith.includes(SHARED_WITH_EVERYONE),
+        users: row.sharedWith.filter((grantee) => grantee !== SHARED_WITH_EVERYONE),
+      },
+    }))
+  }),
   // POD-419 moved the provider keys out of the settings blob into the
   // server-only keyed store, narrowing `accountViews` from the whole blob to a
   // resolver for the ONE member it reads. POD-314 derived this list from a base

@@ -3,6 +3,7 @@
 
 import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
 import { type ResolvedRole, resolveRole } from '@podium/runtime'
+import { TRPCError } from '@trpc/server'
 import {
   type CodexLoginMachineSource,
   codexAuthorizerFor,
@@ -71,6 +72,11 @@ export const ACCOUNT_PLAIN_FAMILY = definePlainFamily({
     callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
     machineStanding: async () => await state.privateAccess.machineStanding(),
     callerUserId: state.caller.userId,
+    requireKeyAdmin: () => {
+      if (state.principal.kind !== 'user' || state.principal.capability.role !== 'admin') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Administrator required' })
+      }
+    },
     // Which native login THIS viewer's server AI would spend — see
     // {@link assembleCodexServerAiMarker}. Undefined when the role runs on
     // no native login or none is usable for the viewer: rows omit the

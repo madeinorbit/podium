@@ -7261,25 +7261,22 @@
     },
     {
       "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/tab",
+      "holder": "SettingsViewBody/SettingsViewBody/tabOffered",
       "rule": "consume:some",
-      "tokens": "dc4a22cf9e7ce7830c23f058ea30f18aba0a0fc64c8b109ce33111f824adf9f1",
-      "gate": [
-        "then:57831cbf282b1cca3ac4e6ce9019c8039a69dfdf81bcc4569ce45f401c663d5e",
-        "&&:d7adfef4c1c35659a461c99472438cacae2e673ef292893581acff582a211880"
-      ],
+      "tokens": "dadeda771ad679f061a9fc2715be40fdb4e17a7f3a67a92652ab51370288e607",
+      "gate": [],
       "origin": [
         "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711",
         "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800"
       ],
-      "fingerprint": "e1f1d79f654f40a2eaddcce47fc7851bef9349b50f7008e6c5d58b2f7a07a75e",
+      "fingerprint": "3705cef4b021b39593cdc2b1974e45baa98715b4b27081997953afad9a51e13c",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView/tab",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-6705",
+      "trigger": "Settings opens, the selected tab changes, or the admin viewer settles or retries.",
+      "bound": "The fixed Settings tab catalogue: four surfaces and twenty tabs (SETTINGS_GROUPS and TAB_LABEL). No issue or session rows are traversed.",
+      "reason": "Checks the selected destination against the finite visible settings tabs once, while an unresolved admin deep link waits for the viewer answer.",
+      "guard": "apps/web/src/features/settings/SettingsView.admin-area.test.tsx covers delayed admin/member answers and failed-read retry recovery."
     },
     {
       "file": "apps/web/src/features/settings/SettingsView.tsx",

@@ -22,7 +22,8 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { useAdminSections } from './admin-viewer'
+import { AdminViewerError } from './AdminViewerError'
+import { AdminViewerContext, useAdminSections } from './admin-viewer'
 import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
@@ -45,6 +46,7 @@ import { WorkLlmSection } from './sections/workllm'
 import { SettingsEditDraft } from './settings-edit-draft'
 import { useSettingsClient } from './stable-access'
 import {
+  adminSectionOf,
   SETTINGS_SURFACES,
   type SettingsSurface,
   SURFACE_COPY,
@@ -321,9 +323,12 @@ function HibernationSettingsSection({
  */
 export function SettingsView(props: { onClose: () => void }): JSX.Element {
   const settingsTab = useSettingsTab()
+  const adminViewer = useAdminSections()
   return (
     <SettingsOpening>
-      <SettingsViewBody {...props} settingsTab={settingsTab} />
+      <AdminViewerContext.Provider value={adminViewer}>
+        <SettingsViewBody {...props} settingsTab={settingsTab} />
+      </AdminViewerContext.Provider>
     </SettingsOpening>
   )
 }
@@ -340,7 +345,8 @@ const SettingsViewBody = observer(function SettingsViewBody({
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
   // The admin area is drawn only from the server's answer (POD-6299).
-  const adminSections = useAdminSections()
+  const adminViewer = useAdminSections()
+  const adminSections = adminViewer.sections
   const offeredGroups = visibleSettingsGroups(SETTINGS_GROUPS, adminSections)
   const settingsTabs = offeredGroups
     .flatMap((g) => g.tabs)
@@ -420,10 +426,15 @@ const SettingsViewBody = observer(function SettingsViewBody({
   // search, the Machines panel's "Change URL") land directly on their tab, tab
   // clicks push history entries (setSettingsTab), and back/forward moves
   // between visited tabs. A plain /settings shows the default tab.
-  const tab: SettingsTab =
-    settingsTab && settingsTabs.some((s) => s.key === settingsTab)
-      ? (settingsTab as SettingsTab)
-      : 'sessions'
+  const requestedTab =
+    settingsTab && Object.hasOwn(TAB_LABEL, settingsTab) ? (settingsTab as SettingsTab) : undefined
+  const tabOffered = settingsTabs.some((s) => s.key === requestedTab)
+  const awaitingAdmin =
+    requestedTab !== undefined &&
+    adminViewer.status !== 'ready' &&
+    adminSectionOf(requestedTab) !== undefined &&
+    !tabOffered
+  const tab: SettingsTab = requestedTab && (awaitingAdmin || tabOffered) ? requestedTab : 'sessions'
 
   /** Load presence rows, collapsing every failure into one state. A refusal,
    * missing surface and dropped connection keep the same visible answer. */
@@ -824,6 +835,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
           {query !== '' && visibleGroups.length === 0 && (
             <p className="settings-prose px-2.5 pt-1">No section matches “{filter.trim()}”.</p>
           )}
+          <AdminViewerError viewer={adminViewer} />
         </nav>
         <div className="settings-pane">
           <div className="settings-pane-scroll">
@@ -841,7 +853,13 @@ const SettingsViewBody = observer(function SettingsViewBody({
                   grouping itself). What a specific surface genuinely has to
                   explain — the secrets promise — now lives on that section's
                   own hint, on the one tab where it is true. */}
-              {settings ? (
+              {awaitingAdmin ? (
+                <p role="status" className="settings-prose text-muted-foreground">
+                  {adminViewer.status === 'loading'
+                    ? 'Checking administrator access…'
+                    : 'Administrator access is unavailable.'}
+                </p>
+              ) : settings ? (
                 // The tab body is a whole surface, and a lazy section that
                 // cannot be fetched leaves it blank — which is what the
                 // operator is staring at during a handover (POD-2762). It says

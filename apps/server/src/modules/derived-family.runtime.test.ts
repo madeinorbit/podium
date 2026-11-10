@@ -111,11 +111,12 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * an approval decision is a generic edit of its effect record
    * (`records.effect.edit`, POD-6674); `approvals.approve` and `.deny` are gone.
    * (The base this was measured on already served 35, not the 36 pinned here.)
+   * 33 -> 32: `accounts.keys` is a query (POD-6705), retaining its admin gate.
    */
-  it('governs eleven families and thirty-three derived writes', () => {
+  it('governs eleven families and thirty-two derived writes', () => {
     expect(FAMILIES).toHaveLength(11)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(33)
+    expect(total).toBe(32)
   })
 
   it.each(
