@@ -156,6 +156,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           headerShadowVisible: false,
           contentStyle: { backgroundColor: paper.ground },
           headerTintColor: color.accentTint,
+          // The tint is for bar buttons; titles keep the system label colour.
+          headerTitleStyle: { color: color.text },
+          headerLargeTitleStyle: { color: color.text },
         }}
       />
       {props.mode === 'tab' ? (
