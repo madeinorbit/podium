@@ -1049,7 +1049,7 @@ describe('member desktop recovery', () => {
     ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
       currentVersion: '0.4.1',
       launchMode: 'client',
-      platform: 'darwin',
+      platform: 'macos',
       minimize: vi.fn(async () => {}),
       toggleMaximize: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
