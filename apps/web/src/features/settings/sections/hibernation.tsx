@@ -58,8 +58,7 @@ export const HibernationSection = observer(function HibernationSection({
         description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count. The top-bar LOAD meter fills against this threshold."
       >
         <CommitInput
-          aria-setting="hibernation.loadPerCore"
-          label="Load per core"
+          aria-label="Load per core"
           className="w-[90px] flex-none"
           type="number"
           min={0.5}
@@ -117,8 +116,7 @@ export const HibernationSection = observer(function HibernationSection({
         }
       >
         <CommitInput
-          aria-setting="hibernation.maxIdleSessions"
-          label="Maximum idle sessions"
+          aria-label="Maximum idle sessions"
           className="w-[90px] flex-none"
           type="number"
           min={0}
@@ -141,8 +139,7 @@ export const HibernationSection = observer(function HibernationSection({
         description="Park live shells after this many minutes with no input or output. The default is 60 minutes; empty turns shell reaping off."
       >
         <CommitInput
-          aria-setting="hibernation.idleShellMinutes"
-          label="Idle shell minutes"
+          aria-label="Idle shell minutes"
           className="w-[90px] flex-none"
           type="number"
           min={1}
@@ -166,8 +163,7 @@ export const HibernationSection = observer(function HibernationSection({
         description="Last resort: park after total quiet time without terminal proof. A future scheduled wakeup keeps the session live; empty disables this backstop."
       >
         <CommitInput
-          aria-setting="hibernation.backstopMinutes"
-          label="Idle backstop minutes"
+          aria-label="Idle backstop minutes"
           className="w-[90px] flex-none"
           type="number"
           min={60}

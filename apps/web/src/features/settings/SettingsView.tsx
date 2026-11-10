@@ -102,8 +102,7 @@ const UpdatesSection = lazy(() =>
   })),
 )
 
-/** Everything a section can pull from the view: the loaded blob, the local
- *  patch, the accounts list, the Telegram flow state, and the store trpc. */
+/** The live settings, per-control writer, accounts and short-flow state. */
 interface SectionContext {
   settings: PodiumSettings
   accounts: AccountView[]
@@ -409,7 +408,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
         if (cancelled) return
         if (result.status === 'connected') {
           // The chat binding is my `userPreferences` record, published by the
-          // server's own write: it reaches the draft on its own.
+          // server's own write: it reaches the record on its own.
           setTelegramSetup({
             status: 'connected',
             chatId: result.chatId,
@@ -447,7 +446,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
 
   /**
-   * A SECRET WRITE IS ITS OWN COMMAND, issued here and NOT through the save bar.
+   * A SECRET WRITE IS ITS OWN COMMAND, separate from preference records.
    *
    * The blob save (`saveSettingsAsCommands`) plans preference patches from a
    * before/after diff of `PodiumSettings`. A secret is no longer IN that object

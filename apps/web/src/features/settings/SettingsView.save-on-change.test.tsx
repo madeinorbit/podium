@@ -6,9 +6,6 @@ import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-
-type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const storeState = {
   trpc: {} as import('@/app/trpc').Trpc,
@@ -46,6 +43,8 @@ vi.mock('@/lib/use-model-catalog', () => ({
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
 }))
+
+vi.mock('./MachinesPanel', () => ({ MachinesPanel: () => null }))
 
 import { SettingsView } from './SettingsView'
 
@@ -88,6 +87,10 @@ beforeEach(() => {
       },
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
       set: { mutate: vi.fn().mockResolvedValue({ settings, refusals: [] }) },
+    },
+    telemetry: {
+      state: { query: vi.fn().mockRejectedValue(new Error('unavailable')) },
+      preview: { query: vi.fn().mockRejectedValue(new Error('unavailable')) },
     },
     accounts: { list: { query: vi.fn().mockResolvedValue([]) } },
     setup: {

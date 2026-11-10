@@ -1,9 +1,24 @@
 import { normalizeSettings } from '@podium/runtime'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CommitInput, ConfirmInline, NumberRow, SettingsControlsContext, SwitchRow } from './shared'
+import {
+  CommitInput,
+  ConfirmInline,
+  NumberRow,
+  SecretRow,
+  SettingsControlsContext,
+  SwitchRow,
+} from './shared'
 
-afterEach(cleanup)
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: Object.assign(notice, { error: vi.fn() }) }))
+vi.mock('../settings-frame', () => ({
+  useSettingsFrame: () => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() }),
+}))
+afterEach(() => {
+  cleanup()
+  notice.mockClear()
+})
 
 describe('commit fields', () => {
   it('leaves keystrokes alone and commits once on Enter followed by blur', () => {
@@ -50,7 +65,7 @@ describe('commit fields', () => {
         placeholder="Off"
       />,
     )
-    const input = screen.getByLabelText('Threshold') as HTMLInputElement
+    const input = screen.getByRole('spinbutton', { name: 'Threshold' }) as HTMLInputElement
     fireEvent.change(input, { target: { value: '8' } })
     expect(input.value).toBe('8')
     expect(commit).not.toHaveBeenCalled()
@@ -116,8 +131,10 @@ describe('inline confirmation requirements', () => {
       target: { value: 'correct password' },
     })
     expect(action.disabled).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox'))
-    expect(action.disabled).toBe(false)
+    fireEvent.click(
+      screen.getByLabelText('I understand who can use this key.', { selector: 'input' }),
+    )
+    await waitFor(() => expect(action.disabled).toBe(false))
     fireEvent.click(action)
     await waitFor(() => expect(confirm).toHaveBeenCalledExactlyOnceWith('correct password'))
   })
@@ -138,5 +155,29 @@ describe('inline confirmation requirements', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect((await screen.findByRole('alert')).textContent).toBe('The machine is still in use.')
+  })
+})
+
+describe('secret removal', () => {
+  it('confirms inline and offers the supplied inverse with Undo', async () => {
+    const undo = vi.fn(async () => {})
+    const remove = vi.fn(async () => undo)
+    render(
+      <SecretRow label="API key" present last4="1234" onSave={async () => {}} onRemove={remove} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Remove' })).getByRole('button', { name: 'Remove' }),
+    )
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(notice).toHaveBeenCalledWith(
+        'Removed',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+      ),
+    )
+    await act(async () => notice.mock.calls.at(-1)![1].action.onClick())
+    expect(undo).toHaveBeenCalledTimes(1)
   })
 })

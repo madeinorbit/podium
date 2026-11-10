@@ -533,14 +533,18 @@ export function SecretRow({
   last4,
   onSave,
   onRemove,
+  hasPassword = false,
   ...props
 }: RowProps & {
   present: boolean
+  hasPassword?: boolean
   last4?: string | null
   onSave: (value: string) => Promise<unknown>
   onRemove?: () => Promise<() => Promise<unknown>>
 }) {
   const { openTakeover, closeTakeover } = useSettingsFrame()
+  const [confirming, setConfirming] = useState(false)
+  const row = useRowState(props)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const remove = async () => {
@@ -549,6 +553,7 @@ export function SecretRow({
     setPending(true)
     try {
       const undo = await onRemove()
+      setConfirming(false)
       toast(
         'Removed',
         undo
@@ -571,34 +576,51 @@ export function SecretRow({
     }
   }
   return (
-    <Row
-      {...props}
-      error={error}
-      pending={pending}
-      readOnlyValue={present ? `•••• ${last4?.slice(-4) ?? 'Set'}` : 'Not set'}
-    >
-      {present && (
-        <span className="settings-micro font-mono">•••• {last4?.slice(-4) ?? 'Set'}</span>
-      )}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() =>
-          openTakeover({
-            title: `${present ? 'Replace' : 'Add'} ${props.label}`,
-            content: <SecretEntry label={props.label} onSave={onSave} onDone={closeTakeover} />,
-          })
-        }
+    <>
+      <Row
+        {...props}
+        error={error}
+        pending={pending}
+        readOnlyValue={present ? `•••• ${last4?.slice(-4) ?? 'Set'}` : 'Not set'}
       >
-        {present ? 'Replace' : 'Add'}
-      </Button>
-      {present && onRemove && (
-        <Button type="button" variant="ghost" size="sm" onClick={() => void remove()}>
-          Remove
+        {present && (
+          <span className="settings-micro font-mono">•••• {last4?.slice(-4) ?? 'Set'}</span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            openTakeover({
+              title: `${present ? 'Replace' : 'Add'} ${props.label}`,
+              content: <SecretEntry label={props.label} onSave={onSave} onDone={closeTakeover} />,
+            })
+          }
+        >
+          {present ? 'Replace' : 'Add'}
         </Button>
+        {present && onRemove && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)}>
+            Remove
+          </Button>
+        )}
+      </Row>
+      {confirming && !row.readOnly && (
+        <ConfirmInline
+          sentence={`Remove ${props.label}?`}
+          actionLabel="Remove"
+          hasPassword={hasPassword}
+          destructive
+          pending={pending}
+          error={error}
+          onConfirm={remove}
+          onCancel={() => {
+            setConfirming(false)
+            setError(null)
+          }}
+        />
       )}
-    </Row>
+    </>
   )
 }
 function SecretEntry({

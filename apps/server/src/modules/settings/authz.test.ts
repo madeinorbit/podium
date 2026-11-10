@@ -30,7 +30,12 @@
  * permitted everything AND one that refused everything.
  */
 
-import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS, USER_PREFERENCES_RECORD } from '@podium/commands'
+import {
+  INSTANCE_PREFERENCES_RECORD,
+  SETTINGS_COMMAND_NAMES,
+  SETTINGS_CONTRACTS,
+  USER_PREFERENCES_RECORD,
+} from '@podium/commands'
 import { asSessionId, firstAdminMemberId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -84,6 +89,11 @@ describe('the shipped table actually splits — the claims below are not vacuous
     // A member's own preferences are the `userPreferences` record since POD-6673:
     // its edit carries the member floor, and no settings command does.
     expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
+    expect(INSTANCE_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('admin')
+    expect(asAdmin['records.userPreferences.edit']).toBe(true)
+    expect(asAdmin['records.instancePreferences.edit']).toBe(true)
+    expect(asMember['records.userPreferences.edit']).toBe(true)
+    expect(asMember['records.instancePreferences.edit']).toBe(false)
     expect(ADMIN_FLOOR).toContain('settings.setSecret')
     expect(ADMIN_FLOOR).toContain('settings.secretPresence')
     expect(MEMBER_FLOOR).toEqual([])
@@ -141,7 +151,9 @@ describe('a SYSTEM principal has no account and is not given one', () => {
     // it, because "the steward is an admin" is the service account ADR 9 D8 S5
     // rejects.
     for (const name of SETTINGS_COMMAND_NAMES) {
-      expect(settingsAuthzFailure(name, deps(undefined, systemPrincipal('steward')))).toBeUndefined()
+      expect(
+        settingsAuthzFailure(name, deps(undefined, systemPrincipal('steward'))),
+      ).toBeUndefined()
     }
   })
 })
@@ -209,13 +221,38 @@ describe('settingsCommandsPermitted — the rendering hint, and what it is NOT',
   it('answers for every shipped contract, and differs by role', () => {
     const asAdmin = settingsCommandsPermitted(deps('admin'))
     const asMember = settingsCommandsPermitted(deps('member'))
-    expect(Object.keys(asAdmin).sort()).toEqual([...SETTINGS_COMMAND_NAMES].sort())
+    expect(Object.keys(asAdmin).sort()).toEqual(
+      [
+        ...SETTINGS_COMMAND_NAMES,
+        'records.userPreferences.edit',
+        'records.instancePreferences.edit',
+      ].sort(),
+    )
     expect(asAdmin['settings.setSecret']).toBe(true)
     expect(asMember['settings.setSecret']).toBe(false)
     // The control: a member is not simply refused everything. (Their own
     // preferences are the `userPreferences` record since POD-6673, written at a
     // member floor; the settings commands left are all admin's or ceremonies.)
     expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
+    expect(INSTANCE_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('admin')
+    expect(asAdmin['records.userPreferences.edit']).toBe(true)
+    expect(asAdmin['records.instancePreferences.edit']).toBe(true)
+    expect(asMember['records.userPreferences.edit']).toBe(true)
+    expect(asMember['records.instancePreferences.edit']).toBe(false)
+  })
+
+  it('refuses both record edits for a disabled account or a transport system principal', () => {
+    for (const viewer of [deps(undefined), deps('admin', systemPrincipal('test'))]) {
+      const permitted = settingsCommandsPermitted(viewer)
+      expect(permitted['records.userPreferences.edit']).toBe(false)
+      expect(permitted['records.instancePreferences.edit']).toBe(false)
+    }
+  })
+
+  it('uses the human’s live grade for an agent’s preference controls too', () => {
+    const member = settingsCommandsPermitted(deps('member', agent))
+    expect(member['records.userPreferences.edit']).toBe(true)
+    expect(member['records.instancePreferences.edit']).toBe(false)
   })
 
   it('agrees with the GATE for every command and both roles — one rule, not two', () => {
