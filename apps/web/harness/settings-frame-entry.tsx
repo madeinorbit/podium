@@ -55,7 +55,7 @@ function Harness() {
   useSettingsShortcut(() => setOpen(true))
   return (
     <ThemeProvider>
-      <DensityProvider densityEnabled>
+      <DensityProvider>
         <div style={{ padding: 20, color: 'var(--muted-foreground)' }}>Podium · Work</div>
         {open &&
           (params.has('flow') ? (

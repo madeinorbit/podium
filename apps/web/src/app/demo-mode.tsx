@@ -24,7 +24,6 @@ import type { SessionId } from '@podium/model'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { useFeature } from '@/lib/use-feature'
 import { WebSyncProgressStore } from '@/lib/sync-progress'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -121,11 +120,6 @@ export function demoTrpc(): Trpc {
   } as unknown as Trpc
 }
 
-function DemoDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
-}
-
 /**
  * The demo shell: the same `AppBody` the product renders, over demo rows.
  * Skips the login, setup and replica gates — there is no server to ask — and
@@ -136,11 +130,11 @@ export function WebDemoApp(): JSX.Element {
     <TooltipProvider>
       <ErrorBoundary resetKey="demo" onRetry={() => {}}>
         <WebDemoProvider>
-          <DemoDensityProvider>
+          <DensityProvider>
             <ToolbarSlotProvider>
               <DemoBody />
             </ToolbarSlotProvider>
-          </DemoDensityProvider>
+          </DensityProvider>
         </WebDemoProvider>
       </ErrorBoundary>
       <Toaster

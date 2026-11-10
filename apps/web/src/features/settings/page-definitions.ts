@@ -666,19 +666,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     keywords: 'experimental feature flags preview development',
     rows: [
       ...FEATURES.filter((flag) => flag.visibility !== 'hidden').map((flag) =>
-        row('experimental', flag.name, flag.description, flag.id),
-      ),
-      section(
-        'experimental',
-        'Experimental features',
-        'Pre-release features available on this install.',
-        'runtime drivers podium development draft sync command palette git panel messages shipping handoff workflows specs automations',
-      ),
-      section(
-        'experimental',
-        'Reset settings',
-        'Restore Podium’s defaults. Nothing is saved until you confirm in the save bar.',
-        'reset defaults restore',
+        row('labs', flag.name, flag.description, flag.id),
       ),
     ],
   },

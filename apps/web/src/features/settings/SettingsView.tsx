@@ -29,7 +29,7 @@ import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
 import { AppearanceSection } from './sections/appearance'
-import { ExperimentalSection } from './sections/experimental'
+import { LabsSection } from './sections/labs'
 import { HibernationSection } from './sections/hibernation'
 import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
@@ -237,8 +237,8 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
     </SettingsPageSection>
   ),
   labs: ({ settings, patch }) => (
-    <SettingsPageSection id="experimental">
-      <ExperimentalSection settings={settings} patch={patch} />
+    <SettingsPageSection id="labs">
+      <LabsSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
 }

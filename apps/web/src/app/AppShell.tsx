@@ -3,7 +3,7 @@ import { createSocketLogin, observeLiveConnection } from '@podium/client-core/li
 import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
@@ -407,7 +407,7 @@ export function AppShell({
                     onInitialPodiumHrefConsumed()
                   }}
                 />
-                <RoutedDensityProvider>
+                <DensityProvider>
                   <SetupRecoveryReporter />
                   <BrowserOpenOverlay />
                   <ConfirmProvider>
@@ -417,7 +417,7 @@ export function AppShell({
                       <AppBody syncProgress={kernel.assembly.progress} />
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
-                </RoutedDensityProvider>
+                </DensityProvider>
               </StoreProvider>
             </ErrorBoundary>
           )}
@@ -452,11 +452,6 @@ export function AppShell({
 /** The degraded setup gate re-asks when this runtime's connection comes back (POD-5798). */
 function SetupRecoveryReporter(): JSX.Element {
   return <SetupRecoveryOnConnect live={useLive()} />
-}
-
-function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
 }
 
 /** Module-scope so the setter keeps a stable identity across renders — an inline

@@ -95,88 +95,79 @@ for (const visibility of ['hidden', 'edge', 'stable'] as const) {
 }
 
 describe('FEATURES registry', () => {
-  it('registers every experimental surface with user-facing copy', () => {
+  it('registers every Labs surface with plain copy', () => {
     expect(FEATURES).toEqual(
       expect.arrayContaining([
         {
           id: 'draft-sync',
           name: 'Draft sync',
-          description:
-            'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
+          description: 'Unsent prompts follow you between devices.',
           visibility: 'edge',
         },
         {
           id: 'runtime-drivers',
-          name: 'Headless session drivers',
-          description:
-            'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
+          name: 'Headless agents',
+          description: 'Run some agents without a terminal.',
           visibility: 'stable',
         },
         {
-          id: 'shell-density',
-          name: 'Shell density',
-          description: 'Choose between balanced and compact shell styling in Appearance.',
-          visibility: 'edge',
-        },
-        {
           id: 'command-palette',
-          name: 'Cmd+K search',
-          description:
-            'Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.',
+          name: 'Search everything (Cmd+K)',
+          description: 'Takes effect after the server restarts.',
           visibility: 'edge',
         },
         {
           id: 'git-panel',
           name: 'Git panel',
-          description: 'Show the Git tab in the right sidebar.',
+          description: 'Branch and diff state beside each session.',
           visibility: 'edge',
         },
         {
           id: 'messages-panel',
           name: 'Messages panel',
-          description: 'Show the Messages tab in the right sidebar.',
+          description: 'Agent-to-agent mail in the right dock.',
           visibility: 'edge',
         },
         {
           id: 'shipping',
           name: 'Shipping',
-          description: 'Show durable delivery progress in the right sidebar.',
+          description: 'Release trains for landed tasks.',
           visibility: 'edge',
         },
         {
           id: 'session-handoff',
           name: 'Session handoff',
-          description: 'Move a live session to another Podium server.',
+          description: 'Move a running session to another agent.',
           visibility: 'edge',
         },
         {
           id: 'workflows',
           name: 'Workflows',
-          description:
-            'Show workflows and give agents workflow-aware instructions and CLI guidance.',
+          description: 'Multi-step agent pipelines in their own mode.',
           visibility: 'edge',
         },
         {
           id: 'specs',
           name: 'Specs',
-          description:
-            'Show living specs and give agents spec-aware instructions and CLI guidance.',
+          description: 'Long-lived documents agents plan against.',
           visibility: 'edge',
         },
         {
           id: 'automations',
           name: 'Automations',
-          description: 'Show scheduled automations and notification triggers.',
+          description: 'Scheduled and triggered agent runs.',
           visibility: 'edge',
         },
         {
-          id: 'notifications',
-          name: 'Notifications',
-          description: 'Enable web and external notifications and their settings.',
-          visibility: 'edge',
+          id: 'podium-development',
+          name: 'Podium development',
+          description: 'Tools for people working on Podium itself.',
+          visibility: 'stable',
         },
       ]),
     )
+    for (const id of ['settings-search', 'shell-density', 'notifications'])
+      expect(FEATURES.map((flag) => flag.id)).not.toContain(id)
     expect(FEATURES.map((flag) => flag.id)).not.toContain('mobx-sidebar')
   })
 })

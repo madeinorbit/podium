@@ -2505,7 +2505,6 @@ export class SessionRegistry {
               ownerUserId: s.ownerUserId,
             }),
           ),
-        notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
       this.bus,

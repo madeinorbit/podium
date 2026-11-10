@@ -13,7 +13,6 @@ import {
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import { useFeature } from '@/lib/use-feature'
 import { Row, Section, Subsection } from './shared'
 import { AccountTipsRow } from './tips'
 
@@ -22,7 +21,6 @@ import { AccountTipsRow } from './tips'
 export function AppearanceSection(): JSX.Element {
   const { mode, setMode } = useTheme()
   const { density, setDensity } = useDensity()
-  const densityEnabled = useFeature('shell-density')
   const stickyPrompts = useStickyPromptsPreference()
   const modes: { value: ThemeMode; label: string }[] = [
     { value: 'light', label: 'Light' },
@@ -54,7 +52,6 @@ export function AppearanceSection(): JSX.Element {
           ))}
         </div>
       </Row>
-      {densityEnabled && (
         <Row
           label="Density"
           description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
@@ -74,7 +71,6 @@ export function AppearanceSection(): JSX.Element {
             ))}
           </div>
         </Row>
-      )}
       <Row
         label="Sticky prompts"
         description="Keep the current operator prompt visible while its response scrolls. This device only."

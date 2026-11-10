@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite'
 /**
- * Settings → Experimental [spec:SP-f4b9]: listed feature flags with user
- * toggles. Enablement edits save their instance preference immediately.
+ * Settings → Labs [spec:SP-f4b9]: workspace feature flags. Admins save
+ * enablement edits through the instance preference record immediately.
  */
 
 import type { PodiumSettings } from '@podium/runtime'
@@ -9,7 +9,7 @@ import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { type FeatureStates, useFeaturesState } from '@/lib/use-feature'
-import { Row, Section } from './shared'
+import { Row } from './shared'
 
 type FeatureFlagWire = FeatureStates['flags'][number]
 
@@ -20,7 +20,7 @@ function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boo
   return true
 }
 
-export const ExperimentalSection = observer(function ExperimentalSection({
+export const LabsSection = observer(function LabsSection({
   settings,
   patch,
 }: {
@@ -31,29 +31,26 @@ export const ExperimentalSection = observer(function ExperimentalSection({
   // facts joined with the SAVED toggles [spec:SP-f4b9]. A switch below edits
   // the record immediately.
   const state = useFeaturesState()
-  const listed = state?.flags.filter((f) => f.listed) ?? []
+  const listed = state?.flags.filter((flag) => flag.listed && flag.visibility !== 'hidden') ?? []
   const channel = state?.channel ?? 'stable'
-  const channelLabel = channel === 'edge' ? 'edge' : 'stable'
 
   return (
-    <Section
-      title="Experimental"
-      hint={`Pre-release features for this install (update channel: ${channelLabel}). Changes save as soon as you make them.`}
-    >
-      {!state && <p className="settings-prose">Loading experimental features…</p>}
+    <div>
+      {!state && <p className="settings-prose">Loading Labs features…</p>}
       {state && listed.length === 0 && (
-        <p className="settings-prose">No experimental features are available on this install.</p>
+        <p className="settings-prose">No Labs features are available on this install.</p>
       )}
       {/* A flag row is a Row: same two columns, same seam, same measure — it just
           carries a badge. It had its own flex layout and its own sizes. */}
       {listed.map((flag) => {
-        const checked = flag.locked ? flag.enabled : (settings.experimental?.[flag.id] ?? false)
+        const checked = flag.enabled
         const showDevBadge = Boolean(state?.devMode && isDevOnlyListed(flag, channel))
         return (
           <Row
             key={flag.id}
-            setting="experimental"
+            setting={`experimental.${flag.id}`}
             label={flag.name}
+            readOnlyValue={checked ? 'On' : 'Off'}
             description={
               <>
                 {flag.description}
@@ -70,6 +67,7 @@ export const ExperimentalSection = observer(function ExperimentalSection({
           >
             <Switch
               className="flex-none"
+              aria-label={flag.name}
               checked={checked}
               disabled={flag.locked}
               onCheckedChange={(next) =>
@@ -81,6 +79,6 @@ export const ExperimentalSection = observer(function ExperimentalSection({
           </Row>
         )
       })}
-    </Section>
+    </div>
   )
 })

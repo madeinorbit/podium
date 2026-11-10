@@ -13,12 +13,6 @@ export function applyDensity(density: ShellDensity, root: HTMLElement): void {
   root.dataset.density = density
 }
 
-/** Compact styling is experimental. Keep the stored preference dormant while
- *  the gate is off so re-enabling it restores the user's previous choice. */
-export function resolveDensity(preferred: ShellDensity, densityEnabled: boolean): ShellDensity {
-  return densityEnabled ? preferred : 'balanced'
-}
-
 interface DensityContextValue {
   density: ShellDensity
   setDensity: (density: ShellDensity) => void
@@ -30,35 +24,17 @@ const parseDensity = (raw: string | null): ShellDensity =>
   raw === 'compact' ? 'compact' : 'balanced'
 const serializeDensity = (value: ShellDensity): string => value
 
-function PoolDensityProvider({
-  children,
-  densityEnabled,
-}: {
-  children: ReactNode
-  densityEnabled: boolean
-}): JSX.Element {
-  const [preferred, setPreferred] = usePersistedUiState(
+export function DensityProvider({ children }: { children: ReactNode }): JSX.Element {
+  const [density, setDensity] = usePersistedUiState(
     SHELL_DENSITY_KEY,
     parseDensity,
     serializeDensity,
   )
-  const density = resolveDensity(preferred, densityEnabled)
   useLayoutEffect(() => applyDensity(density, document.documentElement), [density])
   return (
-    <DensityContext.Provider value={{ density, setDensity: setPreferred }}>
+    <DensityContext.Provider value={{ density, setDensity }}>
       {children}
     </DensityContext.Provider>
-  )
-}
-
-export function DensityProvider(props: {
-  children: ReactNode
-  densityEnabled: boolean
-}): JSX.Element {
-  return (
-    <PoolDensityProvider densityEnabled={props.densityEnabled}>
-      {props.children}
-    </PoolDensityProvider>
   )
 }
 

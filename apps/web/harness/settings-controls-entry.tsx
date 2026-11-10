@@ -12,7 +12,7 @@ import { ThemeProvider } from '@/app/theme'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { settingsChange } from '@/features/settings/save-settings'
-import { ExperimentalSection } from '@/features/settings/sections/experimental'
+import { LabsSection } from '@/features/settings/sections/labs'
 import { HibernationSection } from '@/features/settings/sections/hibernation'
 import { NotificationsSection } from '@/features/settings/sections/notifications'
 import { PrivacySection } from '@/features/settings/sections/privacy'
@@ -88,7 +88,7 @@ const Harness = observer(function Harness() {
   }
   return (
     <ThemeProvider>
-      <DensityProvider densityEnabled>
+      <DensityProvider>
         <SettingsFrame
           page={scene === 'controls' ? 'projects' : (scene as 'machines')}
           selectedPage
@@ -121,7 +121,7 @@ const Harness = observer(function Harness() {
             ) : scene === 'privacy' ? (
               <PrivacySection settings={settings} patch={patch} />
             ) : scene === 'labs' ? (
-              <ExperimentalSection settings={settings} patch={patch} />
+              <LabsSection settings={settings} patch={patch} />
             ) : scene === 'agents' ? (
               <SessionsSection settings={settings} patch={patch} accounts={[]} />
             ) : (

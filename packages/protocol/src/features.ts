@@ -1,8 +1,8 @@
 /**
- * Experimental feature-flag registry + pure resolver [spec:SP-f4b9].
+ * Labs feature-flag registry + pure resolver [spec:SP-f4b9].
  *
  * Shared by server and web. Visibility controls where a flag appears in
- * Settings → Experimental; enablement always defaults off unless config or
+ * Settings → Labs; enablement always defaults off unless config or
  * a listed user toggle turns it on.
  */
 
@@ -11,37 +11,44 @@ export type FeatureVisibility = 'hidden' | 'development' | 'edge' | 'stable'
 export interface FeatureDefinition {
   /** Stable kebab-case id — the key used in config.json and settings. Never renamed. */
   id: string
-  /** User-facing name shown in Settings → Experimental. */
+  /** User-facing name shown in Settings → Labs. */
   name: string
   /** User-facing description shown under the name. */
   description: string
-  /** Where the flag appears in Experimental (see design doc). */
+  /** Where the flag appears in Labs (see design doc). */
   visibility: FeatureVisibility
 }
 
 export const FEATURES = [
   {
-    // Draft Sync v2 (POD-859). Edge-visibility: listed in Settings → Experimental on
-    // edge-channel installs; enablement flows through resolveFeatureState like any
-    // other flag. Ships dark (default off) — off = today's client-scraped behavior.
-    id: 'draft-sync',
-    name: 'Draft sync',
-    description:
-      'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
+    id: 'workflows',
+    name: 'Workflows',
+    description: 'Multi-step agent pipelines in their own mode.',
     visibility: 'edge',
   },
   {
-    id: 'runtime-drivers',
-    name: 'Headless session drivers',
-    description:
-      'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
-    visibility: 'stable',
+    id: 'automations',
+    name: 'Automations',
+    description: 'Scheduled and triggered agent runs.',
+    visibility: 'edge',
   },
   {
-    id: 'settings-search',
-    name: 'Settings search',
-    description: 'Show the "Find a setting" filter box in the Settings side nav.',
-    visibility: 'stable',
+    id: 'specs',
+    name: 'Specs',
+    description: 'Long-lived documents agents plan against.',
+    visibility: 'edge',
+  },
+  {
+    id: 'git-panel',
+    name: 'Git panel',
+    description: 'Branch and diff state beside each session.',
+    visibility: 'edge',
+  },
+  {
+    id: 'messages-panel',
+    name: 'Messages panel',
+    description: 'Agent-to-agent mail in the right dock.',
+    visibility: 'edge',
   },
   {
     // The ONE switch for search (PDM-25). Beyond the palette it also decides
@@ -49,52 +56,36 @@ export const FEATURES = [
     // no fts5 triggers on `conversations` and no transcript indexing, and search
     // falls back to LIKE. Read at boot, so a change lands on the next start.
     id: 'command-palette',
-    name: 'Cmd+K search',
-    description:
-      'Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.',
-    visibility: 'edge',
-  },
-  {
-    id: 'git-panel',
-    name: 'Git panel',
-    description: 'Show the Git tab in the right sidebar.',
-    visibility: 'edge',
-  },
-  {
-    id: 'messages-panel',
-    name: 'Messages panel',
-    description: 'Show the Messages tab in the right sidebar.',
-    visibility: 'edge',
-  },
-  {
-    id: 'shipping',
-    name: 'Shipping',
-    description: 'Show durable delivery progress in the right sidebar.',
+    name: 'Search everything (Cmd+K)',
+    description: 'Takes effect after the server restarts.',
     visibility: 'edge',
   },
   {
     id: 'session-handoff',
     name: 'Session handoff',
-    description: 'Move a live session to another Podium server.',
+    description: 'Move a running session to another agent.',
     visibility: 'edge',
   },
   {
-    id: 'workflows',
-    name: 'Workflows',
-    description: 'Show workflows and give agents workflow-aware instructions and CLI guidance.',
+    id: 'shipping',
+    name: 'Shipping',
+    description: 'Release trains for landed tasks.',
     visibility: 'edge',
   },
   {
-    id: 'specs',
-    name: 'Specs',
-    description: 'Show living specs and give agents spec-aware instructions and CLI guidance.',
+    // Draft Sync v2 (POD-859). Edge-visibility: listed in Settings → Labs on
+    // edge-channel installs; enablement flows through resolveFeatureState like any
+    // other flag. Ships dark (default off) — off = today's client-scraped behavior.
+    id: 'draft-sync',
+    name: 'Draft sync',
+    description: 'Unsent prompts follow you between devices.',
     visibility: 'edge',
   },
   {
-    id: 'automations',
-    name: 'Automations',
-    description: 'Show scheduled automations and notification triggers.',
-    visibility: 'edge',
+    id: 'runtime-drivers',
+    name: 'Headless agents',
+    description: 'Run some agents without a terminal.',
+    visibility: 'stable',
   },
   {
     // POD-1882. Controls that exist to develop PODIUM ITSELF, not to run it:
@@ -105,21 +96,8 @@ export const FEATURES = [
     // and turning it off never discards a stored per-machine override.
     id: 'podium-development',
     name: 'Podium development',
-    description:
-      'Show controls for developing Podium itself: the Development update channel and per-machine update sources.',
+    description: 'Tools for people working on Podium itself.',
     visibility: 'stable',
-  },
-  {
-    id: 'notifications',
-    name: 'Notifications',
-    description: 'Enable web and external notifications and their settings.',
-    visibility: 'edge',
-  },
-  {
-    id: 'shell-density',
-    name: 'Shell density',
-    description: 'Choose between balanced and compact shell styling in Appearance.',
-    visibility: 'edge',
   },
   {
     // The shipwright repair engine (`apps/server/src/modules/shipping/shipwright.ts`)
@@ -155,7 +133,7 @@ export interface FeatureResolveInput {
 }
 
 export interface FeatureState {
-  /** Appears in Settings → Experimental for this install. */
+  /** Appears in Settings → Labs for this install. */
   listed: boolean
   enabled: boolean
   source: 'config' | 'user' | 'default'
@@ -247,7 +225,7 @@ export interface FeatureStateWire extends FeatureState {
   visibility: FeatureVisibility
 }
 
-/** Every flag resolved for one install: what Settings → Experimental shows. */
+/** Every flag resolved for one install: what Settings → Labs shows. */
 export interface FeatureStates {
   devMode: boolean
   channel: 'stable' | 'edge'

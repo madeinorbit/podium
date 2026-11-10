@@ -76,8 +76,6 @@ export interface NotifyDeps {
    * from.
    */
   telegramBotToken(): string | Promise<string>
-  /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
-  notificationsEnabled?(): boolean
   /** The durable podium_events log; wired to the store's grouped append (POD-6233). */
   appendEvent(e: {
     ts: string
@@ -218,7 +216,6 @@ export class NotifyService {
     member?: UserId,
   ): Promise<void> {
     const previousNtfy = previous.ntfyTopic.trim()
-    if (this.deps.notificationsEnabled?.() === false) return
     const nextNtfy = next.ntfyTopic.trim()
     const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
     // Both sides are evaluated against the LIVE token, plus the memo below, so
@@ -270,7 +267,6 @@ export class NotifyService {
     // The RECIPIENT's own routing (POD-6291): a notice for Bob goes to Bob's
     // ntfy topic and Bob's Telegram, never to whoever the instance read as.
     const settings = (await this.deps.getSettings(ownerUserId)).notifications
-    if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
     const botToken = await this.deps.telegramBotToken()
     if (
@@ -347,7 +343,6 @@ export class NotifyService {
     notice: AttentionNotice,
   ): Promise<void> {
     const settings = (await this.deps.getSettings(ownerUserId)).notifications
-    if (this.deps.notificationsEnabled?.() === false) return
     if (settings.web) {
       const event: LiveServerMessage = {
         type: 'attentionEvent',
