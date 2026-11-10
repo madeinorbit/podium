@@ -1,40 +1,25 @@
-import { issueObserver as observer } from '../../client/issue-observer'
-import { IssueAge, IssueDayLabel } from './IssueAge'
+import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityEntry,
   type ActivityItem,
-  eventClock,
   groupActivityFeed,
-  type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
+import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
-import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
-import { alpha } from '../../theme/mix'
+import { compactAge } from '../../screens/TasksSurface.types'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
-import {
-  type AppIcon,
-  ArrowRight,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  CircleDot,
-  Flag,
-  FlagOff,
-  GitMerge,
-  Link2,
-  Mail,
-  Play,
-  RefreshCw,
-  Trash2,
-  Unlock,
-} from '../icons'
+import { ChevronDown, ChevronRight, Mail } from '../icons'
 import { PressableScale } from '../PressableScale'
-import { MachineLabel, SectionHeading } from './chrome'
+import { SectionHeading } from './chrome'
+import { IssueAge } from './IssueAge'
+import { GroupHeading } from './TaskOverview'
 
 /**
  * The activity half of the task page [POD-724]: agent mail, the assistant note,
@@ -84,7 +69,9 @@ export const MailSection = observer(function MailSection({
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
             ) : null}
-            <Text style={styles.stamp}><IssueAge stamp={m.createdAt} /></Text>
+            <Text style={styles.stamp}>
+              <IssueAge stamp={m.createdAt} />
+            </Text>
           </View>
           <Text style={styles.mailBody} selectable>
             {m.body}
@@ -95,27 +82,7 @@ export const MailSection = observer(function MailSection({
   )
 })
 
-/** Glyph per event-line kind. The pure formatter returns a stable `icon` KEY so
- *  it stays renderer-free; this is the phone's mapping of those keys, and the
- *  desktop has its own over the same set. */
-const EVENT_ICONS: Record<IssueEventIcon, AppIcon> = {
-  created: CircleDot,
-  moved: ArrowRight,
-  closed: CheckCircle2,
-  started: Play,
-  attached: Link2,
-  cleaned: Trash2,
-  flagged: Flag,
-  cleared: FlagOff,
-  ready: Unlock,
-  integration: GitMerge,
-  generic: Circle,
-}
-
 export const IssueActivitySection = observer(function IssueActivitySection({
-  issue,
-  busy,
-  commands,
   feed,
   history,
 }: {
@@ -126,62 +93,27 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   revision?: number
   history?: IssueHistoryView
 }) {
-  // Days are derived per render against a coarse clock: the only thing `now`
-  // decides is whether a group says "Today", so re-deriving on a timer would
-  // repaint the whole feed to change one word a day.
-  const days = groupActivityFeed(feed, Date.now())
+  // The board's activity list: newest first, one line per entry, in one card.
+  // The day grouping still collapses runs of minor events into a rollup; the
+  // day labels themselves are not drawn, each row carries its own age. The
+  // state paragraph (activityNotes) is the summary card's at the top, so it is
+  // not repeated here.
+  const entries = groupActivityFeed(feed, Date.now())
+    .flatMap((day) => day.entries)
+    .reverse()
   return (
-    <View style={styles.section}>
-      <SectionHeading
-        label="Activity"
-        right={
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Refresh AI notes"
-            accessibilityState={{ disabled: busy }}
-            disabled={busy}
-            onPress={commands.refreshAssistant}
-            hitSlop={10}
-            style={({ pressed }) => [styles.refresh, (busy || pressed) && styles.refreshMuted]}
-          >
-            <Icon as={RefreshCw} size={13} color={color.textDim} />
-          </PressableScale>
-        }
-      />
-
-      {issue.activityNotes ? (
-        <View style={styles.assistant}>
-          <View style={styles.assistantHead}>
-            <MachineLabel>Assistant</MachineLabel>
-            {issue.notesUpdatedAt ? (
-              <Text style={styles.stamp}><IssueAge stamp={issue.notesUpdatedAt} /></Text>
-            ) : null}
-          </View>
-          <Text style={styles.assistantBody} selectable>
-            {issue.activityNotes}
-          </Text>
-        </View>
-      ) : null}
-
-      {history ? <EarlierActivity history={history} /> : null}
-
-      {days.length === 0 ? (
+    <View testID="issue-activity">
+      <GroupHeading label="Activity" />
+      {entries.length === 0 && !history?.hasEarlier && !history?.error ? (
         <Text style={styles.empty}>
           Nothing has happened on this task yet. Comments and state changes land here.
         </Text>
       ) : (
-        <View testID="activity-feed">
-          {days.map((day) => (
-            <View key={day.key}>
-              <View style={styles.day}>
-                <MachineLabel><IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} /></MachineLabel>
-                <View style={styles.dayRule} />
-              </View>
-              {day.entries.map((entry) => (
-                <EntryRow key={entry.id} entry={entry} />
-              ))}
-            </View>
+        <View style={styles.card} testID="activity-feed">
+          {entries.map((entry, index) => (
+            <EntryRow key={entry.id} entry={entry} first={index === 0} />
           ))}
+          {history ? <EarlierActivity history={history} first={entries.length === 0} /> : null}
         </View>
       )}
     </View>
@@ -189,11 +121,13 @@ export const IssueActivitySection = observer(function IssueActivitySection({
 })
 
 /** Full history is on request: the feed opens on its newest page, and this
- *  pages further back each time it is pressed. */
+ *  row, last in the card, pages further back each time it is pressed. */
 const EarlierActivity = observer(function EarlierActivity({
   history,
+  first,
 }: {
   history: IssueHistoryView
+  first: boolean
 }) {
   if (!history.hasEarlier && !history.error) return null
   return (
@@ -203,11 +137,13 @@ const EarlierActivity = observer(function EarlierActivity({
       accessibilityState={{ disabled: history.loading }}
       disabled={history.loading}
       onPress={() => void history.loadEarlier()}
-      style={styles.event}
+      scaleTo={1}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID="activity-earlier"
     >
-      <View style={[styles.node, styles.nodeMinor]} />
-      <Text style={[styles.eventText, styles.eventMinor]}>
+      {first ? null : <View style={styles.separator} />}
+      <View style={styles.gutter} />
+      <Text style={styles.earlier} numberOfLines={2}>
         {history.loading
           ? 'Loading earlier activity…'
           : history.error
@@ -218,61 +154,94 @@ const EarlierActivity = observer(function EarlierActivity({
   )
 })
 
-const EntryRow = observer(function EntryRow({ entry }: { entry: ActivityEntry }) {
-  if (entry.kind === 'rollup') return <Rollup entry={entry} />
-  if (entry.kind === 'comment')
-    return <Comment author={entry.author} body={entry.body} ts={entry.ts} />
-  return <EventLine line={entry.line} ts={entry.ts} />
-})
+type RowMark = 'needs' | 'working' | 'resting' | 'done'
 
-/** One transition on the timeline. The row draws its own spine and node, so the
- *  feed reads as one continuous line — a real transition lights its node, a
- *  minor one leaves it grey. */
-const EventLine = observer(function EventLine({ line, ts }: { line: IssueEventLine; ts: string }) {
-  const EventIcon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
-  const minor = line.minor === true
+/** The board's three shapes, read from the event's own kind. */
+function eventMark(line: IssueEventLine): RowMark {
+  if (line.minor) return 'resting'
+  if (line.icon === 'closed' || line.icon === 'integration') return 'done'
+  if (line.icon === 'flagged') return 'needs'
+  if (line.icon === 'moved' || line.icon === 'started' || line.icon === 'ready') return 'working'
+  return 'resting'
+}
+
+function Mark({ mark }: { mark: RowMark }) {
+  if (mark === 'needs' || mark === 'done')
+    return (
+      <View
+        style={[
+          styles.dot,
+          { backgroundColor: mark === 'done' ? color.successText : color.needsYouText },
+        ]}
+      />
+    )
   return (
-    <View style={styles.event} testID="activity-event">
-      <View style={[styles.node, minor && styles.nodeMinor]} />
-      <Icon as={EventIcon} size={12} color={minor ? color.textMicro : color.textFaint} />
-      <Text style={[styles.eventText, minor && styles.eventMinor]}>{line.text}</Text>
-      <Text style={styles.clock}>{eventClock(ts)}</Text>
-    </View>
+    <View
+      style={[
+        styles.ring,
+        { borderColor: mark === 'working' ? color.workingText : color.textFaint },
+      ]}
+    />
   )
-})
+}
 
-const Rollup = observer(function Rollup({
+/** First letter up: the event formatter writes "moved to Review" for prose. */
+const sentence = (text: string) => (text ? text[0]?.toUpperCase() + text.slice(1) : text)
+/** A comment's first line: the row is a pointer, the full text is in the thread. */
+const firstLine = (body: string) => body.trim().split('\n')[0] ?? ''
+
+function Age({ stamp }: { stamp: string }) {
+  return compactAge(relativeTime(stamp, useAgeNow(stamp)))
+}
+
+const EntryRow = observer(function EntryRow({
   entry,
+  first,
 }: {
-  entry: Extract<ActivityEntry, { kind: 'rollup' }>
+  entry: ActivityEntry
+  first: boolean
 }) {
   const [open, setOpen] = useState(false)
+  if (entry.kind === 'comment')
+    return (
+      <Row
+        first={first}
+        mark="resting"
+        title={firstLine(entry.body)}
+        meta={entry.author}
+        ts={entry.ts}
+        selectable
+      />
+    )
+  if (entry.kind === 'event')
+    return (
+      <Row
+        first={first}
+        mark={eventMark(entry.line)}
+        title={sentence(entry.line.text)}
+        ts={entry.ts}
+      />
+    )
   return (
     <>
-      <PressableScale
-        accessibilityRole="button"
-        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
-        // only the former. [POD-1664]
-        accessibilityState={{ expanded: open }}
-        aria-expanded={open}
-        accessibilityLabel={entry.label}
-        accessibilityHint={`between ${eventClock(entry.firstTs)} and ${eventClock(entry.ts)}`}
-        onPress={() => setOpen((v) => !v)}
-        scaleTo={0.997}
-        style={styles.event}
-        testID="activity-rollup"
-      >
-        <View style={[styles.node, styles.nodeMinor]} />
-        <Icon as={ChevronRight} size={12} color={color.textMicro} />
-        <Text style={[styles.eventText, styles.eventMinor]} numberOfLines={1}>
-          {entry.label}
-        </Text>
-        <Text style={styles.clock}>{eventClock(entry.ts)}</Text>
-      </PressableScale>
+      <Row
+        first={first}
+        mark="resting"
+        title={entry.label}
+        ts={entry.ts}
+        expanded={open}
+        onPress={() => setOpen((value) => !value)}
+      />
       {open
         ? entry.items.map((item) =>
             item.kind === 'event' ? (
-              <EventLine key={item.id} line={item.line} ts={item.ts} />
+              <Row
+                key={item.id}
+                first={false}
+                mark={eventMark(item.line)}
+                title={sentence(item.line.text)}
+                ts={item.ts}
+              />
             ) : null,
           )
         : null}
@@ -280,46 +249,98 @@ const Rollup = observer(function Rollup({
   )
 })
 
-/**
- * A comment. NO ATTRIBUTION PAIR IS SYNTHESISED HERE, and that is a measurement
- * rather than an omission: the comment shape carries `author`, `body`,
- * `createdAt` and an id — no `Attribution`. §3.1.3 A3 says the UI READS the pair
- * and never asserts it, so a row whose server shape has none renders none.
- */
-const Comment = observer(function Comment({
-  author,
-  body,
+/** One activity row: mark, one-line title, then "Author · 6m" underneath. */
+function Row({
+  first,
+  mark,
+  title,
+  meta,
   ts,
+  expanded,
+  onPress,
+  selectable,
 }: {
-  author: string
-  body: string
+  first: boolean
+  mark: RowMark
+  title: string
+  meta?: string
   ts: string
+  expanded?: boolean
+  onPress?: () => void
+  selectable?: boolean
 }) {
-  return (
-    <View style={styles.comment}>
-      <View style={styles.commentHead}>
-        <Text style={styles.commentAuthor}>{author}</Text>
-        <Text style={styles.clock}>{eventClock(ts)}</Text>
+  const body = (
+    <>
+      {first ? null : <View style={styles.separator} />}
+      <View style={styles.gutter}>
+        <Mark mark={mark} />
       </View>
-      <Text style={styles.commentBody} selectable>
-        {body}
-      </Text>
-    </View>
+      <View style={styles.main}>
+        <Text style={styles.title} numberOfLines={1} selectable={selectable}>
+          {title}
+        </Text>
+        <Text style={styles.meta} numberOfLines={1}>
+          {meta ? `${meta} · ` : ''}
+          <Age stamp={ts} />
+        </Text>
+      </View>
+      {onPress ? (
+        <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textFaint} />
+      ) : null}
+    </>
   )
-})
+  if (!onPress)
+    return (
+      <View style={styles.row} testID="activity-event">
+        {body}
+      </View>
+    )
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former. [POD-1664]
+      accessibilityState={{ expanded: expanded === true }}
+      aria-expanded={expanded === true}
+      accessibilityLabel={title}
+      onPress={onPress}
+      scaleTo={1}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      testID="activity-rollup"
+    >
+      {body}
+    </PressableScale>
+  )
+}
 
 const styles = StyleSheet.create({
+  card: { borderRadius: 8, overflow: 'hidden', backgroundColor: color.surface },
+  row: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  rowPressed: { backgroundColor: color.surfacePressed },
+  separator: {
+    position: 'absolute',
+    top: 0,
+    left: 34,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
+  },
+  gutter: { width: 14, alignItems: 'center' },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
+  main: { flex: 1, minWidth: 0, gap: 2 },
+  title: { ...sans(400), color: color.text, fontSize: 14, lineHeight: 20 },
+  meta: { ...sans(400), color: color.textFaint, fontSize: 12, lineHeight: 16 },
+  earlier: { ...sans(400), flex: 1, color: color.textDim, fontSize: 14 },
   section: {
     paddingBottom: space.xl,
-  },
-  refresh: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  refreshMuted: {
-    opacity: 0.5,
   },
   mail: {
     gap: 5,
@@ -358,102 +379,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
   mailBody: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-  },
-  assistant: {
-    gap: 4,
-    marginBottom: space.sm,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-    borderColor: color.border,
-    backgroundColor: alpha(color.surface, 0.5),
-  },
-  assistantHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  assistantBody: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-  },
-  day: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.md,
-    marginBottom: space.xs,
-  },
-  dayRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
-  event: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    minHeight: 30,
-    paddingLeft: space.md,
-    // The spine: a hairline down the left of every row, so the feed reads as one
-    // continuous line rather than a stack of unrelated strips.
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: color.hairline,
-  },
-  node: {
-    position: 'absolute',
-    left: -3,
-    top: 12,
-    width: 5,
-    height: 5,
-    borderRadius: radius.full,
-    backgroundColor: color.working,
-  },
-  nodeMinor: {
-    backgroundColor: color.border,
-  },
-  eventText: {
-    ...sans(400),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  eventMinor: {
-    color: color.textMicro,
-  },
-  clock: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: 9.5,
-  },
-  comment: {
-    gap: 4,
-    marginVertical: 6,
-    marginLeft: 5,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  commentHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  commentAuthor: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.micro,
-  },
-  commentBody: {
     ...sans(400),
     color: color.body,
     fontSize: font.tiny,
