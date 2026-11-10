@@ -218,12 +218,7 @@ const schema = {
         nullable: true,
         source: machineProjection(),
       },
-      targetUnavailableReason: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: machineAccess(),
-      },
+
     },
     relations: {},
     cold: { kind: 'never', why: 'The currently synced fleet stays resident, as before.' },

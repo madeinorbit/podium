@@ -209,8 +209,6 @@ export const MachineAccessWire = z.object({
   wireSchemaDigest: z.string().nullable().optional(),
   /** When the server last accepted a build report. */
   buildReportedAt: z.string().nullable().optional(),
-  /** Why the selected update authority has no trusted target right now. */
-  targetUnavailableReason: z.string().nullable().optional(),
   // Execution detail (USE only: absent unless `use` is granted)
   /** Installed harnesses and their version history. */
   /** Without `lastSeen`: it moves on every inventory report, and a synced record

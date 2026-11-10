@@ -20,11 +20,13 @@ function client() {
   const history = vi.fn(async (): Promise<unknown[]> => [])
   const fleet = vi.fn(async (): Promise<unknown> => ({ machines: [], allMachines: [] }))
   const proposal = vi.fn(async (): Promise<unknown> => null)
+  const machines = vi.fn(async (): Promise<unknown[]> => [])
   const trpc = {
     operations: { active: { query: active }, history: { query: history } },
+    machines: { list: { query: machines } },
     updates: { fleet: { query: fleet }, proposal: { query: proposal } },
   } as unknown as Trpc
-  return { trpc, active, history, fleet, proposal }
+  return { trpc, active, history, fleet, proposal, machines }
 }
 
 let visibility: DocumentVisibilityState = 'visible'
@@ -174,4 +176,23 @@ describe('UpdateStatus polling', () => {
     await advance(0)
     expect(status.operation?.id).toBe('op_2')
   })
+})
+
+it('reads transient machine update reasons only while an update view watches', async () => {
+  const { status, machines } = reader()
+  machines.mockResolvedValue([
+    { id: 'm1', targetUnavailableReason: 'Authority is temporarily unavailable' },
+  ])
+  status.start()
+  await advance(0)
+  expect(machines).not.toHaveBeenCalled()
+  expect(status.machineReasons).toBeUndefined()
+  const release = status.watch()
+  await advance(0)
+  expect(status.machineReasons).toEqual({ m1: 'Authority is temporarily unavailable' })
+  machines.mockResolvedValue([{ id: 'm1', targetUnavailableReason: null }])
+  await status.refresh()
+  expect(status.machineReasons).toEqual({ m1: null })
+  release()
+  expect(status.machineReasons).toBeUndefined()
 })

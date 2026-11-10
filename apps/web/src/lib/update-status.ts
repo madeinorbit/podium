@@ -167,6 +167,7 @@ interface Reading {
   latest: Operation | null | undefined
   fleet: UpdateFleetSnapshot | undefined
   fleetError: string | undefined
+  machineReasons: Readonly<Record<string, string | null>> | undefined
   serverRaw: unknown
   buildRaw: unknown
   proposal: ReleaseProposal | null | undefined
@@ -184,6 +185,9 @@ export class UpdateStatus {
   /** The newest update operation, terminal included, read only while nothing runs. */
   @observableRef accessor latest: Operation | null | undefined = undefined
   @observableRef accessor fleet: UpdateFleetSnapshot | undefined = undefined
+  /** Transient update explanations from machines.list, held only while an update view is open. */
+  @observableRef accessor machineReasons: Readonly<Record<string, string | null>> | undefined =
+    undefined
   /** Why the last fleet read failed; cleared by the next successful one. */
   @observable accessor fleetError: string | undefined = undefined
   @observableRef accessor proposal: ReleaseProposal | null | undefined = undefined
@@ -284,6 +288,7 @@ export class UpdateStatus {
       released = true
       runInAction(() => {
         this.watchers -= 1
+        if (this.watchers === 0) this.machineReasons = undefined
       })
     }
   }
@@ -432,7 +437,7 @@ export class UpdateStatus {
       parseOperation(await trpc.operations.active.query({ group: 'lifecycle' })),
     )
     let fleetError: string | undefined
-    const [latest, fleet, serverRaw, buildRaw, proposal] = await Promise.all([
+    const [latest, fleet, serverRaw, buildRaw, proposal, machineReasons] = await Promise.all([
       // The outcome, which `active` cannot carry. Only asked when nothing runs.
       operation === null
         ? safelyReadOperation(async () => {
@@ -458,8 +463,28 @@ export class UpdateStatus {
         const raw = await trpc.updates.proposal.query()
         return raw === null ? null : ReleaseProposalSchema.parse(raw)
       }),
+      this.watchers > 0
+        ? safely(async () =>
+            Object.fromEntries(
+              (await trpc.machines.list.query()).map((machine) => [
+                machine.id,
+                machine.targetUnavailableReason ?? null,
+              ]),
+            ),
+          )
+        : Promise.resolve(undefined),
     ])
-    return { seq, operation, latest, fleet, fleetError, serverRaw, buildRaw, proposal }
+    return {
+      seq,
+      operation,
+      latest,
+      fleet,
+      fleetError,
+      serverRaw,
+      buildRaw,
+      proposal,
+      machineReasons,
+    }
   }
 
   /** A superseded reading still carries facts that do not race an action. */
@@ -526,6 +551,8 @@ export class UpdateStatus {
       this.fleetError = reading.fleetError
     }
     if (reading.proposal !== undefined) this.proposal = reading.proposal
+    if (this.watchers > 0 && reading.machineReasons !== undefined)
+      this.machineReasons = reading.machineReasons
   }
 
   private foldOperation(operation: Operation | null, at: number): void {

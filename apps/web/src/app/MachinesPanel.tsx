@@ -50,7 +50,7 @@ import { useClock } from '@/lib/clock-hooks'
 import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { updateStatus } from '@/lib/update-status'
+import { updateStatus as updateStatusReader } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
@@ -128,7 +128,7 @@ function useFleetConvergence(): {
   rows: ReadonlyMap<string, MachineConvergence>
   refresh: () => void
 } {
-  const status = updateStatus()
+  const status = updateStatusReader()
   useEffect(() => status.watch(), [status])
   const fleet = status.fleet
   // Rebuilt only when a new fleet reading lands, so rows redraw on news alone.
@@ -1897,7 +1897,7 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
   // shows at once, and one from another device arrives as a record (POD-6644).
   const channel: UpdateChannel | null = machine.updateChannelOverride ?? null
   const targetVersion = machine.targetVersion ?? null
-  const unavailableReason = machine.targetUnavailableReason ?? null
+  const unavailableReason = updateStatusReader().machineReasons?.[machine.id] ?? null
   const { setUpdateChannel: setMachineUpdateChannel } = useCommands().machines
   const developing = useFeature('podium-development')
   const [changingChannel, setChangingChannel] = useState(false)
@@ -1951,6 +1951,7 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
     setUpdateStatus(null)
     try {
       await setMachineUpdateChannel(machine.id, nextChannel)
+      void updateStatusReader().refresh()
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error))
     } finally {

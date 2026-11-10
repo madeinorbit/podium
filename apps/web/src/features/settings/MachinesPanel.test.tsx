@@ -458,7 +458,7 @@ describe('MachinesPanel version skew', () => {
 describe('MachinesPanel update rows', () => {
   function setUpdateTrpc() {
     storeState.trpc = {
-      machines: { pairingCode: { mutate: vi.fn() }, applyUpdate: { mutate: vi.fn() } },
+      machines: { list: { query: vi.fn(async () => storeState.machines) }, pairingCode: { mutate: vi.fn() }, applyUpdate: { mutate: vi.fn() } },
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
     } as unknown as import('@/app/trpc').Trpc
   }
@@ -533,6 +533,7 @@ describe('MachinesPanel update rows', () => {
     expect(await screen.findByText('Nothing published on Stable yet.')).toBeTruthy()
     // The server's own sentence stays available on hover, and nowhere else.
     expect(screen.queryByText('No update target is configured.')).toBeNull()
+    expect(screen.getByText('Nothing published on Stable yet.').getAttribute('title')).toBe('No update target is configured.')
   })
 })
 

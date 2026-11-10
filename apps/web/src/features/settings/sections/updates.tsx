@@ -823,7 +823,7 @@ const SettingsUpdateMachine = observer(function SettingsUpdateMachine({
         label: machine.name || machine.hostname || id,
         version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
         channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
-        targetUnavailableReason: machine.targetUnavailableReason ?? null,
+        targetUnavailableReason: updateStatus().machineReasons?.[id] ?? null,
         skew: machineVersionSkew(
           machine,
           serverVersion,

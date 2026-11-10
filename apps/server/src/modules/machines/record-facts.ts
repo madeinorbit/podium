@@ -41,11 +41,9 @@ export async function storedMachineRecordFacts(
   return records.map((m) => {
     const updateChannel = resolveMachineChannel(m.updateChannelOverride, fleetChannel)
     let target: string | undefined
-    let targetUnavailableReason: string | undefined
     try {
       const published = targets.get(updateChannel)
       target = published?.version
-      targetUnavailableReason = published?.unavailableReason
     } catch {
       target = undefined
     }
@@ -85,7 +83,6 @@ export async function storedMachineRecordFacts(
         components: m.components ?? [],
         deliveryCaps: m.deliveryCaps,
         wireSchemaDigest: m.wireSchemaDigest,
-        targetUnavailableReason: targetUnavailableReason ?? null,
       },
       use: {
         harnessVersions: (m.harnessVersions ?? []).map(({ lastSeen: _lastSeen, ...report }) => {

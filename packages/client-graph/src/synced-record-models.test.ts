@@ -96,9 +96,9 @@ it('schema-installed model fields preserve every old wire answer on the same fix
     const machineFields = [...new Set([...Object.keys(MachineProjection.shape), ...Object.keys(MachineAccessWire.shape)])]
       .filter(field => field !== 'userId' && field !== 'machineId' && !live.has(field))
     expect(Object.keys(SCHEMA.machine.fields).sort()).toEqual(machineFields.sort())
-    // The model answers every field the old listing had.
+    // Transient target explanations are request answers; stored facts stay on the model.
     const host = requireHere(f.pool.model('machine', 'host'))
-    for (const field of Object.keys(machine))
+    for (const field of Object.keys(machine).filter((field) => field !== 'targetUnavailableReason'))
       expect(Reflect.get(host, field), `machine.${field}`).toEqual(Reflect.get(machine, field))
     for (const [entity, , row] of examples) {
       if (entity !== 'machine') {

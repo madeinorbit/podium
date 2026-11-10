@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
 const trpc = {
+  machines: { list: { query: vi.fn(async () => machines) } },
   setup: {
     channel: { query: vi.fn() },
     info: { query: vi.fn() },
