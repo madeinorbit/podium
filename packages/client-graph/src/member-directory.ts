@@ -2,10 +2,11 @@ import { lazy } from '@podium/mobx-helpers'
 import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
 import { here } from './lookup'
+import type { MemberRosterAnswer } from './member-roster'
 import type { MobxPool, PoolRows } from './pool'
 import { RequestAnswer } from './request-answer'
 import { ingestRequested } from './requested-records'
-import type { MemberRosterAnswer } from './member-roster'
+import { rosterFacts } from './worklist/view-model'
 
 export interface MemberDirectoryAnswer {
   members: MemberView[]
@@ -44,6 +45,14 @@ export class MemberDirectory extends RequestAnswer<Directory> {
           type: 'update',
           rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
         })
+      // This request already has the roster's active names. Publish its ids
+      // without fetching a second, narrower directory answer over these rows.
+      rosterFacts(this.pool).accept(
+        members
+          .filter((member) => !('disabledAt' in member) || !member.disabledAt)
+          .map((member) => member.id),
+        answer.currentMemberId,
+      )
       return {
         memberIds,
         currentMemberId: answer.currentMemberId,
