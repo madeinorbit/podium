@@ -412,12 +412,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 132,
+    line: 140,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 122,
+    line: 146,
     why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 121; POD-6592's write-scope import moved it.)",
   },
   {
@@ -1207,6 +1207,42 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/authority/ports.ts#AuthorityCommit.write': {
     kind: 'opaque',
     why: "the commit's own write body; it is a SPAN ROOT in its own right",
+  },
+  'packages/sync/src/authority/ports.ts#AuthorityCommit.affects': {
+    kind: 'opaque',
+    why: "the commit's read of the records its write may affect (compare at save, POD-6769), supplied by the caller and run before the write body in the same span; a rollback leaves nothing of it behind",
+  },
+  'packages/sync/src/authority/ports.ts#AuthorityCommit.creates': {
+    kind: 'opaque',
+    why: 'the twin of `AuthorityCommit.affects`, read after the write body for the records the write created (POD-6769)',
+  },
+  'packages/sync/src/authority/ports.ts#AuthorityCommit.wrote': {
+    kind: 'opaque',
+    why: 'the twin of `AuthorityCommit.affects` for the closed list of kinds whose writer names its records after the write body (POD-6769); it only names records',
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.build': {
+    kind: 'contained',
+    why: "the record builders' reads of the model tables (POD-6769): composition binds it to the server's builder registry over the same store, so the reads join the commit's transaction and see its writes; it writes nothing",
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.comparesAtSave': {
+    kind: 'contained',
+    why: 'a lookup in the fixed list of kinds moved to compare at save (POD-6769); computation only',
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.namedAfterWrite': {
+    kind: 'contained',
+    why: 'a lookup in the closed list of kinds named after the write (POD-6769); computation only',
+  },
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraAffects': {
+    kind: 'opaque',
+    why: 'a persist-options callback, supplied at the call site inside the span (POD-6769: it names the dependency-edge and shipping records the write may affect)',
+  },
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraCreates': {
+    kind: 'opaque',
+    why: 'a persist-options callback, supplied at the call site inside the span (POD-6769: it names the shipping records the write created)',
+  },
+  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.write': {
+    kind: 'opaque',
+    why: "the settings repository's own blob write, handed to the feed capture so it runs inside the capture's commit between the two builds of the instance preferences record (POD-6769); it is declared in the same file and is checked there",
   },
   'packages/sync/src/authority/ports.ts#AuthorityCommit.current': {
     kind: 'opaque',
