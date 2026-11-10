@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Row } from './shared'
@@ -14,8 +14,10 @@ export function MemberLinkResult({
 }) {
   const id = useId()
   const [copyNotice, setCopyNotice] = useState('')
+  const result = useRef<HTMLDivElement | null>(null)
+  useEffect(() => result.current?.focus({ preventScroll: true }), [url])
   return (
-    <div className="settings-list-note space-y-2" role="status">
+    <div ref={result} tabIndex={-1} className="settings-list-note space-y-2" role="status">
       <p className="settings-prose">{copyNotice || notice}</p>
       <Row label={label}>
         <label className="sr-only" htmlFor={id}>

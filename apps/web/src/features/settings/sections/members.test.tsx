@@ -316,6 +316,9 @@ test('invite flow removes the member picker, creates a link and preserves copy f
     'value',
     'https://workspace.example/#invite=new-secret',
   )
+  expect(document.activeElement).toBe(
+    ui.getByRole('textbox', { name: 'Invite link' }).closest('[role="status"]'),
+  )
   expect(request).toHaveBeenCalledWith(
     expect.stringMatching(/\/invite$/),
     expect.objectContaining({
