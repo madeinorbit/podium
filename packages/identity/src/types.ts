@@ -296,6 +296,11 @@ export interface MembershipOperations {
     workspaceIds: string[] | 'all'
     by: 'organisation' | 'account-deleted'
   }): Promise<void>
+  /**
+   * The account of a member whose membership here is active. One statement by
+   * primary key. For the sign-in carry-over (POD-6751), which builds it.
+   */
+  accountOfActiveMember(memberId: string): Promise<string | undefined>
 }
 
 export type Actor = { memberId: string } | { system: 'host' | 'setup' | 'organisation' | 'upgrade' }
