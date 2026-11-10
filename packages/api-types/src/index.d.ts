@@ -6421,6 +6421,23 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
+        "unsend": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                machineId: string;
+                owner?: string | undefined;
+            };
+            output: ({
+                note: string;
+                ok: true;
+                removed: true;
+            }) | ({
+                note?: undefined;
+                ok: true;
+                removed: false;
+            });
+            meta: unknown;
+        }>;
         "useOnMyMachines": TRPC.TRPCMutationProcedure<{
             input: {
                 enabled: boolean;

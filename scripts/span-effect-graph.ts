@@ -555,6 +555,10 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/store/accounts.ts#AccountsRepository.onRemoved': {
+    kind: 'contained',
+    why: "The audit row for a taken-back send [POD-6699]: the accounts.unsend handler binds it to SettingsAuditRepository.append, an INSERT that joins this transaction, so a rollback takes the record with the removal and nothing outside the process saw it.",
+  },
   'apps/server/src/store/user-preferences.ts#UserPreferencesRepository.written': {
     kind: 'contained',
     why: "The settings repository's per-operation memo invalidation after a preference row write [POD-6218]: it forgets an in-process resolution, performs no I/O and publishes nothing, so a rollback leaves nothing outside the process changed.",
