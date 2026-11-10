@@ -38,9 +38,10 @@ export const color = {
   bg: semanticColor('systemBackground', appearancePalette.dark.bg),
   bgGradientTop: semanticColor('systemBackground', appearancePalette.dark.bg),
   bgSunken: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
-  /** The work list and the conversation field — a flat surface that steps
-   *  AWAY from the work. The name outlived the groove. */
-  engraved: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
+  /** The conversation field. It sits on the screen ground (systemBackground:
+   *  pure black in dark mode, as the chat board draws it); a grey field here
+   *  read as #1c1c1e under the chat. The name outlived the groove. */
+  engraved: semanticColor('systemBackground', appearancePalette.dark.bg),
   /** Compact section bars, key-bar strip — lifted just above the ground. */
   bar: semanticColor('secondarySystemBackground', '#1b1d21'),
   /** Agent-roster band tier. */

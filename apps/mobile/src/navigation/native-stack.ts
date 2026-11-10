@@ -25,6 +25,15 @@ export const tabStackOptions: NativeStackNavigationOptions = {
   contentStyle: { backgroundColor: color.bg },
 }
 
+/**
+ * Pushed detail screens on iOS float a transparent bar over their content, as
+ * the root tabs do. Without it the stack falls back to an opaque `colors.card`
+ * bar and react-native-screens lays the screen out below it, so nothing
+ * scrolls under the bar and iOS 26 never draws its scroll edge effect. Android
+ * keeps its solid app bar.
+ */
+export const transparentDetailHeader = Platform.OS === 'ios'
+
 /** Pushed detail screens: the standard inline bar with a back button. */
 export const detailStackOptions: NativeStackNavigationOptions = {
   headerShown: true,
@@ -32,6 +41,7 @@ export const detailStackOptions: NativeStackNavigationOptions = {
   headerShadowVisible: false,
   headerBackButtonDisplayMode: 'minimal',
   headerTitleStyle: titleColor,
+  headerTransparent: transparentDetailHeader,
 }
 
 /**

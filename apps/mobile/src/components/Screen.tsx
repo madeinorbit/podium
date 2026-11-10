@@ -59,6 +59,8 @@ export function Screen({
   bareBack?: boolean
   /** Ledger/chat metadata uses the compact monospace datum voice. */
   monoSubtitle?: boolean
+  /** Native only: content runs under the transparent iOS bar (see Screen.native). */
+  underHeader?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const right =

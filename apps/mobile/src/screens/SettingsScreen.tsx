@@ -26,7 +26,7 @@ import { useConnected, useHttpOrigin } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
-import { Check, ChevronRight, Monitor } from '../components/icons'
+import { type AppIcon, Check, ChevronRight, Info, Monitor, Plus, Trash2 } from '../components/icons'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -223,7 +223,11 @@ function DetailScreen({ title, children }: { title: string; children: ReactNode 
   const router = useRouter()
   const bottomInset = useContentBottomInset()
   return (
-    <Screen title={title} onBack={Platform.OS === 'web' ? () => router.back() : undefined}>
+    <Screen
+      title={title}
+      onBack={Platform.OS === 'web' ? () => router.back() : undefined}
+      underHeader
+    >
       <ScrollView
         style={styles.scroll}
         contentInsetAdjustmentBehavior="automatic"
@@ -307,12 +311,14 @@ const SettingsHome = observer(function SettingsHome() {
         <GroupHeader label="Server" />
         <Card>
           <NavRow
+            icon={Monitor}
             label="Connected devices"
             value={deviceCountLabel(deviceFeed)}
             onPress={() => router.push('/settings/devices')}
           />
           {native ? (
             <NavRow
+              icon={Plus}
               label={isEphemeralOverride ? 'Servers' : 'Add server'}
               onPress={() => router.push('/settings/servers')}
             />
@@ -322,6 +328,7 @@ const SettingsHome = observer(function SettingsHome() {
         <GroupHeader label="About" />
         <Card>
           <NavRow
+            icon={Info}
             label="Version"
             value={appVersion()}
             onPress={() => router.push('/settings/version')}
@@ -337,6 +344,7 @@ const SettingsHome = observer(function SettingsHome() {
                 accessibilityRole="button"
                 accessibilityLabel={`Remove ${profile.name}`}
               >
+                <Icon as={Trash2} size={ROW_ICON} color={color.dangerText} />
                 <Text style={styles.destructiveLabel}>Remove this server</Text>
               </PressableScale>
             </Card>
@@ -534,8 +542,21 @@ function LogoutRow({ account }: { account: ReturnType<typeof useAccountActions> 
   )
 }
 
-/** A row that pushes a detail screen: label, trailing value, chevron. */
-function NavRow({ label, value, onPress }: { label: string; value?: string; onPress: () => void }) {
+/** Row glyph size on the Settings board: 20pt in the label colour, 8pt before the text. */
+const ROW_ICON = 20
+
+/** A row that pushes a detail screen: glyph, label, trailing value, chevron. */
+function NavRow({
+  icon,
+  label,
+  value,
+  onPress,
+}: {
+  icon?: AppIcon
+  label: string
+  value?: string
+  onPress: () => void
+}) {
   return (
     <PressableScale
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -544,6 +565,7 @@ function NavRow({ label, value, onPress }: { label: string; value?: string; onPr
       accessibilityLabel={label}
       accessibilityValue={value ? { text: value } : undefined}
     >
+      {icon ? <Icon as={icon} size={ROW_ICON} color={color.text} /> : null}
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.navTrail}>
         {value ? (

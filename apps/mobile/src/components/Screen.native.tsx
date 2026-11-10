@@ -1,9 +1,15 @@
+import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, use, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
+import { HeaderInsetContext } from '../navigation/header-inset'
+import {
+  headerSubtitleOptions,
+  nativeSubtitleAvailable,
+  transparentDetailHeader,
+} from '../navigation/native-stack'
 import { color, font, mono, sans, space } from '../theme/theme'
 import type { AppIcon } from './icons'
 import { PressableScale } from './PressableScale'
@@ -30,6 +36,7 @@ export function Screen({
   noHeader,
   safeBottom,
   monoSubtitle,
+  underHeader,
 }: {
   title?: string
   /** A string rides the native navigation subtitle; other nodes use the context strip. */
@@ -49,13 +56,30 @@ export function Screen({
   safeBottom?: boolean
   bareBack?: boolean
   monoSubtitle?: boolean
+  /**
+   * Pushed screens on iOS: the content runs under the transparent bar and
+   * insets itself, with `contentInsetAdjustmentBehavior="automatic"` on its
+   * scroll view or {@link useHeaderInset} for an inverted list or a pinned
+   * strip. Without it the body starts below the bar, which still draws
+   * transparent but has nothing scrolling under it.
+   */
+  underHeader?: boolean
 }) {
   const insets = useSafeAreaInsets()
+  // Root tabs already float a transparent bar (the large title path); pushed
+  // screens get the same on iOS so no opaque band sits over the content.
+  const transparentBar = !noHeader && !large && transparentDetailHeader
+  const headerHeight = use(HeaderHeightContext) ?? 0
+  const barInset = transparentBar ? headerHeight : 0
+
   const subtitleText = typeof subtitle === 'string' && subtitle ? subtitle : undefined
   const subtitleInBar = nativeSubtitleAvailable && subtitleText != null && !monoSubtitle
   const stripSubtitle = subtitleInBar ? null : subtitle
   const hasContext = !noHeader && (leading != null || stripSubtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
+  // The context strip pins under the bar, so content under it starts below both.
+  const runsUnder = !!underHeader && !hasContext
+  const bodyInset = runsUnder ? 0 : barInset
   return (
     <View
       collapsable={false}
@@ -72,6 +96,7 @@ export function Screen({
           headerLargeTitleEnabled: !!large,
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
+          headerTransparent: transparentBar,
           headerBackButtonDisplayMode: 'minimal',
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
@@ -126,10 +151,19 @@ export function Screen({
           )}
         </Stack.Toolbar>
       ) : null}
-      <View style={[styles.body, hasContext && { paddingTop: contextHeight }]}>{children}</View>
+      <View
+        style={[
+          styles.body,
+          (bodyInset > 0 || hasContext) && {
+            paddingTop: bodyInset + (hasContext ? contextHeight : 0),
+          },
+        ]}
+      >
+        <HeaderInsetContext value={runsUnder ? barInset : 0}>{children}</HeaderInsetContext>
+      </View>
       {hasContext ? (
         <View
-          style={styles.context}
+          style={[styles.context, barInset > 0 && { top: barInset }]}
           onLayout={(event: LayoutChangeEvent) => setContextHeight(event.nativeEvent.layout.height)}
         >
           {leading}
