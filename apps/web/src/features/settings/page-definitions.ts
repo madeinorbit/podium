@@ -189,13 +189,6 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'A server-owned credential. Only presence and fingerprint are shown.',
         'codex provider secret',
       ),
-
-      row(
-        'secrets',
-        'Telegram bot token',
-        'The workspace bot used for Telegram notifications.',
-        'notifications botfather secret',
-      ),
     ],
   },
   {

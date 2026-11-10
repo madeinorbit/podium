@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS } from '@podium/runtime'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorkflowSection } from './workflow'
 
@@ -8,16 +8,20 @@ vi.mock('../settings-frame', () => ({
 }))
 afterEach(cleanup)
 
-it('maps plain cleanup choices to the existing policy values and disables age while keeping', () => {
+it('maps plain cleanup choices to the existing policy values and disables age while keeping', async () => {
   const patch = vi.fn()
   const settings = { ...DEFAULT_SETTINGS, worktreeGc: { mode: 'off' as const, afterDays: 14 } }
   const view = render(<WorkflowSection settings={settings} patch={patch} />)
   expect((screen.getByRole('spinbutton', { name: 'Old means' }) as HTMLInputElement).disabled).toBe(
     true,
   )
-  fireEvent.click(screen.getByRole('button', { name: 'Suggest' }))
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest' }))
+  })
   expect(patch).toHaveBeenLastCalledWith({ worktreeGc: { mode: 'propose', afterDays: 14 } })
-  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  })
   expect(patch).toHaveBeenLastCalledWith({ worktreeGc: { mode: 'auto', afterDays: 14 } })
 
   view.rerender(
@@ -29,7 +33,9 @@ it('maps plain cleanup choices to the existing policy values and disables age wh
   expect((screen.getByRole('spinbutton', { name: 'Old means' }) as HTMLInputElement).disabled).toBe(
     false,
   )
-  fireEvent.click(screen.getByRole('button', { name: 'Keep' }))
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }))
+  })
   expect(patch).toHaveBeenLastCalledWith({ worktreeGc: { mode: 'off', afterDays: 14 } })
 })
 
