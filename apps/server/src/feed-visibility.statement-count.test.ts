@@ -342,8 +342,10 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           return f
         },
       },
-      // Shared task rows need no grant query; incoming live-effect projection adds one read.
-      12,
+      // Shared task rows need no grant query; incoming live-effect projection
+      // adds one read; the issues' events in the feed's window are two
+      // (the window's oldest id, then the issues' events above it; POD-6766).
+      14,
     )
   })
 

@@ -21,7 +21,6 @@ import {
   asUserId,
   canonicalShippingDestination,
   firstAdminMemberId,
-  type IssueId,
   issueDepId,
   issueEventRowId,
   parseIssueDepId,
@@ -246,8 +245,20 @@ async function build(world: World) {
     if (o.state !== 'queued') continue
     up('shipLane', shipLaneId(asRepoId(o.repo), 'local:main'), JSON.stringify({ repo: o.repo }))
   }
-  for (const events of world.events.values()) {
-    for (const event of events)
+  // The window is read from the events table (POD-6766): each issue's events
+  // are stored, and the world names them by the ids the table gave them.
+  for (const [issueId, events] of world.events) {
+    const stored: { entity: 'issueEvent'; entityId: string }[] = []
+    for (const _event of events) {
+      const id = await store.events.appendEvent({
+        ts: new Date(0).toISOString(),
+        kind: 'issue.created',
+        subject: issueId,
+      })
+      stored.push({ entity: 'issueEvent', entityId: issueEventRowId(id, issueId) })
+    }
+    world.events.set(issueId, stored)
+    for (const event of stored)
       up('issueEvent', event.entityId, JSON.stringify({ id: event.entityId }))
   }
   for (const row of world.extra) up(row.entity, row.entityId, row.payload)
@@ -268,7 +279,6 @@ async function build(world: World) {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
-    issueEventSubjects: (issueId: IssueId) => world.events.get(issueId) ?? [],
   })
   return { store, visibility, oracle: oracleAnchors(store, world) }
 }

@@ -126,7 +126,6 @@ describe('snapshot bootstrap producer', () => {
       const feed = makeFeedVisibility({
         store,
         audiencesFor: forbidden,
-        issueEventSubjects: forbidden,
         authorizationRevision: forbidden,
       })
       const authority = new Authority({

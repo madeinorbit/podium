@@ -359,6 +359,25 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'MessageFeedDeps.transact',
   },
   {
+    // The issue-event feed's publish, retention and boot reconcile [POD-6766]:
+    // composition binds it to `SessionStore.transact`, and the body reads the
+    // window from the events table and captures the feed's change in one unit
+    // of work.
+    file: 'apps/server/src/modules/issue-events/feed.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'IssueEventFeedDeps.transact',
+  },
+  {
+    // The interaction feed's publish [POD-6766]: composition binds it to
+    // `SessionStore.transact`, and the body re-reads the ask and captures its
+    // upsert or removal in one unit of work.
+    file: 'apps/server/src/modules/interactions/feed.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'InteractionFeedDeps.transact',
+  },
+  {
     // The machine records' write [POD-6644]: composition binds it to
     // `SessionStore.transact`, and the body captures the access rows and records
     // each appended member's checkout reach in one unit of work, so the feed's
@@ -587,9 +606,9 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
   },
-  'apps/server/src/modules/message-feed/feed.ts#MessageFeedDeps.listOpen': {
+  'apps/server/src/modules/interactions/feed.ts#InteractionFeedDeps.toWire': {
     kind: 'contained',
-    why: "The feed's boot read of the open chat messages [POD-4764]: composition binds it to MessagesRepository.listOpenChat, a SELECT with no write and no publication.",
+    why: "The interaction feed's row-to-wire projection [POD-6766]: composition binds it to InteractionService.wireOf, a pure mapping of the row it is handed, with no read, write or publication.",
   },
   'apps/server/src/store/messages.ts#MessagesRepository.query': {
     kind: 'opaque',

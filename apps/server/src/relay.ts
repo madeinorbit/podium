@@ -8,7 +8,6 @@ import type {
   AgentKind,
   Attribution,
   EffectTarget,
-  IssueEventWire,
   IssueId,
   MachineId,
   MessageHeld,
@@ -1266,16 +1265,10 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
-    // The issue-event feed publisher is constructed AFTER the ledger it captures
-    // through, and the visibility policy is constructed BEFORE it — the anchor
-    // reads the publisher's window through this box rather than the two being
-    // ordered, which they cannot be (POD-1772).
-    let issueEventFeed: IssueEventFeedPublisher | undefined
     const feedVisibility = makeFeedVisibility({
       store: this.store,
       audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
       authorizationRevision: () => this.store.grants.visibilityRevision(),
-      issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
     })
     const visibility = new GrantEdgeVisibilityPolicy(
       feedVisibility.state,
@@ -1322,11 +1315,16 @@ export class SessionRegistry {
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
     // from a list of call sites somebody has to keep complete.
-    this.issueEventFeed = issueEventFeed = new IssueEventFeedPublisher({
+    const issueEventFeed = new IssueEventFeedPublisher({
       ledger: writes.system('feed.issueEvents'),
-      seed: async () => (await ledger.authority.snapshot('issueEvent')) as IssueEventWire[],
+      events: this.store.events,
+      transact: async (fn) => await this.store.transact(fn),
     })
-    this.store.events.onAppend(async (id, event) => await issueEventFeed?.publish(id, event))
+    this.issueEventFeed = issueEventFeed
+    this.store.events.onAppend(async (id, event) => await issueEventFeed.publish(id, event))
+    // Retention is a change to the window too (POD-6766): the events it took
+    // leave the feed.
+    this.store.events.onPrune(async (deleted) => await issueEventFeed.pruned(deleted))
     // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every
@@ -1337,8 +1335,7 @@ export class SessionRegistry {
         onAppended: (listener) => ledger.onAppended(listener),
       },
       sessions: this.store.sessions,
-      snapshot: async () => await ledger.authority.snapshot('message'),
-      listOpen: async () => await this.store.messages.listOpenChat(),
+      messages: this.store.messages,
       transact: async (fn) => await this.store.transact(fn),
     })
     this.messageFeed = messageFeed
@@ -4462,10 +4459,8 @@ export class SessionRegistry {
      */
     const interactionFeed = new InteractionFeedPublisher({
       ledger: writes.system('feed.interactions'),
-      seed: async () =>
-        (await ledger.authority.snapshot('pendingInteraction')) as readonly {
-          readonly id: string
-        }[],
+      store: this.store.interactions,
+      transact: async (fn) => await this.store.transact(fn),
       toWire: (row) => interactions.wireOf(row),
     })
     this.interactionFeed = interactionFeed

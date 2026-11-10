@@ -23,28 +23,21 @@
  *    publisher keeps only on the log; `build(ids)` answers them (the session
  *    and the member still exist), `streamAll()` cannot list them.
  *  - The three windowed kinds carry the window as a query: the newest
- *    {@link FEED_WINDOW} feed-kind events, every open interaction, and the open
+ *    `FEED_WINDOW` feed-kind events, every open interaction, and the open
  *    chat messages plus each live session's newest
- *    {@link CONFIRMED_PER_SESSION} confirmed ones. The publishers hold the same
- *    windows in memory, seeded from the log, so the two can differ at the edge;
- *    the parity tool reports by how much.
+ *    {@link CONFIRMED_PER_SESSION} confirmed ones. Their publishers decide
+ *    what the feed carries from the same reads (POD-6766), so the two agree.
  *
  * Nothing in production reads these builders yet.
  */
 
 import {
   checkoutRowId,
-  FEED_EVENT_KINDS,
-  type FeedEventKind,
   INSTANCE_PREFERENCES_ROW_ID,
-  type IssueEventWire,
   instancePreferencesRecordOf,
-  interactionRowId,
-  issueEventRowId,
   issueUserStateRowId,
   issueUserStateToWire,
   layoutRowId,
-  messageRecordRowId,
   parseCheckoutRowId,
   parseInteractionRowId,
   parseIssueDepId,
@@ -61,7 +54,6 @@ import {
   parseWorkflowBindingRowId,
   pinRowId,
   readPositionRowId,
-  type SessionId,
   type SessionUserStateWire,
   sessionUserStateRowId,
   subscriptionRowIdOf,
@@ -79,16 +71,22 @@ import {
 } from '@podium/sync/record-builders'
 import { effectRecordOf } from '../modules/effects/feed'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
+import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
-import { FEED_WINDOW } from '../modules/issue-events/feed'
+import { issueEventWindow } from '../modules/issue-events/feed'
 import { issueDepToProjection, issueRowToProjection } from '../modules/issues/projection'
-import { CONFIRMED_PER_SESSION, messageRecordOf } from '../modules/message-feed/feed'
+import {
+  CONFIRMED_PER_SESSION,
+  isOpenChat,
+  messageRecords,
+  messageWindow,
+} from '../modules/message-feed/feed'
 import { shipOrderProjectionRows } from '../modules/shipping/projection'
 import { superagentThreadWireOf } from '../modules/superagent/thread-records'
 import { workflowRunRecordOf } from '../modules/workflows/records'
 import type { SessionStore } from '../store'
 import { checkoutWireOf } from '../store/checkouts'
-import type { IssueRow, MessageRow } from '../store/types'
+import type { IssueRow } from '../store/types'
 
 /** What the builders read: the store's repositories (in process, or built over
  *  the sync worker's read-only connection), the effect kinds this server
@@ -244,34 +242,9 @@ const subscription: Builder = {
 // Issue events, interactions, messages: the windowed kinds
 // ---------------------------------------------------------------------------
 
-/** The events the feed carries: the newest {@link FEED_WINDOW} of the feed
- *  kinds with a subject, oldest first. One read per feed kind, each served by
- *  the kind index newest first; merged here. */
-async function issueEventWindow({ store }: RecordReads): Promise<BuiltRecord[]> {
-  const rows = await store.events.listEventsSince(0, {
-    kinds: [...FEED_EVENT_KINDS],
-    order: 'desc',
-    // A subject-less row is never published; read a margin so the window
-    // still fills when a few are in it.
-    limit: FEED_WINDOW * 2,
-  })
-  return rows
-    .filter((row) => row.subject !== '')
-    .slice(0, FEED_WINDOW)
-    .reverse()
-    .map((row) => {
-      const id = issueEventRowId(row.id, row.subject)
-      const value: IssueEventWire = {
-        id,
-        eventId: row.id,
-        ts: row.ts,
-        kind: row.kind as FeedEventKind,
-        subject: row.subject,
-        repoPath: row.repoPath ?? null,
-        payload: row.payload ?? {},
-      } as IssueEventWire
-      return { id, value }
-    })
+/** The events the feed carries ({@link issueEventWindow}), as records. */
+async function issueEventRecords({ store }: RecordReads): Promise<BuiltRecord[]> {
+  return (await issueEventWindow(store.events)).map((value) => ({ id: value.id, value }))
 }
 
 const issueEvent: Builder = {
@@ -280,56 +253,26 @@ const issueEvent: Builder = {
   // The window is FEED_WINDOW rows, so "these ids" is the window filtered.
   async build(reads, ids) {
     if (parsed(ids, parseIssueEventRowId).length === 0) return []
-    return await issueEventWindow(reads)
+    return await issueEventRecords(reads)
   },
-  streamAll: (reads) => pagesOf(issueEventWindow(reads)),
+  streamAll: (reads) => pagesOf(issueEventRecords(reads)),
 }
 
 const pendingInteraction: Builder = {
   kind: 'pendingInteraction',
   shape: 'windowed',
   async build({ store }, ids) {
-    const sessions = unique(parsed(ids, parseInteractionRowId).map((key) => key.sessionId))
-    const out: BuiltRecord[] = []
-    for (const sessionId of sessions) {
-      for (const row of await store.interactions.listOpen(sessionId as SessionId)) {
-        out.push({ id: interactionRowId(row.sessionId, row.id), value: interactionWireOf(row) })
-      }
-    }
-    return out
+    const interactionIds = parsed(ids, parseInteractionRowId).map((key) => key.interactionId)
+    if (interactionIds.length === 0) return []
+    return openInteractionRecords(
+      await store.interactions.openOfIds(unique(interactionIds)),
+      interactionWireOf,
+    )
   },
   streamAll: ({ store }) =>
     pagesOf(
-      store.interactions.listOpen().then((rows) =>
-        rows.map((row) => ({
-          id: interactionRowId(row.sessionId, row.id),
-          value: interactionWireOf(row),
-        })),
-      ),
+      store.interactions.listOpen().then((rows) => openInteractionRecords(rows, interactionWireOf)),
     ),
-}
-
-/** The open half of the chat window, as `listOpenChat` reads it. */
-const isOpenChat = (row: MessageRow): boolean =>
-  row.fromKind === 'operator' &&
-  row.toKind === 'session' &&
-  !row.noticeDismissedAt &&
-  row.deliveryStatus !== 'confirmed' &&
-  row.deliveryStatus !== 'cancelled'
-
-function messageRecords(rows: Iterable<MessageRow>): BuiltRecord[] {
-  const out = new Map<string, BuiltRecord>()
-  for (const row of rows) {
-    const value = messageRecordOf(row)
-    if (value === null) continue
-    const id = messageRecordRowId({
-      sessionId: value.sessionId,
-      senderUserId: value.senderUserId,
-      messageId: value.id,
-    })
-    out.set(id, { id, value })
-  }
-  return [...out.values()]
 }
 
 const message: Builder = {
@@ -341,16 +284,16 @@ const message: Builder = {
     const open = (
       await store.messages.getMessages(unique(keys.map((key) => key.messageId)))
     ).filter(isOpenChat)
-    const confirmed = await store.messages.confirmedChatWindow(
+    const confirmed = await store.messages.confirmedChatTail(
       CONFIRMED_PER_SESSION,
       unique(keys.map((key) => key.sessionId)),
+      'live',
     )
-    return messageRecords([...open, ...confirmed])
+    return [...messageRecords([...open, ...confirmed])].map(([id, value]) => ({ id, value }))
   },
   async *streamAll({ store }) {
-    const open = await store.messages.listOpenChat()
-    const confirmed = await store.messages.confirmedChatWindow(CONFIRMED_PER_SESSION)
-    yield* pagesOf(messageRecords([...open, ...confirmed]))
+    const window = await messageWindow(store.messages)
+    yield* pagesOf([...window].map(([id, value]) => ({ id, value })))
   },
 }
 

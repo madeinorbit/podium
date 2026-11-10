@@ -34,6 +34,8 @@ export interface FeedVisibilityStore {
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
   readonly effects: Pick<SessionStore['effects'], 'audiencesOf' | 'liveOnTargets'>
+  /** The issue-event feed's window of an issue's events (POD-6766). */
+  readonly events: Pick<SessionStore['events'], 'feedWindowOfSubjects'>
   /** The owners workflow-family rows are decided by (POD-6676). */
   readonly workflows: Pick<SessionStore['workflows'], 'visibilityFacts'>
   /** Admins read every instance-wide effect record (POD-6358). */

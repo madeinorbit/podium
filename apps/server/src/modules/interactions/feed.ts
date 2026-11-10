@@ -29,6 +29,20 @@
  * and never the answer.)
  *
  * ---------------------------------------------------------------------------
+ * THE OPEN SET IS A QUERY, NOT A MEMORY (POD-6766, design POD-6253 §1)
+ * ---------------------------------------------------------------------------
+ * What the feed carries is `status = 'asked'` in `pending_interactions`, the
+ * same read the record builder streams. The publisher keeps no copy of it: a
+ * row that is open publishes an `upsert`, any other publishes a `remove`, and
+ * the log drops a removal of a row it never carried (an ask auto-answered in
+ * the tick it was minted). At boot the open set is reconciled from the table,
+ * so an ask that closed while its publish was lost (a crash after the commit)
+ * leaves the feed then. Before this, the publisher seeded an in-memory set
+ * from the log with the record's own id where it later looked up the row id,
+ * so no ask carried across a restart was ever removed: 25 closed asks were
+ * still on clients on 2026-11-09.
+ *
+ * ---------------------------------------------------------------------------
  * IT NEVER THROWS INTO A MUTATION
  * ---------------------------------------------------------------------------
  * By the time `publish` runs the durable write has happened. A publisher fault
@@ -40,73 +54,71 @@ import { createLogger } from '@podium/logger'
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
-import type { InteractionRow } from '../../store/interactions'
+import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 
 const log = createLogger('server:interactions:feed')
 
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
-  readonly ledger: Pick<LedgerWriter, 'capture'>
-  /** What the Authority already holds for this kind when async boot resolves it —
-   *  the same seeding argument `IssueEventFeedPublisher` makes: seeding from the
-   *  TABLE would re-publish rows a restart had not lost, and disagree with the
-   *  snapshot a connected replica already has. */
-  readonly seed: () =>
-    | readonly { readonly id: string }[]
-    | Promise<readonly { readonly id: string }[]>
+  readonly ledger: Pick<LedgerWriter, 'capture' | 'reconcile'>
+  /** Every open ask, and one row by id, from the table ({@link InteractionsRepository}). */
+  readonly store: Pick<InteractionsRepository, 'listOpen' | 'get'>
+  /** One transaction on the store the table lives in. */
+  readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
   /** The wire projection of a durable row (the service's, injected so the
    *  publisher does not own a second copy of it). */
   readonly toWire: (row: InteractionRow) => PendingInteractionWire
 }
 
+/** The feed's records for these rows: the open ones, keyed by row id. */
+export function openInteractionRecords(
+  rows: readonly InteractionRow[],
+  toWire: (row: InteractionRow) => PendingInteractionWire,
+): { id: string; value: PendingInteractionWire }[] {
+  return rows
+    .filter((row) => row.status === 'asked')
+    .map((row) => ({ id: interactionRowId(row.sessionId, row.id), value: toWire(row) }))
+}
+
 export class InteractionFeedPublisher {
-  /** Change-log ids currently carried. */
-  private carried = new Set<string>()
-  private resolved = false
   private resolving: Promise<void> | undefined
 
   constructor(private readonly deps: InteractionFeedDeps) {}
 
-  /** Read the authority's existing open set after composition and before serving. */
+  /** Reconcile the open set from the table once, after composition and
+   *  before serving. */
   async resolve(): Promise<void> {
-    if (this.resolved) return
-    if (!this.resolving) {
-      this.resolving = (async () => {
-        this.carried = new Set((await this.deps.seed()).map((row) => row.id))
-        this.resolved = true
-      })()
-    }
+    this.resolving ??= (async () => {
+      await this.deps.ledger.reconcile(
+        'pendingInteraction',
+        openInteractionRecords(await this.deps.store.listOpen(), this.deps.toWire),
+      )
+    })()
     await this.resolving
   }
 
   /**
-   * Publish one row's current state — an `upsert` while it is open, a `remove`
-   * once it resolves.
-   *
-   * A resolved row that was never carried publishes nothing: an ask the policy
-   * table auto-answered in the same tick it was minted never blocked anyone, and
-   * a `remove` for a row no replica ever held is a change with no meaning.
+   * Publish one row's current state: an `upsert` while it is open, a `remove`
+   * once it is not (or once retention dropped it). The row is read again in
+   * the capture's transaction, so of two publishes of one row that overtake
+   * each other the later still carries what the table holds. A removal of a
+   * row the feed never carried is dropped by the log, so an ask resolved in
+   * the tick it was minted publishes nothing.
    */
-  async publish(row: InteractionRow): Promise<void> {
+  async publish(row: Pick<InteractionRow, 'id' | 'sessionId'>): Promise<void> {
     await this.resolve()
     try {
       const id = interactionRowId(row.sessionId, row.id)
-      if (row.status === 'asked') {
-        this.carried.add(id)
-        await this.capture([
-          { entity: 'pendingInteraction', id, op: 'upsert', value: this.deps.toWire(row) },
-        ])
-        return
-      }
-      if (this.carried.delete(id)) {
-        await this.capture([{ entity: 'pendingInteraction', id, op: 'remove' }])
-      }
+      await this.deps.transact(async () => {
+        const current = await this.deps.store.get(row.id)
+        const change: EntityChangeSpec =
+          current?.status === 'asked'
+            ? { entity: 'pendingInteraction', id, op: 'upsert', value: this.deps.toWire(current) }
+            : { entity: 'pendingInteraction', id, op: 'remove' }
+        await this.deps.ledger.capture([change])
+      })
     } catch (err) {
       log.warn('interaction feed publish failed', { err, id: row.id })
     }
-  }
-
-  private async capture(changes: EntityChangeSpec[]): Promise<void> {
-    await this.deps.ledger.capture(changes)
   }
 }

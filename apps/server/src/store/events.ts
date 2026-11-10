@@ -5,7 +5,7 @@
  * event-subscriptions design Phase B).
  */
 
-import { AgentRuntimeState, type SessionId } from '@podium/model'
+import { AgentRuntimeState, FEED_EVENT_KINDS, isFeedEventKind, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
 import {
@@ -14,11 +14,13 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNull,
   lt,
   lte,
   max,
+  ne,
   not,
   or,
   type SQL,
@@ -401,6 +403,75 @@ const eventsSince = preparedFamily((db: StoreDrizzle, shape: string) => {
     .prepare()
 })
 
+/**
+ * THE ISSUE-EVENT FEED'S WINDOW AS A QUERY (POD-6766, design POD-6253 §1):
+ * the newest `limit` events of the feed kinds that name a subject, at or
+ * below `through`, newest first, skipping the newest `offset`. One arm per
+ * feed kind, each walking `idx_podium_events_kind` (kind, then id) newest
+ * first and stopping at its LIMIT, joined by `UNION ALL` and cut to the
+ * limit: the sort reads at most `limit` rows of each kind, never the log.
+ * Two statements: whole rows, or ids and subjects.
+ */
+function feedPage(db: StoreDrizzle, kind: string, i: number) {
+  return db
+    .select()
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, kind),
+        ne(podiumEvents.subject, ''),
+        lte(podiumEvents.id, param(podiumEvents.id, 'through')),
+      ),
+    )
+    .orderBy(desc(podiumEvents.id))
+    .limit(sql.placeholder('reach'))
+    .as(`feed${i}`)
+}
+
+const feedWindowRows = prepared((db: StoreDrizzle) => {
+  const [first, ...rest] = FEED_EVENT_KINDS.map((kind, i) =>
+    db.select().from(feedPage(db, kind, i)),
+  )
+  let union = first!.$dynamic()
+  for (const next of rest) union = union.unionAll(next).$dynamic()
+  return union
+    .orderBy(desc(sql`id`))
+    .limit(sql.placeholder('limit'))
+    .offset(sql.placeholder('offset'))
+    .prepare()
+})
+
+const feedWindowIds = prepared((db: StoreDrizzle) => {
+  const [first, ...rest] = FEED_EVENT_KINDS.map((kind, i) => {
+    const page = feedPage(db, kind, i)
+    return db.select({ id: page.id, subject: page.subject }).from(page)
+  })
+  let union = first!.$dynamic()
+  for (const next of rest) union = union.unionAll(next).$dynamic()
+  return union
+    .orderBy(desc(sql`id`))
+    .limit(sql.placeholder('limit'))
+    .offset(sql.placeholder('offset'))
+    .prepare()
+})
+
+/** The feed-kind events of these subjects at or above `floor` (the window's
+ *  oldest), oldest first; keyed by the subject list's bucketed size. */
+const feedEventsOfSubjects = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: podiumEvents.id, subject: podiumEvents.subject })
+    .from(podiumEvents)
+    .where(
+      and(
+        inArray(podiumEvents.kind, [...FEED_EVENT_KINDS]),
+        inListOf(podiumEvents.subject, size, 'subject'),
+        gte(podiumEvents.id, param(podiumEvents.id, 'floor')),
+      ),
+    )
+    .orderBy(asc(podiumEvents.id))
+    .prepare(),
+)
+
 const kindSubjectPrior = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -478,7 +549,11 @@ const deletePruneBatch = prepared((db: StoreDrizzle) => {
     )
     .orderBy(asc(podiumEvents.id))
     .limit(sql.placeholder('batchSize'))
-  return db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).prepare()
+  return db
+    .delete(podiumEvents)
+    .where(inArray(podiumEvents.id, victims))
+    .returning({ id: podiumEvents.id, kind: podiumEvents.kind, subject: podiumEvents.subject })
+    .prepare()
 })
 
 const stewardValueOf = prepared((db: StoreDrizzle) =>
@@ -741,12 +816,19 @@ export type EventAppendListener = (
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
 ) => void | Promise<void>
 
+/** The feed-kind events one retention batch deleted. Never throws. */
+export type EventPruneListener = (
+  deleted: readonly { id: number; subject: string }[],
+) => void | Promise<void>
+
 export class EventsRepository {
   /** The feed publisher, installed by the composition root once the ledger
    *  exists. Absent in the storage-only unit tests, and absent for the window
    *  between store construction and wiring — an event appended in that window is
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
+  /** The feed publisher's hook on retention (POD-6766), installed with it. */
+  private pruneListener: EventPruneListener | undefined
 
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -777,6 +859,12 @@ export class EventsRepository {
    *  seam, not a general event bus (the orchestrator already has one). */
   async onAppend(listener: EventAppendListener): Promise<void> {
     this.appendListener = listener
+  }
+
+  /** Install the post-prune announcement: the feed-kind events (with a
+   *  subject) one retention batch deleted, after its commit. */
+  async onPrune(listener: EventPruneListener): Promise<void> {
+    this.pruneListener = listener
   }
 
   // ---- coarse runtime event log + restart head ----
@@ -1166,6 +1254,65 @@ export class EventsRepository {
     return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
   }
 
+  /**
+   * The issue-event feed's window ({@link feedWindow}): the newest `limit`
+   * feed-kind events with a subject, at or below `through` (default: all),
+   * newest first. The window the feed carries is `limit = FEED_WINDOW`.
+   */
+  async feedWindow(opts: { limit: number; through?: number }): Promise<PodiumEventRecord[]> {
+    return (await feedWindowRows(this.db).all(this.feedWindowValues(opts))).map(rowToEvent)
+  }
+
+  /** {@link feedWindow}, ids and subjects only, skipping the newest `offset`. */
+  async feedWindowIds(opts: {
+    limit: number
+    through?: number
+    offset?: number
+  }): Promise<{ id: number; subject: string }[]> {
+    return await feedWindowIds(this.db).all(this.feedWindowValues(opts))
+  }
+
+  /**
+   * The events of these subjects that a window of `windowSize` holds, oldest
+   * first: the window's oldest id, then the subjects' feed-kind events from
+   * there up. Two reads whatever the size of the log.
+   */
+  async feedWindowOfSubjects(
+    subjects: readonly string[],
+    windowSize: number,
+  ): Promise<{ id: number; subject: string }[]> {
+    const unique = [...new Set(subjects)].filter((subject) => subject !== '')
+    if (unique.length === 0) return []
+    const [oldest] = await this.feedWindowIds({ limit: 1, offset: Math.max(windowSize - 1, 0) })
+    const floor = oldest?.id ?? 0
+    const out: { id: number; subject: string }[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      out.push(
+        ...(await feedEventsOfSubjects(this.db, size).all({
+          floor,
+          ...inListValues(chunk, size, 'subject'),
+        })),
+      )
+    }
+    return out.sort((a, b) => a.id - b.id)
+  }
+
+  private feedWindowValues(opts: {
+    limit: number
+    through?: number
+    offset?: number
+  }): Record<string, unknown> {
+    const offset = opts.offset ?? 0
+    return {
+      through: opts.through ?? Number.MAX_SAFE_INTEGER,
+      limit: opts.limit,
+      offset,
+      reach: opts.limit + offset,
+    }
+  }
+
   /** The highest event id in the log (0 when empty) — the "now" mark for
    *  seeding a consumer cursor that must not replay history. */
   async maxEventId(): Promise<number> {
@@ -1206,12 +1353,22 @@ export class EventsRepository {
       throw new RangeError('batchSize must be a positive integer')
     }
     // The projector's head fences runtime rows (see deletePruneBatch).
-    const result = await deletePruneBatch(this.db).run({
+    const deleted = await deletePruneBatch(this.db).all({
       cutoff: plan.cutoff,
       capThroughId: plan.capThroughId,
       batchSize,
     })
-    return Number(result.changes)
+    // The feed's window is the newest feed-kind events that EXIST, so a prune
+    // that took some of them is a change to the feed (POD-6766): announced
+    // after the commit, as an append is.
+    const feedRows = deleted.filter((row) => row.subject !== '' && isFeedEventKind(row.kind))
+    if (feedRows.length > 0) {
+      afterCommit(
+        () => this.pruneListener?.(feedRows.map(({ id, subject }) => ({ id, subject }))),
+        'podium-event:prune',
+      )
+    }
+    return deleted.length
   }
 
   // ---- steward state ----

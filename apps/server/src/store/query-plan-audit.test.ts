@@ -137,7 +137,10 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   // The record builders' by-id reads (POD-6763).
   ['apps/server/src/store/automations.ts:liveAutomationsOfIds', SIZES],
   ['apps/server/src/store/automations.ts:liveRunsOfIds', SIZES],
-  ['apps/server/src/store/messages.ts:confirmedChatWindow', ['live', ...SIZES]],
+  // The windowed kinds' reads (POD-6766).
+  ['apps/server/src/store/messages.ts:confirmedChatTail', ['live|1', 'live|4', 'any|1', 'any|4']],
+  ['apps/server/src/store/interactions.ts:openInteractionsOfIds', SIZES],
+  ['apps/server/src/store/events.ts:feedEventsOfSubjects', SIZES],
   ['apps/server/src/store/sessions.ts:pinsOfUsers', SIZES],
   ['apps/server/src/store/sessions.ts:tabOrdersOfUsers', SIZES],
   ['apps/server/src/store/superagent.ts:threadsOfIds', SIZES],
@@ -480,6 +483,18 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "Reads events after the caller's cursor through the kind index and sorts that page.",
   ],
   [
+    'apps/server/src/store/events.ts:feedWindowRows',
+    "The issue-event feed's window (POD-6766): one arm per feed kind reads that kind's newest `limit` events through the kind index and stops; the sort merges those few hundred rows, never the log.",
+  ],
+  [
+    'apps/server/src/store/events.ts:feedWindowIds',
+    "The issue-event feed's window, ids only (POD-6766): one arm per feed kind reads that kind's newest `limit` events through the kind index and stops; the sort merges those few hundred rows, never the log.",
+  ],
+  [
+    'apps/server/src/store/events.ts:feedEventsOfSubjects',
+    "The feed-window events of the issues in the IN list (POD-6766): read from the window's oldest id up, so bounded by the window, and sorted by id.",
+  ],
+  [
     'apps/server/src/store/events.ts:eventIdBeyondCap',
     'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
   ],
@@ -577,7 +592,7 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/messages.ts:confirmedChatWindow',
-    "The chat feed's confirmed window as a query (POD-6763 record builders; nothing in production reads it yet): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages; the `live` shape also reads `sessions` to find the live ones. Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
+    "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the message feed's boot reconcile and the record builder's `streamAll`, never per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
   ],
   [
     'apps/server/src/store/checkouts.ts:allCheckouts',
@@ -780,10 +795,6 @@ const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
     'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
-  ],
-  [
-    "apps/server/src/sync-worker/visibility.ts:SELECT entity_id FROM change_latest WHERE entity = 'issueEvent'",
-    "The issue-event subjects of the worker's snapshot, read once per job on the raw handle before the visibility repositories are composed over it.",
   ],
   [
     'apps/server/src/modules/updates/recovery-store.ts:SELECT value FROM meta WHERE key = ?',
@@ -1537,13 +1548,6 @@ describe('POD-6148 — every repository query is served by an index', () => {
         .map((entry) => entry.key)
         .sort(),
     ).toEqual([...RAW_SQL_PLANNED.keys()].sort())
-  })
-
-  it('reads the issue-event subjects of a worker snapshot by the change_latest key (POD-6227)', () => {
-    const subjects = auditRawSql(rawSqlCensus()).filter((entry) =>
-      entry.key.startsWith('apps/server/src/sync-worker/visibility.ts:'),
-    )
-    expect(subjects.map((entry) => entry.findings)).toEqual([[]])
   })
 
   it('is armed: a planted raw statement is censused unlisted, and its scan is found', () => {

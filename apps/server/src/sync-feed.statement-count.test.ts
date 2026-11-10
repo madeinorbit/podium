@@ -258,17 +258,19 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     true,
   )
 
-  // The producer's five raw statements (the snapshot's head and floor, the two
-  // passes over change_latest, the issue-event subjects) and the visibility
-  // prefetch's two reads (issues, sessions). RE-PINNED 8 -> 7 FOR POD-6341: the
-  // prefetch's issue grants read (#06b41178) left with POD-6288 (tasks are
-  // shared, design §2.2, §4.1); the issues read gained columns, not a statement.
+  // The producer's four raw statements (the snapshot's head and floor, the two
+  // passes over change_latest) and the visibility prefetch's two reads
+  // (issues, sessions). RE-PINNED 8 -> 7 FOR POD-6341: the prefetch's issue
+  // grants read (#06b41178) left with POD-6288 (tasks are shared, design §2.2,
+  // §4.1); the issues read gained columns, not a statement. RE-PINNED 7 -> 6
+  // FOR POD-6766: the issue-event subjects are no longer read from
+  // change_latest up front; an issue's rescope reads the feed's window.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 7)
+    await expectConstantStatements(bootstrap, 6)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 7, plantPerSessionRead)
+    await expectArmed(bootstrap, 6, plantPerSessionRead)
   })
 
   const delta = pin(
@@ -283,16 +285,17 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     true,
   )
 
-  // The producer's head, floor and issue-event subjects, the page of changes,
-  // and the batch prefetch's reads (issues, grant audiences, sessions).
-  // RE-PINNED 8 -> 7 FOR POD-6341: the prefetch's issue grants read (#9119be47)
-  // left with POD-6288 (tasks are shared, design §2.2, §4.1).
+  // The producer's head and floor, the page of changes, and the batch
+  // prefetch's reads (issues, grant audiences, sessions). RE-PINNED 8 -> 7 FOR
+  // POD-6341: the prefetch's issue grants read (#9119be47) left with POD-6288
+  // (tasks are shared, design §2.2, §4.1). RE-PINNED 7 -> 6 FOR POD-6766: the
+  // issue-event subjects are no longer read from change_latest up front.
   it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(delta, 7)
+    await expectConstantStatements(delta, 6)
   })
 
   it('a delta pin is armed', async () => {
-    await expectArmed(delta, 7, plantPerAudienceRead)
+    await expectArmed(delta, 6, plantPerAudienceRead)
   })
 })
 

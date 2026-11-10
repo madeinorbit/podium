@@ -1155,36 +1155,84 @@ const openChat = prepared((db: StoreDrizzle) =>
 
 /**
  * THE CONFIRMED HALF OF THE CHAT FEED'S WINDOW, AS A QUERY (POD-6763, design
- * POD-6253 §1): each live session's newest `perSession` confirmed operator
+ * POD-6253 §1): every live session's newest `perSession` confirmed operator
  * messages. A live session is not exited, not archived and not deleted
- * (`isLiveConversation` in `modules/message-feed`). Keyed by `'live'` (every
- * live session) or by the size of an id list (those sessions only). One
- * statement; the rank is a window function, which Postgres has too.
+ * (`isLiveConversation` in `modules/message-feed`). The live ones are found
+ * first (a read of `sessions`), then each one's messages through the
+ * recipient index; the rank is a window function, which Postgres has too.
+ * The start-up truth of the window; a write reads only the sessions it
+ * touched ({@link confirmedChatTail}).
  */
-const confirmedChatWindow = preparedFamily((db: StoreDrizzle, key: 'live' | number) => {
-  // Every live session: the live ones are found first (a read of `sessions`),
-  // then each one's messages through the recipient index. Named sessions: the
-  // messages of those sessions, each session's liveness by its primary key.
-  const sessionsOf =
-    key === 'live'
-      ? sql`m.to_id IN (SELECT s.id FROM ${sessionsTable} s
-            WHERE s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)`
-      : sql`m.to_id IN (${sql.join(
-          Array.from({ length: key }, (_, i) => sql.placeholder(`ids${i}`)),
-          sql`, `,
-        )}) AND EXISTS (SELECT 1 FROM ${sessionsTable} s WHERE s.id = m.to_id
-            AND s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)`
-  return db
+const confirmedChatWindow = prepared((db: StoreDrizzle) =>
+  db
     .select(MESSAGE_COLUMNS)
     .from(
       sql`(SELECT m.*, row_number() OVER (PARTITION BY m.to_id ORDER BY m.created_at DESC, m.id DESC) AS window_rank
         FROM ${messagesTable} m
         WHERE m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
-          AND ${sessionsOf}) ranked`,
+          AND m.to_id IN (SELECT s.id FROM ${sessionsTable} s
+            WHERE s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)) ranked`,
     )
     .where(sql`window_rank <= ${sql.placeholder('perSession')}`)
     .orderBy(asc(sql`created_at`), asc(sql`id`))
-    .prepare()
+    .prepare(),
+)
+
+/** Most sessions one {@link confirmedChatTail} statement reads: one arm each,
+ *  under SQLite's limit of 500 terms in one compound SELECT. */
+const CHAT_TAIL_MAX_SESSIONS = 256
+
+/**
+ * THE CONFIRMED TAIL OF EACH NAMED SESSION, IN ONE STATEMENT (POD-6766): each
+ * session's newest `perSession` confirmed operator messages, newest first.
+ * The chat feed's window is a session's newest `CONFIRMED_PER_SESSION`
+ * (`modules/message-feed`) of these while the session is a live conversation; the publisher reads it
+ * inside each write, so it must not grow with a session's history. One arm
+ * per session, each walking `idx_messages_recipient_time` newest first and
+ * stopping at its LIMIT, joined by `UNION ALL` (the LIMIT sits in a subquery,
+ * as in {@link pendingPages}). Keyed `live|<size>` (only sessions that are
+ * live conversations: not exited, archived or deleted) or `any|<size>`.
+ */
+const confirmedChatTail = preparedFamily((db: StoreDrizzle, key: string) => {
+  const [liveness, sizeText] = key.split('|')
+  const size = Number(sizeText)
+  const arm = (i: number) => {
+    const where: SQL[] = [
+      eq(messagesTable.toKind, 'session'),
+      eq(messagesTable.toId, param(messagesTable.toId, `ids${i}`)),
+      eq(messagesTable.fromKind, 'operator'),
+      eq(messagesTable.deliveryStatus, 'confirmed'),
+    ]
+    if (liveness === 'live') {
+      where.push(
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(sessionsTable)
+            .where(
+              and(
+                eq(sessionsTable.id, param(sessionsTable.id, `ids${i}`)),
+                ne(sessionsTable.status, 'exited'),
+                eq(sessionsTable.archived, false),
+                isNull(sessionsTable.deletedAt),
+              ),
+            ),
+        ),
+      )
+    }
+    return db.select().from(
+      db
+        .select()
+        .from(messagesTable)
+        .where(and(...where))
+        .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
+        .limit(sql.placeholder('perSession'))
+        .as(`tail${i}`),
+    )
+  }
+  let union = arm(0).$dynamic()
+  for (let i = 1; i < size; i++) union = union.unionAll(arm(i)).$dynamic()
+  return union.prepare()
 })
 
 /** Keyed by whether a cursor is given. */
@@ -2208,24 +2256,37 @@ export class MessagesRepository {
   }
 
   /** The confirmed half of the chat feed's window ({@link confirmedChatWindow}):
-   *  every live session's, or only the named sessions'. Oldest first. */
-  async confirmedChatWindow(
+   *  every live session's newest `perSession`. Oldest first. */
+  async confirmedChatWindow(perSession: number): Promise<MessageRow[]> {
+    return (await confirmedChatWindow(this.db).all({ perSession })).map(mapMessage)
+  }
+
+  /**
+   * Each named session's newest `perSession` confirmed operator messages,
+   * newest first within a session ({@link confirmedChatTail}). `live` keeps
+   * only sessions that are live conversations; `any` reads every named one.
+   */
+  async confirmedChatTail(
     perSession: number,
-    sessionIds?: readonly string[],
+    sessionIds: readonly string[],
+    liveness: 'live' | 'any',
   ): Promise<MessageRow[]> {
-    if (sessionIds === undefined) {
-      return (await confirmedChatWindow(this.db, 'live').all({ perSession })).map(mapMessage)
-    }
     const unique = [...new Set(sessionIds)]
     const out: MessageRow[] = []
-    for (let at = 0; at < unique.length; at += 500) {
-      const chunk = unique.slice(at, at + 500)
+    const seen = new Set<string>()
+    for (let at = 0; at < unique.length; at += CHAT_TAIL_MAX_SESSIONS) {
+      const chunk = unique.slice(at, at + CHAT_TAIL_MAX_SESSIONS)
+      // Keyed by the bucketed size; a padded arm repeats the last session, and
+      // its rows are dropped below as the repeats they are.
       const size = inListSize(chunk.length)
-      const rows = await confirmedChatWindow(this.db, size).all({
-        perSession,
-        ...inListValues(chunk, size, 'ids'),
-      })
-      out.push(...rows.map(mapMessage))
+      const values: Record<string, unknown> = { perSession }
+      for (let i = 0; i < size; i++) values[`ids${i}`] = chunk[Math.min(i, chunk.length - 1)]
+      const rows = await confirmedChatTail(this.db, `${liveness}|${size}`).all(values)
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        out.push(mapMessage(row))
+      }
     }
     return out
   }

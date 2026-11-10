@@ -38,7 +38,14 @@ import {
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -184,6 +191,15 @@ const openInteractions = prepared((db: StoreDrizzle) =>
     .from(t)
     .where(and(eq(t.status, 'asked'), undefined))
     .orderBy(asc(t.askedAt), asc(t.id))
+    .prepare(),
+)
+
+/** The open asks among these ids, keyed by the IN list's bucketed size. */
+const openInteractionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(t)
+    .where(and(inListOf(t.id, size, 'ids'), eq(t.status, 'asked')))
     .prepare(),
 )
 
@@ -373,6 +389,20 @@ export class InteractionsRepository {
       ? await openInteractionsOfSession(this.db).all({ sessionId })
       : await openInteractions(this.db).all()
     return rows.map(toRow)
+  }
+
+  /** The open asks among these ids, in no particular order: one read per
+   *  500 ids, by primary key. */
+  async openOfIds(ids: readonly string[]): Promise<InteractionRow[]> {
+    const unique = [...new Set(ids)]
+    const out: InteractionRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await openInteractionsOfIds(this.db, size).all(inListValues(chunk, size, 'ids'))
+      out.push(...rows.map(toRow))
+    }
+    return out
   }
 
   async listForSession(sessionId: SessionId, limit = 100): Promise<InteractionRow[]> {

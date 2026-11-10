@@ -101,6 +101,7 @@ async function fixture() {
         return new Set([firstAdmin, secondAdmin])
       },
     },
+    events: store.events,
     grants: store.grants,
     sync: store.sync,
     checkouts: store.checkouts,

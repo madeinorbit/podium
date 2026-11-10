@@ -11,6 +11,7 @@ import WebSocket from 'ws'
 
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
+const { fixtureWriteScope } = await import('@podium/sync/testing')
 const { makeFeedVisibility } = await import('../feed-visibility')
 const { openTestStore } = await import('../test-support/open-test-store')
 const { SyncWorkerClient } = await import('../sync-worker/worker-client')
@@ -95,7 +96,6 @@ async function fixture() {
   const feed = makeFeedVisibility({
     store,
     audiencesFor: forbidden,
-    issueEventSubjects: forbidden,
     authorizationRevision: forbidden,
   })
   const authority = new Authority({
@@ -136,7 +136,7 @@ it.each([
 ])('real HTTP worker %s rows equal Authority.bootstrap and certify the fixture head', async (coding) => {
   const f = await fixture()
   try {
-    await f.store.issues.upsertIssue(issue('invisible'))
+    await f.store.issues.upsertIssue(fixtureWriteScope(), issue('invisible'))
     await f.store.sync.appendChanges(
       [
         {
@@ -371,7 +371,7 @@ describe('snapshot delta producer', () => {
     const store = await openTestStore(path)
     let client: InstanceType<typeof SyncWorkerClient> | undefined
     try {
-      await store.issues.upsertIssue(issue('shared'))
+      await store.issues.upsertIssue(fixtureWriteScope(), issue('shared'))
       const grant = (grantee: string) => ({
         resourceKind: 'issue',
         resourceId: 'shared',
@@ -398,7 +398,13 @@ describe('snapshot delta producer', () => {
         ],
         1,
       )
-      const eventId = issueEventRowId(1, 'shared')
+      // The window is read from the events table (POD-6766).
+      const storedEventId = await store.events.appendEvent({
+        ts: 't0',
+        kind: 'issue.created',
+        subject: 'shared',
+      })
+      const eventId = issueEventRowId(storedEventId, 'shared')
       await store.sync.appendChanges(
         [
           {
@@ -407,7 +413,7 @@ describe('snapshot delta producer', () => {
             op: 'upsert',
             payload: JSON.stringify({
               id: eventId,
-              eventId: 1,
+              eventId: storedEventId,
               subject: 'shared',
               kind: 'created',
               ts: 't0',
@@ -462,8 +468,6 @@ describe('snapshot delta producer', () => {
         store,
         audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
         authorizationRevision: () => store.grants.visibilityRevision(),
-        issueEventSubjects: (id) =>
-          id === 'shared' ? [{ entity: 'issueEvent', entityId: eventId }] : [],
       })
       const authority = new Authority({
         store: store.sync,

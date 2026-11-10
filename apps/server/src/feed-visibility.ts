@@ -32,6 +32,7 @@ import {
   canonicalShippingDestination,
   type IssueExecutionFacts,
   type IssueId,
+  issueEventRowId,
   type MachineId,
   issueDepFromPrefix,
   issueExecutionAccess,
@@ -69,6 +70,7 @@ import type {
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
+import { FEED_WINDOW } from './modules/issue-events/feed'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
@@ -186,6 +188,11 @@ type EffectSubject = {
   entityId: string
 }
 
+type IssueEventSubject = {
+  entity: 'issueEvent'
+  entityId: string
+}
+
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: FeedVisibilityStore
@@ -197,18 +204,6 @@ export interface FeedVisibilityDeps {
     ids: readonly string[],
   ) => Promise<ReadonlyMap<string, readonly string[]>>
   readonly authorizationRevision: () => Promise<number>
-  /**
-   * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
-   *
-   * An issue's audience changes by a grant, and every row that rides that
-   * audience has to be re-scoped with it — otherwise a new reader gets the issue
-   * and none of its history. The publisher answers this from its in-memory
-   * window, so the anchor costs no query; it is a FUNCTION because the publisher
-   * needs the ledger this policy is constructed before.
-   *
-   * Omitted in tests that predate the kind: no rows, no subjects.
-   */
-  readonly issueEventSubjects?: (issueId: IssueId) => { entity: 'issueEvent'; entityId: string }[]
 }
 
 /** What the composition root names: two ports plus the tracing bracket. */
@@ -1000,6 +995,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    *                   one read of `idx_effects_target` after the sessions are
    *                   known (POD-6401): an effect is read by whoever reads its
    *                   target, so it re-scopes with that target's audience.
+   *   issue events    the issues' events the feed's window holds, from the
+   *                   window's query (POD-6766): the window's oldest id, then
+   *                   the issues' feed-kind events from there up.
    */
   const issueEdgeRows = async (issueIds: readonly string[]) => {
     const sessionsByIssue = new Map<string, SessionRow[]>()
@@ -1007,18 +1005,32 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const ordersByIssue = new Map<string, ShipOrderSubject[]>()
     const lanesByIssue = new Map<string, ShipLaneSubject[]>()
     const effectsByIssue = new Map<string, EffectSubject[]>()
+    const eventsByIssue = new Map<string, IssueEventSubject[]>()
     if (issueIds.length === 0) {
-      return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
+      return {
+        sessionsByIssue,
+        depsByIssue,
+        ordersByIssue,
+        lanesByIssue,
+        effectsByIssue,
+        eventsByIssue,
+      }
     }
     const wanted = new Set(issueIds)
-    const [sessionRows, depRows, orderIds] = await Promise.all([
+    const [sessionRows, depRows, orderIds, eventRows] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
       store.sync.installedIdsWithPrefixes(
         'issueDep',
         issueIds.map((id) => issueDepFromPrefix(id)),
       ),
       store.shipping.orderIdsForIssues(issueIds),
+      store.events.feedWindowOfSubjects(issueIds, FEED_WINDOW),
     ])
+    for (const row of eventRows) {
+      const subjects = eventsByIssue.get(row.subject) ?? []
+      subjects.push({ entity: 'issueEvent', entityId: issueEventRowId(row.id, row.subject) })
+      eventsByIssue.set(row.subject, subjects)
+    }
     for (const row of sessionRows) {
       if (row.issueId == null) continue
       const bucket = sessionsByIssue.get(row.issueId)
@@ -1103,7 +1115,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         lanesByIssue.set(payload.issueId, lanes)
       }
     }
-    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
+    return {
+      sessionsByIssue,
+      depsByIssue,
+      ordersByIssue,
+      lanesByIssue,
+      effectsByIssue,
+      eventsByIssue,
+    }
   }
 
   /**
@@ -1321,7 +1340,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             // The issue's feed history rides its audience (POD-1772): a grant that
             // hands somebody the issue and none of its events would give them a
             // chat pane that starts at the moment they were let in.
-            ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
+            ...(rows.eventsByIssue.get(ref.entityId) ?? []),
             ...(rows.ordersByIssue.get(ref.entityId) ?? []),
             // The lanes of its queued orders: a grant can make a lane readable and a
             // revoke can take the last readable order in it away (POD-4974 O2).
