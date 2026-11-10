@@ -60,13 +60,13 @@ export const MachineProjects = observer(function MachineProjects({
           </Button>
         </div>
       )}
-      <div className="space-y-1">
+      <div className="settings-list">
         {!view?.repositories.loaded ? (
-          <p className="settings-prose px-4 py-4" role="status">
+          <p className="settings-list-note settings-prose" role="status">
             Loading projects…
           </p>
         ) : view.projects.length === 0 ? (
-          <div className="px-4 py-4">
+          <div className="settings-list-note">
             <p className="settings-label">No projects here yet</p>
             <p className="settings-prose mt-1">Look for git repositories on this machine.</p>
           </div>
@@ -81,7 +81,7 @@ export const MachineProjects = observer(function MachineProjects({
 const MachineProject = observer(function MachineProject({ view }: { view: ProjectOnMachine }) {
   const repo = view.repo
   return (
-    <div className="flex min-w-0 items-start gap-3 px-4 py-4">
+    <div className="settings-list-row flex min-w-0 items-start gap-3">
       <FolderGit2 size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="min-w-0">
         <p className="settings-label">

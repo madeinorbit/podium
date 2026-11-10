@@ -137,19 +137,22 @@ const MachineGrants = observer(function MachineGrants({
           </Button>
         </div>
       )}
-      <div>
+      <div className="settings-list">
         {machine.grants === undefined ? (
-          <p className="settings-prose px-4 py-4">
+          <p className="settings-list-note settings-prose">
             {canManage
               ? 'Access has not been reported yet.'
               : 'Only the person who looks after it or an admin can see who else has access.'}
           </p>
         ) : view.grants.length === 0 ? (
-          <p className="settings-prose px-4 py-4">Only the person who looks after it.</p>
+          <p className="settings-list-note settings-prose">Only the person who looks after it.</p>
         ) : (
           <ul aria-label="Who else can run agents here" className="space-y-1">
             {view.grants.map((grant) => (
-              <li key={grant.grantee} className="flex items-center justify-between gap-3 px-4 py-3">
+              <li
+                key={grant.grantee}
+                className="settings-list-row flex items-center justify-between gap-3"
+              >
                 <div className="min-w-0">
                   <p className="settings-label">
                     {roster?.nameOf(grant.grantee) ?? 'A member'}
@@ -174,7 +177,7 @@ const MachineGrants = observer(function MachineGrants({
           </ul>
         )}
         {open && canManage && (
-          <div className="py-2">
+          <div className="settings-list-note">
             <Row label="Person">
               <Select
                 value={selected?.id ?? null}

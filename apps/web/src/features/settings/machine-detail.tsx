@@ -109,7 +109,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           Only the person who looks after this machine or an admin can change it.
         </p>
       )}
-      <div>
+      <div className="settings-list">
         <TextRow
           label="Name"
           description="A name you can recognise in the workspace."

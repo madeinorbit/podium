@@ -93,7 +93,7 @@ export const MachineListRow = observer(function MachineListRow({
       data-pressable
       onClick={onOpen}
       aria-label={`Open ${machine.name}`}
-      className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+      className="settings-list-row flex w-full items-center gap-3 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
     >
       <Server size={18} className="shrink-0 text-muted-foreground" aria-hidden="true" />
       <span className="min-w-0 flex-1">

@@ -54,7 +54,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
       )}
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
       <ActiveServerMove canRecover={admin} />
-      <div className="space-y-1">
+      <div className="settings-list">
         {view.visible.map((machine) => (
           <MachineListRow
             key={machine.id}
@@ -69,7 +69,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
           />
         ))}
         {view.visible.length === 0 && (
-          <div className="px-4 py-6">
+          <div className="settings-list-note">
             <p className="settings-label">No machines yet</p>
             <p className="settings-prose mt-1">
               {admin
