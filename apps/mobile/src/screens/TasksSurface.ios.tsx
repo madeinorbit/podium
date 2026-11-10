@@ -52,6 +52,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
+import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, useCallback } from 'react'
 import { StyleSheet, View } from 'react-native'
@@ -109,7 +110,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
 
 /**
  * THE TASKS TAB ON iOS — a real SwiftUI inset-grouped list. UIKit owns the
- * navigation bar, its large title, the search field and the tab bar; SwiftUI
+ * navigation bar, its large title, the search magnifier and the tab bar; SwiftUI
  * owns the rows, their swipe actions and their context menus, so iOS draws the
  * Liquid Glass and the gestures itself.
  *
@@ -154,10 +155,17 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
         { label: 'New task', icon: Plus, onPress: props.onNewTask },
       ]}
     >
-      {/* No inline search field (the board has none): a SwiftUI List is not a
-          scroll view UIKit's navigation bar can track, so a bar search field
-          would sit open under the title instead of hiding until pulled down.
-          Search runs from the system search tab, as on Work. */}
+      {/* Search the whole board (BoardFilter.text, backlog, done and proposals
+          included) from the native magnifier. Not the stacked field: a SwiftUI
+          List is not a scroll view UIKit's bar can track, so that field would
+          sit open under the title instead of hiding until pulled down. */}
+      <Stack.SearchBar
+        placement="integratedButton"
+        placeholder="Search tasks or ID"
+        autoCapitalize="none"
+        onChangeText={(event) => board?.search(event.nativeEvent.text)}
+        onCancelButtonPress={() => board?.search('')}
+      />
       {/* React Native notices cannot sit inside a SwiftUI List. */}
       <View>
         <StorageNoticeAlert />
