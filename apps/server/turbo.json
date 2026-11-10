@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -292,9 +290,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/contracts.json"
-      ]
+      "outputs": [".test-shard-reports/contracts.json"]
     },
     "test:store": {
       "dependsOn": [],
@@ -317,6 +313,7 @@
         "src/accounts.test.ts",
         "src/accounts.ts",
         "src/admin-audit-filters.test.ts",
+        "src/admin-audit-projection.test.ts",
         "src/admin-routes.statement-count.test.ts",
         "src/admin-routes.ts",
         "src/answer-delivery.test.ts",
@@ -449,6 +446,7 @@
         "src/migrations/out-of-order-rebuild.test.ts",
         "src/migrations/per-user-state-family.test.ts",
         "src/migrations/personal-preference-store.test.ts",
+        "src/migrations/personal-provider-keys.test.ts",
         "src/migrations/personal-task-records.test.ts",
         "src/migrations/pre-migrated-fixture.test.ts",
         "src/migrations/proposed-backfill.test.ts",
@@ -1047,6 +1045,7 @@
         "src/store.search-index.test.ts",
         "src/store.test.ts",
         "src/store.ts",
+        "src/store/accounts-resolution.statement-count.test.ts",
         "src/store/accounts.test.ts",
         "src/store/accounts.ts",
         "src/store/agent-profiles.ts",
@@ -1248,9 +1247,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/store.json"
-      ]
+      "outputs": [".test-shard-reports/store.json"]
     },
     "test:services": {
       "dependsOn": [],
@@ -2060,15 +2057,14 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/services.json"
-      ]
+      "outputs": [".test-shard-reports/services.json"]
     },
     "test:boundary": {
       "dependsOn": [],
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/apps/web/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -2961,9 +2957,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/boundary.json"
-      ]
+      "outputs": [".test-shard-reports/boundary.json"]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -3523,9 +3517,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/normalized-wire.json"
-      ]
+      "outputs": [".test-shard-reports/normalized-wire.json"]
     }
   }
 }

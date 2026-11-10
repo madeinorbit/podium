@@ -400,6 +400,7 @@
       "testFiles": [
         "apps/server/src/accounts.test.ts",
         "apps/server/src/admin-audit-filters.test.ts",
+        "apps/server/src/admin-audit-projection.test.ts",
         "apps/server/src/admin-routes.statement-count.test.ts",
         "apps/server/src/answer-delivery.test.ts",
         "apps/server/src/auth-route.test.ts",
@@ -468,6 +469,7 @@
         "apps/server/src/migrations/out-of-order-rebuild.test.ts",
         "apps/server/src/migrations/per-user-state-family.test.ts",
         "apps/server/src/migrations/personal-preference-store.test.ts",
+        "apps/server/src/migrations/personal-provider-keys.test.ts",
         "apps/server/src/migrations/personal-task-records.test.ts",
         "apps/server/src/migrations/pre-migrated-fixture.test.ts",
         "apps/server/src/migrations/proposed-backfill.test.ts",
@@ -646,6 +648,7 @@
         "apps/server/src/store.repo-id.test.ts",
         "apps/server/src/store.search-index.test.ts",
         "apps/server/src/store.test.ts",
+        "apps/server/src/store/accounts-resolution.statement-count.test.ts",
         "apps/server/src/store/accounts.test.ts",
         "apps/server/src/store/auth.test.ts",
         "apps/server/src/store/automations.golden.test.ts",
@@ -752,6 +755,7 @@
         "src/accounts.test.ts",
         "src/accounts.ts",
         "src/admin-audit-filters.test.ts",
+        "src/admin-audit-projection.test.ts",
         "src/admin-routes.statement-count.test.ts",
         "src/admin-routes.ts",
         "src/answer-delivery.test.ts",
@@ -884,6 +888,7 @@
         "src/migrations/out-of-order-rebuild.test.ts",
         "src/migrations/per-user-state-family.test.ts",
         "src/migrations/personal-preference-store.test.ts",
+        "src/migrations/personal-provider-keys.test.ts",
         "src/migrations/personal-task-records.test.ts",
         "src/migrations/pre-migrated-fixture.test.ts",
         "src/migrations/proposed-backfill.test.ts",
@@ -1482,6 +1487,7 @@
         "src/store.search-index.test.ts",
         "src/store.test.ts",
         "src/store.ts",
+        "src/store/accounts-resolution.statement-count.test.ts",
         "src/store/accounts.test.ts",
         "src/store/accounts.ts",
         "src/store/agent-profiles.ts",
@@ -2822,6 +2828,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/apps/web/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -3718,9 +3725,7 @@
     {
       "id": "normalized-wire",
       "title": "normalized-wire and load guards",
-      "testFiles": [
-        "apps/server/src/issues.normalized-wire.test.ts"
-      ],
+      "testFiles": ["apps/server/src/issues.normalized-wire.test.ts"],
       "inputs": [
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
