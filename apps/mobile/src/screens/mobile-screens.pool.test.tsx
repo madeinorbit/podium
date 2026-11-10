@@ -563,7 +563,12 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   expect(state.pool!.tables.session.has(authorId)).toBe(false)
   await checkpoint('startup')
   await act(async () => {
-    fireEvent.click(screen.getByLabelText('Show done tasks'))
+    // Show done lives in the Filter and display sheet (POD-2378).
+    fireEvent.click(screen.getByLabelText('Filter and display'))
+  })
+  await act(async () => {
+    fireEvent.click(screen.getByRole('switch', { name: 'Show done' }))
+    fireEvent.click(screen.getByLabelText('Close sheet'))
     fireEvent.click(screen.getByLabelText('Search tasks'))
   })
   await act(async () => {
