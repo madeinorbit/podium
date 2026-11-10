@@ -139,6 +139,13 @@ export function SettingsFrame({
   const results = searchSettings(query, pages)
   const searching = query.trim().length > 0
   const [selectedResult, setSelectedResult] = useState(0)
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 759px)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 759px)')
+    const changed = () => setNarrow(media.matches)
+    media.addEventListener('change', changed)
+    return () => media.removeEventListener('change', changed)
+  }, [])
   const [phonePage, setPhonePage] = useState(selectedPage ?? false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: browser history restores the page/rail screen too.
   useEffect(() => {
@@ -385,11 +392,12 @@ export function SettingsFrame({
                 )}
               </div>
             ))}
-            <AdminViewerError viewer={viewer} />
+            {(!narrow || !phonePage) && <AdminViewerError viewer={viewer} />}
           </nav>
           <div className="settings-pane">
             <div ref={scrollRef} className="settings-pane-scroll">
               <div className="settings-measure">
+                {narrow && phonePage && <AdminViewerError viewer={viewer} />}
                 {searching && <div className="settings-search-results">{renderResults()}</div>}
                 {takeover && (
                   <SettingsTakeover
