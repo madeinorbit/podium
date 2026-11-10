@@ -416,6 +416,26 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
     line: 581,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 82,
+    why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 83,
+    why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 71,
+    why: "the identity package's own transaction, declared on its Runtime. It only joins or forwards to the edition's port above, so it is machinery under the span the port opens, not a second mouth.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 161,
+    why: "the same declaration's implementation.",
+  },
 ]
 
 /**
