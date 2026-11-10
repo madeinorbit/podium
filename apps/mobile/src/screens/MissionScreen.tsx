@@ -28,6 +28,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { useHeaderInset } from '../navigation/header-inset'
 import { color } from '../theme/theme'
 
 /**
@@ -183,6 +184,7 @@ export const MissionScreen = observer(function MissionScreen() {
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       bareBack
+      underHeader
       subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
       right={
         <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
@@ -256,6 +258,9 @@ function MissionBody({
 }) {
   // The deck bar floats over the feed so the chat scrolls under it (board
   // DeckA); its measured height is the transcript's top inset.
+  // The screen runs under the transparent nav bar: the deck bar rests just
+  // below it, and the transcript below both.
+  const headerInset = useHeaderInset()
   const [barHeight, setBarHeight] = useState(0)
   const onBarLayout = (event: LayoutChangeEvent) => {
     const next = Math.round(event.nativeEvent.layout.height)
@@ -263,7 +268,7 @@ function MissionBody({
   }
   return (
     <View style={styles.body}>
-      <Glass style={styles.deck}>
+      <Glass style={[styles.deck, { top: headerInset }]}>
         <View onLayout={onBarLayout}>
           <MissionBar full={full} onOpen={onOpenDetails} />
         </View>
@@ -275,7 +280,7 @@ function MissionBody({
             session={current}
             issue={currentIssue}
             findRequest={findRequest}
-            topInset={barHeight}
+            topInset={headerInset + barHeight}
           />
         ) : (
           <EmptyState
