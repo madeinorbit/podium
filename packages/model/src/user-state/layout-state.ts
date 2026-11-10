@@ -75,7 +75,6 @@ export const LAYOUT_EXACT_KEYS = [
   /** Per-session terminal presentation: chat vs native map. */
   'panelMode',
   /** Default panel mode for new sessions. */
-  'panelModeDefault',
   /** Sidebar chrome layout variant (e.g. unified). */
   'sidebarLayout',
   /** Legacy sidebar sub-tab when present. */
@@ -151,7 +150,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.superOpen.v2': 'superOpen',
   'podium:superagent:mode': 'superagent.mode',
   'podium.rightPanel': 'rightPanel',
-  // panelMode / panelModeDefault are deliberately NOT listed as string literals
+  // panelMode is deliberately NOT listed as a string literal
   // here: `panel-mode-duality` (POD-329) forbids restating those storage-key
   // spellings outside packages/client-core/src/ui-state.ts. They are mapped in
   // {@link layoutKeyFromLegacy} by composition instead.
@@ -182,9 +181,6 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
   // the storage-key string literal.
   if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {
     return 'panelMode'
-  }
-  if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelModeDefault') {
-    return 'panelModeDefault'
   }
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
   if (legacyKey.startsWith('podium:sidebar:')) {

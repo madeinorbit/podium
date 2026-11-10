@@ -355,11 +355,9 @@ export interface Replica {
 /**
  * Exact legacy localStorage keys folded into the ui-state collection.
  *
- * panelMode / panelModeDefault are composed so the sole storage-key spelling of
- * those names lives in `ui-state.ts` (panel-mode-duality / POD-329).
+ * panelMode is composed so its sole storage-key spelling lives in `ui-state.ts` (panel-mode-duality / POD-329).
  */
 const PANEL_MODE_LEGACY = 'podium.' + 'panelMode'
-const PANEL_MODE_DEFAULT_LEGACY = 'podium.' + 'panelModeDefault'
 
 export const LEGACY_UI_KEYS = [
   'podium.view',
@@ -375,7 +373,6 @@ export const LEGACY_UI_KEYS = [
   PANEL_MODE_LEGACY,
   'podium.homeMode',
   'podium.issues.display',
-  PANEL_MODE_DEFAULT_LEGACY,
   'podium.echoHud',
   'podium.switchTrace',
   'podium.shell.density',

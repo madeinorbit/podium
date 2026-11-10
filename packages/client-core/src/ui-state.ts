@@ -69,7 +69,6 @@ export const UI_STATE_KEYS = {
   fileScroll: 'podium.fileScroll',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
-  panelModeDefault: 'podium.panelModeDefault',
   dockShells: 'podium.dockShells',
   recentFiles: 'podium.recentFiles',
   /** Right-dock tab when the dock is a separate surface (`issue` | `git` | …). */
@@ -105,7 +104,6 @@ export const WORKSPACES_KEY = UI_STATE_KEYS.workspaces
 export const FILE_TABS_KEY = UI_STATE_KEYS.fileTabs
 export const SUPER_OPEN_KEY = UI_STATE_KEYS.superOpen
 export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
-export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
 export const DOCK_SHELLS_KEY = UI_STATE_KEYS.dockShells
 export const RECENT_FILES_KEY = UI_STATE_KEYS.recentFiles
 export const RIGHT_PANEL_KEY = UI_STATE_KEYS.rightPanel
@@ -140,12 +138,7 @@ export interface UiStateRoute {
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   UI_STATE_KEYS.fileScroll,
   'podium.chat.stickyPrompts',
-  /** How much of a transcript the chat feed renders (POD-376) — a reading
-   *  preference belonging to the screen you read on, not to the session. */
-  'podium.chat.verbosity',
-  /** Whether the diff sheet wraps long lines — the same species as chat
-   *  verbosity: how wide the screen you are reading on is, not a property of
-   *  the diff. A phone has no business inheriting a monitor's answer. */
+  /** Whether the diff sheet wraps long lines on this screen. */
   'podium:diff-sheet:wrap',
   'podium.sounds.enabled',
   'podium.sounds.ownerWindow',
@@ -264,7 +257,6 @@ export const writeMissionScreenView = (mode: FlightDeckMode): string | null =>
   mode === 'full' ? null : mode
 
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
-export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
 export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'

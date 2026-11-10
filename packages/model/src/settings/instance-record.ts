@@ -16,7 +16,7 @@
  *  - WRITERS: admins (`operator`), by generic edits; the server for its own
  *    deployment facts (the telemetry install id).
  *  - FIELDS: the tier's leaf PATHS, flat (`hibernation.memoryPct`,
- *    `gitWorkflow.mergeStyle`), so field-level last-writer-wins is per leaf, the
+ *    `gitWorkflow.defaultParentBranch`), so field-level last-writer-wins is per leaf, the
  *    rule the matrix row keeps for this tier. `experimental` is ONE leaf: it is an
  *    open record of flag ids (`SETTINGS_OPEN_RECORD_LEAVES`), classified whole.
  *  - VALUES: what the instance resolves to, defaults spelled out, since the

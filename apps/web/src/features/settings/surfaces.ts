@@ -14,7 +14,6 @@ export const TAB_PATHS = {
     'roles.coding',
     'autoContinue.enabled',
     'roles.superagent',
-    'roles.shipwright',
     'roles.background',
   ],
   accounts: [],
@@ -85,13 +84,17 @@ export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
   'apiKeys.openrouter': 'Retired: migrated into personal managed accounts on AI accounts.',
   'apiKeys.anthropic': 'Retired: migrated into personal managed accounts on AI accounts.',
   'apiKeys.openai': 'Retired: migrated into personal managed accounts on AI accounts.',
-  'gitWorkflow.mergeStyle': 'No consumer reads this setting. Tasks always land by fast-forward.',
+  ...Object.fromEntries(
+    ['accountId', 'model', 'effort', 'harness'].map((leaf) => [
+      `roles.shipwright.${leaf}`,
+      'Retained for the dormant Shipwright engine; no shipping engine is offered on Agents.',
+    ]),
+  ),
   'sidebar.repoOrder': 'Set by dragging project headers in the sidebar.',
-  'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',
   'autoContinue.promptDismissed':
     'Written by dismissing the auto-continue prompt. A readAt/snooze-shaped fact (POD-351, POD-731): it records that THIS user dismissed something, and a settings row for it would invite an admin to un-dismiss it for everyone.',
   'deployment.authOpenMode':
-    'Ended by an admin’s “require sign-in” control under Account, drawn only for an admin (canManageInstance). That tab is personal, so it does not claim this instance leaf.',
+    'Changed by the admin-only Require sign-in control on Access through the instance login command.',
   'deployment.connectEnabled':
     'No control ships for it. It is imported from config.json’s connect.enabled (settings-config-import.ts) or set by the deployment.',
   'steward.enabled':
