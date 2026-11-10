@@ -2,6 +2,7 @@ import { createLogger } from '@podium/logger'
 import {
   asMachineId,
   DEFER_NEXT_MESSAGE,
+  type IssueGitState,
   type IssueId,
   type IssueProjection,
   type IssueRehomeTarget,
@@ -962,8 +963,8 @@ export class IssueGitWorkflowModule {
     // After the stamp, not before: a probe finishing mid-commit still sees no
     // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
     // freed worktree has none, and one close keeps is re-probed below.
-    const cached = this.store.gitStates.get(id)
-    this.store.setGitState(id, {
+    const cached = await this.store.gitState(id)
+    await this.store.setGitState(id, {
       branch: now.branch,
       ...cached,
       updatedAt: this.store.now(),
@@ -1988,8 +1989,8 @@ export class IssueGitWorkflowModule {
 
   // ── git-state probes [POD-98] ─────────────────────────────────────────────
   // "Has this task committed, and on which branch?" — probed on the working→idle
-  // edge (the only moment commits appear), joined into the wire as an ephemeral
-  // field (core.gitStates). File attribution comes from the daemon's hook-ingest
+  // edge (the only moment commits appear), stored as issueGitState status.
+  // File attribution comes from the daemon's hook-ingest
   // touched-path capture. Commit attribution uses that daemon HEAD-delta ledger
   // only for private worktrees; shared checkout counts come from issue markers
   // in history because another session can advance HEAD inside the bracket.
@@ -1997,14 +1998,12 @@ export class IssueGitWorkflowModule {
     string,
     { promise: Promise<void>; rerun: boolean; fallbackCwd?: string }
   >()
-  /** A failed publication must retry even if the next probe finds the same facts. */
-  private gitPublishPending = new Set<string>()
   private gitCommitsBySession = new Map<string, string[]>()
   private gitTouchedBySession = new Map<string, Set<string>>()
   /** Last observed tip of every parent branch under watch, keyed by
    *  {@link parentBranchKey} — the movement detector for
-   *  {@link sweepParentBranchMovement}. Ephemeral like `gitStates`, and for the
-   *  same reason: it caches a git fact, never a decision. */
+   *  {@link sweepParentBranchMovement}. It decides when to re-probe and never
+   *  answers a record read. */
   private parentTips = new Map<string, string>()
 
   /** Capture daemon-reported git attribution and return the board refresh that
@@ -2021,7 +2020,7 @@ export class IssueGitWorkflowModule {
     this.gitTouchedBySession.set(sessionId, touched)
     const resolved = await this.issueForSession(sessionId)
     if (!resolved) return undefined
-    if (activity.commits?.length || !this.store.gitStates.has(resolved.row.id)) {
+    if (activity.commits?.length || !(await this.store.gitState(resolved.row.id))) {
       return await this.refreshGitState(resolved.row.id, resolved.sess.cwd)
     }
     return undefined
@@ -2153,22 +2152,16 @@ export class IssueGitWorkflowModule {
       promise: Promise.resolve(),
     }
     refresh.promise = (async () => {
-      let changed = false
+      let observation: { state: IssueGitState; landedAt: string | null } | undefined
       do {
         // Coalesce rapid daemon messages/turn-end edges before starting four
         // read-only repo operations. A request during the probe flips rerun and
         // is folded into exactly one trailing pass.
         await new Promise((resolve) => setTimeout(resolve, 10))
         refresh.rerun = false
-        changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
+        observation = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) ?? observation
       } while (refresh.rerun)
-      if (changed) this.gitPublishPending.add(id)
-      if (this.gitPublishPending.has(id)) {
-        const current = await this.store.row(id)
-        if (current && !current.deletedAt)
-          await this.store.broadcastIssue(this.store.serverWriter, current)
-        this.gitPublishPending.delete(id)
-      }
+      if (observation) await this.store.setGitState(id, observation.state, observation.landedAt)
     })().finally(() => {
       if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)
     })
@@ -2199,9 +2192,9 @@ export class IssueGitWorkflowModule {
    * for every issue in that group, and only a MOVED tip costs a probe — the
    * steady state is one cheap git call per watched ref per tick.
    *
-   * A tip seen for the first time is recorded, not acted on. `gitStates` is
-   * ephemeral, so a fresh process holds no stale snapshot to correct, and
-   * fanning out across every issue at boot would be pure cost.
+   * A tip seen for the first time is recorded, not acted on. Stored observations
+   * remain available across restart; the next issue event refreshes them without
+   * fanning out across every issue at boot.
    */
   async sweepParentBranchMovement(): Promise<void> {
     // The landing base is per repository [POD-2065]; one registry read per
@@ -2291,19 +2284,22 @@ export class IssueGitWorkflowModule {
   }
 
   /** Run one coalesced probe and retain its issue's final state for publication. */
-  private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
+  private async probeGitStateOnce(
+    id: string,
+    fallbackCwd?: string,
+  ): Promise<{ state: IssueGitState; landedAt: string | null } | undefined> {
     const row = await this.store.row(id)
-    if (!row || row.deletedAt) return false
+    if (!row || row.deletedAt) return undefined
     // Landed and freed [POD-2151]: the merge action wrote the settled state
     // before it freed the worktree. A session's fallback cwd is that deleted
     // worktree, and probing it as a shared checkout would overwrite the
     // verdict, so keep whatever is cached and probe nothing.
-    if (row.worktreePath === null && row.landedAt) return false
+    if (row.worktreePath === null && row.landedAt) return undefined
     // A landing during this probe makes its answer pre-merge [POD-2151].
     const landedAt = row.landedAt ?? null
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
-    if (!cwd) return false
+    if (!cwd) return undefined
     try {
       const members = await this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
@@ -2335,11 +2331,11 @@ export class IssueGitWorkflowModule {
         this.store.now(),
       )
       // Discard it rather than overwrite the state the merge action settled.
-      if (((await this.store.row(id))?.landedAt ?? null) !== landedAt) return false
-      return this.store.setGitState(id, state)
+      if (((await this.store.row(id))?.landedAt ?? null) !== landedAt) return undefined
+      return { state, landedAt }
     } catch {
       // Probe failure leaves the last completed state intact.
-      return false
+      return undefined
     }
   }
 

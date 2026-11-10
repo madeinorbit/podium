@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -396,16 +395,28 @@ export class IssueStore {
       .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.userId.localeCompare(b.userId))
   }
 
-  /** Ephemeral observations, published only as issueGitState rows. */
-  readonly gitStates = new Map<string, IssueGitState>()
+  async gitState(id: string): Promise<IssueGitState | undefined> {
+    return await this.deps.store.issues.gitStates.get(id)
+  }
 
-  /** Keep the last fact-change time, without publishing a clock-only update. */
-  setGitState(id: string, state: IssueGitState): boolean {
-    const previous = this.gitStates.get(id)
-    if (previous && isDeepStrictEqual(previous, { ...state, updatedAt: previous.updatedAt }))
-      return false
-    this.gitStates.set(id, state)
-    return true
+  /** Facts and their publication commit together; repeated checks retain their time. */
+  async setGitState(
+    id: string,
+    state: IssueGitState,
+    expectedLandedAt?: string | null,
+  ): Promise<boolean> {
+    const committed = await this.arbitrated(this.serverWriter).commit({
+      write: async (scope) => {
+        const row = await this.row(id)
+        if (
+          !row || row.deletedAt ||
+          (expectedLandedAt !== undefined && (row.landedAt ?? null) !== expectedLandedAt)
+        ) return undefined
+        return await this.deps.store.issues.gitStates.set(scope, id, state)
+      },
+      changes: (value) => value ? [{ entity: 'issueGitState', id, op: 'upsert', value }] : [],
+    })
+    return committed.result !== undefined
   }
 
   /**
@@ -857,7 +868,11 @@ export class IssueStore {
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
   /** An issue's own row and independently keyed companions in the same commit. */
-  async companionChanges(row: IssueRow, projection?: IssueProjection): Promise<EntityChangeSpec[]> {
+  async companionChanges(
+    row: IssueRow,
+    projection?: IssueProjection,
+    gitStates?: ReadonlyMap<string, IssueGitState>,
+  ): Promise<EntityChangeSpec[]> {
     const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
     return [
       {
@@ -866,7 +881,7 @@ export class IssueStore {
         op: 'upsert',
         value: projection ?? (await this.projection(row)),
       },
-      this.gitStateChange(row),
+      await this.gitStateChange(row, gitStates),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
         id: issueUserStateRowId(state.userId, state.entityId),
@@ -876,8 +891,11 @@ export class IssueStore {
     ]
   }
 
-  private gitStateChange(row: IssueRow): EntityChangeSpec {
-    const state = row.deletedAt ? undefined : this.gitStates.get(row.id)
+  private async gitStateChange(
+    row: IssueRow,
+    states?: ReadonlyMap<string, IssueGitState>,
+  ): Promise<EntityChangeSpec> {
+    const state = row.deletedAt ? undefined : states ? states.get(row.id) : await this.gitState(row.id)
     return state
       ? {
           entity: 'issueGitState',
@@ -888,18 +906,13 @@ export class IssueStore {
       : { entity: 'issueGitState', id: row.id, op: 'remove' }
   }
 
-  /** Ephemeral git observations and durable personal markers share the feed's
-   * recovery path. Boot removes prior-process git observations; purge removes
-   * personal rows whose issue was deleted. */
+  /** Rebuild companions from stored facts, including observations from before restart. */
   async reconcileCompanions(): Promise<void> {
-    // The observed issues are read by id, in repository order, and diffed in
-    // the same span (POD-6158).
     await this.deps.store.transact(async () => {
-      const observed = await this.deps.store.issues.getIssues([...this.gitStates.keys()])
-      const gitRows = inRepositoryOrder([...observed.values()], (row) => row).flatMap((row) => {
-        const change = this.gitStateChange(row)
-        return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
-      })
+      const gitRows: { id: string; value: unknown }[] = []
+      for await (const page of this.deps.store.issues.gitStates.pages()) {
+        gitRows.push(...page.map((value) => ({ id: value.id, value })))
+      }
       await this.deps.ledger.reconcile('issueGitState', gitRows)
     })
     const states = await this.deps.store.issues.listIssueUserStateRows()
@@ -1248,8 +1261,9 @@ export class IssueStore {
             this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           }
           wires = await Promise.all(rows.map((row) => this.projection(row)))
+          const gitStates = await this.deps.store.issues.gitStates.getMany(rows.map(({ id }) => id))
           committedProjectionChanges = await Promise.all(
-            rows.map(async (row, index) => await this.companionChanges(row, wires[index])),
+            rows.map(async (row, index) => await this.companionChanges(row, wires[index], gitStates)),
           )
           committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
@@ -1293,7 +1307,7 @@ export class IssueStore {
 
   /** A git observation changes only its independently keyed companion. */
   async broadcastIssue(writer: IssueWriter, row: IssueRow): Promise<void> {
-    await this.arbitrated(writer).capture([this.gitStateChange(row)])
+    await this.arbitrated(writer).capture([await this.gitStateChange(row)])
   }
 
   /**

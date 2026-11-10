@@ -15,6 +15,9 @@ import { EventsRepository } from '../store/events'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
+import { ConversationsRepository } from '../store/conversations'
+import { GrantsRepository } from '../store/grants'
+import { MachinesRepository } from '../store/machines'
 import { MessagesRepository } from '../store/messages'
 import { SessionsRepository } from '../store/sessions'
 import { SettingsRepository } from '../store/settings'
@@ -40,6 +43,9 @@ export function recordReadsOver(
   const reads: RecordReads = {
     store: {
       issues: new IssuesRepository(q, unsupported),
+      machines: new MachinesRepository(q),
+      grants: new GrantsRepository(q),
+      conversations: new ConversationsRepository(q),
       sessions: new SessionsRepository(q),
       users: new UsersRepository(q),
       shipping: new ShippingRepository(q),

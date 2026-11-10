@@ -3,7 +3,7 @@ import {
   scanAgentConversationsCached,
   summarizePaths,
 } from '@podium/harness'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import type { ConversationDiagnosticWire, ConversationDiscoveryWire } from '@podium/model'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
   attributeMemory,
@@ -77,7 +77,7 @@ export async function runIndexRefreshJob(
   input: IndexRefreshJobInput,
   cache: ConversationDiscoveryCache,
 ): Promise<{
-  changed: ConversationSummaryWire[]
+  changed: ConversationDiscoveryWire[]
   removed: string[]
   diagnostics: ConversationDiagnosticWire[]
 }> {

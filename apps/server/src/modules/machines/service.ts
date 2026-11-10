@@ -24,7 +24,6 @@ import {
   type MachineRequirement,
   type MachineServiceAssignment,
   type MachineServiceReport,
-  type SyncedServiceReport,
   type MachineUseDecision,
   type MachineWire,
   machineRejection,
@@ -77,6 +76,8 @@ import { type EnrollmentHost, type MachineManagementContext, machineTransition }
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
 import { supersedeMachine } from './supersession'
+import { deriveVersionState } from './version-state'
+import { storedMachineRecordFacts } from './record-facts'
 import { UpdateSpaceRequests } from './update-space-requests'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
@@ -210,13 +211,7 @@ export function deriveServerMoveEligibility(input: {
  * `dev+<sha>` compares by exact string equality only. `ahead` is reserved for
  * the delivery layer; Phase 1 has no downgrade-aware verdict to add here.
  */
-export function deriveVersionState(
-  reported: string | null,
-  target: string | undefined,
-): MachineVersionState {
-  if (!reported || !target) return 'unreported'
-  return reported === target ? 'current' : 'behind'
-}
+export { deriveVersionState } from './version-state'
 
 /**
  * The pairing-code surface this core module consumes WITHOUT importing the hub
@@ -1878,80 +1873,13 @@ export class MachinesService {
    * member's own verdicts and decides who gets which.
    */
   async recordFacts(ids?: readonly MachineId[]): Promise<MachineRecordFacts[]> {
-    const records =
-      ids === undefined
-        ? await this.machineRecords()
-        : [...(await this.deps.store.machines.getMachines(ids)).values()]
-    this.notePresence(records)
-    const custodians = await this.custodiansOf(records.map((machine) => machine.id))
-    const fleetChannel = this.fleetChannel()
-    return records.map((m) => {
-      const updateChannel = resolveMachineChannel(m.updateChannelOverride, fleetChannel)
-      let target: string | undefined
-      let targetUnavailableReason: string | undefined
-      try {
-        const published = this.deps.channelTarget?.(updateChannel)
-        target = published?.version
-        targetUnavailableReason = published?.unavailableReason
-      } catch {
-        target = undefined
-      }
-      const machine: MachineProjection = {
-        id: m.id,
-        name: m.name,
-        loggedOutHarnesses: AgentKind.options.filter((kind) =>
-          m.inventory?.agents.some(
-            (agent) => agent.kind === kind && agent.installed === true && agent.login.state === 'out',
-          ),
-        ),
-        custodian: custodians.get(m.id) ?? null,
-        appVersion: m.appVersion,
-        updateChannel,
-        updateChannelOverride: m.updateChannelOverride,
-        targetVersion: target ?? null,
-        versionState: deriveVersionState(m.appVersion, target),
-        installKind: m.installKind,
-      }
-      return {
-        machine,
-        revokedAt: m.revokedAt,
-        supersededBy: m.supersededBy ?? null,
-        see: {
-          hostname: m.hostname,
-          revokedAt: m.revokedAt,
-          supersededBy: m.supersededBy ?? null,
-          ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
-          hostsServer: m.id === this.deps.hostMachineId,
-          serverMoveSupported:
-            m.wireSchemaDigest === wireSchemaDigest() &&
-            m.deliveryCaps.includes(SERVER_MOVE_CAPABILITY),
-          // No heartbeat times on a synced record: they moved every few seconds
-          // and rewrote every member's access row (see SyncedServiceReport).
-          ...(m.serviceReport ? { services: withoutObservedAt(m.serviceReport) } : {}),
-          serviceAssignment: m.serviceAssignment,
-          components: m.components ?? [],
-          deliveryCaps: m.deliveryCaps,
-          wireSchemaDigest: m.wireSchemaDigest,
-          targetUnavailableReason: targetUnavailableReason ?? null,
-        },
-        use: {
-          harnessVersions: (m.harnessVersions ?? []).map(({ lastSeen: _lastSeen, ...report }) => {
-            const policy =
-              HARNESS_VERSION_POLICIES[report.harness as keyof typeof HARNESS_VERSION_POLICIES]
-            return {
-              ...report,
-              ...(policy
-                ? {
-                    verifiedThrough: policy.verifiedThrough,
-                    unverified: gateHarnessVersion(policy, report.version) === 'unverified',
-                  }
-                : {}),
-            }
-          }),
-          ...(m.inventory ? { inventory: m.inventory } : {}),
-        },
-      }
-    })
+    return await storedMachineRecordFacts(this.deps.store, ids)
+  }
+
+  /** Capture the resolved deployment input at boot and on settings publication. */
+  async storeRecordChannel(): Promise<boolean> {
+    const channel = this.fleetChannel()
+    return await this.deps.store.machines.recordContext.setFleetChannel(channel)
   }
 
   /** The custodian of each machine, from its custody edge, in one read. */
@@ -2249,7 +2177,7 @@ export class MachinesService {
    * exactly as a per-machine change does for one.
    */
   async refreshFleetChannel(): Promise<void> {
-    await this.publishMachines()
+    if (await this.storeRecordChannel()) await this.publishMachines()
   }
 
   /** Persist the selected source independently for every joined machine.
@@ -2464,10 +2392,4 @@ export class MachinesService {
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     return id
   }
-}
-
-function withoutObservedAt(report: MachineServiceReport): SyncedServiceReport {
-  const { observedAt: _server, ...server } = report.server
-  const { observedAt: _agents, ...agentExecution } = report.agentExecution
-  return { ...report, server, agentExecution }
 }

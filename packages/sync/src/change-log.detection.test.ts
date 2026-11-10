@@ -60,9 +60,9 @@ describe('change detection for the normalized issue record (POD-4971)', () => {
   })
 
   it('compares a conversation on its stable fields, and a corrupt stored row as absent', () => {
-    const conversation = { id: 'c', title: 'one', updatedAt: 't1', messageCount: 1, statusHint: 'idle' }
+    const conversation = { id: 'c', title: 'one', updatedAt: 't1', messageCount: 1 }
     const stored = JSON.stringify(conversation)
-    const churned = { ...conversation, updatedAt: 't2', messageCount: 2, statusHint: 'busy' }
+    const churned = { ...conversation, updatedAt: 't2', messageCount: 2 }
     expect(differsFromStored('conversation', stored, churned, JSON.stringify(churned))).toBe(false)
     const renamed = { ...conversation, title: 'two' }
     expect(differsFromStored('conversation', stored, renamed, JSON.stringify(renamed))).toBe(true)

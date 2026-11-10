@@ -72,7 +72,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
         // The savepoint has been released and the list is already installed
         // today. Read it here, inside the window the bug lived in: the staged
         // layer must show it to its own writer…
-        expect(idsOf(memory.allConversations())).toContain('c-rolled-back')
+        expect(idsOf((await memory.allConversations()))).toContain('c-rolled-back')
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -81,7 +81,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     expect((await store.conversations.index.search({})).map((row) => row.id)).not.toContain(
       'c-rolled-back',
     )
-    expect(idsOf(memory.allConversations())).not.toContain('c-rolled-back')
+    expect(idsOf((await memory.allConversations()))).not.toContain('c-rolled-back')
   })
 
   it('keeps a discovery whose enclosing span commits (site 9)', async () => {
@@ -91,7 +91,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
       await memory.onDiscovery(machine, [conversation('c-kept', 'draft')], [])
     })
 
-    expect(idsOf(memory.allConversations())).toContain('c-kept')
+    expect(idsOf((await memory.allConversations()))).toContain('c-kept')
   })
 
   it('does not serve a meta edit the enclosing span rolled back (site 10)', async () => {
@@ -105,7 +105,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    const served = memory.allConversations().find((row) => row.id === 'c-meta')
+    const served = (await memory.allConversations()).find((row) => row.id === 'c-meta')
     expect(served?.name).toBeUndefined()
   })
 
@@ -127,7 +127,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
       })
     })
 
-    const served = memory.allConversations().find((row) => row.id === 'c-two')
+    const served = (await memory.allConversations()).find((row) => row.id === 'c-two')
     expect(served?.name).toBe('renamed')
     expect(served?.summary).toBe('a summary')
   })

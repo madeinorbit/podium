@@ -20,7 +20,7 @@
  * from a machine other than the one the request was sent to (POD-1175).
  */
 
-import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
+import type { ConversationDiagnosticWire, ConversationDiscoveryWire, MachineId } from '@podium/model'
 import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
@@ -129,7 +129,7 @@ export interface HostsDaemonPort {
 export interface ConversationsDaemonPort {
   onDiscovery(
     machineId: MachineId,
-    conversations: ConversationSummaryWire[],
+    conversations: ConversationDiscoveryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed?: string[],
   ): void

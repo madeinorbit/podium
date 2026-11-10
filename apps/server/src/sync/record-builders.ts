@@ -2,16 +2,15 @@
  * THE SERVER'S RECORD BUILDERS (POD-6763, design POD-6253 §1).
  *
  * One builder per record kind that is already database-only (the 2026-11-10
- * audit's 24): `build(ids)` and `streamAll()` read the model tables through
+ * audit's 24 plus POD-6765's four): `build(ids)` and `streamAll()` read the model tables through
  * the repositories and map each row with the SAME function the kind's
  * publisher uses today, so a built record is the published record. A builder
  * never reads `change_latest`, the change log, or server memory.
  *
- * The 8 kinds left out need more than the database today: `repo`, `shipLane`
+ * The 4 kinds left out need more than the database today: `repo`, `shipLane`
  * and `userPreferences` are joined or folded across tables (their builders
- * come with the slim-records phase), and `session`, `conversation`,
- * `machine`, `issueGitState` and `machineAccess` carry values that live only
- * in server memory until those values are stored or moved to the live channel.
+ * come with the slim-records phase), and `session` still carries live values.
+ * Conversation, machine, access and issue git facts now read stored rows (POD-6765).
  *
  * WHAT IS NOT A PURE FUNCTION OF ROWS, AND WHY IT IS STILL HERE
  *  - `effect`: the published input depends on which effect kinds this server
@@ -32,6 +31,7 @@
  */
 
 import {
+  asMachineId,
   checkoutRowId,
   INSTANCE_PREFERENCES_ROW_ID,
   instancePreferencesRecordOf,
@@ -44,6 +44,7 @@ import {
   parseIssueEventRowId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
+  parseMachineAccessRowId,
   parseMessageRecordRowId,
   parsePinRowId,
   parseReadPositionRowId,
@@ -75,6 +76,8 @@ import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
 import { issueEventWindow } from '../modules/issue-events/feed'
 import { issueDepToProjection, issueRowToProjection } from '../modules/issues/projection'
+import { storedMachineRecordFacts } from '../modules/machines/record-facts'
+import { machineRecordSpecs } from '../modules/machines/records'
 import {
   CONFIRMED_PER_SESSION,
   isOpenChat,
@@ -86,7 +89,7 @@ import { superagentThreadWireOf } from '../modules/superagent/thread-records'
 import { workflowRunRecordOf } from '../modules/workflows/records'
 import type { SessionStore } from '../store'
 import { checkoutWireOf } from '../store/checkouts'
-import type { IssueRow } from '../store/types'
+import type { IssueRow, MachineRecord } from '../store/types'
 
 /** What the builders read: the store's repositories (in process, or built over
  *  the sync worker's read-only connection), the effect kinds this server
@@ -110,6 +113,9 @@ export interface RecordReads {
     | 'workflows'
     | 'checkouts'
     | 'settings'
+    | 'machines'
+    | 'grants'
+    | 'conversations'
   >
   readonly effectExecutors: Pick<EffectExecutorRegistry, 'get'>
   readonly now: () => number
@@ -132,6 +138,91 @@ function parsed<T>(ids: readonly string[], parse: (id: string) => T | null | und
 }
 
 const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)]
+
+const conversation: Builder = {
+  kind: 'conversation',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    return (await store.conversations.index.records(ids)).map((value) => ({ id: value.id, value }))
+  },
+  async *streamAll({ store }) {
+    for await (const page of store.conversations.index.recordPages(RECORD_PAGE_SIZE))
+      yield page.map((value) => ({ id: value.id, value }))
+  },
+}
+
+const issueGitState: Builder = {
+  kind: 'issueGitState',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    return [...(await store.issues.gitStates.getMany(ids)).values()].map((value) => ({
+      id: value.id,
+      value,
+    }))
+  },
+  async *streamAll({ store }) {
+    for await (const page of store.issues.gitStates.pages(RECORD_PAGE_SIZE))
+      yield page.map((value) => ({ id: value.id, value }))
+  },
+}
+
+const machine: Builder = {
+  kind: 'machine',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    return (await storedMachineRecordFacts(store, parsed(ids, asMachineId))).map(
+      ({ machine: value }) => ({ id: value.id, value }),
+    )
+  },
+  async *streamAll(reads) {
+    for await (const page of reads.store.machines.recordPages(RECORD_PAGE_SIZE))
+      yield (await storedMachineRecordFacts(reads.store, undefined, { records: page })).map(
+        ({ machine: value }) => ({ id: value.id, value }),
+      )
+  },
+}
+
+async function storedAccessRows(
+  { store }: RecordReads,
+  ids: readonly string[],
+  records?: readonly MachineRecord[],
+): Promise<BuiltRecord[]> {
+  if (ids.length === 0) return []
+  const machineIds = ids.map(asMachineId)
+  const edges = await store.grants.loadForResources('machine', machineIds)
+  const facts = await storedMachineRecordFacts(store, machineIds, { grants: edges, records })
+  const specs = await machineRecordSpecs({
+    facts: async () => facts,
+    grants: async () => edges,
+    members: async () => await store.users.recordMembers(),
+  })
+  return specs.flatMap((spec) =>
+    spec.entity === 'machineAccess' && spec.op === 'upsert'
+      ? [{ id: spec.id, value: spec.value }]
+      : [],
+  )
+}
+
+const machineAccess: Builder = {
+  kind: 'machineAccess',
+  shape: 'row-and-reads',
+  async build(reads, ids) {
+    return await storedAccessRows(
+      reads,
+      unique(parsed(ids, parseMachineAccessRowId).map(({ machineId }) => machineId)),
+    )
+  },
+  async *streamAll(reads) {
+    for await (const page of reads.store.machines.recordPages(RECORD_PAGE_SIZE))
+      yield* pagesOf(
+        await storedAccessRows(
+          reads,
+          page.map(({ id }) => id),
+          page,
+        ),
+      )
+  },
+}
 
 // ---------------------------------------------------------------------------
 // Issues
@@ -686,6 +777,10 @@ const instancePreferences: Builder = {
 
 /** The 24 database-only kinds, in the order the audit lists them. */
 export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
+  conversation,
+  issueGitState,
+  machine,
+  machineAccess,
   issueProjection,
   issueDep,
   issueUserState,

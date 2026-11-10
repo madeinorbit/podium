@@ -3,7 +3,14 @@
  * rule 8): building 5 or 200 issues with their labels, or their dependency
  * edges, is the same reads, one per table.
  */
-import { asIssueId, asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asUserId,
+  firstAdminMemberId,
+  issueDepId,
+  machineAccessRowId,
+} from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../store'
@@ -20,6 +27,8 @@ interface Fixture {
   reads: RecordReads
   ids: string[]
   depIds: string[]
+  machineIds: string[]
+  accessIds: string[]
 }
 
 const registry = serverRecordBuilders()
@@ -85,6 +94,41 @@ async function world(size: number): Promise<Fixture> {
     await store.issues.setIssueLabels(id, ['bug'])
     ids.push(id)
   }
+  const machineIds: string[] = []
+  const accessIds: string[] = []
+  const owner = await firstAdminMemberId(store)
+  for (let i = 1; i <= size; i++) {
+    const id = asMachineId(`machine-${i}`)
+    await store.machines.upsertMachine({
+      id,
+      name: id,
+      hostname: 'host',
+      tokenHash: 'test',
+      ownerUserId: owner,
+      assignment: { server: false, agentExecution: true },
+    })
+    machineIds.push(id)
+    accessIds.push(machineAccessRowId(owner, id))
+    await store.issues.gitStates.set(fixtureWriteScope(), ids[i - 1]!, {
+      updatedAt: '2026-11-10T00:00:00Z',
+      branch: 'branch',
+      shared: false,
+      dirtyFiles: 1,
+    })
+  }
+  await store.conversations.registry.ensureMany(
+    store.hostMachineId,
+    ids.map((id) => ({ nativeId: id, providerId: 'claude-code' })),
+  )
+  await store.conversations.index.upsert(
+    fixtureWriteScope(),
+    ids.map((id) => ({
+      id,
+      agentKind: 'claude-code',
+      providerId: 'claude-code',
+      machineId: store.hostMachineId,
+    })),
+  )
   const depIds: string[] = []
   for (let i = 1; i < size; i++) {
     await store.issues.addIssueDep(asIssueId(`iss_${i + 1}`), asIssueId(`iss_${i}`))
@@ -95,7 +139,7 @@ async function world(size: number): Promise<Fixture> {
     effectExecutors: { get: () => undefined },
     now: Date.now,
   }
-  return { store, reads, ids, depIds }
+  return { store, reads, ids, depIds, machineIds, accessIds }
 }
 
 const issueProjectionPin: StatementPin<Fixture> = {
@@ -144,3 +188,26 @@ describe('record builders: statement counts (POD-6763)', () => {
     await expectConstantStatements(issueDepPin, 1)
   })
 })
+
+for (const [kind, count, keys] of [
+  ['conversation', 1, 'ids'],
+  ['issueGitState', 1, 'ids'],
+  ['machine', 3, 'machineIds'],
+  ['machineAccess', 4, 'accessIds'],
+] as const) {
+  it(`builds ${kind} in ${count} statements at 5 and 200 records`, async () => {
+    await expectConstantStatements(
+      {
+        name: `build(${kind})`,
+        setup: world,
+        target: (f) => f.store,
+        run: async (f) => await registry.build(f.reads, kind, f[keys]),
+        check: (result, _f, size) => {
+          if ((result as unknown[]).length !== size) throw new Error(`missing ${kind} records`)
+        },
+        teardown: async (f) => await f.store.close(),
+      },
+      count,
+    )
+  })
+}

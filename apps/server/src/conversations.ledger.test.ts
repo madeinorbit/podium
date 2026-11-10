@@ -2,7 +2,8 @@ import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import {
   asMutationId,
   type ConversationSummaryWire,
-  type ConversationSummaryWireInput,
+  type ConversationDiscoveryWire,
+  type ConversationDiscoveryWireInput,
   firstAdminMemberId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
@@ -77,8 +78,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   const conv = (
     id: string,
-    extra: Partial<ConversationSummaryWireInput> = {},
-  ): ConversationSummaryWire =>
+    extra: Partial<ConversationDiscoveryWireInput> = {},
+  ): ConversationDiscoveryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 
   async function push(
@@ -274,18 +275,16 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         title: 't',
         updatedAt: '2026-07-01T00:00:00Z',
         messageCount: 1,
-        statusHint: 'idle',
       }),
     ])
     const cursor = await cursorOf(registry)
-    // Volatile fields only (updatedAt/messageCount/statusHint) — the scan-storm
+    // Volatile fields only (updatedAt/messageCount) — the scan-storm
     // churn the conversation projection exists to drop.
     await push(registry, [
       conv('c1', {
         title: 't',
         updatedAt: '2026-07-02T00:00:00Z',
         messageCount: 9,
-        statusHint: 'busy',
       }),
     ])
     expect(await conversationChangesSince(registry, cursor)).toEqual([])
@@ -296,7 +295,6 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         title: 't2',
         updatedAt: '2026-07-03T00:00:00Z',
         messageCount: 12,
-        statusHint: 'idle',
       }),
     ])
     const changes = await conversationChangesSince(registry, cursor)
@@ -305,7 +303,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(value?.title).toBe('t2')
     expect(value?.updatedAt).toBe('2026-07-03T00:00:00Z')
     expect(value?.messageCount).toBe(12)
-    expect(value?.statusHint).toBe('idle')
+    expect(value).not.toHaveProperty('statusHint')
     expect(value?.podiumId).toMatch(/^conv_/) // the broadcast enrichment IS the committed payload
   })
 
@@ -449,7 +447,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       if (c.op === 'upsert') folded.set(c.id, c.value)
       else folded.delete(c.id)
     }
-    const live = registry.modules.memory.allConversations()
+    const live = await registry.modules.memory.allConversations()
     expect([...folded.keys()].sort()).toEqual(live.map((c) => c.id).sort())
     expect(folded.get('c1')).toEqual(live.find((c) => c.id === 'c1'))
   })

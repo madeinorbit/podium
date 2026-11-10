@@ -75,6 +75,12 @@ const accountsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 // Two rows are enough to tell "exactly one" from "more than one".
+/** Machine access records need only enabled members' ids and roles. */
+const activeRecordMembers = prepared((db: StoreDrizzle) =>
+  db.select({ id: users.id, role: users.role }).from(users)
+    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES]))).prepare(),
+)
+
 const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -710,6 +716,13 @@ export class UsersRepository {
     if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
     await setUserEmail(this.db).run({ id: userId, email: normalized })
     this.accountsWritten()
+  }
+
+  async recordMembers(): Promise<{ id: UserId; role: UserRole }[]> {
+    return (await activeRecordMembers(this.db).all()).flatMap((row) => {
+      const role = parseRole(row.role)
+      return role ? [{ id: asUserId(row.id), role }] : []
+    })
   }
 
   async list(): Promise<UserAccountRow[]> {

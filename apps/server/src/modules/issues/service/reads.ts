@@ -6,6 +6,7 @@ import {
   type IssueComment,
   type IssueCount,
   type IssueGraph,
+  type IssueGitState,
   type IssueId,
   type IssueLabelWire,
   IssueProjection,
@@ -81,6 +82,7 @@ interface ClosureFacts {
 }
 
 interface IssueReportBatch {
+  gitStates: ReadonlyMap<string, IssueGitState>
   commentCounts: ReadonlyMap<string, number>
   labelsByIssue: ReadonlyMap<string, string[]>
   depsByFrom: ReadonlyMap<string, { toId: IssueId; type: string }[]>
@@ -422,7 +424,7 @@ export class IssueReportsModule {
       deferred,
       childCount: children.length,
       childDoneCount: children.filter(finished).length,
-      ...(row.deletedAt ? {} : { gitState: this.store.gitStates.get(row.id) }),
+      ...(row.deletedAt ? {} : { gitState: batch.gitStates.get(row.id) }),
     }
   }
 
@@ -460,6 +462,9 @@ export class IssueReportsModule {
     )
     const closure = blockers.length > 0 ? await issues.closureOf(blockers) : new Map()
     return {
+      gitStates: new Map(
+        [...(await issues.gitStates.getMany(ids))].map(([id, { id: _id, ...state }]) => [id, state]),
+      ),
       labelsByIssue,
       depsByFrom,
       dependentsByTo,

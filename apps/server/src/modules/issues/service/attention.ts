@@ -486,7 +486,7 @@ export class IssueAttentionModule {
     origin: IssueRow,
     worktreeMachineId: MachineId,
   ): Promise<boolean> {
-    const cached = this.store.gitStates.get(origin.id)
+    const cached = await this.store.gitState(origin.id)
     if (cached) {
       if (cached.dirtyFiles > 0) return true
       if ((cached.ahead ?? 0) > 0) return true

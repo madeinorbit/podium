@@ -1912,12 +1912,21 @@ export const issues = sqliteTable(
   ],
 )
 
+/** Last git facts observed on an issue event; the sync log is never their source. */
+export const issueGitStates = sqliteTable('issue_git_states', {
+  issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, { onDelete: 'cascade' })
+    .primaryKey().notNull(),
+  factsJson: text('facts_json').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 /**
  * Pre-admission proof minted by a successful delivery-root integration rebuild.
  * Ship orders copy the matching typed receipt into their own frozen row; this
  * append-only history is the durable producer-to-admission seam before an order
  * exists.
  */
+
 export const rootIntegrationReceipts = sqliteTable(
   'root_integration_receipts',
   {

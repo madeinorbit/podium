@@ -129,7 +129,6 @@ export function conversationProjection(value: unknown): string {
   const {
     updatedAt: _updatedAt,
     messageCount: _messageCount,
-    statusHint: _statusHint,
     ...stable
   } = value as Record<string, unknown>
   return JSON.stringify(stable)

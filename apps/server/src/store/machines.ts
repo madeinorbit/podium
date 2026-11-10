@@ -20,8 +20,9 @@ import {
   type UserId,
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
-import { and, asc, eq, isNull, type SQL, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, isNull, type SQL, sql } from 'drizzle-orm'
 import { machines, grants } from '../migrations/schema'
+import { MachineRecordContextRepository } from './machine-record-context'
 import { GrantsRepository } from './grants'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
@@ -238,6 +239,12 @@ export const MACHINE_ID_SITES: readonly string[] = [
   'ship_train_members.machine_id',
   'transcript_costs.machine_id',
 ]
+
+const machineRecordPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+  db.select(MACHINE_COLUMNS).from(machines)
+    .where(phase === 'after' ? gt(machines.id, param(machines.id, 'after')) : undefined)
+    .orderBy(asc(machines.id)).limit(sql.placeholder('limit')).prepare(),
+)
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -496,12 +503,14 @@ const touchMachineOf = prepared((db: StoreDrizzle) =>
 )
 
 export class MachinesRepository {
+  readonly recordContext: MachineRecordContextRepository
   readonly committed: CommittedRows<typeof machines.$inferSelect>
 
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries, private readonly grantRepository = new GrantsRepository(queries)) {
+    this.recordContext = new MachineRecordContextRepository(queries)
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -585,6 +594,16 @@ export class MachinesRepository {
 
   async listMachines(): Promise<MachineRecord[]> {
     return (await machinesByCreation(this.db).all()).map(machineRecordFromRow)
+  }
+
+  async *recordPages(pageSize = 500): AsyncGenerator<MachineRecord[]> {
+    let after: MachineId | undefined
+    for (;;) {
+      const rows = await machineRecordPage(this.db, after === undefined ? 'start' : 'after').all({ after: after ?? '', limit: pageSize })
+      if (rows.length) yield rows.map(machineRecordFromRow)
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
   }
 
   async getMachine(id: string): Promise<MachineRecord | undefined> {

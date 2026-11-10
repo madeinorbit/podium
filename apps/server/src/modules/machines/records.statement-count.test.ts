@@ -135,11 +135,11 @@ const oneNewWorktree: StatementPin<Fixture> = {
 
 describe('statement counts of the machine record writes', () => {
   it('a rename does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(rename, 31)
+    await expectConstantStatements(rename, 33)
   })
 
   it('the server rewriting one machine’s records does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(republish, 10)
+    await expectConstantStatements(republish, 11)
   })
 
   it('a scan that finds nothing new writes nothing, whatever the machine holds', async () => {

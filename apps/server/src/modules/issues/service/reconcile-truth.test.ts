@@ -76,7 +76,7 @@ describe('full-truth reconcile over the database', () => {
     rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
     const svc = await serviceOver(store)
     const issues = svc.reports.store
-    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) issues.gitStates.set(id, observed(id.length))
+    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) await issues.setGitState(id, observed(id.length))
 
     const truth = await issues.allProjections()
     expect(truth?.map((entry) => entry.id)).toEqual(await bootOrder(store))

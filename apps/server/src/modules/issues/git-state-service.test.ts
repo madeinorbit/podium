@@ -377,7 +377,7 @@ describe('POD-98 git-state service wiring', () => {
     }
   })
 
-  it('retries a failed publication without advancing the fact-change time', async () => {
+  it('rolls back facts when publication fails and retries the next observation', async () => {
     let now = '2026-07-20T12:00:00.000Z'
     const { svc, store, ledger } = await harness([], { statusProbe: '## main' }, { now: () => now })
     try {
@@ -387,7 +387,7 @@ describe('POD-98 git-state service wiring', () => {
         startNow: false,
       })
       const cursor = await ledger.cursor()
-      const publish = vi.spyOn(svc.reports.store, 'broadcastIssue')
+      const publish = vi.spyOn(svc.reports.store, 'setGitState')
       publish.mockRejectedValueOnce(new Error('publication unavailable'))
       await expect(svc.gitWorkflow.refreshGitState(id, '/repo')).rejects.toThrow(
         'publication unavailable',
@@ -401,12 +401,12 @@ describe('POD-98 git-state service wiring', () => {
           entity: 'issueGitState',
           id,
           op: 'upsert',
-          value: expect.objectContaining({ updatedAt: '2026-07-20T12:00:00.000Z' }),
+          value: expect.objectContaining({ updatedAt: '2026-07-20T12:05:00.000Z' }),
         }),
       ])
       now = '2026-07-20T12:10:00.000Z'
       await svc.gitWorkflow.refreshGitState(id, '/repo')
-      expect(publish).toHaveBeenCalledTimes(2)
+      expect(publish).toHaveBeenCalledTimes(3)
     } finally {
       await store.close()
     }

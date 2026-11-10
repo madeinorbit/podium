@@ -2,7 +2,7 @@ import type {
   AgentKind,
   AgentQuotaWire,
   ConversationDiagnosticWire,
-  ConversationSummaryWire,
+  ConversationDiscoveryWire,
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -115,7 +115,7 @@ const RUNTIME_SEND_TIMEOUT_MS = 12_000
 const RUNTIME_VERB_TIMEOUT_MS = 10_000
 
 export interface ScanResult {
-  conversations: ConversationSummaryWire[]
+  conversations: ConversationDiscoveryWire[]
   diagnostics: ConversationDiagnosticWire[]
 }
 

@@ -3004,7 +3004,7 @@ describe('IssueService.action', () => {
       output: mergeProbeOutput(op),
     }))
     // The state cached before landing: one commit ahead, not merged.
-    svc.reports.store.gitStates.set(id, {
+    await svc.reports.store.setGitState(id, {
       updatedAt: '2026-08-16T00:00:00Z',
       branch: 'issue/1-x',
       shared: false,
@@ -3036,7 +3036,7 @@ describe('IssueService.action', () => {
       ok: true,
       output: mergeProbeOutput(op),
     }))
-    svc.reports.store.gitStates.set(id, {
+    await svc.reports.store.setGitState(id, {
       updatedAt: '2026-08-16T00:00:00Z',
       branch: 'issue/1-x',
       shared: false,
@@ -3047,7 +3047,7 @@ describe('IssueService.action', () => {
     const ref = refOf((await svc.reports.get(id))!)
     expect(ref).not.toBe(id)
     await svc.gitWorkflow.action(ref, 'merge')
-    expect(svc.reports.store.gitStates.has(ref)).toBe(false)
+    expect((await svc.reports.store.gitState(ref)) !== undefined).toBe(false)
     // The landed state carries no pre-merge dirt the freed worktree cannot correct.
     expect((await svc.reports.get(id))?.gitState).toMatchObject({
       merged: true,
@@ -3063,7 +3063,7 @@ describe('IssueService.action', () => {
       output: mergeProbeOutput(op),
     }))
     // The state cached before landing: one commit ahead, not merged.
-    svc.reports.store.gitStates.set(id, {
+    await svc.reports.store.setGitState(id, {
       updatedAt: '2026-08-16T00:00:00Z',
       branch: 'issue/1-x',
       shared: false,
@@ -3074,7 +3074,7 @@ describe('IssueService.action', () => {
     const seen: unknown[] = []
     const close = svc.crud.close.bind(svc.crud)
     vi.spyOn(svc.crud, 'close').mockImplementation(async (...args) => {
-      seen.push(svc.reports.store.gitStates.get(id))
+      seen.push(await svc.reports.store.gitState(id))
       return await close(...args)
     })
     await svc.gitWorkflow.action(id, 'merge')

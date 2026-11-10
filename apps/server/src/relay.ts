@@ -741,6 +741,7 @@ export class SessionRegistry {
     // The instance settings (POD-6677): the stored blob onto the log as the one
     // `instancePreferences` record every member's first bootstrap holds.
     await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
+    await this.modules.machines.storeRecordChannel()
     await this.writes
       .system('boot.reconcile')
       .reconcile(
@@ -1207,6 +1208,7 @@ export class SessionRegistry {
     // @podium/runtime, so a relay that came and went without unsubscribing would
     // leave a listener holding a dead bus — visible in tests, which build several.
     this.configChangedBridge = bridgeConfigChanged(this.bus)
+    this.bus.on('settings.changed', async () => await machines.refreshFleetChannel())
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
       // Server-originated preference writes publish the person's record (POD-6673).
@@ -1590,11 +1592,7 @@ export class SessionRegistry {
         // above precisely so every consumer can take it directly instead of
         // wrapping a not-yet-built service in a closure.
         daemonRequest: requestBroker,
-        // The conversation list is process-owned memory installed behind a
-        // `ledger.commit` that may be a savepoint inside a wider span, so it
-        // waits for the OUTERMOST commit through the same port the baseline
-        // fold does [POD-3366, spec §3.3 mechanism 1].
-        applyCommit: { spanOpen, onCommit: applyAfterCommit },
+
       },
       {
         ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
@@ -4419,7 +4417,10 @@ export class SessionRegistry {
     // ordinary fleet pass and, before it, corrects any deferred promise the
     // moved target has just falsified — including one left by an update that
     // already finished, which is what an all-offline fleet always leaves.
-    targetChanged = () => updateFleetBridge.onTargetChanged()
+    targetChanged = async () => {
+      await updateFleetBridge.onTargetChanged()
+      await machines.publishMachines()
+    }
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
      * `deferred` at plan time so an update can finish without them; this is what

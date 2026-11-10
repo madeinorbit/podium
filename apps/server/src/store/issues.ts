@@ -93,6 +93,7 @@ import {
   perChunk,
   sortScopeOf,
 } from './issue-listings'
+import { IssueGitStatesRepository } from './issue-git-states'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
 import type {
@@ -1280,6 +1281,7 @@ function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: It
 export type LabelRow = typeof labels.$inferSelect
 
 export class IssuesRepository {
+  readonly gitStates: IssueGitStatesRepository
   readonly committed: CommittedRows<typeof issues.$inferSelect>
   private sessionRefPublisher: ((ids: readonly IssueId[]) => Promise<void>) | undefined
 
@@ -1402,6 +1404,7 @@ export class IssuesRepository {
       machineId?: MachineId | null,
     ) => string | Promise<string>,
   ) {
+    this.gitStates = new IssueGitStatesRepository(queries)
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'issues')
     // The per-operation loaders are invalidated after each write (rowsWritten)
     // AND after each commit of one, which makes their memos exact inside write

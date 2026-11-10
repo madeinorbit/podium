@@ -133,7 +133,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     }
   })
 
-  it('boot reconciles every user and removes stale git observations after restart', async () => {
+  it('boot reconciles every user and retains stored git observations after restart', async () => {
     const { svc, store, ledger } = await harness()
     try {
       const issue = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -146,7 +146,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         readAt: '2026-07-02',
         tuckedAt: '2026-07-02',
       })
-      svc.reports.store.gitStates.set(issue.id, {
+      await svc.reports.store.setGitState(issue.id, {
         updatedAt: '2026-07-02',
         branch: 'feature',
         shared: false,
@@ -156,11 +156,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
       const cursor = await ledger.cursor()
-      svc.reports.store.gitStates.clear()
       await svc.boot()
       expect(
         ((await ledger.changesSince(cursor)) ?? []).find((c) => c.entity === 'issueGitState'),
-      ).toMatchObject({ id: issue.id, op: 'remove' })
+      ).toBeUndefined()
+      expect(await svc.reports.store.gitState(issue.id)).toMatchObject({ ahead: 2, dirtyFiles: 0 })
       const personal = ((await ledger.changesSince(0)) ?? []).filter(
         (c) => c.entity === 'issueUserState',
       )
@@ -185,7 +185,8 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       const other = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Untouched', startNow: false })
       const cursor = await ledger.cursor()
-      svc.reports.store.gitStates.set(issue.id, {
+      appended.length = 0
+      await svc.reports.store.setGitState(issue.id, {
         updatedAt: '2026-07-02',
         branch: 'feature',
         shared: false,
@@ -193,7 +194,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         dirtyFiles: 0,
         merged: false,
       })
-      appended.length = 0
       await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
       const changes = (await ledger.changesSince(cursor)) ?? []
       expect(changes.find((c) => c.entity === 'issueGitState')).toMatchObject({
@@ -221,7 +221,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         startNow: false,
       })
       const user = await firstAdminMemberId(store)
-      svc.reports.store.gitStates.set(issue.id, {
+      await svc.reports.store.setGitState(issue.id, {
         updatedAt: '2026-07-02',
         branch: 'feature',
         shared: false,

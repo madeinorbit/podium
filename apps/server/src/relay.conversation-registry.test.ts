@@ -1,6 +1,7 @@
 import {
   type ConversationSummaryWire,
-  type ConversationSummaryWireInput,
+  type ConversationDiscoveryWire,
+  type ConversationDiscoveryWireInput,
   firstAdminMemberId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
@@ -27,8 +28,8 @@ describe('SessionRegistry conversation registry', () => {
 
   const conv = (
     id: string,
-    extra: Partial<ConversationSummaryWireInput> = {},
-  ): ConversationSummaryWire =>
+    extra: Partial<ConversationDiscoveryWireInput> = {},
+  ): ConversationDiscoveryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', async () => {
@@ -105,8 +106,7 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1')],
       diagnostics: [],
     })
-    const again = registry.modules.memory
-      .allConversations()
+    const again = (await registry.modules.memory.allConversations())
       .find((conversation) => conversation.id === 'parent-1')
     expect(again?.podiumId).toBe(parent?.podiumId)
   })

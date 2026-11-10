@@ -356,29 +356,28 @@ describe('Ledger', () => {
         title: 'hi',
         updatedAt: 'T1',
         messageCount: 1,
-        statusHint: 'busy',
         ...over,
       },
     })
     const ledger = makeLedger()
     expect((await commit(ledger, [conv()])).changes).toHaveLength(1) // first sight
-    // Scan-driven activity bumps (updatedAt / messageCount / statusHint) changed
+    // Scan-driven activity bumps (updatedAt / messageCount) changed
     // no stable field -> nothing recorded (the 81MB/day churn fix).
     expect(
-      (await commit(ledger, [conv({ updatedAt: 'T2', messageCount: 5, statusHint: 'idle' })]))
+      (await commit(ledger, [conv({ updatedAt: 'T2', messageCount: 5 })]))
         .changes,
     ).toEqual([])
     // A stable-field change records — and the durable payload is the FULL current
     // wire value, volatile fields included.
     const changed = (
       await commit(ledger, [
-        conv({ title: 'renamed', updatedAt: 'T3', messageCount: 9, statusHint: 'idle' }),
+        conv({ title: 'renamed', updatedAt: 'T3', messageCount: 9 }),
       ])
     ).changes
     expect(changed).toHaveLength(1)
     expect(changed[0]).toMatchObject({
       op: 'upsert',
-      value: { title: 'renamed', updatedAt: 'T3', messageCount: 9, statusHint: 'idle' },
+      value: { title: 'renamed', updatedAt: 'T3', messageCount: 9 },
     })
     // Explicit remove still records; reconcile-driven disappearance too.
     expect(

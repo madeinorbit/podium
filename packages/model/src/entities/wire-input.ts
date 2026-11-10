@@ -33,7 +33,7 @@
 
 import type { BRAND } from 'zod'
 import type { AutomationRunWire, AutomationWire } from './automation'
-import type { ConversationSummaryWire } from './conversation'
+import type { ConversationDiscoveryWire, ConversationSummaryWire } from './conversation'
 import type { SessionMeta } from './session'
 
 export type UnbrandIds<T> = { [K in keyof T]: Unbrand<T[K]> }
@@ -57,3 +57,6 @@ export type AutomationWireInput = UnbrandIds<AutomationWire>
 export type AutomationRunWireInput = UnbrandIds<AutomationRunWire>
 /** {@link ConversationSummaryWire} with its branded ids on the input side. */
 export type ConversationSummaryWireInput = UnbrandIds<ConversationSummaryWire>
+
+/** Internal daemon discovery fixtures, including file evidence. */
+export type ConversationDiscoveryWireInput = UnbrandIds<ConversationDiscoveryWire>

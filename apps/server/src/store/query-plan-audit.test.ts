@@ -208,6 +208,11 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
   ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
   ['apps/server/src/store/conversations/index.ts:curatedConversationsOf', SIZES],
+  ['apps/server/src/store/conversations/index.ts:recordRows', SIZES],
+  ['apps/server/src/store/conversations/index.ts:recordPage', ['start', 'after']],
+  ['apps/server/src/store/issue-git-states.ts:byIds', SIZES],
+  ['apps/server/src/store/issue-git-states.ts:pageOf', ['start', 'after']],
+  ['apps/server/src/store/machines.ts:machineRecordPage', ['start', 'after']],
   ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsReferencingIssues', SIZES],
@@ -590,6 +595,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  ['apps/server/src/store/conversations/index.ts:recordPage', 'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.'],
+  ['apps/server/src/store/issue-git-states.ts:pageOf', 'A keyset page of stored git observations joined to live issues, bounded by requested page size. The first page walks the observation primary key.'],
+  ['apps/server/src/store/machines.ts:machineRecordPage', 'A keyset page of stored machine records, bounded by requested page size. The first page walks the id index.'],
+  ['apps/server/src/store/users.ts:activeRecordMembers', 'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.'],
   [
     'apps/server/src/store/messages.ts:confirmedChatWindow',
     "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the message feed's boot reconcile and the record builder's `streamAll`, never per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",

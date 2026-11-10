@@ -8,6 +8,7 @@ import {
   asThreadId,
   asUserId,
   ConversationSummaryWire,
+  ConversationDiscoveryWire,
   GitRepositoryWire,
   MachineWire,
   ResumeRef,
@@ -242,7 +243,7 @@ describe('shared schemas', () => {
     expect(ConversationSummaryWire.parse(min)).toEqual(min)
   })
 
-  it('round-trips ConversationSummaryWire.sizeBytes (the mirror dirty signal)', () => {
+  it('round-trips ConversationDiscoveryWire.sizeBytes (the mirror dirty signal)', () => {
     const sized = {
       id: 'x',
       agentKind: 'claude-code' as const,
@@ -250,10 +251,12 @@ describe('shared schemas', () => {
       path: '/home/u/.claude/projects/-p/x.jsonl',
       sizeBytes: 4096,
     }
-    expect(ConversationSummaryWire.parse(sized)).toEqual(sized)
+    expect(ConversationDiscoveryWire.parse(sized)).toEqual(sized)
+    expect(ConversationSummaryWire.parse(sized)).not.toHaveProperty('sizeBytes')
+    expect(ConversationSummaryWire.parse(sized)).not.toHaveProperty('path')
     // Negative / fractional sizes are wire corruption, not evidence.
-    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: -1 })).toThrow()
-    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: 1.5 })).toThrow()
+    expect(() => ConversationDiscoveryWire.parse({ ...sized, sizeBytes: -1 })).toThrow()
+    expect(() => ConversationDiscoveryWire.parse({ ...sized, sizeBytes: 1.5 })).toThrow()
   })
 
   it('round-trips a GitRepositoryWire with worktrees', () => {

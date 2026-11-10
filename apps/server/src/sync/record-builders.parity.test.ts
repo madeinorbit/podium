@@ -142,19 +142,15 @@ async function parityOf(store: SessionStore, reads: RecordReads): Promise<KindPa
 }
 
 describe('record builders (POD-6763)', () => {
-  it('registers the 24 database-only kinds once each', () => {
+  it('registers the 28 database-only kinds once each', () => {
     const kinds = serverRecordBuilders().kinds()
-    expect(kinds).toHaveLength(24)
-    expect(new Set(kinds).size).toBe(24)
+    expect(kinds).toHaveLength(28)
+    expect(new Set(kinds).size).toBe(28)
     for (const left of [
       'repo',
       'shipLane',
       'userPreferences',
       'session',
-      'conversation',
-      'machine',
-      'issueGitState',
-      'machineAccess',
     ] as const) {
       expect(kinds).not.toContain(left)
     }

@@ -1,7 +1,13 @@
-import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } from '@podium/model'
+import {
+  asMachineId,
+  ConversationSummaryWire,
+  type MachineId,
+  machinePathKey,
+  machinePathSeparator,
+} from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, eq, isNotNull, or, type SQL, sql } from 'drizzle-orm'
-import { conversations } from '../../migrations/schema'
+import { and, asc, eq, getTableColumns, gt, isNotNull, or, type SQL, sql } from 'drizzle-orm'
+import { conversationSegments, conversations } from '../../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
 import {
   executeRaw,
@@ -13,6 +19,41 @@ import {
   preparedFamily,
 } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
+
+const recordColumns = { ...getTableColumns(conversations), podiumId: conversationSegments.podiumId }
+const segmentOf = and(
+  eq(conversationSegments.machineId, conversations.machineId),
+  eq(conversationSegments.nativeId, conversations.id),
+)
+const recordRows = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(recordColumns)
+    .from(conversations)
+    .leftJoin(conversationSegments, segmentOf)
+    .where(inListOf(conversations.id, size))
+    .prepare(),
+)
+const recordPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+  db
+    .select(recordColumns)
+    .from(conversations)
+    .leftJoin(conversationSegments, segmentOf)
+    .where(phase === 'after' ? gt(conversations.id, param(conversations.id, 'after')) : undefined)
+    .orderBy(asc(conversations.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+function conversationRecordOf(
+  row: typeof conversations.$inferSelect & { podiumId: string | null },
+): ConversationSummaryWire {
+  const { resumeKind, resumeValue, ...fields } = row
+  return ConversationSummaryWire.parse({
+    ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
+    ...(resumeKind !== null && resumeValue !== null
+      ? { resume: { kind: resumeKind, value: resumeValue } }
+      : {}),
+  })
+}
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -275,6 +316,34 @@ export class ConversationIndexRepository {
    */
   private get db(): StoreDrizzle {
     return this.rootDb
+  }
+
+  async recordEntries(
+    ids: readonly string[],
+  ): Promise<{ machineId: MachineId; value: ConversationSummaryWire }[]> {
+    if (ids.length === 0) return []
+    const size = inListSize(ids.length)
+    return (await recordRows(this.db, size).all(inListValues(ids, size))).map((row) => ({
+      machineId: row.machineId,
+      value: conversationRecordOf(row),
+    }))
+  }
+
+  async records(ids: readonly string[]): Promise<ConversationSummaryWire[]> {
+    return (await this.recordEntries(ids)).map(({ value }) => value)
+  }
+
+  async *recordPages(pageSize = 500): AsyncGenerator<ConversationSummaryWire[]> {
+    let after: string | undefined
+    for (;;) {
+      const rows = await recordPage(this.db, after === undefined ? 'start' : 'after').all({
+        after: after ?? '',
+        limit: pageSize,
+      })
+      if (rows.length) yield rows.map(conversationRecordOf)
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
   }
 
   /**

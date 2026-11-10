@@ -1,6 +1,6 @@
 import {
   ConversationDiagnosticWire,
-  ConversationSummaryWire,
+  ConversationDiscoveryWire,
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -13,10 +13,10 @@ import { z } from 'zod'
 // (docs/multi-user-readiness.md §3.1.1/§3.1.4). What stays here is the FRAMES:
 // discovery scans, directory browsing, and the constrained repo-op vocabulary.
 
-// Shared in both directions: daemon -> server AND server -> client (identical shape).
+// Daemon -> server only: file evidence never goes on the client sync feed.
 export const ConversationsChangedMessage = z.object({
   type: z.literal('conversationsChanged'),
-  conversations: z.array(ConversationSummaryWire),
+  conversations: z.array(ConversationDiscoveryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
   // Conversation ids pruned this pass. Optional for back-compat: producers that
   // don't yet emit a delta (and older parsers) stay valid without it.
@@ -42,7 +42,7 @@ export const ScanReposRequestMessage = z.object({
 export const ScanResultMessage = z.object({
   type: z.literal('scanResult'),
   requestId: z.string(),
-  conversations: z.array(ConversationSummaryWire),
+  conversations: z.array(ConversationDiscoveryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
   // Conversation ids pruned this pass. Optional for back-compat (see above).
   removed: z.array(z.string()).optional(),

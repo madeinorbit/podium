@@ -231,7 +231,6 @@ const ISSUE_GIT_STATE_FULL = {
 
 const CONVERSATION_SUMMARY_FULL = {
   id: 'native-1',
-  path: '/home/u/.claude/projects/x/native-1.jsonl',
   podiumId: 'pconv-1',
   agentKind: 'claude-code',
   title: 'harness title',
@@ -239,12 +238,9 @@ const CONVERSATION_SUMMARY_FULL = {
   summary: 'work summary',
   projectPath: '/home/u/repo',
   parentConversationId: 'native-0',
-  statusHint: 'idle',
   createdAt: '2026-07-30T09:00:00.000Z',
   updatedAt: '2026-07-30T10:00:00.000Z',
   messageCount: 42,
-  sizeBytes: 999,
-  git: { branch: 'main', sha: 'b'.repeat(40), originUrl: 'git@github.com:x/y.git' },
   resume: { kind: 'claude-session', value: 'uuid-1' },
   providerId: 'claude-code',
 }
@@ -1011,7 +1007,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: {
       type: 'scanResult',
       requestId: 'req-5',
-      conversations: [CONVERSATION_SUMMARY_FULL],
+      conversations: [{ ...CONVERSATION_SUMMARY_FULL, path: '/home/u/.claude/projects/x/native-1.jsonl', sizeBytes: 999 }],
       diagnostics: [],
       removed: [],
     },
