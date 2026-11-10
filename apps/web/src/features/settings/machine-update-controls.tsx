@@ -1,11 +1,11 @@
 // Per-machine update actions owned by Settings → Updates.
 import { useCommands } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
-import { action, companion, observable } from '@podium/mobx-helpers'
+import { companion } from '@podium/mobx-helpers'
 import type { MachineFacts, UpdateChannel } from '@podium/model/browser'
-import { runInAction } from 'mobx'
+import { action, observable, runInAction } from 'mobx'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,49 +16,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
-import type { FailureReason } from '@/features/updates/MachineFailureReason'
 import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
-import { updateStatus } from '@/lib/update-status'
 import { useFeature } from '@/lib/use-feature'
 
-/** One machine's server-side convergence, as the fleet read model reports it. */
-export interface MachineConvergence {
-  reason?: FailureReason
-  state: ConvergenceRowState
-  detail?: string
-}
+export type { MachineConvergence } from '@/app/MachinesPanel'
 
-/**
- * Convergence for every row, owned by the panel rather than the row.
- *
- * It is the update-status reader's fleet (POD-6683), so a row shows its progress
- * no matter who started the update: this row's Apply, the global update panel,
- * or a wave that was already running before this page loaded. The open panel is
- * an update screen, so the reader polls while it shows, every second while any
- * machine is converging.
- */
-export function useFleetConvergence(): {
-  rows: ReadonlyMap<string, MachineConvergence>
-  refresh: () => void
-} {
-  const status = updateStatus()
-  useEffect(() => status.watch(), [status])
-  const fleet = status.fleet
-  // Rebuilt only when a new fleet reading lands, so rows redraw on news alone.
-  const rows = useMemo(() => {
-    const next = new Map<string, MachineConvergence>()
-    for (const machine of fleet?.allMachines ?? fleet?.machines ?? []) {
-      next.set(machine.id, {
-        state: machine.state as ConvergenceRowState,
-        reason: machine.reason,
-        ...(machine.detail ? { detail: machine.detail } : {}),
-      })
-    }
-    return next
-  }, [fleet])
-  return { rows, refresh: () => void status.refresh() }
-}
+import type { MachineConvergence } from '@/app/MachinesPanel'
 
 const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   dev: 'Development',
@@ -182,6 +146,7 @@ export function describeApplyOutcome(
 /** Request answers belong to the Updates view; batch and row Apply share them. */
 export class MachineUpdateAction {
   @observable accessor applying = false
+  @observable accessor changingChannel = false
   @observable accessor error: string | null = null
   @observable accessor status: string | null = null
   watching = false
@@ -296,12 +261,11 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
   const unavailableReason = machine.targetUnavailableReason ?? null
   const { setUpdateChannel: setMachineUpdateChannel } = useCommands().machines
   const developing = useFeature('podium-development')
-  const [changingChannel, setChangingChannel] = useState(false)
   const action = useMemo(
     () => sharedAction ?? new MachineUpdateAction(machine, trpc),
     [sharedAction, machine, trpc],
   )
-  const { applying, error: updateError, status: updateStatus } = action
+  const { applying, changingChannel } = action
   const deliveryUnavailable =
     machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
   const deliveryUnavailableReason =
@@ -324,7 +288,9 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
 
   const chooseChannel = async (nextChannel: UpdateChannel | null): Promise<void> => {
     if (nextChannel === channel || changingChannel || busy) return
-    setChangingChannel(true)
+    runInAction(() => {
+      action.changingChannel = true
+    })
     action.clear()
     try {
       await setMachineUpdateChannel(machine.id, nextChannel)
@@ -333,7 +299,9 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
         action.error = error instanceof Error ? error.message : String(error)
       })
     } finally {
-      setChangingChannel(false)
+      runInAction(() => {
+        action.changingChannel = false
+      })
     }
   }
 
@@ -356,9 +324,6 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
     (rowState ? CONVERGENCE_PROGRESS_LABELS[rowState] : undefined) ?? 'Starting update…'
 
   return (
-    // A quiet third line under the machine it belongs to, indented to the name's
-    // own column and separated by air rather than by a second rule — the run's
-    // hairlines already say where one machine ends.
     <div
       className="flex flex-wrap items-center justify-end gap-2"
       data-machine-update-controls={machine.id}
@@ -366,11 +331,7 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
       {/* Sentence case, not a tracked mono eyebrow: this label repeats once per
           machine, and a caps rule shouted down the whole list. */}
       {developing && <span className="settings-micro flex-none">Update channel</span>}
-      {/* POD-1882: choosing a SOURCE PER MACHINE is a Podium-development affordance,
-          so the control hides with the flag. What the machine is actually on stays
-          readable either way — the Target chip below never hides, and Settings →
-          Updates discloses every machine that is pinned away from the fleet default,
-          so an override can never become invisible by turning the flag off. */}
+      {/* Per-machine pins are a Podium development tool. */}
       {developing ? (
         <Select
           value={channel ?? FLEET_DEFAULT_VALUE}
@@ -447,42 +408,54 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
         {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
-      {(unavailableReason || deliveryUnavailable || updateError || updateStatus) && (
-        // min-w-0 as well as basis-full: a flex item's automatic minimum is its
-        // min-content width, and these lines are `truncate` (nowrap), so without
-        // it the longest reason set the row's width and ran off the pane.
-        <div className="flex min-w-0 basis-full flex-col gap-0.5">
-          {unavailableReason && (
-            <span
-              className="min-w-0 truncate settings-micro text-warning!"
-              title={unavailableReason}
-            >
-              {/* §6.3: an internal precondition is never shown as an error. The
-                  server's reason is a real fact about this deployment, so it is
-                  kept — inside a sentence, after a frame that says what it means
-                  for this machine. */}
-              {sourceUnavailableProse(
-                channel === null ? 'its update source' : UPDATE_CHANNEL_LABELS[channel],
-                unavailableReason,
-              )}
-            </span>
-          )}
-          {deliveryUnavailable && (
-            <span className="min-w-0 settings-micro text-warning!">
-              Cannot take delivery: {deliveryUnavailableReason}
-            </span>
-          )}
-          {updateError && (
-            <span className="min-w-0 settings-micro text-destructive!" role="alert">
-              {updateError}
-            </span>
-          )}
-          {updateStatus && (
-            <span className="min-w-0 settings-micro text-success!" role="status">
-              {updateStatus}
-            </span>
-          )}
-        </div>
+      {!compact && <MachineUpdateMessages machine={machine} action={action} />}
+    </div>
+  )
+})
+
+export const MachineUpdateMessages = observer(function MachineUpdateMessages({
+  machine,
+  action,
+}: {
+  machine: MachineFacts
+  action: MachineUpdateAction
+}) {
+  const unavailableReason = machine.targetUnavailableReason
+  const deliveryUnavailable =
+    machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
+  const deliveryUnavailableReason =
+    machine.services?.crashOwner === 'desktop'
+      ? 'Managed by Desktop updater.'
+      : 'This install does not advertise an update delivery method.'
+  if (!unavailableReason && !deliveryUnavailable && !action.error && !action.status) return null
+  return (
+    <div className="flex min-w-0 basis-full flex-col gap-0.5">
+      {unavailableReason && (
+        <span className="settings-micro">
+          <span className="text-warning">
+            {sourceUnavailableProse(
+              UPDATE_CHANNEL_LABELS[
+                machine.updateChannelOverride ?? machine.updateChannel ?? 'stable'
+              ],
+              unavailableReason,
+            )}
+          </span>
+        </span>
+      )}
+      {deliveryUnavailable && (
+        <span className="settings-micro">
+          <span className="text-warning">Cannot take delivery: {deliveryUnavailableReason}</span>
+        </span>
+      )}
+      {action.error && (
+        <span className="settings-micro" role="alert">
+          <span className="text-destructive">{action.error}</span>
+        </span>
+      )}
+      {action.status && (
+        <span className="settings-micro" role="status">
+          <span className="text-success">{action.status}</span>
+        </span>
       )}
     </div>
   )

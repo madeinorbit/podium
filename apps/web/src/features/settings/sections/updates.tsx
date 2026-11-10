@@ -22,6 +22,7 @@ import {
   type MachineConvergence,
   MachineUpdateActions,
   MachineUpdateControls,
+  MachineUpdateMessages,
 } from '../machine-update-controls'
 import { useSettingsMachine, useSettingsMachineIds, useSettingsMachines } from '../readers'
 import { useSettingsTrpc } from '../stable-access'
@@ -300,7 +301,8 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     (machine) =>
       machine.transferable === true &&
       canApplyMachineUpdate(machine, convergenceFor(machine.id)) &&
-      !actions.row(machine).applying,
+      !actions.row(machine).applying &&
+      !actions.row(machine).changingChannel,
   )
   const applyAll = async () => {
     if (updatingAll) return
@@ -334,7 +336,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     desktopVersion: nativeDesktopBridge()?.currentVersion,
     channel,
   })
-  const showComponentVersions = fleet !== null && versions.single === null
+  const showComponentVersions = Boolean(serverVersion) && versions.single === null
   return (
     <>
       <Section title="Version">
@@ -354,7 +356,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
           {channel === null ? (
             <span className="settings-micro">Loading…</span>
           ) : (
-            <div className="flex flex-wrap gap-1" aria-label="Update channel">
+            <div className="flex flex-wrap gap-1">
               {options.map((option) => (
                 <Button
                   key={option.value}
@@ -795,6 +797,9 @@ const UpdateMachineRow = observer(function UpdateMachineRow({
               <span> · Pinned: {CHANNEL_LABELS[machine.updateChannelOverride]}</span>
             )}
             <MachineFailureReason reason={wave?.reason} />
+            {machine.transferable === true && (
+              <MachineUpdateMessages machine={machine} action={actions.row(machine)} />
+            )}
             {skew.mark === 'unexpected' && skew.note && (
               <span className="block text-warning">{skew.note}</span>
             )}
@@ -813,7 +818,7 @@ const UpdateMachineRow = observer(function UpdateMachineRow({
             {!inFlight &&
               (skew.label === 'Failed' ? (
                 <Badge variant="destructive">Failed</Badge>
-              ) : waiting ? (
+              ) : waiting || skew.label === 'Update available' ? (
                 <Badge variant="warning">Update waiting</Badge>
               ) : target ? (
                 <span className="settings-micro">Current</span>

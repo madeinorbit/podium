@@ -6,6 +6,7 @@ import {
   describeChannelStatus,
   describeCheckOutcome,
   historyRows,
+  lastChecked,
   sourceUnavailableProse,
 } from './updates-view'
 
@@ -202,5 +203,28 @@ describe('historyRows (spec §3.7)', () => {
   it('marks a retry as a retry', () => {
     const [row] = historyRows([operation({ retryOf: 'op_01i' })], NOW)
     expect(row?.retryNote).toBe('Retry of an earlier update')
+  })
+})
+
+describe('lastChecked', () => {
+  it('keeps a never-checked channel honest', () => {
+    expect(lastChecked(undefined, NOW)).toEqual({ label: 'Not checked yet' })
+  })
+  it('shows the selected channel’s age and failure reason on one line', () => {
+    expect(
+      lastChecked(
+        {
+          channel: 'stable',
+          checkedAt: NOW - 7_200_000,
+          outcome: { status: 'unavailable', reason: 'no target' },
+        },
+        NOW,
+      ).label,
+    ).toBe('2h ago · Nothing published on Stable yet.')
+  })
+  it('keeps the absolute timestamp alongside the relative label', () => {
+    const reading = lastChecked({ channel: 'edge', checkedAt: NOW, outcome: { status: 'ok' } }, NOW)
+    expect(reading.label).toBe('just now')
+    expect(reading.title).toBe(new Date(NOW).toLocaleString())
   })
 })

@@ -40,8 +40,9 @@ vi.mock('@/lib/workspace-request', async (importOriginal) => ({
 }))
 
 import { observer } from '@podium/client-graph/react'
+import { useFleetConvergence } from '@/app/MachinesPanel'
 import { resetUpdateStatus } from '@/lib/update-status'
-import { MachineUpdateControls, useFleetConvergence } from './machine-update-controls'
+import { MachineUpdateControls } from './machine-update-controls'
 import { useSettingsMachines } from './readers'
 import { SettingsOpening } from './SettingsOpening'
 
@@ -314,25 +315,27 @@ describe('MachineUpdateControls per-machine update source', () => {
     } as unknown as import('@/app/trpc').Trpc
   }
 
-  it('hides the selector without the flag but still states where the machine is', async () => {
+  it('hides the channel pin without the development lab', async () => {
     storeState.machines = [
       machine({ updateChannel: 'dev', updateChannelOverride: 'dev', targetVersion: '0.6.0' }),
     ]
     setTrpc()
     render(<UpdateControlsPanel />)
 
-    expect(await screen.findByText(/Development \(pinned for this machine\)/)).toBeTruthy()
+    expect(await screen.findByText('Target 0.6.0')).toBeTruthy()
+    expect(screen.queryByText(/pinned for this machine/)).toBeNull()
     expect(screen.queryByLabelText('Update channel for mac')).toBeNull()
   })
 
-  it('reads an unpinned machine as following the fleet default', async () => {
+  it('keeps the target readable without a channel control', async () => {
     storeState.machines = [
       machine({ updateChannel: 'stable', updateChannelOverride: null, targetVersion: '0.6.0' }),
     ]
     setTrpc()
     render(<UpdateControlsPanel />)
 
-    expect(await screen.findByText('Fleet default')).toBeTruthy()
+    expect(await screen.findByText('Target 0.6.0')).toBeTruthy()
+    expect(screen.queryByLabelText('Update channel for mac')).toBeNull()
   })
 
   it('shows the selector with the flag on', async () => {

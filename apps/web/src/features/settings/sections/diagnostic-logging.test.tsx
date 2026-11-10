@@ -52,10 +52,8 @@ describe('diagnostic logging affordance', () => {
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    expect(screen.getByTestId('log-level-select').textContent).toContain('warn')
-    expect(
-      screen.getByText(/Running at warn \(failures and warnings\), this client's default/),
-    ).toBeTruthy()
+    expect(screen.getByTestId('log-level-select').textContent).toContain('Normal')
+    expect(screen.getByText(/Raise it before you reproduce a problem/)).toBeTruthy()
     // Nothing temporary is in force, so nothing claims an expiry.
     expect(screen.queryByTestId('log-level-reset')).toBeNull()
   })
@@ -67,26 +65,25 @@ describe('diagnostic logging affordance', () => {
     render(<DiagnosticLoggingSubsection />)
 
     log.debug('before')
-    pickLevel(/^debug/)
+    pickLevel(/^Debug/)
     log.debug('after')
 
     expect(records.map((r) => r.msg)).not.toContain('before')
     expect(records.map((r) => r.msg)).toContain('after')
   })
 
-  it('offers every level, not just one preset', () => {
+  it('offers the four plain detail levels', () => {
     const records = capture()
     const log = createLogger('web:example')
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    pickLevel(/^trace/)
+    pickLevel(/^Everything/)
     log.trace('deepest')
     expect(records.map((r) => r.msg)).toContain('deepest')
 
-    // And down as well as up: below the boot default is a choice too.
-    pickLevel(/^error/)
-    log.warn('quieter')
+    pickLevel(/^Normal/)
+    log.debug('quieter')
     expect(records.map((r) => r.msg)).not.toContain('quieter')
   })
 
@@ -94,10 +91,10 @@ describe('diagnostic logging affordance', () => {
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    pickLevel(/^debug/)
+    pickLevel(/^Debug/)
 
-    expect(screen.getByText(/a temporary change from its usual warn/)).toBeTruthy()
-    expect(screen.getByText(/Back to warn by itself — 30 minutes left/)).toBeTruthy()
+    expect(screen.getByTestId('log-level-select').textContent).toContain('Debug')
+    expect(screen.getByText(/Back to Normal by itself — 30 minutes left/)).toBeTruthy()
   })
 
   it('keeps the remaining-minute answer at five-second precision', () => {
@@ -126,8 +123,8 @@ describe('diagnostic logging affordance', () => {
       vi.advanceTimersByTime(5001)
     })
 
-    expect(screen.getByTestId('log-level-select').textContent).toContain('trace')
-    expect(screen.getByText(/Back to warn by itself — 10 minutes left/)).toBeTruthy()
+    expect(screen.getByTestId('log-level-select').textContent).toContain('Everything')
+    expect(screen.getByText(/Back to Normal by itself — 10 minutes left/)).toBeTruthy()
   })
 
   it('offers the way back, and takes it', () => {
@@ -136,7 +133,7 @@ describe('diagnostic logging affordance', () => {
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    pickLevel(/^debug/)
+    pickLevel(/^Debug/)
     expect(screen.getByTestId('log-level-reset')).toBeTruthy()
 
     fireEvent.click(screen.getByTestId('log-level-reset'))
@@ -152,13 +149,11 @@ describe('diagnostic logging affordance', () => {
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    pickLevel(/^debug/)
-    pickLevel(/^warn/)
+    pickLevel(/^Debug/)
+    pickLevel(/^Normal/)
 
     expect(screen.queryByTestId('log-level-reset')).toBeNull()
-    expect(
-      screen.getByText(/Running at warn \(failures and warnings\), this client's default/),
-    ).toBeTruthy()
+    expect(screen.getByText(/Raise it before you reproduce a problem/)).toBeTruthy()
   })
 
   it('turns itself back down when the half hour is up', () => {
@@ -169,7 +164,7 @@ describe('diagnostic logging affordance', () => {
     setActiveLevelController(createLevelController({ boot: 'warn' }))
     render(<DiagnosticLoggingSubsection />)
 
-    pickLevel(/^debug/)
+    pickLevel(/^Debug/)
     // Inside `act` because the row re-reads the status on a timer: without it
     // the level would revert while the rendered row still claimed "on", which
     // is exactly the disagreement this test is here to refuse.
@@ -178,6 +173,6 @@ describe('diagnostic logging affordance', () => {
 
     expect(records.map((r) => r.msg)).not.toContain('long after')
     expect(screen.queryByTestId('log-level-reset')).toBeNull()
-    expect(screen.getByTestId('log-level-select').textContent).toContain('warn')
+    expect(screen.getByTestId('log-level-select').textContent).toContain('Normal')
   })
 })
