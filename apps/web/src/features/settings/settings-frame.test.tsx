@@ -136,6 +136,17 @@ describe('settings frame', () => {
 })
 
 describe('settings search catalog', () => {
+  it.each([
+    ['fleet default channel', 'Update channel', 'settings-updates-update-channel'],
+    ['running version', 'Podium', 'settings-updates-podium'],
+    ['check now', 'Last checked', 'settings-updates-last-checked'],
+    ['repair payload', 'Repair this installation', 'settings-updates-repair-this-installation'],
+  ])('routes %s to its current Updates row', (query, label, targetId) => {
+    expect(searchSettings(query, SETTINGS_PAGES)).toContainEqual(
+      expect.objectContaining({ label, targetId }),
+    )
+  })
+
   it('indexes labels, help and keywords independently of the rendered page', () => {
     expect(
       searchSettings('garbage collection', SETTINGS_PAGES).some(
@@ -143,7 +154,9 @@ describe('settings search catalog', () => {
       ),
     ).toBe(true)
     expect(
-      searchSettings('run queue', SETTINGS_PAGES).some((r) => r.label === 'Load per core'),
+      searchSettings('run queue', SETTINGS_PAGES).some(
+        (r) => r.label === 'Pause sooner when load is above',
+      ),
     ).toBe(true)
     expect(
       searchSettings('telegram chat', SETTINGS_PAGES).some((r) => r.label === 'Telegram'),
