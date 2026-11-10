@@ -1,6 +1,6 @@
-import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { ModelCatalogState } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import { type AccountView, asMachineId } from '@podium/model/browser'
 import { normalizeSettings, resolveRole } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
