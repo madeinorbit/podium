@@ -220,6 +220,7 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
             accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
             testID={`deck-filter-${filter}`}
             haptic={false}
+            hitSlop={CHIP_SLOP}
             onPress={() => full.setFilter(filter)}
             style={[styles.filter, on && styles.filterOn]}
           >
@@ -242,6 +243,7 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
         accessibilityLabel={`Show done, ${counts.done}`}
         testID="deck-filter-done"
         haptic={false}
+        hitSlop={CHIP_SLOP}
         onPress={() => full.toggleShowDone()}
         style={[styles.filter, full.showDone && full.filter === 'all' && styles.doneOn]}
       >
@@ -602,6 +604,8 @@ const GUTTER = 14
 const INSET = space.md
 const ROW_H = 44
 
+const CHIP_SLOP = { top: 6, bottom: 6 }
+
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {
@@ -652,7 +656,10 @@ const styles = StyleSheet.create({
   filter: {
     flexGrow: 1,
     flexShrink: 1,
+    // PressableScale's 44pt touch minimum would stretch the chip (board: 32);
+    // CHIP_SLOP gives the touch target back.
     height: 32,
+    minHeight: 32,
     paddingHorizontal: 6,
     borderRadius: 6,
     alignItems: 'center',

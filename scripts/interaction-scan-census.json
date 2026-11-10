@@ -476,39 +476,171 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/lib/mission-session.ts",
-      "holder": "mostRelevantSession",
-      "rule": "consume:sort",
-      "tokens": "e2bf790cb9693a8a43b02d2e26e851683d589b8d5e30d4d11fb1ecd4be5ac13a",
+      "file": "apps/web/src/app/FlightDeck.tsx",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
+      "rule": "reader-summary",
+      "tokens": "ab4f1b262a9820f2f6bc2ea8c0c86495bc242cf2172a6c0561382ccbf0e81a59",
       "gate": [],
       "origin": [
-        "5b33ef77a0d2f4739140b34f87311db8022a1f5f0e82479153e51863c1a98b77"
+        "f6adaafb1785440dd3919d7aad77e2db4beb2f4a5bfd251f31102b9925902c40"
       ],
-      "fingerprint": "62fba40ca3bf6eb25b3a8fd450fcbe0f70ce1d7301394a6e4ef168b170e5a783",
+      "fingerprint": "2a2b2c62eb9d4097fc64a3848e0c6743d4c0c16f7d27bcd114d817c879b02b5f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mostRelevantSession",
+      "trigger": "Invocation of selectIssue",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 0117e0b2e224c25f23dccbf51de5791eb04a6cf06d44edbae3881d3aed5a0f67.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/lib/mission-session.ts",
-      "holder": "mostRelevantSession",
-      "rule": "spread",
-      "tokens": "94422aec01a6e9e777c98a9be0f6080e1bf8938e21eae49b2ae5f8b1ad63a231",
+      "file": "apps/web/src/app/FlightDeck.tsx",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
+      "rule": "helper-consumer",
+      "tokens": "d961ff6d76bba23db61e4ddcdb79f04ce86268bc86ea8c6e5756ec03d89efa53",
       "gate": [],
       "origin": [
-        "5b33ef77a0d2f4739140b34f87311db8022a1f5f0e82479153e51863c1a98b77"
+        "f6adaafb1785440dd3919d7aad77e2db4beb2f4a5bfd251f31102b9925902c40"
       ],
-      "fingerprint": "db23e04a475b7095edf4c1b7f78a784255fb079f727e02acc049f6a6443e0d86",
+      "fingerprint": "74c9a465404d05b4d848b142559f2bc663b20dc15af39026f6dbede62a6147cf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mostRelevantSession",
+      "trigger": "Invocation of selectIssue",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 0117e0b2e224c25f23dccbf51de5791eb04a6cf06d44edbae3881d3aed5a0f67.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat",
+      "rule": "consume:sort",
+      "tokens": "2bb9b089d46b9d924eea7be6ed11a28c5c5d84c2d8b991112ee31fd8a9b79920",
+      "gate": [
+        "??:7b36fa18ac401a3227d26b994be66182b249e4f26158975f0d59bee348cf8ee6"
+      ],
+      "origin": [
+        "738c4f7e74628a24d05825e1e207b6079d5039eb923ce7db43ec95de54b97f67"
+      ],
+      "fingerprint": "89441d464e47af91b311c14f5b564aba5b403fcdd8f6c1ff81dc5f28cda839b5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 62fba40ca3bf6eb25b3a8fd450fcbe0f70ce1d7301394a6e4ef168b170e5a783.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat",
+      "rule": "spread",
+      "tokens": "2c30395d2515212f9326e1ae4ee6b6ee01b16495aa874ef6eca6ee850ba775bc",
+      "gate": [
+        "??:7b36fa18ac401a3227d26b994be66182b249e4f26158975f0d59bee348cf8ee6"
+      ],
+      "origin": [
+        "738c4f7e74628a24d05825e1e207b6079d5039eb923ce7db43ec95de54b97f67"
+      ],
+      "fingerprint": "a617a7bda9b8ab4470143a57ddba56851b7d7399437c58f4cef011d24ec060f1",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: db23e04a475b7095edf4c1b7f78a784255fb079f727e02acc049f6a6443e0d86.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat",
+      "rule": "consume:find",
+      "tokens": "d4b29928977cd4e74c5f6f4ca77d3c6b03b7201f5d4d052f6097630108b41b8d",
+      "gate": [],
+      "origin": [
+        "f6adaafb1785440dd3919d7aad77e2db4beb2f4a5bfd251f31102b9925902c40"
+      ],
+      "fingerprint": "bc4b63d71ef894e6f4df46b1a754b8d469889753d3425cef5c57533d7695644d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 9a156b9548ad479dff553780bd6baf2fc460746f1d19902b342bc3925a27d8fa.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat",
+      "rule": "consume:find",
+      "tokens": "d4b29928977cd4e74c5f6f4ca77d3c6b03b7201f5d4d052f6097630108b41b8d",
+      "gate": [],
+      "origin": [
+        "738c4f7e74628a24d05825e1e207b6079d5039eb923ce7db43ec95de54b97f67"
+      ],
+      "fingerprint": "e903ea31a8faed381e507efd1eda1755e7d39418862309537fd948bdd857df87",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 62fba40ca3bf6eb25b3a8fd450fcbe0f70ce1d7301394a6e4ef168b170e5a783.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat",
+      "rule": "consume:sort",
+      "tokens": "2bb9b089d46b9d924eea7be6ed11a28c5c5d84c2d8b991112ee31fd8a9b79920",
+      "gate": [
+        "??:7b36fa18ac401a3227d26b994be66182b249e4f26158975f0d59bee348cf8ee6"
+      ],
+      "origin": [
+        "f6adaafb1785440dd3919d7aad77e2db4beb2f4a5bfd251f31102b9925902c40"
+      ],
+      "fingerprint": "ed4eec35c36db8a34505d1c7c24d51e7bdf20cdfeadd4b0706e93a3c8a92d1ac",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 9fee75fbfbaee07b9f03b5debf3fb0774540947ced6091c98bed76084c55f0f7.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat/active",
+      "rule": "consume:filter",
+      "tokens": "47976cad3d60cced16c6eae05034d92e2bfaa140068cc541a69ae8665a559556",
+      "gate": [],
+      "origin": [
+        "738c4f7e74628a24d05825e1e207b6079d5039eb923ce7db43ec95de54b97f67"
+      ],
+      "fingerprint": "cfc726adbf34862f91db074f01ac6129949865dffc5c4d8e079f051f764d2b04",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 62fba40ca3bf6eb25b3a8fd450fcbe0f70ce1d7301394a6e4ef168b170e5a783.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-seat.ts",
+      "holder": "defaultSeat/active",
+      "rule": "consume:filter",
+      "tokens": "47976cad3d60cced16c6eae05034d92e2bfaa140068cc541a69ae8665a559556",
+      "gate": [],
+      "origin": [
+        "f6adaafb1785440dd3919d7aad77e2db4beb2f4a5bfd251f31102b9925902c40"
+      ],
+      "fingerprint": "e3fcb11de7196d913fedca5c5f52180256499bb2216eaea3efead7232867af8d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of defaultSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved into the shared defaultSeat helper (POD-2381). Predecessor: 0117e0b2e224c25f23dccbf51de5791eb04a6cf06d44edbae3881d3aed5a0f67.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1339,82 +1471,6 @@
       "trigger": "Invocation of FlightDeckContent/addMissionAgent/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/active",
-      "rule": "consume:filter",
-      "tokens": "48d608b865627a766a0a4ce2f04b7989caba88d9646d095e9a741ccf991f1c7a",
-      "gate": [],
-      "origin": [
-        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
-      ],
-      "fingerprint": "0117e0b2e224c25f23dccbf51de5791eb04a6cf06d44edbae3881d3aed5a0f67",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/active",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
-      "rule": "consume:find",
-      "tokens": "5046f12d0d413ffeaccdafd5a523212c29e1edaf2826a363212e3bd570ac73e7",
-      "gate": [],
-      "origin": [
-        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
-      ],
-      "fingerprint": "9a156b9548ad479dff553780bd6baf2fc460746f1d19902b342bc3925a27d8fa",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
-      "rule": "consume:sort",
-      "tokens": "2bb9b089d46b9d924eea7be6ed11a28c5c5d84c2d8b991112ee31fd8a9b79920",
-      "gate": [
-        "??:2222857acc5b0c57dbb4d840f0e94838f7174d5a4ab50730d961769a2c8945b5"
-      ],
-      "origin": [
-        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
-      ],
-      "fingerprint": "9fee75fbfbaee07b9f03b5debf3fb0774540947ced6091c98bed76084c55f0f7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
-      "rule": "spread",
-      "tokens": "2c30395d2515212f9326e1ae4ee6b6ee01b16495aa874ef6eca6ee850ba775bc",
-      "gate": [
-        "??:2222857acc5b0c57dbb4d840f0e94838f7174d5a4ab50730d961769a2c8945b5"
-      ],
-      "origin": [
-        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
-      ],
-      "fingerprint": "7887a4ee5c9a697449990a28e2180fc45b048b5ea553095d38990c900d115cfe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

@@ -495,6 +495,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    // Under the glass: clear Liquid Glass over a white document page all but
+    // vanished in light mode; the system fill gives the disc its edge.
+    backgroundColor: color.secondaryFill,
     // The web Modal focuses its first control on open, and the browser drew
     // its focus ring round the close button: the white ring.
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),

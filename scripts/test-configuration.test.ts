@@ -670,7 +670,7 @@ describe('test lane configuration', () => {
       'packages/client-graph/src/reader-queries.ts',
       'packages/mobx-helpers/src/debug-name.ts',
       'apps/web/src/app/workspace-mission-reads.ts',
-      'apps/mobile/src/lib/mission-session.ts',
+      'packages/client-graph/src/mission-seat.ts',
     ])
       expect(
         inputs.some((input) => input.endsWith(file)),

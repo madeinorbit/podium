@@ -12,6 +12,7 @@ import {
 import { autorun, reaction } from 'mobx'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { type MissionRowPresentation, requireLoaded, settled } from '@podium/client-graph/mission-view'
 import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
 import { EMPTY_MOBILE_TASKS, readMobileTaskSnapshot, type MobileTasksData } from './mobile-task-snapshot'
@@ -23,7 +24,6 @@ import {
 } from './sidebar-check'
 
 export interface MobileScreenInput {
-  selectSession(sessions: readonly SessionView[]): SessionView | undefined
   /** Tasks do not depend on mission selection; null skips a repeated check. */
   tasks: MobileTasksOptions | null
   selectedId: string | null
@@ -189,10 +189,9 @@ function snapshot(
   tasks: MobileTasksData,
   mission: PhoneMission,
   deck: PhoneDeck,
-  selectSession: MobileScreenInput['selectSession'],
   requested?: string,
 ): SidebarSnapshot {
-  const automatic = selectSession(mission.missionSessions)
+  const automatic = defaultSeat(mission.missionSessions, mission.root?.coordinatorSessionId)
   const current =
     mission.missionSessions.find((session) => session.sessionId === requested) ?? automatic
   const header = mission.header(current?.issueId)
@@ -286,7 +285,7 @@ export function poolMobileScreensSnapshot(
   try {
     const opened = phoneMission(pool, input.selectedId, input.mode)
     if (tasks === LOADING || opened === LOADING) return LOADING
-    return snapshot(tasks, opened[0], opened[1], input.selectSession, input.requestedSessionId)
+    return snapshot(tasks, opened[0], opened[1], input.requestedSessionId)
   } catch (error) {
     if (error === LOADING) return LOADING
     throw error

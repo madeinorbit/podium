@@ -1,0 +1,26 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from './models'
+
+/**
+ * WHICH SESSION A TASK OPENS ON, shared by the desktop flight deck and the
+ * phone mission screen.
+ *
+ * Contract order: coordinator → lone member → most recently active member →
+ * no session. Only open sessions qualify. The pane you happen to be looking at
+ * is NOT a preference: it made clicking one task open a different task's
+ * session.
+ *
+ * Callers hand over the pool's session objects, often typed through the
+ * wire-shaped `SessionView`; `open` is the model's own answer.
+ */
+export function defaultSeat<S extends SessionModel | SessionView>(
+  sessions: readonly S[],
+  coordinatorSessionId: string | null | undefined,
+): S | undefined {
+  const active = sessions.filter((session) => (session as SessionModel).open)
+  return (
+    active.find((session) => session.sessionId === coordinatorSessionId) ??
+    (active.length === 1 ? active[0] : undefined) ??
+    [...active].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
+  )
+}

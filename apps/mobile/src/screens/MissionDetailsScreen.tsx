@@ -2,9 +2,9 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useLayoutEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
@@ -40,10 +40,6 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
-  const navigation = useNavigation()
-  useLayoutEffect(() => {
-    navigation.setOptions({ headerShown: false })
-  }, [navigation])
 
   return (
     <View style={styles.root}>

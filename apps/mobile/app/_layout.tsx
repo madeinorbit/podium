@@ -57,8 +57,12 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
         name="mission/[missionId]/details"
         options={{
           presentation: 'formSheet',
-          sheetAllowedDetents: [0.5, 0.9],
+          // Medium and large (board DeckLarge: near full height).
+          sheetAllowedDetents: [0.5, 1],
           sheetGrabberVisible: true,
+          // The deck draws its own heading; a native title collided with it,
+          // and setting this from inside the sheet came too late on iOS.
+          headerShown: false,
           title: 'Mission details',
         }}
       />

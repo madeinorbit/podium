@@ -31,7 +31,6 @@ import {
   writeRescopeBack,
   writeRescopeGrow,
 } from '../../../../tests/worklist/shared/src/scenarios'
-import { mostRelevantSession } from '../lib/mission-session'
 
 function fingerprint(value: unknown) {
   const normalized = JSON.stringify(value, (_key, item) =>
@@ -79,7 +78,7 @@ it.each([
   try {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenInput = {
-        selectSession: mostRelevantSession, tasks: null, selectedId, mode,
+        tasks: null, selectedId, mode,
       }
       const stop = observeMobileScreens(handle.pool, input)
       try {
@@ -175,7 +174,6 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
   for (const selectedId of ids) {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenInput = {
-        selectSession: mostRelevantSession,
         tasks: selectedId === null ? tasks : null,
         selectedId: selectedId ?? null,
         mode,
@@ -206,7 +204,6 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     { ...tasks, filter: { archived: true }, showDone: true },
   ].entries()) {
     const input: MobileScreenInput = {
-      selectSession: mostRelevantSession,
       tasks: options,
       selectedId: ids[0] ?? null,
       mode: 'full',

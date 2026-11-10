@@ -2,6 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { sessionTitle } from '@podium/client-core/values'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
@@ -27,7 +28,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
-import { mostRelevantSession } from '../lib/mission-session'
 import { color } from '../theme/theme'
 
 /**
@@ -82,12 +82,18 @@ export const MissionScreen = observer(function MissionScreen() {
 
   // An explicit pick from the deck outranks the automatic one, but only while it
   // still names a session on THIS mission — a mission you return to hours later
-  // must not open on an agent that has since been archived.
-  const auto = mostRelevantSession(missionSessions)
-  const current =
-    missionSessions.find((s) => s.sessionId === pinnedSessionId) ??
-    missionSessions.find((s) => s.sessionId === auto?.sessionId) ??
-    auto
+  // must not open on an agent that has since been archived. The automatic one
+  // is the desktop's (coordinator, lone member, most recently active), and it
+  // is pinned the moment it is shown: the seat changes only when the operator
+  // picks another, never because a sibling spoke last while they read.
+  const pinned = missionSessions.find((s) => s.sessionId === pinnedSessionId)
+  const auto = pinned ? undefined : defaultSeat(missionSessions, root?.coordinatorSessionId)
+  const current = pinned ?? auto
+  const autoId = auto?.sessionId
+  useEffect(() => {
+    // Wait for the root: its coordinator decides the pick.
+    if (root && autoId) setPinnedSessionId(autoId as SessionId)
+  }, [root, autoId])
   useEffect(() => {
     if (requestedSessionId) setPinnedSessionId(requestedSessionId as SessionId)
   }, [requestedSessionId])

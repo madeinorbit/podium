@@ -8,7 +8,6 @@ import { observeMobileScreens, poolMobileScreensSnapshot, trackMobileScreenRead 
 import { openFenceFeeds } from '../../../../tests/worklist/harness/src/fence-feeds'
 import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { mostRelevantSession } from '../lib/mission-session'
 
 it('keeps loading inside the phone mission boundary for cold corpus root i938', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -17,7 +16,7 @@ it('keeps loading inside the phone mission boundary for cold corpus root i938', 
   const stopErrors = onReactionError(error => errors.push(error))
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MOBILE_SCREEN_SUMMARIES })
-  const input = { selectedId: 'i938', mode: 'full' as const, tasks: null, selectSession: mostRelevantSession }
+  const input = { selectedId: 'i938', mode: 'full' as const, tasks: null }
   let stop = () => {}
   try {
     await attachMobileScreens(handle.pool)
