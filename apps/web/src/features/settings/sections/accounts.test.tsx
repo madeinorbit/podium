@@ -478,7 +478,7 @@ describe('AccountsSection', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
   })
 
-  it('shows the server-AI login and its last failure on the spent row (POD-4805)', async () => {
+  it('leaves the background login and failure status to the Agents page', async () => {
     serveList([
       {
         ...NATIVE,
@@ -495,9 +495,10 @@ describe('AccountsSection', () => {
     ])
     render(<AccountsSection />)
 
-    expect(await screen.findByText(/Server AI uses Desk/)).toBeTruthy()
-    expect(screen.getByText(/Server AI last failed: /)).toBeTruthy()
-    expect(screen.getByText(/not supported/)).toBeTruthy()
+    expect(await screen.findByText('Codex')).toBeTruthy()
+    expect(screen.queryByText(/Server AI uses Desk/)).toBeNull()
+    expect(screen.queryByText(/Server AI last failed: /)).toBeNull()
+    expect(screen.queryByText(/not supported/)).toBeNull()
   })
 
   describe('key sharing (POD-6390)', () => {

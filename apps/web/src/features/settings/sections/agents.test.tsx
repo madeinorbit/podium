@@ -85,11 +85,14 @@ describe('Model availability', () => {
     rerender(<ModelAvailabilityWarning harness="codex" model="other" />)
     expect(screen.queryByRole('status')).toBeNull()
   })
-  it.each([
+  const unreportedCatalogs: ModelCatalogState['catalog'][] = [
     {},
     { codex: [] },
     { grok: [{ value: 'grok', label: 'Grok' }] },
-  ])('does not infer absence from an unreported or empty catalog (%j)', (catalog) => {
+  ]
+  it.each(
+    unreportedCatalogs,
+  )('does not infer absence from an unreported or empty catalog (%j)', (catalog) => {
     fixture.byMachine.studio = { catalog, status: 'unavailable' }
     show()
     expect(screen.queryByRole('status')).toBeNull()
