@@ -1,3 +1,6 @@
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Row } from '@/features/settings/sections/shared'
 import './settings-frame-store'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -20,25 +23,30 @@ function FlowAction() {
   const { openTakeover } = useSettingsFrame()
   return (
     <SettingsPageActions>
-      <button
+      <Button
         type="button"
-        className="settings-prose"
+        size="sm"
+        variant="outline"
         onClick={() =>
           openTakeover({
             title: 'Add project',
             description: 'Choose a repository.',
             content: (
-              <input
-                aria-label="Repository URL"
-                placeholder="https://github.com/example/project"
-                className="settings-prose"
-              />
+              <Row
+                label="Repository URL"
+                description="Choose the repository you want Podium to work in."
+              >
+                <Input
+                  aria-label="Repository URL"
+                  placeholder="https://github.com/example/project"
+                />
+              </Row>
             ),
           })
         }
       >
         Add project
-      </button>
+      </Button>
     </SettingsPageActions>
   )
 }

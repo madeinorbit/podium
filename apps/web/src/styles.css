@@ -15530,6 +15530,10 @@ button.waterfall-fold:hover {
 @media (max-width: 759px) {
   .app-sheet-settings {
     --settings-pane-pad: 20px;
+    top: 0;
+    bottom: 0;
+    width: 100vw;
+    border-radius: 0;
   }
   .app-sheet-settings .settings-rail {
     width: 100%;
@@ -15537,6 +15541,15 @@ button.waterfall-fold:hover {
   }
   .app-sheet-settings .settings-rail-item {
     min-height: 40px;
+  }
+  .app-sheet-settings .settings-rail-item[aria-current="page"] {
+    background: transparent;
+    box-shadow: none;
+    color: var(--muted-foreground);
+    font-weight: 400;
+  }
+  .app-sheet-settings .settings-rail-item[aria-current="page"] > svg {
+    color: var(--text-dim);
   }
   .app-sheet-settings .settings-pane {
     display: none;
