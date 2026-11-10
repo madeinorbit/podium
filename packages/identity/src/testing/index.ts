@@ -25,7 +25,9 @@ import {
   IdentityRefused,
   type IssuedSignIn,
   type MemberRows,
+  type WorkspaceIdentity,
 } from '../types'
+import { MEMBERSHIP_SUITE_CASES, membershipCases } from './memberships'
 
 export const IDENTITY_SUITE_CASES = [
   'self sign-up off refuses the library sign-up; an account is created server-side',
@@ -41,6 +43,7 @@ export const IDENTITY_SUITE_CASES = [
   'the capability list of the self-hosted and of the cloud configuration',
   'plain HTTP that is not same-machine is refused; the two cookie names',
   'library writes inside a package transaction roll back with it',
+  ...MEMBERSHIP_SUITE_CASES,
 ] as const
 
 /** The test functions of whichever runner executes the leg. The suite imports no runner. */
@@ -55,14 +58,26 @@ export interface SuiteRunner {
 
 export interface MemberRowState {
   memberId: string
+  /** A leg whose member rows cannot tell removed from disabled answers 'disabled' for both. */
   state: 'active' | 'disabled' | 'removed'
   role: 'admin' | 'member'
   accountId: string | null
+  /** The membership version last applied to the row. */
   version: number
+  /** The member's authorization generation. */
+  generation: number
+  name: string
+  email: string | null
 }
 
 /** The logical tables a leg can read raw, to assert what is stored. */
-export type StoredTable = 'user' | 'account' | 'session' | 'oneTimeCode'
+export type StoredTable =
+  | 'user'
+  | 'account'
+  | 'session'
+  | 'oneTimeCode'
+  | 'membership'
+  | 'invitation'
 
 export interface OpenedDatabase {
   database: IdentityDatabase
@@ -225,6 +240,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
       let opened: Awaited<ReturnType<SuiteHarness['open']>>
       let core: IdentityCore
       let runtime: Runtime
+      let workspace: WorkspaceIdentity
       let alice: Account
       let bob: Account
       let mailbox: Sent[]
@@ -307,6 +323,30 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         return 'did not throw'
       }
 
+      /**
+       * Makes an account an active member of the workspace. A local account
+       * signs in only while it has an active membership, so every person of
+       * these cases is a member: Alice the first admin, the others invited by
+       * the host and accepted.
+       */
+      const admit = async (account: Account): Promise<void> => {
+        const ref = { kind: 'existing' as const, accountId: account.id }
+        if ((await workspace.memberships.list()).length === 0) {
+          await workspace.memberships.adopt({
+            by: 'setup',
+            role: 'admin',
+            status: 'active',
+            account: ref,
+          })
+          return
+        }
+        const { invitation } = await workspace.memberships.invite({
+          actor: { system: 'host' },
+          role: 'member',
+        })
+        await workspace.memberships.accept({ token: invitation.token, account: ref })
+      }
+
       beforeEach(async () => {
         ahead = 0
         mailbox = []
@@ -316,6 +356,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         )
         core = built.core
         runtime = built.runtime
+        workspace = core.workspace('local', { rows: opened.memberRows, sameDatabase: true })
         alice = await core.accounts.create({
           name: 'Alice',
           email: 'alice@example.test',
@@ -326,6 +367,8 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
           email: 'bob@example.test',
           password: BOB_PASSWORD,
         })
+        await admit(alice)
+        await admit(bob)
       })
       afterEach(async () => {
         await opened.close()
@@ -425,6 +468,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
           email: 'erin@example.test',
           passwordHash: earlier,
         })
+        await admit(erin)
         expect(((await opened.stored('account', 'password')) as string[]).includes(earlier)).toBe(
           true,
         )
@@ -685,6 +729,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
       test(6, async () => {
         // Carol has no login method at all.
         const carol = await core.accounts.create({ name: 'Carol' })
+        await admit(carol)
         expect(await core.accounts.hasPassword(carol.id)).toBe(false)
         const first = await core.codes.issue({
           purpose: 'transfer-claim',
@@ -1281,6 +1326,16 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         ).toBe('email-taken')
         expect((await counts()).accounts).toBe(before.accounts + 1)
       })
+    })
+
+    membershipCases({
+      runner,
+      harness,
+      edition,
+      configOf: (database, clock) => editionConfig(edition, harness, database, clock, []),
+      record: (name) => {
+        ran.set(name, (ran.get(name) ?? new Set()).add(edition))
+      },
     })
   }
 
