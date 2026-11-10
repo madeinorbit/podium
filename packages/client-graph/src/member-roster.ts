@@ -9,7 +9,7 @@ import { type RosterFacts, rosterFacts } from './worklist/view-model'
 
 /** `/auth/members/directory`: the active members, and who is asking. */
 export interface MemberRosterAnswer {
-  members: MemberView[]
+  members: Pick<MemberView, 'id' | 'displayName' | 'role'>[]
   currentMemberId: string
 }
 

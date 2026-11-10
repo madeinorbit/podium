@@ -7,12 +7,12 @@
  * in place; saving replaces the whole sharing list, and choosing "Only you"
  * revokes every share.
  *
- * Named people come from the member directory, which only an admin can read
- * (`/auth/members/list`). Without it a member may still share with everyone,
- * keep or remove people already named, or revoke; they cannot add a new name.
+ * Named people come from the member-readable directory of active names and
+ * roles (`/auth/members/directory`). If it cannot load, existing shares can
+ * still be removed or revoked.
  */
 
-import type { MemberDirectory } from '@podium/client-graph/member-directory'
+import type { MemberRoster } from '@podium/client-graph/member-roster'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
@@ -28,12 +28,12 @@ export interface KeySharingValue {
 }
 
 /** The member's name if the directory knows them; never invents one. */
-function nameOf(directory: MemberDirectory | null, id: string): string | undefined {
-  return directory?.members.find((member) => member.id === id)?.displayName || undefined
+function nameOf(directory: MemberRoster | null, id: string): string | undefined {
+  return directory?.nameOf(id)
 }
 
 /** "Ana", "Ana and Ben", "Ana, Ben and 2 others": names when known, else a count. */
-export function peopleSummary(directory: MemberDirectory | null, users: readonly string[]): string {
+export function peopleSummary(directory: MemberRoster | null, users: readonly string[]): string {
   const names = users.flatMap((id) => nameOf(directory, id) ?? [])
   const unnamed = users.length - names.length
   if (names.length === 0) return unnamed === 1 ? '1 person' : `${unnamed} people`
@@ -45,7 +45,7 @@ export function peopleSummary(directory: MemberDirectory | null, users: readonly
 
 /** `whose` names the key's owner when it is not the viewer's: "Only its owner". */
 export function sharingSummary(
-  directory: MemberDirectory | null,
+  directory: MemberRoster | null,
   sharing: KeySharingValue | undefined,
   whose: 'you' | 'its owner' = 'you',
 ): string {
@@ -74,7 +74,7 @@ export const KeySharing = observer(function KeySharing({
   label: string
   sharing: KeySharingValue | undefined
   owner?: string
-  directory: MemberDirectory | null
+  directory: MemberRoster | null
   currentMemberId?: string
   onChanged: () => void
 }): JSX.Element {
@@ -166,8 +166,7 @@ export const KeySharing = observer(function KeySharing({
       </ModeOption>
       {!canPick && (
         <p className="max-w-[62ch] pl-6 settings-prose">
-          Only an admin can see the member list. Ask an admin to share this key with specific
-          people.
+          No other active members are available to select.
         </p>
       )}
       {mode === 'people' && canPick && (
@@ -176,7 +175,7 @@ export const KeySharing = observer(function KeySharing({
             <PersonOption
               key={member.id}
               id={member.id}
-              name={member.displayName || member.email || member.id}
+              name={nameOf(directory, member.id) ?? 'Member'}
               checked={picked.includes(member.id)}
               onToggle={toggle}
             />
@@ -290,7 +289,7 @@ export const MembersKeys = observer(function MembersKeys({
   labelOf,
   group,
 }: {
-  directory: MemberDirectory
+  directory: MemberRoster
   labelOf: (key: { id: string; provider: string }) => string
   group: (children: React.ReactNode) => JSX.Element
 }): JSX.Element | null {

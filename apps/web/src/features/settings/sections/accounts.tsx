@@ -1,6 +1,8 @@
-import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { useOpeningView } from '@podium/client-graph/react'
+import {
+  type MemberRoster,
+  type MemberRosterAnswer,
+  memberRoster,
+} from '@podium/client-graph/member-roster'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import type { HarnessAgent } from '@podium/runtime'
@@ -245,7 +247,7 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   onChanged,
 }: {
   account: AccountView
-  directory: MemberDirectory | null
+  directory: MemberRoster | null
   onChanged: () => void
 }): JSX.Element {
   const trpc = useSettingsTrpc()
@@ -268,10 +270,7 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   const shared = connected && account.credentialSource === 'shared'
   // The viewer's own stored key: theirs to share (POD-6390).
   const own = connected && account.credentialSource === 'stored'
-  const sharedByName =
-    shared && account.sharedBy
-      ? directory?.members.find((member) => member.id === account.sharedBy)?.displayName
-      : undefined
+  const sharedByName = shared ? directory?.nameOf(account.sharedBy) : undefined
   const label = managedLabel(account)
 
   // The row's own explanation lives under its label (POD-127 F3), never as a
@@ -296,7 +295,8 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
     ) : !isOauth && connected && !legacy ? (
       <>
         Injected into your agents' spawns. Issue digests (the background LLM role) run on the first
-        admin's settings and spend that admin's key, falling back to the instance key under API keys.
+        admin's settings and spend that admin's key, falling back to the instance key under API
+        keys.
       </>
     ) : undefined
 
@@ -537,22 +537,18 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   )
 })
 
-const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
-
 /**
- * The member directory, for naming the people a key is shared with. Only an
- * admin can read it; for a member the read fails and the sharing control offers
- * what needs no names (only you, everyone, removing people already named).
- * The directory supplies names only; the admin viewer decides whether the
- * members' keys list is offered.
+ * Read active names and roles when Accounts opens, into the pool's shared
+ * roster. The admin viewer independently decides whether members' keys appear.
  */
-function useKeyPeople(open: boolean): MemberDirectory | null {
-  const directory = useOpeningView(useWorklistPool(), createDirectory, open)
+function useKeyPeople(open: boolean): MemberRoster | null {
+  const pool = useWorklistPool()
+  const directory = pool ? memberRoster(pool) : null
   useEffect(() => {
-    if (!directory) return
+    if (!open || !directory) return
     const origin = serverConfig(window.location).httpOrigin
-    void directory.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list'))
-  }, [directory])
+    void directory.read(() => memberRequest<MemberRosterAnswer>(origin, 'directory'))
+  }, [directory, open])
   return directory
 }
 

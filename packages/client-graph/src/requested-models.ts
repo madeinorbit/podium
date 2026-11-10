@@ -133,7 +133,7 @@ registerModels(
         createdAt: 'isoDate',
         disabledAt: 'isoDate',
       },
-      ['accountId', 'avatar', 'createdAt', 'disabledAt'],
+      ['email', 'accountId', 'avatar', 'createdAt', 'disabledAt'],
       ['email', 'accountId', 'avatar', 'disabledAt'],
     ),
     device: record(

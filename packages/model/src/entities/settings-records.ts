@@ -68,11 +68,11 @@ export const SHARED_MACHINE_ACCOUNT_WARNING =
   "Their agents and yours can read each other's files there, and any credentials " +
   'installed on it, including a connection you send to it.'
 
-/** The public member directory response, including its account identity. */
+/** A shared member record. Email and account details come only from the admin list. */
 export const MemberView = z.object({
   id: z.string(),
   displayName: z.string(),
-  email: z.string().nullable(),
+  email: z.string().nullable().optional(),
   role: z.string(),
   accountId: z.string().nullable().optional(),
   avatar: z.string().nullable().optional(),

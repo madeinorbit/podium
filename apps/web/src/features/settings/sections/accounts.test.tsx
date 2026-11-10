@@ -19,7 +19,7 @@ const trpc = {
   },
 }
 
-/** The member directory read: refused by default (a member), answered for an admin. */
+/** Directory failures preserve the count-only fallback; members otherwise read names. */
 const memberRequest = vi.fn(async (_origin: string, _action: string): Promise<unknown> => {
   throw new Error('The server refused this request (403).')
 })
@@ -35,8 +35,21 @@ const ADMIN_DIRECTORY = {
     { id: 'user:ben', displayName: 'Ben', email: 'ben@example.com', role: 'member' },
   ],
 }
+const MEMBER_DIRECTORY = {
+  currentMemberId: 'user:ben',
+  members: ADMIN_DIRECTORY.members.map(({ id, displayName, role }) => ({ id, displayName, role })),
+}
+function asMember(): void {
+  memberRequest.mockImplementation(async (_origin, action) => {
+    if (action !== 'directory') throw new Error('Administrator required')
+    return MEMBER_DIRECTORY
+  })
+}
 function asAdmin(): void {
-  memberRequest.mockImplementation(async () => ADMIN_DIRECTORY)
+  memberRequest.mockImplementation(async (_origin, action) => {
+    if (action !== 'directory') throw new Error('Use the public directory')
+    return { ...MEMBER_DIRECTORY, currentMemberId: 'user:admin' }
+  })
   authRequest.mockResolvedValue({ sections: ['people', 'access', 'machines', 'instance', 'audit'] })
 }
 const navigateToSession = vi.fn()
@@ -518,7 +531,7 @@ describe('AccountsSection', () => {
       expect(await screen.findByText('Everyone on this server')).toBeTruthy()
     })
 
-    it('a member without the member list cannot add people, but can revoke one already named', async () => {
+    it('when the directory fails, a member can still revoke one already named', async () => {
       serveList([{ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }], [OWN])
       trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
       render(<AccountsSection />)
@@ -543,15 +556,48 @@ describe('AccountsSection', () => {
       expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
     })
 
-    it('a member with nobody named is told only an admin can pick people', async () => {
-      serveList([OWN])
+    it('a member shares their own key with a specific person by name', async () => {
+      asMember()
+      serveList([OWN], [{ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }])
+      trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
       render(<AccountsSection />)
 
       fireEvent.click(
         await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
       )
+      await waitFor(() =>
+        expect((screen.getByLabelText('Specific people') as HTMLInputElement).disabled).toBe(false),
+      )
+      fireEvent.click(screen.getByLabelText('Specific people'))
+      expect(screen.queryByLabelText('Ben')).toBeNull()
+      expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(
+        true,
+      )
+      fireEvent.click(screen.getByLabelText('Ana'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+          id: 'managed:anthropic',
+          everyone: false,
+          users: ['user:ana'],
+        }),
+      )
+      expect(await screen.findByText('Ana')).toBeTruthy()
+      expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory')
+      expect(screen.queryByText("Members' keys")).toBeNull()
+      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+    })
+
+    it('explains an unavailable directory without requiring an admin', async () => {
+      serveList([OWN])
+      render(<AccountsSection />)
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Change who can use Anthropic API key' }),
+      )
       expect((screen.getByLabelText('Specific people') as HTMLInputElement).disabled).toBe(true)
-      expect(screen.getByText(/Only an admin can see the member list/)).toBeTruthy()
+      expect(screen.queryByText(/Only an admin can see the member list/)).toBeNull()
+      expect(screen.getByText(/No other active members are available/)).toBeTruthy()
     })
 
     it('an admin shares their own key with named people, by name', async () => {
@@ -629,9 +675,8 @@ describe('AccountsSection', () => {
       expect(await screen.findByText('Everyone on this server')).toBeTruthy()
     })
 
-    it('names who shared a key with the viewer when the directory knows them', async () => {
-      asAdmin()
-      trpc.accounts.keys.query.mockResolvedValue([])
+    it('names who shared a key with a member without reading admin data', async () => {
+      asMember()
       serveList([
         {
           ...API_KEY_ROW,
@@ -644,6 +689,8 @@ describe('AccountsSection', () => {
       render(<AccountsSection />)
 
       expect(await screen.findByText(/Shared with you by Ana/)).toBeTruthy()
+      expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory')
+      expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
       // Not the viewer's key: no sharing control on it.
       expect(screen.queryByRole('button', { name: /^Change who can use Anthropic/ })).toBeNull()
     })

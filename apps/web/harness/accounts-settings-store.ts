@@ -6,8 +6,8 @@
  * `accounts.keys` and `accounts.share` answer from the rows below, and a share
  * writes back, so the sharing editor can be driven end to end.
  *
- * `?scene=` picks the viewer: `admin` (default; reads the member list and every
- * member's keys) or `member` (the member list is refused, as the server does).
+ * `?scene=` picks the viewer: `admin` (default; manages every member's keys)
+ * or `member` (reads active names and roles, but cannot manage others' keys).
  * `custody` keeps the member-owned native login, D11 opt-in and explicit send
  * to a shared machine scenarios (POD-6300, POD-6301).
  */
@@ -227,6 +227,11 @@ const trpc = {
 }
 
 export async function memberRequest<T>(_origin: string, action: string): Promise<T> {
+  if (action === 'directory')
+    return later({
+      members: MEMBERS.map(({ id, displayName, role }) => ({ id, displayName, role })),
+      currentMemberId: ME,
+    }) as Promise<T>
   if (action !== 'list' || sceneName() !== 'admin') throw new Error('Administrator required')
   return later({
     members: MEMBERS,

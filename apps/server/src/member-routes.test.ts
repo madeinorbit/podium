@@ -144,7 +144,7 @@ test('without a configured URL, desktop requests get an HTTP invite link', async
     /^https:\/\/workspace.example\/#invite=/,
   )
 })
-test('every signed-in member reads the directory; only admins see other membersâ€™ emails (POD-6294)', async () => {
+test('members read active names and roles; only the admin list carries emails', async () => {
   const alice = firstAdminMemberId()
   const bob = asUserId('mem_bob_directory')
   const carol = asUserId('mem_carol_directory')
@@ -172,7 +172,7 @@ test('every signed-in member reads the directory; only admins see other membersâ
     'hash',
   )
   await store.users.disable(carol, at)
-  const read = async (as: string | undefined) => {
+  const read = async (as: string | undefined, action = 'directory') => {
     const hono = new Hono()
     registerMemberRoutes(hono, {
       users: store.users,
@@ -180,21 +180,32 @@ test('every signed-in member reads the directory; only admins see other membersâ
       resolveUserId: async () => (as === undefined ? undefined : asUserId(as)),
       appUrl: () => undefined,
     })
-    return await hono.request('https://workspace.example/auth/members/directory')
+    return await hono.request(`https://workspace.example/auth/members/${action}`)
   }
   type Directory = {
-    members: { id: string; displayName: string; email: string | null; disabledAt: string | null }[]
+    members: { id: string; displayName: string; role: string }[]
     currentMemberId: string
   }
   const asBob = (await (await read(bob)).json()) as Directory
   expect(asBob.currentMemberId).toBe(bob)
   const byId = new Map(asBob.members.map((member) => [member.id, member]))
-  expect(byId.get(bob)).toMatchObject({ displayName: 'Bob', email: 'bob@example.com' })
-  expect(byId.get(alice)?.email).toBeNull()
+  expect(byId.get(bob)).toEqual({ id: bob, displayName: 'Bob', role: 'member' })
+  expect(byId.get(alice)).toEqual({
+    id: alice,
+    displayName: (await store.users.get(alice))?.displayName,
+    role: 'admin',
+  })
   // A disabled member is not one to assign or filter by.
   expect(byId.has(carol)).toBe(false)
   const asAlice = (await (await read(alice)).json()) as Directory
-  expect(asAlice.members.find((member) => member.id === bob)?.email).toBe('bob@example.com')
+  expect(asAlice.members).toEqual(asBob.members)
+  expect(Object.keys(asBob).sort()).toEqual(['currentMemberId', 'members'])
+  expect((await read(bob, 'list')).status).toBe(403)
+  const adminList = await read(alice, 'list')
+  expect(adminList.status).toBe(200)
+  expect((await adminList.json()).members).toContainEqual(
+    expect.objectContaining({ id: bob, email: 'bob@example.com' }),
+  )
   // No caller, or a disabled one, reads nothing.
   expect((await read(undefined)).status).toBe(401)
   expect((await read(carol)).status).toBe(401)

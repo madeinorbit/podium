@@ -163,17 +163,18 @@ export function registerMemberRoutes(
    * THE MEMBER DIRECTORY (POD-6294; design §4.1, "members read what the UI
    * needs"). Every signed-in member reads who else is on the instance, so task
    * views can name an assignee and offer the members to assign or filter by.
-   * Names, roles and the disabled mark only: another member's email stays with
-   * the admins (MU-13), who get the same rows `/list` gives them. The rows are
-   * the active members `users.list()` answers; a disabled member is not listed.
+   * Only active members' ids, display names and roles leave this route. Emails,
+   * account metadata and credential hints stay on the admin-only `/list`.
    */
   routes.get('/directory', async (c) => {
     const actor = await options.resolveUserId(c.req.raw)
     const self = actor ? await users.get(actor) : undefined
     if (!actor || !self || self.disabledAt) return c.json({ error: 'Sign in required' }, 401)
-    const members = (await users.list()).map((member) =>
-      self.role === 'admin' || member.id === actor ? member : { ...member, email: null },
-    )
+    const members = (await users.list()).map(({ id, displayName, role }) => ({
+      id,
+      displayName,
+      role,
+    }))
     return c.json({ members, currentMemberId: actor })
   })
   routes.post('/invite', async (c) => {

@@ -172,6 +172,19 @@ describe('admin area reads', () => {
       return () => spy.mockRestore()
     })
   })
+  it('the member directory runs a constant number of statements', async () => {
+    const directory = pin('/auth/members/directory')
+    await expectConstantStatements(directory, 3)
+    await expectArmed(directory, 3, ({ store }) => {
+      const list = store.users.list.bind(store.users)
+      const spy = vi.spyOn(store.users, 'list').mockImplementation(async () => {
+        const members = await list()
+        for (const member of members) await store.users.get(asUserId(member.id))
+        return members
+      })
+      return () => spy.mockRestore()
+    })
+  })
   it('the People list runs a constant number of statements', async () => {
     await expectConstantStatements(pin('/auth/members/list'), 5)
   })
