@@ -3,7 +3,7 @@
 Status: reviewed and accepted by the coordinator of PDM-107 on 2026-11-10, with one change that is made in this text (section 16, row 19). Nothing in it is built.
 Amended the same day by the approved sign-in carry-over design, `docs/design/sign-in-carry-over.md` (section 16, rows 20 to 26); the changed places are sections 2.6, 6, 8.5, 9, 13.2 and 14.
 Amended by the memberships task, POD-6745, with what it built differently (section 16, rows 27 to 39, accepted by the coordinator on 2026-11-10).
-Amended by the cloud memberships task, PDM-495, with what it built differently (section 16, rows 41 to 49, for the coordinator).
+Amended by the cloud memberships task, PDM-495, with what it built differently (section 16, rows 41 to 50, for the coordinator).
 It is the detailed reference for every task under "Shared sign-in core" (PDM-513). Where a task brief and this document disagree, the difference is listed in section 16 for the coordinator.
 
 | Written against | Commit |
@@ -1400,6 +1400,7 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 47 | PDM-495 acceptance B3: "his account link [is] unchanged" for a removed Bob | Holds for a disabled Bob. For a removed Bob the membership keeps the account and the member row gives it up, as row 36 says | Row 36, accepted earlier |
 | 48 | Section 2.3: the server computes the connection facts | For the platform's own routes (`/platform/*`) the platform computes them: always `https`, never same-machine, and the client address from one configured header (`PLATFORM_CLIENT_ADDRESS_HEADER`, by default `Fly-Client-IP` on a Fly machine). Without it every caller shares one budget of the library's limiter | Those routes are mounted through the plugin hook and do not see the server's trust boundary |
 | 49 | No brief says it | Deploying PDM-495 signs every cloud account out once: the cookie is now `__Secure-podium.session_token` and tokens are stored hashed, so the migration deletes the earlier device sign-ins | An earlier sign-in could not be read any more, and its token was stored in clear |
+| 50 | Section 1.3: creating a hosted workspace mints the creator's member id, and the membership keeps it | At the workspace's first start, before the first catch-up and in the step of row 44, the creator's membership takes the id of the first admin row the server's own migrations made. The key changes in Postgres only while nothing has been applied (the applied version is 0 and the minted id has no member row), with the workspace's revision row locked; versions do not move. Records the creator made before the first start (`created_by`) follow | Coordinator's decision, 2026-11-10: otherwise that first admin row stays enabled and unclaimed for ever, a member nobody can be, and the server's internal default principal is that row. It is the one place a membership's key changes, and it is done by podium-cloud outside the package's operations |
 
 ## 17. Product questions this document could not settle
 
