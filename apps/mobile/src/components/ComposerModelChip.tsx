@@ -18,7 +18,7 @@ import {
 } from '@podium/client-core/values'
 import { observer } from 'mobx-react-lite'
 import { useCallback } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { color, font, mono } from '../theme/theme'
 import { ComposerModelMenu, type ComposerModelMenuProps } from './ComposerModelMenu'
@@ -97,7 +97,10 @@ export const ComposerModelChip = observer(function ComposerModelChip({
       session.configureFields?.includes('effort') === true
         ? effortOptionsForModel(agentKind, model, live, served)
         : []
-    const text = chipText(modelLabel(agentKind, model, live, served), effortLabel(agentKind, effort))
+    const text = chipText(
+      modelLabel(agentKind, model, live, served),
+      effortLabel(agentKind, effort),
+    )
     const menu: Omit<ComposerModelMenuProps, 'children'> = {
       models: modelOptions(agentKind, live, served),
       model,
@@ -113,22 +116,39 @@ export const ComposerModelChip = observer(function ComposerModelChip({
     }
     return (
       <ComposerModelMenu {...menu}>
-        {(onPress) => (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Model and effort: ${text}`}
-            testID="session-model"
-            onPress={onPress}
-            hitSlop={8}
-            scaleTo={0.97}
-            style={styles.chip}
-          >
-            <Text style={styles.text} numberOfLines={1}>
-              {text}
-            </Text>
-            <Icon as={ChevronDown} size={11} color={color.textDim} />
-          </PressableScale>
-        )}
+        {(onPress) =>
+          // On iOS the SwiftUI Menu owns the tap (onPress is undefined): the
+          // label must not be an RN responder, or it swallows the touch.
+          onPress === undefined ? (
+            <View
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={`Model and effort: ${text}`}
+              testID="session-model"
+              style={styles.chip}
+            >
+              <Text style={styles.text} numberOfLines={1}>
+                {text}
+              </Text>
+              <Icon as={ChevronDown} size={11} color={color.textDim} />
+            </View>
+          ) : (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`Model and effort: ${text}`}
+              testID="session-model"
+              onPress={onPress}
+              hitSlop={8}
+              scaleTo={0.97}
+              style={styles.chip}
+            >
+              <Text style={styles.text} numberOfLines={1}>
+                {text}
+              </Text>
+              <Icon as={ChevronDown} size={11} color={color.textDim} />
+            </PressableScale>
+          )
+        }
       </ComposerModelMenu>
     )
   }
