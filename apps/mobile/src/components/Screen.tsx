@@ -5,6 +5,9 @@ import { color, font, mono, radius, sans, space, tracking } from '../theme/theme
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
 import { PressableScale } from './PressableScale'
+import type { ScreenAction } from './screen-actions'
+
+export type { ScreenAction, ScreenMenuItem } from './screen-actions'
 
 /**
  * Screen scaffold on the flat Dark Ink canvas (`color.bg`, #16171a).
@@ -20,7 +23,8 @@ export function Screen({
   backLabel,
   backAs = 'chevron',
   leading,
-  right,
+  right: customRight,
+  actions,
   children,
   large,
   noHeader,
@@ -41,6 +45,11 @@ export function Screen({
   /** Slot between the back chevron and the titles (the 18px ID square). */
   leading?: ReactNode
   right?: ReactNode
+  /**
+   * Trailing header actions. Native draws bar button items; this fallback draws
+   * a header button per plain action and leaves pull-down menus to native.
+   */
+  actions?: readonly ScreenAction[]
   children: ReactNode
   large?: boolean
   noHeader?: boolean
@@ -52,6 +61,17 @@ export function Screen({
   monoSubtitle?: boolean
 }) {
   const insets = useSafeAreaInsets()
+  const right =
+    customRight ??
+    (actions?.length
+      ? actions
+          .flatMap((action) => (action.onPress && !action.items ? [action] : []))
+          .map((action) => (
+            <HeaderButton key={action.label} label={action.label} onPress={action.onPress!}>
+              <Icon as={action.icon} size={17} color={color.textDim} />
+            </HeaderButton>
+          ))
+      : null)
   return (
     <View style={styles.root}>
       <View

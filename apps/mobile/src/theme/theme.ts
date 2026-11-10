@@ -55,6 +55,9 @@ export const color = {
   /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
   elevated: semanticColor('tertiarySystemBackground', appearancePalette.dark.raised),
   glass: semanticColor('secondarySystemBackground', 'rgba(27, 29, 33, 0.78)'),
+  /** Grouped lists (Settings): the ground and the inset card on it, as UIKit draws them. */
+  groupedBg: semanticColor('systemGroupedBackground', appearancePalette.dark.bg),
+  groupedCard: semanticColor('secondarySystemGroupedBackground', appearancePalette.dark.surface),
   // Legacy aliases
   card: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
   cardPressed: semanticColor('systemFill', '#2c3038'),
@@ -138,6 +141,12 @@ export const color = {
   toolText: semanticColor('tertiaryLabel', '#6f7580'),
 } as const
 
+/**
+ * One 4pt grid. Every margin, gap and inset is a multiple of four: `grid(3)` is
+ * the 12pt card inset, `grid(4)` the 16pt screen margin.
+ */
+export const grid = (steps: number) => steps * 4
+
 export const space = {
   xs: 4,
   sm: 8,
@@ -147,8 +156,17 @@ export const space = {
   xxl: 32,
 } as const
 
-/** Discrete redesign radii — the workhorse row/square radius is 7. */
+/**
+ * Corner radii. New iOS chrome uses the three named tiers only: `card` 8 for
+ * grouped lists and tiles, `control` 6 for buttons, chips and segments, `inner`
+ * 4 for thumbnails inside a card. System glass, the tab bar and sheets keep the
+ * shapes UIKit draws. The numbered steps are the older scale still read by
+ * screens that have not moved yet.
+ */
 export const radius = {
+  card: 8,
+  control: 6,
+  inner: 4,
   xs: 5,
   sm: 6,
   md: 7,

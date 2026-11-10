@@ -1,21 +1,21 @@
-import { settingsView } from '@podium/client-graph/settings-views'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
+import { settingsView } from '@podium/client-graph/settings-views'
+import type { HostMetricsWire } from '@podium/model'
 import { asUserId } from '@podium/model'
+import type { MobileClientSession } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Platform } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
-import type { MobileClientSession } from '@podium/protocol'
-import type { HostMetricsWire } from '@podium/model'
-import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -211,9 +211,8 @@ async function mount(count = 8, scale?: number) {
   )
   await waitFor(
     () => {
-      expect(rowValue(view.container, 'Tasks')).toBe(String(count))
-      expect(rowValue(view.container, 'Sessions')).toBe(
-        String(referenceState(runtime).sessions.length),
+      expect(dataLine(view.container)).toBe(
+        `${referenceState(runtime).sessions.length.toLocaleString('en-US')} sessions · ${count.toLocaleString('en-US')} tasks`,
       )
     },
     { timeout: 5000 },
@@ -314,6 +313,10 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
     current.view.unmount()
   }
 }, 30_000)
+/** The server card's "N sessions · N tasks" line. */
+function dataLine(container: HTMLElement): string | undefined {
+  return container.querySelector('[aria-label="Data on this phone"]')?.textContent ?? undefined
+}
 function rowValue(container: HTMLElement, label: string): string | undefined {
   return (
     [...container.querySelectorAll('div')].find(
@@ -349,7 +352,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
   expect(roster).not.toHaveBeenCalled()
   expect(count).not.toHaveBeenCalled()
-  expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
+  expect(dataLine(enabled.view.container)).toMatch(/ · 8 tasks$/)
   expect(enabled.errors).toEqual([])
 })
 
@@ -359,6 +362,7 @@ it('keeps server controls and logout on their existing owners', async () => {
   })
   {
     const current = await mount()
+    // A root tab on iOS: no Done button to dismiss it.
     fireEvent.click(current.view.getByText('Done'))
     fireEvent.click(current.view.getByLabelText('Add server'))
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))
@@ -381,7 +385,7 @@ it('keeps server controls and logout on their existing owners', async () => {
     expect(current.errors).toEqual([])
     current.view.unmount()
   }
-  expect(seams.back).toHaveBeenCalledTimes(1)
+  expect(seams.back).not.toHaveBeenCalled()
   expect(seams.add).toHaveBeenCalledTimes(1)
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')

@@ -107,6 +107,7 @@
         "expo-document-picker": "~57.0.3",
         "expo-file-system": "~57.0.7",
         "expo-font": "~57.0.4",
+        "expo-glass-effect": "~57.0.4",
         "expo-haptics": "~57.0.3",
         "expo-image-picker": "~57.0.20",
         "expo-linear-gradient": "~57.0.2",
@@ -717,6 +718,7 @@
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
     "@expo/metro-config@57.0.13": "patches/@expo%2Fmetro-config@57.0.13.patch",
     "expo-sqlite@57.0.4": "patches/expo-sqlite@57.0.4.patch",
+    "react-native-screens@4.26.2": "patches/react-native-screens@4.26.2.patch",
   },
   "packages": {
     "@acemir/cssom": ["@acemir/cssom@0.9.31", "", {}, "sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA=="],

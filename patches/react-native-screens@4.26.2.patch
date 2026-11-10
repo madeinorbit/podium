@@ -1,0 +1,87 @@
+diff --git a/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt b/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
+index fa1b77317f609983ae2434764174072e51130550..79a9f22f08289e329043633e034177f433d3df15 100644
+--- a/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
++++ b/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
+@@ -124,6 +124,17 @@ class ScreenStackHeaderConfigViewManager :
+         config.setTitle(title)
+     }
+ 
++    // The navigation item subtitle is an iOS 26 UIKit feature.
++    override fun setSubtitle(
++        config: ScreenStackHeaderConfig,
++        subtitle: String?,
++    ) = Unit
++
++    override fun setLargeSubtitle(
++        config: ScreenStackHeaderConfig,
++        largeSubtitle: String?,
++    ) = Unit
++
+     override fun setTitleFontFamily(
+         config: ScreenStackHeaderConfig,
+         titleFontFamily: String?,
+diff --git a/ios/RNSScreenStackHeaderConfig.h b/ios/RNSScreenStackHeaderConfig.h
+index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09399a94bb 100644
+--- a/ios/RNSScreenStackHeaderConfig.h
++++ b/ios/RNSScreenStackHeaderConfig.h
+@@ -23,6 +23,8 @@
+ NS_ASSUME_NONNULL_BEGIN
+ 
+ @property (nonatomic, retain) NSString *title;
++@property (nonatomic, retain, nullable) NSString *subtitle;
++@property (nonatomic, retain, nullable) NSString *largeSubtitle;
+ @property (nonatomic, retain) NSString *titleFontFamily;
+ @property (nonatomic, retain) NSNumber *titleFontSize;
+ @property (nonatomic, retain) NSString *titleFontWeight;
+diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
+index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..81177e3daa4d2a09242b31e0aaf224641e8f91da 100644
+--- a/ios/RNSScreenStackHeaderConfig.mm
++++ b/ios/RNSScreenStackHeaderConfig.mm
+@@ -648,6 +648,12 @@ RNS_IGNORE_SUPER_CALL_END
+   // This assignment should be done after `navitem.titleView = ...` assignment (iOS 16.0 bug).
+   // See: https://github.com/software-mansion/react-native-screens/issues/1570 (comments)
+   navitem.title = config.title;
++#if defined(__IPHONE_26_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_26_0
++  if (@available(iOS 26.0, *)) {
++    navitem.subtitle = config.subtitle;
++    navitem.largeSubtitle = config.largeSubtitle;
++  }
++#endif
+   navitem.leftBarButtonItems = [config barButtonItemsFromConfigs:config.headerLeftBarButtonItems
+                                                 withCurrentItems:navitem.leftBarButtonItems];
+   navitem.rightBarButtonItems = [config barButtonItemsFromConfigs:config.headerRightBarButtonItems
+@@ -1023,6 +1029,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
+   }
+ 
+   _title = RCTNSStringFromStringNilIfEmpty(newScreenProps.title);
++  _subtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.subtitle);
++  _largeSubtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.largeSubtitle);
+   if (newScreenProps.titleFontFamily != oldScreenProps.titleFontFamily) {
+     _titleFontFamily = RCTNSStringFromStringNilIfEmpty(newScreenProps.titleFontFamily);
+   }
+diff --git a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
+index a51d8648567cff29cd2be0d5262bd15c6fc69c61..7eb4179e6acf42e13fbe2458cd041a3216d93cbf 100644
+--- a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
++++ b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
+@@ -32,6 +32,8 @@ export interface NativeProps extends ViewProps {
+     largeTitleColor?: ColorValue | undefined;
+     translucent?: boolean | undefined;
+     title?: string | undefined;
++    subtitle?: string | undefined;
++    largeSubtitle?: string | undefined;
+     titleFontFamily?: string | undefined;
+     titleFontSize?: CT.Int32 | undefined;
+     titleFontWeight?: string | undefined;
+diff --git a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+index a80d9fef0c0ab5ce8221c5e0c7fae65162bc6164..38660fa7e0f41b91568760b525b221a6fa23c13e 100644
+--- a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
++++ b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+@@ -61,6 +61,8 @@ export interface NativeProps extends ViewProps {
+   largeTitleColor?: ColorValue | undefined;
+   translucent?: boolean | undefined;
+   title?: string | undefined;
++  subtitle?: string | undefined;
++  largeSubtitle?: string | undefined;
+   titleFontFamily?: string | undefined;
+   titleFontSize?: CT.Int32 | undefined;
+   titleFontWeight?: string | undefined;

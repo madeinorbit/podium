@@ -1,10 +1,12 @@
-import { SettingsOpening } from './settings-opening'
-import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
-import { observer } from 'mobx-react-lite'
-import type { MobileClientSession } from '@podium/protocol'
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '../lib/clock-hooks'
+import {
+  devicePlatformLabel,
+  formatCount,
+  visibleFleetOperations,
+} from '@podium/client-core/values'
+import type { MobileClientSession } from '@podium/protocol'
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { logout } from '../client/auth'
@@ -14,18 +16,19 @@ import { useConnected, useHttpOrigin } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
-import { Monitor } from '../components/icons'
+import { Check, Monitor } from '../components/icons'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
-import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
-import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { useAgeNow } from '../lib/clock-hooks'
+import { color, font, grid, leading, radius, sans } from '../theme/theme'
+import { SettingsOpening } from './settings-opening'
 import {
+  type SettingsMachineStatus,
   useSettingsData,
   useSettingsMachineStatus,
-  type SettingsMachineStatus,
 } from './settings-readers'
 
 function openDesktop() {
@@ -46,8 +49,7 @@ export function SettingsScreen() {
 
 const SettingsScreenBody = observer(function SettingsScreenBody() {
   const router = useRouter()
-  // The modal sheet reaches the physical bottom edge, so the last row still has
-  // to clear the home indicator (the hook is the plain safe-area inset here).
+  // The last row clears the tab bar on native and the home indicator on web.
   const bottomInset = useContentBottomInset()
   const {
     machineIds,
@@ -56,7 +58,6 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
     updateLabel,
     sessionCount,
     issueCount,
-    conversationCount,
     outboxDeadLetterCount,
     outboxSize,
     cursor,
@@ -197,10 +198,20 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
     )
   }
 
+  const host = hostOf(httpOrigin)
+  const machines = demoFleet?.visibleCount ?? machineCount
   return (
-    <Screen title="Settings" onBack={() => router.back()} backAs="text" backLabel="Done">
+    <Screen
+      title="Settings"
+      large={Platform.OS !== 'web'}
+      onBack={Platform.OS === 'web' ? () => router.back() : undefined}
+      backAs="text"
+      backLabel="Done"
+    >
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + space.xl }]}
+        style={styles.scroll}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
       >
         {Platform.OS === 'web' ? (
           <PressableScale
@@ -216,17 +227,28 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
 
         <OutboxRecoveryPanel />
 
-        <SectionHeader label="Connection" />
-        <View style={styles.panel}>
-          <Row label="Server" value={httpOrigin} />
-          <Row label="Status" value={connected ? 'live' : 'offline, showing saved data'} />
-          <Row label="Platform" value={Platform.OS} />
-          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
+        <View style={styles.card}>
+          <View style={styles.server}>
+            <Text style={styles.serverName} numberOfLines={1}>
+              {host}
+            </Text>
+            <Text style={styles.serverLine} numberOfLines={1}>
+              <Text style={connected ? styles.liveDot : styles.offlineDot}>● </Text>
+              {connected ? 'Connected' : 'Offline, showing saved data'}
+              {` · ${machines} ${machines === 1 ? 'machine' : 'machines'}`}
+            </Text>
+            <Text
+              style={styles.serverLine}
+              numberOfLines={1}
+              accessibilityLabel="Data on this phone"
+            >
+              {`${formatCount(sessionCount)} sessions · ${formatCount(issueCount)} tasks`}
+            </Text>
+          </View>
         </View>
 
-        <SectionHeader label="Operations" />
-        <View style={styles.panel}>
-          <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
+        <GroupHeader label="Machines" />
+        <View style={styles.card}>
           <Row label="Visible fleet" value={demoFleet?.fleetLabel ?? fleetLabel} />
           <Row label="Updates" value={demoFleet?.updateLabel ?? updateLabel} />
           {demoFleet
@@ -234,46 +256,43 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                 .slice(0, 12)
                 .map((machine) => <MachineStatusRow key={machine.id} machine={machine} />)
             : machineIds.map((id) => <SettingsMachineRow key={id} id={id} />)}
-          {(demoFleet?.visibleCount ?? machineCount) > 12 ? (
-            <Row
-              label="More machines"
-              value={`${(demoFleet?.visibleCount ?? machineCount) - 12} · see Pulse`}
-            />
+          {machines > 12 ? (
+            <Row label="More machines" value={`${machines - 12} · see Pulse`} />
           ) : null}
         </View>
-        <Text style={styles.hintCompact}>
+        <Text style={styles.footer}>
           This phone shows status only. Fleet, network, host, and update changes stay on authorized
           desktop or server surfaces.
         </Text>
 
-        <SectionHeader label="Connected devices" />
-        <View style={styles.panel}>
+        <GroupHeader label="Connected devices" />
+        <View style={styles.card}>
           {deviceFeed.loading && devices.length === 0 ? (
-            <Row label="Devices" value="loading…" />
+            <Row label="Devices" value="Loading…" />
           ) : deviceFeed.failed && devices.length === 0 ? (
-            <Row label="Devices" value="unavailable" />
+            <Row label="Devices" value="Unavailable" />
           ) : devices.length === 0 ? (
-            <Row label="Devices" value="none" />
+            <Row label="Devices" value="None" />
           ) : (
-            devices.map(device => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+            devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
           )}
           {deviceFeed.failed && devices.length > 0 ? (
-            <Row label="Refresh" value="failed · showing prior list" />
+            <Row label="Refresh" value="Failed · showing prior list" />
           ) : null}
         </View>
-        <Text style={styles.hintCompact}>
+        <Text style={styles.footer}>
           This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
           in Connected devices on the desktop.
         </Text>
 
         {Platform.OS !== 'web' ? (
           <>
-            <SectionHeader label="Servers" />
-            <View style={styles.panel}>
+            <GroupHeader label="Servers" />
+            <View style={styles.card}>
               {profiles.map((row) => (
                 <PressableScale
                   key={row.id}
-                  style={({ pressed }) => [styles.serverRow, pressed && styles.actionPressed]}
+                  style={({ pressed }) => [styles.serverRow, pressed && styles.rowPressed]}
                   onPress={() =>
                     void switchProfile(row.id).catch((cause: unknown) =>
                       Alert.alert(
@@ -284,115 +303,153 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                   }
                   accessibilityRole="button"
                   accessibilityLabel={`Switch to ${row.name}`}
+                  accessibilityState={{ selected: row.id === profile.id }}
                 >
-                  <View
-                    style={[styles.serverDot, row.id === profile.id && styles.serverDotActive]}
-                  />
                   <View style={styles.serverDetails}>
-                    <Text style={styles.serverTitle}>{row.name}</Text>
-                    <Text style={styles.serverHost} numberOfLines={1}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {row.name}
+                    </Text>
+                    <Text style={styles.rowDetail} numberOfLines={1}>
                       {row.userId ? `${row.httpOrigin} · ${row.userId}` : row.httpOrigin}
                     </Text>
                   </View>
-                  <Text style={styles.serverMode}>
-                    {row.transport === 'insecure-lan'
-                      ? 'INSECURE'
-                      : row.id === profile.id
-                        ? connected
-                          ? 'LIVE'
-                          : 'RECONNECTING'
-                        : 'SWITCH'}
-                  </Text>
+                  {row.transport === 'insecure-lan' ? (
+                    <Text style={styles.rowWarning}>Insecure</Text>
+                  ) : null}
+                  {row.id === profile.id ? (
+                    <Icon as={Check} size={17} color={color.accentTint} />
+                  ) : null}
                 </PressableScale>
               ))}
-            </View>
-            {!isEphemeralOverride ? (
-              <>
-                <View style={styles.renameRow}>
-                  <TextInput
-                    style={styles.renameInput}
-                    value={profileName}
-                    onChangeText={setProfileName}
-                    accessibilityLabel="Server name"
-                  />
+              {!isEphemeralOverride ? (
+                <>
+                  <View style={styles.renameRow}>
+                    <TextInput
+                      style={styles.renameInput}
+                      value={profileName}
+                      onChangeText={setProfileName}
+                      accessibilityLabel="Server name"
+                    />
+                    <PressableScale
+                      style={styles.renameButton}
+                      onPress={() => void renameProfile(profile.id, profileName)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Rename server"
+                    >
+                      <Text style={styles.tintLabel}>Rename</Text>
+                    </PressableScale>
+                  </View>
                   <PressableScale
-                    style={styles.renameButton}
-                    onPress={() => void renameProfile(profile.id, profileName)}
+                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                    onPress={beginAddServer}
                     accessibilityRole="button"
-                    accessibilityLabel="Rename server"
+                    accessibilityLabel="Add server"
                   >
-                    <Text style={styles.renameButtonText}>Rename</Text>
+                    <Text style={styles.tintLabel}>Add server</Text>
                   </PressableScale>
-                </View>
-                <PressableScale
-                  style={styles.addServer}
-                  onPress={beginAddServer}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add server"
-                >
-                  <Text style={styles.addServerText}>Add server</Text>
-                </PressableScale>
-                <PressableScale
-                  style={styles.removeServer}
-                  onPress={removeCurrent}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${profile.name}`}
-                >
-                  <Text style={styles.logoutText}>Remove this server</Text>
-                </PressableScale>
-              </>
-            ) : (
-              <Text style={styles.hint}>
+                </>
+              ) : null}
+            </View>
+            {isEphemeralOverride ? (
+              <Text style={styles.footer}>
                 This development server override is ephemeral and cannot be edited or saved.
               </Text>
-            )}
+            ) : null}
           </>
         ) : null}
 
-        <SectionHeader label="Data" />
-        <View style={styles.panel}>
-          <Row label="Sessions" value={String(sessionCount)} />
-          <Row label="Tasks" value={String(issueCount)} />
-          <Row label="Conversations" value={String(conversationCount)} />
+        <GroupHeader label="About" />
+        <View style={styles.card}>
+          <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
           <Row label="Queued sends" value={String(outboxSize)} />
           <Row label="Needs recovery" value={String(outboxDeadLetterCount)} />
+          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
         </View>
-
-        <SectionHeader label="Account" />
-        <PressableScale
-          style={({ pressed }) => [styles.logout, pressed && styles.actionPressed]}
-          onPress={() => void doLogout()}
-          disabled={accountBusy}
-          accessibilityRole="button"
-          accessibilityLabel="Log out"
-          // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
-          // only the former. The disabled half already reaches the browser via
-          // the `disabled` prop above. [POD-1664]
-          accessibilityState={{ disabled: accountBusy, busy: accountBusy }}
-          aria-busy={accountBusy}
-        >
-          <Text style={styles.logoutText}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
-        </PressableScale>
-        <Text style={styles.hint}>
+        <Text style={styles.footer}>
           Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
           pushed when an agent needs you.
         </Text>
+
+        <View style={[styles.card, styles.lastCard]}>
+          <PressableScale
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            onPress={() => void doLogout()}
+            disabled={accountBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+            // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
+            // only the former. The disabled half already reaches the browser via
+            // the `disabled` prop above. [POD-1664]
+            accessibilityState={{ disabled: accountBusy, busy: accountBusy }}
+            aria-busy={accountBusy}
+          >
+            <Text style={styles.destructiveLabel}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
+          </PressableScale>
+          {Platform.OS !== 'web' && !isEphemeralOverride ? (
+            <PressableScale
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              onPress={removeCurrent}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${profile.name}`}
+            >
+              <Text style={styles.destructiveLabel}>Remove this server</Text>
+            </PressableScale>
+          ) : null}
+        </View>
+        {Platform.OS !== 'web' && !isEphemeralOverride ? (
+          <Text style={styles.footer}>
+            Removing signs this phone out of {host}. Nothing on the server is deleted.
+          </Text>
+        ) : null}
       </ScrollView>
     </Screen>
   )
 })
 
-const ConnectedDeviceRow = observer(function ConnectedDeviceRow({ device }: { device: MobileClientSession }) {
-  const now = useAgeNow(device.lastSeenAt ?? device.createdAt, 0, !device.current && !!device.lastSeenAt)
-  const activity = device.current ? 'This device · active now' : device.lastSeenAt
-    ? `Active ${relativeTime(device.lastSeenAt, now)}` : 'No activity reported'
-  return <View style={styles.deviceRow}>
-    <View style={styles.deviceIdentity}>
-      <Text style={styles.deviceName} numberOfLines={1}>{device.deviceName}</Text>
-      <Text style={styles.deviceDetail} numberOfLines={1}>{devicePlatformLabel(device.platform)} · {activity}</Text>
+function hostOf(origin: string): string {
+  try {
+    return new URL(origin).host || origin
+  } catch {
+    return origin
+  }
+}
+
+function GroupHeader({ label }: { label: string }) {
+  return (
+    <Text style={styles.groupHeader} accessibilityRole="header">
+      {label}
+    </Text>
+  )
+}
+
+const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
+  device,
+}: {
+  device: MobileClientSession
+}) {
+  const now = useAgeNow(
+    device.lastSeenAt ?? device.createdAt,
+    0,
+    !device.current && !!device.lastSeenAt,
+  )
+  const activity = device.current
+    ? 'This device · active now'
+    : device.lastSeenAt
+      ? `Active ${relativeTime(device.lastSeenAt, now)}`
+      : 'No activity reported'
+  return (
+    <View style={styles.tallRow}>
+      <View style={styles.serverDetails}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {device.deviceName}
+        </Text>
+        <Text style={styles.rowDetail} numberOfLines={1}>
+          {devicePlatformLabel(device.platform)} · {activity}
+        </Text>
+      </View>
+      {device.current ? <Text style={styles.rowValueQuiet}>This phone</Text> : null}
     </View>
-    {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
-  </View>
+  )
 })
 
 function SettingsMachineRow({ id }: { id: string }) {
@@ -402,25 +459,18 @@ function SettingsMachineRow({ id }: { id: string }) {
 
 function MachineStatusRow({ machine }: { machine: SettingsMachineStatus }) {
   return (
-    <View style={styles.machineStatusRow}>
-      <View style={styles.machineStatusIdentity}>
-        <View
-          style={[
-            styles.serverDot,
-            machine.online ? styles.serverDotActive : styles.serverDotOffline,
-          ]}
-        />
-        <View style={styles.serverDetails}>
-          <Text style={styles.serverTitle} numberOfLines={1}>
-            {machine.name}
-          </Text>
-          <Text style={styles.serverHost} numberOfLines={1}>
-            {machine.updateLabel}
-          </Text>
-        </View>
+    <View style={styles.tallRow}>
+      <View style={[styles.statusDot, machine.online ? styles.statusDotLive : null]} />
+      <View style={styles.serverDetails}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {machine.name}
+        </Text>
+        <Text style={styles.rowDetail} numberOfLines={1}>
+          {machine.updateLabel}
+        </Text>
       </View>
-      <Text style={styles.serverMode}>
-        {`${machine.statusLabel}${machine.updateChannel ? ` · ${machine.updateChannel}` : ''}`.toUpperCase()}
+      <Text style={styles.rowValueQuiet} numberOfLines={1}>
+        {`${machine.statusLabel}${machine.updateChannel ? ` · ${machine.updateChannel}` : ''}`}
       </Text>
     </View>
   )
@@ -437,153 +487,118 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
+/**
+ * Grouped list on the 4pt grid (Settings board): 16 screen margin, cards with
+ * radius 8 and a 12 inset, 44pt rows with hairline separators inset to the
+ * text, 13pt section headers sitting on the card's own axis.
+ */
+const separator = {
+  borderTopWidth: StyleSheet.hairlineWidth,
+  borderTopColor: color.border,
+} as const
+
 const styles = StyleSheet.create({
-  content: {
-    padding: space.lg,
-  },
+  scroll: { flex: 1, backgroundColor: color.groupedBg },
+  content: { paddingHorizontal: grid(4), paddingTop: grid(2) },
   action: {
     minHeight: 44,
-    borderRadius: radius.sm,
+    marginBottom: grid(4),
+    borderRadius: radius.control,
     backgroundColor: color.accent,
     flexDirection: 'row',
-    gap: space.sm,
+    gap: grid(2),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionPressed: {
-    opacity: 0.85,
+  actionPressed: { opacity: 0.85 },
+  actionText: { color: color.accentText, ...sans(600), fontSize: font.small },
+  card: {
+    borderRadius: radius.card,
+    backgroundColor: color.groupedCard,
+    overflow: 'hidden',
   },
-  actionText: {
-    color: color.accentText,
-    ...sans(700),
-    fontSize: font.body,
+  lastCard: { marginTop: grid(7) },
+  server: { paddingHorizontal: grid(3), paddingVertical: grid(3), gap: 2 },
+  serverName: { ...sans(600), color: color.text, fontSize: font.body, lineHeight: leading(17) },
+  serverLine: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(13) },
+  liveDot: { color: color.workingText },
+  offlineDot: { color: color.idle },
+  groupHeader: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: 16,
+    paddingHorizontal: grid(3),
+    marginTop: grid(4),
+    paddingVertical: grid(1.5),
+    marginBottom: grid(1),
   },
-  panel: {
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.card,
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs,
+  footer: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: 12,
+    lineHeight: 16,
+    paddingHorizontal: grid(3),
+    paddingTop: grid(1.5),
   },
   row: {
+    minHeight: 44,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: space.md,
-    paddingVertical: space.sm + 2,
+    gap: grid(2),
+    paddingHorizontal: grid(3),
+    ...separator,
   },
-  rowLabel: {
+  rowPressed: { backgroundColor: color.surfacePressed },
+  tallRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: grid(2),
+    paddingHorizontal: grid(3),
+    paddingVertical: grid(2),
+    ...separator,
+  },
+  rowLabel: { ...sans(400), color: color.text, fontSize: font.small },
+  rowValue: {
+    ...sans(400),
     color: color.textDim,
     fontSize: font.small,
-  },
-  rowValue: {
-    color: color.text,
-    fontSize: font.small,
     flexShrink: 1,
+    marginLeft: 'auto',
+    textAlign: 'right',
   },
-  machineStatusRow: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-  },
-  machineStatusIdentity: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-  },
-  serverDotOffline: { backgroundColor: color.idle },
-  deviceRow: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.border,
-  },
-  deviceIdentity: { flex: 1, minWidth: 0, gap: 3 },
-  deviceName: { color: color.text, ...sans(600), fontSize: font.small },
-  deviceDetail: { color: color.textFaint, fontSize: font.tiny },
-  currentDevice: { color: color.successText, ...sans(700), fontSize: font.micro },
+  rowValueQuiet: { ...sans(400), color: color.textFaint, fontSize: font.tiny, flexShrink: 0 },
+  rowTitle: { ...sans(400), color: color.text, fontSize: font.small, lineHeight: leading(15) },
+  rowDetail: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(13) },
+  rowWarning: { ...sans(600), color: color.dangerText, fontSize: font.tiny },
   serverRow: {
-    minHeight: 62,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.border,
+    gap: grid(2),
+    paddingHorizontal: grid(3),
+    paddingVertical: grid(2),
+    ...separator,
   },
-  serverDot: { width: 9, height: 9, borderRadius: 99, backgroundColor: color.idle },
-  serverDotActive: { backgroundColor: color.success },
   serverDetails: { flex: 1, minWidth: 0, gap: 2 },
-  serverTitle: { color: color.text, ...sans(600), fontSize: font.small },
-  serverHost: { color: color.textFaint, fontSize: font.tiny },
-  serverMode: { color: color.textMicro, ...sans(700), fontSize: font.micro },
-  renameRow: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
+  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.idle },
+  statusDotLive: { backgroundColor: color.working },
+  renameRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: grid(2),
+    paddingLeft: grid(3),
+    ...separator,
+  },
   renameInput: {
     flex: 1,
     minHeight: 44,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    backgroundColor: color.surface,
     color: color.text,
-    paddingHorizontal: space.md,
     fontSize: font.small,
   },
-  renameButton: {
-    minHeight: 44,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.sm,
-    backgroundColor: color.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  renameButtonText: { color: color.text, ...sans(600), fontSize: font.small },
-  addServer: {
-    minHeight: 46,
-    marginTop: space.sm,
-    borderRadius: radius.sm,
-    backgroundColor: color.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addServerText: { color: color.onAccent, ...sans(700), fontSize: font.body },
-  removeServer: {
-    minHeight: 44,
-    marginTop: space.sm,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logout: {
-    minHeight: 44,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutText: {
-    color: color.dangerText,
-    ...sans(700),
-    fontSize: font.body,
-  },
-  hint: {
-    color: color.textFaint,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
-    marginTop: space.lg,
-  },
-  hintCompact: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-    marginTop: space.sm,
-  },
+  renameButton: { minHeight: 44, paddingHorizontal: grid(3), justifyContent: 'center' },
+  tintLabel: { ...sans(400), color: color.accentTint, fontSize: font.small },
+  destructiveLabel: { ...sans(400), color: color.dangerText, fontSize: font.small },
 })

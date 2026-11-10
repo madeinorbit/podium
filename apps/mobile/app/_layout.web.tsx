@@ -28,7 +28,6 @@ function WebNavigation({ reduceMotion }: RootNavigationProps) {
       }}
     >
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
     </Stack>
   )
 }

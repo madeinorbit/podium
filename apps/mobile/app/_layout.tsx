@@ -13,7 +13,7 @@ import { color } from '../src/theme/theme'
  * the default for every react-native-screens Screen: fully covered stack
  * screens (activityState 0) suspend rendering and catch up in one render on
  * return. A screen under a MODAL keeps activityState 1 and stays live, so the
- * new-issue/settings sheets do not freeze what peeks out behind them.
+ * new-issue sheet does not freeze what peeks out behind it.
  *
  * Scope note (verified against the installed versions): the iOS NativeTabs
  * path (react-native-screens 4.26.2 gamma tabs) has no freeze support, so on
@@ -44,7 +44,6 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
       <Stack.Screen
         name="inspect/[issueId]"
         options={{
