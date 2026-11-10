@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, test, vi } from 'vitest'
 import { AuditSection } from './audit'
 
-/** The admin area's Access and Audit sections (POD-6299). */
+// The security log keeps its existing request/filter/cursor behavior.
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -31,6 +31,11 @@ function serve(answers: Record<string, unknown>) {
   return fetchMock
 }
 
+async function chooseFilter(name: string, option: string) {
+  fireEvent.click(screen.getByRole('combobox', { name }))
+  fireEvent.click(await screen.findByRole('option', { name: option, exact: true }))
+}
+
 const alice = { kind: 'member', id: 'alice', name: 'Alice' }
 const event = (id: number, over: Record<string, unknown>) => ({
   id,
@@ -43,7 +48,7 @@ const event = (id: number, over: Record<string, unknown>) => ({
   ...over,
 })
 
-test('Audit shows member, role, admission and custody events with who, for whom, target and result', async () => {
+test('Audit groups security sentences with delegated actors and refused attempts', async () => {
   serve({
     '/auth/admin/audit?limit=100': {
       events: [
@@ -79,19 +84,17 @@ test('Audit shows member, role, admission and custody events with who, for whom,
     },
   })
   render(<AuditSection />)
-  const table = await screen.findByRole('table', { name: 'Security events' })
-  const rows = [...table.querySelectorAll('tbody tr')].map((row) =>
-    [...row.querySelectorAll('td')].slice(1).map((cell) => cell.textContent),
-  )
-  expect(rows).toEqual([
-    ['Alice', 'Took custodycustody Nobody → Alice', 'Spare build box', 'Done'],
-    ['An agent for Alice', 'Changed rolemember → admin', 'Bob', 'Done'],
-    ['Alice', 'Invitedas member', 'An invitation', 'Done'],
-    ['Alice', 'Disabled', 'Carol', 'Refused'],
-  ])
+  await screen.findByText('Alice took over Spare build box')
+  expect(screen.getByText('An agent for Alice made Bob an admin')).toBeTruthy()
+  expect(screen.getByText('Alice invited a member')).toBeTruthy()
+  expect(screen.getByText('Alice tried to disable Carol')).toBeTruthy()
+  expect(screen.getByText('Refused')).toBeTruthy()
+  expect(screen.queryByRole('table')).toBeNull()
+  expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Show older events' }))
-  await waitFor(() => expect(screen.getByText('Dana')).toBeTruthy())
-  expect(screen.getByText('Spare build box')).toBeTruthy()
+  await waitFor(() => expect(screen.getByText('Alice joined this workspace')).toBeTruthy())
+  expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(1)
+  expect(screen.getByText('Alice took over Spare build box')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
 })
 
@@ -116,23 +119,18 @@ test('Audit filters on the server, pages with the same filters, and restarts whe
     '/auth/admin/audit?limit=100&actor=bob&refusedOnly=true': { events: [], nextBefore: null },
   })
   render(<AuditSection />)
-  await screen.findByText('Invited')
-  fireEvent.change(screen.getByRole('combobox', { name: 'Person' }), { target: { value: 'bob' } })
-  await screen.findByText('Revoked machine')
-  expect(screen.queryByText('Invited')).toBeNull()
-  expect(screen.getByRole('option', { name: 'Carol' })).toBeTruthy()
-  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
-    target: { value: 'comments' },
-  })
-  await screen.findByText('Edited another member’s comment')
-  expect(screen.queryByText('Revoked machine')).toBeNull()
+  await screen.findByText('Alice invited a member')
+  await chooseFilter('Person', 'Bob')
+  await screen.findByText('Alice removed a machine')
+  expect(screen.queryByText('Alice invited a member')).toBeNull()
+  await chooseFilter('Event kind', 'Comments')
+  await screen.findByText('Alice edited another person’s comment')
+  expect(screen.queryByText('Alice removed a machine')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Show older events' }))
-  await screen.findByText('Deleted another member’s comment')
-  expect(screen.getByText('Edited another member’s comment')).toBeTruthy()
-  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
-    target: { value: 'refused' },
-  })
-  await screen.findByText('No matching events.')
+  await screen.findByText('Alice deleted another person’s comment')
+  expect(screen.getByText('Alice edited another person’s comment')).toBeTruthy()
+  await chooseFilter('Event kind', 'Refused only')
+  await screen.findByText('Nothing matches')
   expect(screen.queryByRole('table')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
   expect(
@@ -156,14 +154,9 @@ test('Audit labels taking a key back from a machine in the Credentials filter', 
     },
   })
   render(<AuditSection />)
-  await screen.findByText('No events yet.')
-  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
-    target: { value: 'credentials' },
-  })
-  const table = await screen.findByRole('table', { name: 'Security events' })
-  expect(
-    [...table.querySelectorAll('tbody tr td')].slice(1).map((cell) => cell.textContent),
-  ).toEqual(['Bob', 'Took a key back', 'Spare build box', 'Done'])
+  await screen.findByText('No events yet')
+  await chooseFilter('Event kind', 'Credentials')
+  expect(await screen.findByText('Bob took a key back from Spare build box')).toBeTruthy()
 })
 
 test('Audit discards an older page that arrives after a filter change', async () => {
@@ -190,12 +183,10 @@ test('Audit discards an older page that arrives after a filter change', async ()
     ),
   )
   render(<AuditSection />)
-  await screen.findByText('Invited')
+  await screen.findByText('Alice invited a member')
   fireEvent.click(screen.getByRole('button', { name: 'Show older events' }))
-  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
-    target: { value: 'credentials' },
-  })
-  await screen.findByText('Set secret')
+  await chooseFilter('Event kind', 'Credentials')
+  await screen.findByText('Alice set a workspace secret')
   await act(async () => {
     finishOlder(
       new Response(
@@ -203,12 +194,12 @@ test('Audit discards an older page that arrives after a filter change', async ()
       ),
     )
   })
-  expect(screen.queryByText('Joined')).toBeNull()
-  expect(screen.getByText('Set secret')).toBeTruthy()
+  expect(screen.queryByText('Alice joined this workspace')).toBeNull()
+  expect(screen.getByText('Alice set a workspace secret')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Show older events' })).toBeNull()
 })
 
-test('Audit mentions moderation and labels a removal without inventing a machine release', async () => {
+test('Audit describes a removal without inventing a machine release', async () => {
   serve({
     '/auth/admin/audit?limit=100': {
       events: [event(1, { command: 'members.remove' })],
@@ -216,7 +207,6 @@ test('Audit mentions moderation and labels a removal without inventing a machine
     },
   })
   render(<AuditSection />)
-  expect(await screen.findByText('Removed')).toBeTruthy()
-  expect(screen.getByText(/comment moderation/)).toBeTruthy()
-  expect(screen.queryByText(/releasing a machine/)).toBeNull()
+  expect(await screen.findByText('Alice removed a member')).toBeTruthy()
+  expect(screen.queryByText(/releasing/)).toBeNull()
 })

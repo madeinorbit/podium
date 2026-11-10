@@ -31,8 +31,8 @@ export function auditEventSentence(event: SecurityEvent): string {
       ? `${event.actor.name} for ${event.onBehalfOf.name}`
       : event.actor.name
   const target = event.target?.name
-  const person = event.target?.kind === 'member' ? target! : 'a member'
-  const machine = event.target?.kind === 'machine' ? target! : 'a machine'
+  const person = event.target?.kind === 'member' ? event.target.name : 'a member'
+  const machine = event.target?.kind === 'machine' ? event.target.name : 'a machine'
   const action = (past: string, infinitive: string) =>
     event.result === 'refused' ? `tried to ${infinitive}` : past
   const sentence = (past: string, infinitive: string) => `${actor} ${action(past, infinitive)}`
@@ -70,11 +70,15 @@ export function auditEventSentence(event: SecurityEvent): string {
     case 'members.revokeSignIn':
       return sentence(`signed ${person} out of one device`, `sign ${person} out of one device`)
     case 'members.recoveryIssued':
-      return sentence(`created a recovery link for ${person}`, `create a recovery link for ${person}`)
+      return sentence(
+        `created a recovery link for ${person}`,
+        `create a recovery link for ${person}`,
+      )
     case 'members.resetMailed':
       return sentence(`emailed ${person} a password reset`, `email ${person} a password reset`)
     case 'members.recover': {
-      const password = event.target?.id === event.actor.id ? 'their password' : `${person}’s password`
+      const password =
+        event.target?.id === event.actor.id ? 'their password' : `${person}’s password`
       return sentence(`reset ${password}`, `reset ${password}`)
     }
     case 'takeover':
@@ -105,7 +109,10 @@ export function auditEventSentence(event: SecurityEvent): string {
               : `access ${machine}`
       return event.command === 'machines.share'
         ? sentence(`let ${grantee} ${access}`, `let ${grantee} ${access}`)
-        : sentence(`removed ${grantee}’s permission to ${access}`, `remove ${grantee}’s permission to ${access}`)
+        : sentence(
+            `removed ${grantee}’s permission to ${access}`,
+            `remove ${grantee}’s permission to ${access}`,
+          )
     }
     case 'machines.revoke':
       return sentence(`removed ${machine}`, `remove ${machine}`)
@@ -116,7 +123,10 @@ export function auditEventSentence(event: SecurityEvent): string {
     case 'machines.enrollSetup':
       return sentence(`added ${machine} to this workspace`, `add ${machine} to this workspace`)
     case 'machines.adoptLegacyHost':
-      return sentence(`adopted ${target ?? 'the host machine'}`, `adopt ${target ?? 'the host machine'}`)
+      return sentence(
+        `adopted ${target ?? 'the host machine'}`,
+        `adopt ${target ?? 'the host machine'}`,
+      )
     case 'machines.rename':
       return sentence(`renamed ${machine}`, `rename ${machine}`)
     case 'machines.setAssignment':
@@ -124,12 +134,16 @@ export function auditEventSentence(event: SecurityEvent): string {
     case 'machines.applyUpdate':
       return sentence(`requested an update for ${machine}`, `request an update for ${machine}`)
     case 'machines.moveServer':
-      return sentence(`requested moving the server to ${machine}`, `request moving the server to ${machine}`)
+      return sentence(
+        `requested moving the server to ${machine}`,
+        `request moving the server to ${machine}`,
+      )
     case 'machines.pairingCode':
       return sentence('created a machine pairing code', 'create a machine pairing code')
     case 'settings.setSecret':
     case 'settings.clearSecret': {
-      const secret = target && SECRET_NAMES[target] ? `the ${SECRET_NAMES[target]}` : 'a workspace secret'
+      const secret =
+        target && SECRET_NAMES[target] ? `the ${SECRET_NAMES[target]}` : 'a workspace secret'
       return event.command === 'settings.setSecret'
         ? sentence(`set ${secret}`, `set ${secret}`)
         : sentence(`cleared ${secret}`, `clear ${secret}`)
@@ -141,7 +155,10 @@ export function auditEventSentence(event: SecurityEvent): string {
       const task = target && target !== 'A comment' ? ` on ${target}` : ''
       return event.command === 'issues.editComment'
         ? sentence(`edited another person’s comment${task}`, `edit another person’s comment${task}`)
-        : sentence(`deleted another person’s comment${task}`, `delete another person’s comment${task}`)
+        : sentence(
+            `deleted another person’s comment${task}`,
+            `delete another person’s comment${task}`,
+          )
     }
     default:
       // A future server may add a kind before this client updates. Keep it readable.

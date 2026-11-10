@@ -82,10 +82,11 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
   const filtered = Boolean(actor || kind)
   const people = [
     { value: '', label: 'Anyone' },
-    ...(directory?.members.map((member) => ({ value: member.id, label: member.displayName })) ?? []),
+    ...(directory?.members.map((member) => ({ value: member.id, label: member.displayName })) ??
+      []),
   ]
   const filters = (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex w-37.5 flex-wrap gap-2 sm:w-auto">
       <Select items={people} value={actor} onValueChange={(value) => setActor(value ?? '')}>
         <SelectTrigger className="min-w-37.5" aria-label="Person">
           <SelectValue />
@@ -131,7 +132,7 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
           </Button>
         </div>
       )}
-      <div aria-label="Security events" aria-busy={answer.loading}>
+      <div role="region" aria-label="Security events" aria-busy={answer.loading}>
         {events === undefined && !answer.error && <AuditSkeleton />}
         {events?.length === 0 && (
           <Section list>
@@ -153,7 +154,12 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
       </div>
       {nextBefore !== null && (
         <div className="mt-3.5 text-center">
-          <Button variant="ghost" size="sm" disabled={answer.loading} onClick={() => void loadPage(nextBefore)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={answer.loading}
+            onClick={() => void loadPage(nextBefore)}
+          >
             Show older events
           </Button>
         </div>
@@ -171,20 +177,33 @@ const AuditDay = observer(function AuditDay({
 }): JSX.Element {
   return (
     <div className="mt-5">
-      <Section title={auditDayLabel(at, now(60_000))} list>
+      <Section
+        title={<span className="settings-micro font-medium">{auditDayLabel(at, now(60_000))}</span>}
+        list
+      >
         {events.map((event) => (
           <EntityRow
             key={event.id}
             leading={<EventIcon command={event.command} />}
-            title={<span className="font-normal">{auditEventSentence(event)}</span>}
-            pills={event.result === 'refused' ? <Badge variant="destructive">Refused</Badge> : undefined}
+            title={
+              <span className="block font-normal whitespace-normal break-words">
+                {auditEventSentence(event)}
+              </span>
+            }
+            pills={
+              event.result === 'refused' ? <Badge variant="destructive">Refused</Badge> : undefined
+            }
             trailing={
               <time
                 dateTime={event.at}
                 title={new Date(event.at).toLocaleString()}
                 className="settings-micro font-mono whitespace-nowrap tabular-nums"
               >
-                {new Date(event.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
+                {new Date(event.at).toLocaleTimeString(undefined, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                })}
               </time>
             }
           />
@@ -204,11 +223,7 @@ function EventIcon({ command }: { command: string }): JSX.Element {
         : command.startsWith('settings.') || command === 'accounts.unsend'
           ? KeyRound
           : History
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-      <Icon size={15} aria-hidden="true" />
-    </span>
-  )
+  return <Icon size={15} aria-hidden="true" />
 }
 
 /** Still placeholders in the same shared rows as the loaded events. */
@@ -219,8 +234,10 @@ function AuditSkeleton(): JSX.Element {
         {[0, 1, 2].map((index) => (
           <EntityRow
             key={index}
-            leading={<span className="block size-8 rounded-lg bg-muted" aria-hidden="true" />}
-            title={<span className="block h-3 w-full max-w-80 rounded bg-muted" aria-hidden="true" />}
+            leading={<span className="block size-full rounded-lg bg-muted" aria-hidden="true" />}
+            title={
+              <span className="block h-3 w-48 max-w-full rounded bg-muted" aria-hidden="true" />
+            }
             trailing={<span className="block h-3 w-10 rounded bg-muted" aria-hidden="true" />}
           />
         ))}
