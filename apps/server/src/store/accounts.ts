@@ -15,7 +15,7 @@
  */
 
 import { type AccountId, asAccountId, type MachineId, type UserId } from '@podium/model'
-import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, or, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -189,10 +189,10 @@ const sharedAccountsOfKey = prepared((db: StoreDrizzle) =>
     .from(accounts)
     .where(
       and(
-        inArray(accounts.accountKey, [
-          param(accounts.accountKey, 'accountKey'),
-          param(accounts.accountKey, 'earlierKey'),
-        ]),
+        or(
+          eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+          eq(accounts.accountKey, param(accounts.accountKey, 'earlierKey')),
+        ),
         isNotNull(accounts.sharedWith),
       ),
     )

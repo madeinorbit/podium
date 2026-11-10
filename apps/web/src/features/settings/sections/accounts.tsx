@@ -62,6 +62,9 @@ const NativeAccountRow = observer(function NativeAccountRow({
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
   const sessionPresent = useSettingsSessionPresent(pendingSessionId)
   const attempt = account.loginAttempt
+  const selectedMachineId = account.loginMachines?.some((machine) => machine.id === machineId)
+    ? machineId
+    : account.loginMachines?.[0]?.id
 
   const attemptStatus = attempt?.status
   useEffect(() => {
@@ -99,7 +102,7 @@ const NativeAccountRow = observer(function NativeAccountRow({
     try {
       const result = await trpc.accounts.login.mutate({
         harness: account.harness as HarnessAgent,
-        ...(machineId ? { machineId } : {}),
+        ...(selectedMachineId ? { machineId: selectedMachineId } : {}),
       })
       onChanged()
       setPendingSessionId(result.sessionId)
@@ -152,39 +155,42 @@ const NativeAccountRow = observer(function NativeAccountRow({
         </>
       }
       trailing={
-        account.loginRequired ? (
-          <>
-            {(account.loginMachines?.length ?? 0) > 1 && (
-              <select
-                aria-label={`${label} sign-in machine`}
-                className="h-8 max-w-40 rounded-md border border-border bg-background px-2 settings-prose"
-                value={machineId}
-                onChange={(event) => setMachineId(event.target.value)}
+        <>
+          {account.identityFingerprint && (
+            <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => onChanged()} />
+          )}
+          {account.loginRequired ? (
+            <>
+              {(account.loginMachines?.length ?? 0) > 1 && (
+                <select
+                  aria-label={`${label} sign-in machine`}
+                  className="h-8 max-w-40 rounded-md border border-border bg-background px-2 settings-prose"
+                  value={selectedMachineId ?? ''}
+                  onChange={(event) => setMachineId(event.target.value)}
+                >
+                  {account.loginMachines?.map((machine) => (
+                    <option key={machine.id} value={machine.id}>
+                      {machine.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || !account.loginMachines?.length}
+                onClick={() => void login()}
               >
-                {account.loginMachines?.map((machine) => (
-                  <option key={machine.id} value={machine.id}>
-                    {machine.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy || !account.loginMachines?.length}
-              onClick={() => void login()}
-            >
-              {attempt?.status === 'running' ? 'Open sign-in' : busy ? 'Starting…' : 'Sign in'}
-            </Button>
-          </>
-        ) : account.identityFingerprint ? (
-          <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => onChanged()} />
-        ) : (
-          <span className="settings-micro rounded-full bg-chip px-2 py-0.5">
-            {account.status === 'connected' ? 'Ready' : 'Status unavailable'}
-          </span>
-        )
+                {attempt?.status === 'running' ? 'Open sign-in' : busy ? 'Starting…' : 'Sign in'}
+              </Button>
+            </>
+          ) : !account.identityFingerprint ? (
+            <span className="settings-micro rounded-full bg-chip px-2 py-0.5">
+              {account.status === 'connected' ? 'Ready' : 'Status unavailable'}
+            </span>
+          ) : null}
+        </>
       }
     />
   )
@@ -250,7 +256,7 @@ const KeyMachines = observer(function KeyMachines({
                 void trpc.accounts.unsend
                   .mutate({ id: account.id, machineId: machine.id })
                   .then((result) => {
-                    setNote(result.note ?? null)
+                    setNote(result.removed ? result.note : null)
                     onChanged()
                     toast('Key removed from machine')
                   })
