@@ -23,6 +23,7 @@
 import type { ChangeProvenanceFields } from '@podium/model'
 import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type { FeedScopingGrade } from '../feed/visibility'
+import type { BuiltRecord } from '../record-builders'
 import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
 import type {
   ChangeLogReadRow,
@@ -133,6 +134,32 @@ export type PostCommitFollowUpPort = (step: () => Promise<void>, label: string) 
 export interface ProvenancePort {
   /** The provenance of the command now appending, read once per commit/capture in the caller's async context. */
   current(): ChangeProvenanceFields | undefined
+}
+
+/**
+ * One record a write may affect, named BEFORE the write runs (POD-6253 design
+ * §3, POD-6769). The target, plus the same optional provenance group a staged
+ * spec carries; there is no op and no value, because the Authority reads both
+ * from the database.
+ */
+export type AffectedRecord = Pick<StagedChangeSpec, 'entity' | 'entityId'> & ChangeProvenanceFields
+
+/**
+ * RECORDS AS THE DATABASE HOLDS THEM NOW, for compare at save (POD-6253 design
+ * §3, POD-6769).
+ *
+ * A kind this port answers for has MOVED: its changes are found by building the
+ * named records before and after the write, never by comparing a declared value
+ * with the stored copy of the last one. The composition root decides which
+ * kinds those are; a kind it does not answer for keeps the old compare.
+ *
+ * `build` runs inside the commit's span, so it sees the span's own writes, and
+ * answers exactly the asked ids that have a record, once each.
+ */
+export interface RecordSourcePort {
+  /** Is this kind's change detection compare at save? */
+  comparesAtSave(kind: MetadataEntityKind): boolean
+  build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
 }
 
 /**
@@ -339,10 +366,24 @@ export interface AuthorityCommit<T> {
     /** Read CURRENT state inside the transaction that performs the write. */
     readonly current?: () => Promise<ArbitrationRequest['current']>
   }
+  /**
+   * COMPARE AT SAVE (POD-6769): the records this write may affect, named up
+   * front. The Authority builds each from the database immediately before the
+   * write and again after it, in the write's own transaction, and appends an
+   * upsert for one that is new or differs and a remove for one that is gone. A
+   * named record the write left alone appends nothing, so a writer names
+   * generously. Only kinds the {@link RecordSourcePort} answers for; any other
+   * kind here is refused.
+   */
+  affects?: readonly AffectedRecord[]
   /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
-  /** What the write touched, declared by the writer. Never diffed from a list. */
-  changes: (result: T) => readonly StagedChangeSpec[] | Promise<readonly StagedChangeSpec[]>
+  /**
+   * What the write touched, declared by the writer, for kinds that have not
+   * moved to compare at save. Never diffed from a list. A spec of a moved kind
+   * is refused: that kind's records are named in {@link affects}.
+   */
+  changes?: (result: T) => readonly StagedChangeSpec[] | Promise<readonly StagedChangeSpec[]>
 }
 
 export type AuthorityCommitOutcome<T> =

@@ -21,7 +21,7 @@ export function messageTestWriter(store?: Transact): Pick<LedgerWriter, 'commit'
     commit: async (op) => {
       const run = async () => {
         const result = await op.write(fixtureWriteScope())
-        await op.changes(result)
+        await op.changes?.(result)
         return result
       }
       const result = store ? await store.transact(run) : await run()

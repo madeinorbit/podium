@@ -23,8 +23,9 @@ import {
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
-import { fixtureCommitWriter, installedWorldOver } from '@podium/sync/testing'
+import { authorityCommitWriter, installedWorldOver } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { compareAtSaveRecords } from '../../sync/compare-at-save'
 import { LayoutService } from './service'
 
 const ALICE: UserId = asUserId('user:alice')
@@ -128,14 +129,15 @@ function build() {
       }
     },
   }
+  const repo = memoryLayoutRepo()
   const authority = new Authority({
     store: memoryStore(),
     now: () => 1_000,
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
+    records: compareAtSaveRecords({ store: { layout: repo } } as never, ['userLayout']),
   })
-  const repo = memoryLayoutRepo()
   const service = new LayoutService({
     layout: repo as never,
     boot: {
@@ -145,17 +147,9 @@ function build() {
       },
     },
   })
-  // The command's writer: each commit's changes go onto the kernel feed.
-  const writer = fixtureCommitWriter(async (specs) => {
-    await authority.capture(
-      specs.map((s) => ({
-        entity: s.entity,
-        entityId: s.id,
-        op: s.op,
-        ...(s.value !== undefined ? { value: s.value } : {}),
-      })),
-    )
-  })
+  // The command's writer: each commit goes through the Authority, which builds
+  // the named records around the write (compare at save).
+  const writer = authorityCommitWriter(authority)
   return { authority, service, repo, writer }
 }
 

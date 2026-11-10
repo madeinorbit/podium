@@ -115,6 +115,7 @@ import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
+import { CheckoutsService } from './modules/checkouts/service'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
 import { makeEffectFeedCapture } from './modules/effects/feed'
@@ -176,7 +177,6 @@ import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
 import { type MachineRecordsDeps, writeMachineRecords } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
-import { CheckoutsService } from './modules/checkouts/service'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
@@ -295,6 +295,7 @@ import { SessionStore } from './store'
 import type { EffectRow, EffectsRepository } from './store/effects'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
+import { compareAtSaveRecords } from './sync/compare-at-save'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
 import { WriteContexts } from './write-contexts'
@@ -1277,6 +1278,10 @@ export class SessionRegistry {
       feedVisibility.state,
       new NoDelegationsGranted(),
     )
+    // The effect kinds this server serves. Made here because the effect
+    // record's builder reads it (compare at save, below); the kinds register
+    // on it further down.
+    const effectExecutors = new EffectExecutorRegistry()
     const ledger = new Ledger({
       visibility,
       anchors: feedVisibility.anchors,
@@ -1303,6 +1308,11 @@ export class SessionRegistry {
       // plain command (ADR 12 D8, POD-6360) it refuses: a plain handler has no
       // access to the Authority, so it cannot write synced data by accident.
       provenance: syncedWriteProvenance,
+      // COMPARE AT SAVE (POD-6769, design POD-6253 §3): for the kinds that have
+      // moved, a commit names its records and the Authority builds them from
+      // the model tables before and after the write. `sync/compare-at-save.ts`
+      // lists the kinds.
+      records: compareAtSaveRecords({ store: this.store, effectExecutors, now: this.now }),
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
@@ -1620,7 +1630,9 @@ export class SessionRegistry {
       online: (machineId) => machines.hasDaemon(machineId),
       writer: () => ({
         capture: async (specs) =>
-          await asSystemWrite(async () => await this.writes.system('checkouts.scan').capture(specs)),
+          await asSystemWrite(
+            async () => await this.writes.system('checkouts.scan').capture(specs),
+          ),
       }),
       // Scan-reported origins are the server's own write (POD-6417).
       publishRepos: async () => {
@@ -4293,7 +4305,6 @@ export class SessionRegistry {
     // effects table reaches the feed inside its own transaction; the runner is
     // the one after-commit trigger and the recovery sweep. Kinds register their
     // executors on `modules.effects.executors`.
-    const effectExecutors = new EffectExecutorRegistry()
     this.store.effects.setFeedCapture(
       makeEffectFeedCapture(writes.system('feed.effects'), effectExecutors),
     )
@@ -5137,9 +5148,13 @@ export class SessionRegistry {
       this.store.users.afterAccessChange(async (change) => {
         await asSystemWrite(
           async () =>
-            await writeMachineRecords(this.machineRecordsDeps(), this.writes.system('members.access'), {
-              formerMembers: [change.memberId],
-            }),
+            await writeMachineRecords(
+              this.machineRecordsDeps(),
+              this.writes.system('members.access'),
+              {
+                formerMembers: [change.memberId],
+              },
+            ),
         )
       }),
     ]

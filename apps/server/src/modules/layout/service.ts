@@ -5,17 +5,19 @@
  *
  * ONE COMMIT PER WRITE (ADR 12 D9, POD-6594). A set or a clear is one
  * `commit` on the writer of the command that asked for it: the rows are written
- * in its `write`, with the commit's scope, and their change entries are its
- * `changes`. The writer comes from the sync handler, per call; the service holds
- * none of its own except the boot reconcile's.
+ * in its `write`, with the commit's scope. The commit names the layout rows it
+ * may affect, and the Authority appends a change entry for each one the write
+ * changed (compare at save, POD-6769). The writer comes from the sync handler,
+ * per call; the service holds none of its own except the boot reconcile's.
  */
 
 import { createLogger } from '@podium/logger'
-import { type LayoutSnapshot, type LayoutWire, layoutRowId, type UserId } from '@podium/model'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import { type LayoutSnapshot, layoutRowId, type UserId } from '@podium/model'
+import type { AffectedRecordSpec, LedgerWriter } from '@podium/sync'
 
 /** What a layout write is made through: the command's own writer. */
 export type LayoutCommandWriter = Pick<LedgerWriter, 'commit'>
+
 import type { UserLayoutRepository } from '../../store/user-layout'
 
 const log = createLogger('server:layout')
@@ -56,16 +58,8 @@ export class LayoutService {
       ...(panelModeDiff ? { panelModeChanged: panelModeDiff } : {}),
     })
     await writer.commit({
+      affects: layoutRecords(userId, Object.keys(values)),
       write: async (scope) => await this.deps.layout.setMany(scope, userId, values, now),
-      changes: () =>
-        changeSpecs(
-          Object.entries(values).map(([key, value]) => ({
-            userId,
-            key,
-            value,
-            op: 'upsert' as const,
-          })),
-        ),
     })
     return await this.deps.layout.getSnapshot(userId)
   }
@@ -76,8 +70,8 @@ export class LayoutService {
     keys: readonly string[],
   ): Promise<LayoutSnapshot> {
     await writer.commit({
+      affects: layoutRecords(userId, keys),
       write: async (scope) => await this.deps.layout.clearMany(scope, userId, keys),
-      changes: () => changeSpecs(keys.map((key) => ({ userId, key, op: 'remove' as const }))),
     })
     return await this.deps.layout.getSnapshot(userId)
   }
@@ -122,22 +116,9 @@ export class LayoutService {
       rows.map((value) => ({ id: layoutRowId(value.userId, value.key), value })),
     )
   }
-
 }
 
-/** The `userLayout` change entries for written or cleared rows. */
-function changeSpecs(
-  rows: ReadonlyArray<
-    | { userId: UserId; key: string; value: unknown; op: 'upsert' }
-    | { userId: UserId; key: string; op: 'remove' }
-  >,
-): EntityChangeSpec[] {
-  return rows.map((row) => {
-    const id = layoutRowId(row.userId, row.key)
-    if (row.op === 'remove') {
-      return { entity: 'userLayout', id, op: 'remove' }
-    }
-    const value: LayoutWire = { userId: row.userId, key: row.key, value: row.value }
-    return { entity: 'userLayout', id, op: 'upsert', value }
-  })
+/** The layout rows of these keys: the records a set or a clear may affect. */
+function layoutRecords(userId: UserId, keys: readonly string[]): AffectedRecordSpec[] {
+  return keys.map((key) => ({ entity: 'userLayout', id: layoutRowId(userId, key) }))
 }

@@ -6,16 +6,12 @@
  */
 import { asSessionId, asUserId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
-import { fixtureWriteScope } from '@podium/sync/testing'
-import {
-  type AgentProfileCaller,
-  AgentProfileService,
-  type AgentProfileWriter,
-} from './service'
+import { type AgentProfileCaller, AgentProfileService, type AgentProfileWriter } from './service'
 
 const ADMIN = asUserId('user:admin')
 const MEMBER = asUserId('user:member')
@@ -70,7 +66,7 @@ describe('agent profiles', () => {
   const writer: AgentProfileWriter = {
     commit: async (op) => {
       const result = await op.write(fixtureWriteScope())
-      changes.push(...(await op.changes(result)))
+      changes.push(...((await op.changes?.(result)) ?? []))
       return { result }
     },
   }

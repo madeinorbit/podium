@@ -11,6 +11,7 @@ import type {
   BaselineFoldPort,
   PostCommitFollowUpPort,
   ProvenancePort,
+  RecordSourcePort,
 } from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
@@ -104,6 +105,10 @@ const log = createLogger('sync:ledger')
  */
 export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string }
 
+/** One record a write may affect, in this facade's `id` spelling: see
+ *  `AffectedRecord` (POD-6769). */
+export type AffectedRecordSpec = Omit<EntityChangeSpec, 'op' | 'value'>
+
 /**
  * The composite overlay key. RE-EXPORTED from the Authority rather than declared
  * twice: two implementations of one key function is one edit away from two
@@ -144,6 +149,10 @@ export interface LedgerDeps {
   /** The command now appending, passed straight to the Authority — see
    *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
   provenance?: ProvenancePort
+  /** The kinds whose change detection is compare at save, and their records,
+   *  passed straight to the Authority: see `AuthorityDeps.records` (POD-6769).
+   *  Unset means no kind has moved. */
+  records?: RecordSourcePort
 }
 
 export interface LedgerBootOptions {
@@ -204,7 +213,14 @@ export interface LedgerCommitOp<T> {
    * appends its change entry, never beside it.
    */
   write: (scope: WriteScope) => Promise<T>
-  changes: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
+  /**
+   * COMPARE AT SAVE (POD-6769): the records this write may affect, named up
+   * front, for kinds that have moved. The Authority builds each before and
+   * after `write` and appends what differs: see `AuthorityCommit.affects`.
+   */
+  affects?: readonly AffectedRecordSpec[]
+  /** The declared changes of kinds that have not moved to compare at save. */
+  changes?: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
   arbitrate?: AuthorityCommit<T>['arbitrate']
@@ -255,6 +271,7 @@ export class Ledger {
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
       ...(deps.provenance === undefined ? {} : { provenance: deps.provenance }),
+      ...(deps.records === undefined ? {} : { records: deps.records }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
@@ -357,10 +374,16 @@ export class Ledger {
    */
   async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
     this.scopes.check(scope)
+    const declare = op.changes
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
+      ...(op.affects === undefined
+        ? {}
+        : { affects: op.affects.map(({ id, ...rest }) => ({ ...rest, entityId: id })) }),
       write: async () => await op.write(scope),
-      changes: async (result: T) => (await op.changes(result)).map(toKernelSpec),
+      ...(declare === undefined
+        ? {}
+        : { changes: async (result: T) => (await declare(result)).map(toKernelSpec) }),
     })
     if (outcome.outcome !== 'committed') {
       throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)

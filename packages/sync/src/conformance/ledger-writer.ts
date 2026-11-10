@@ -4,6 +4,7 @@
  * same mint each time, so it is kept per Ledger here.
  */
 
+import type { Authority } from '../authority/authority'
 import type { EntityChangeSpec, Ledger, LedgerWriter } from '../ledger'
 import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from '../write-scope'
 
@@ -49,10 +50,42 @@ export function fixtureCommitWriter(
   return {
     commit: async (op) => {
       const result = await op.write(fixtureWriteScope())
-      const specs = await op.changes(result)
+      const specs = (await op.changes?.(result)) ?? []
       await onChanges?.(specs)
       op.apply?.(result, [])
       return { result, changes: [] }
+    },
+  }
+}
+
+/**
+ * A commit-only writer straight over an Authority, for a SERVICE test with no
+ * Ledger whose kind compares at save (POD-6769): the commit's named records,
+ * its write (run with {@link fixtureWriteScope}) and its declared changes go to
+ * `authority.commit`, so the Authority builds the records around the write as
+ * production does. The test gives that Authority its `records`.
+ */
+export function authorityCommitWriter(
+  authority: Pick<Authority, 'commit'>,
+): Pick<LedgerWriter, 'commit'> {
+  return {
+    commit: async (op) => {
+      const declare = op.changes
+      const outcome = await authority.commit({
+        ...(op.affects === undefined
+          ? {}
+          : { affects: op.affects.map(({ id, ...rest }) => ({ ...rest, entityId: id })) }),
+        write: async () => await op.write(fixtureWriteScope()),
+        ...(declare === undefined
+          ? {}
+          : {
+              changes: async (result) =>
+                (await declare(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
+            }),
+      })
+      if (outcome.outcome !== 'committed') throw new Error(`rejected: ${outcome.reason}`)
+      op.apply?.(outcome.result, [])
+      return { result: outcome.result, changes: [] }
     },
   }
 }

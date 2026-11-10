@@ -43,6 +43,12 @@
  * 3. WRITE + APPEND, in ONE transact span (ADR 2 D10). "The entity row changed"
  *    and "the change log says so" commit or roll back together, which is why the
  *    feed can never disagree with the tables.
+ *    WHAT CHANGED is found one of two ways, per kind (POD-6253 design §3,
+ *    POD-6769). A kind that has MOVED to compare at save: the writer names the
+ *    records it may affect up front, and the Authority builds them from the
+ *    database before the write and again after it, appending a row for each
+ *    that differs. A kind that has not: the writer declares the new value and
+ *    it is compared with the stored row of the last one (`stage`).
  * 4. BROADCAST. After the span, never inside it: a subscriber must not be able to
  *    observe — or worse, act on — a change that a later throw rolls back.
  *
@@ -99,6 +105,7 @@ import type {
 import { arbitrate } from './arbitration'
 import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
+  AffectedRecord,
   AuthorityClock,
   AuthorityCommit,
   AuthorityCommitOutcome,
@@ -106,6 +113,7 @@ import type {
   ChangeSubscriber,
   PostCommitFollowUpPort,
   ProvenancePort,
+  RecordSourcePort,
   TransactPort,
 } from './ports'
 import {
@@ -170,6 +178,32 @@ export interface AuthorityDeps {
    * what every caller outside the write entry point gets.
    */
   provenance?: ProvenancePort
+  /**
+   * The records of the kinds whose change detection is COMPARE AT SAVE
+   * (POD-6253 design §3, POD-6769). Unset means no kind has moved: every
+   * change is a declared spec compared with the stored row, as before.
+   */
+  records?: RecordSourcePort
+}
+
+/**
+ * A writer used the wrong path for a kind: it named a record of a kind that
+ * has not moved to compare at save, or it declared a spec (through `changes`
+ * or `capture`) of a kind that has. A programming error, thrown before
+ * anything is written.
+ */
+export class ChangeDetectionPathMismatch extends Error {
+  constructor(
+    readonly entity: MetadataEntityKind,
+    readonly used: 'affects' | 'declared',
+  ) {
+    super(
+      used === 'affects'
+        ? `kind ${entity} has not moved to compare at save: declare its changes, do not name its records`
+        : `kind ${entity} has moved to compare at save: name its records in the commit's affects, do not declare its changes`,
+    )
+    this.name = 'ChangeDetectionPathMismatch'
+  }
 }
 
 /**
@@ -188,6 +222,12 @@ export function entityOverlayKey(entity: string, id: string): string {
 interface StagedRow {
   spec: StagedChangeSpec
   payload: string | null
+}
+
+/** One record as built from the database: its value and its serialized form. */
+interface BuiltState {
+  readonly value: unknown
+  readonly json: string
 }
 
 /** One subscription: who it is for, and where its deliveries go. */
@@ -287,6 +327,9 @@ export class Authority implements AuthorityPort {
     // The causing command, read ONCE and before the first await, so the answer
     // is the caller's even if the write awaits into another context.
     const ambient = this.ambientProvenance()
+    // A wrong-path record name is a programming error: refused before anything
+    // runs, the authorization included.
+    const named = this.namedRecords(op.affects)
 
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     await op.authorize?.()
@@ -314,8 +357,15 @@ export class Authority implements AuthorityPort {
         }
       }
 
+      // COMPARE AT SAVE (POD-6769): the named records as the database holds
+      // them now, then the write, then the same records again. Both builds run
+      // in this span, so nothing else can write between them and the append.
+      const before = await this.buildRecords(named)
       const result = await op.write()
-      const rows = await this.stage(stampProvenance(await op.changes(result), ambient))
+      const compared = await this.compareAtSave(named, before, ambient)
+      const declared = op.changes === undefined ? [] : await op.changes(result)
+      this.refuseMovedKinds(declared)
+      const rows = [...compared, ...(await this.stage(stampProvenance(declared, ambient)))]
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const
@@ -333,6 +383,9 @@ export class Authority implements AuthorityPort {
   }
 
   async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
+    // A capture has no write to build around, so a moved kind cannot use it:
+    // its writer wraps the row write in a `commit` that names the record.
+    this.refuseMovedKinds(specs)
     const stamped = stampProvenance(specs, this.ambientProvenance())
     const eventTime = this.deps.now()
     // The read that decides "unchanged" and the append it decides run in ONE
@@ -559,6 +612,99 @@ export class Authority implements AuthorityPort {
       anchors: this.deps.anchors,
       rescopeThreshold: this.deps.rescopeThreshold ?? DEFAULT_RESCOPE_THRESHOLD,
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Compare at save (POD-6253 design §3, POD-6769)
+  // -------------------------------------------------------------------------
+
+  /** The named records, once each in the order first named. Refuses a kind
+   *  that has not moved. */
+  private namedRecords(affects: readonly AffectedRecord[] | undefined): AffectedRecord[] {
+    if (affects === undefined || affects.length === 0) return []
+    const named = new Map<string, AffectedRecord>()
+    for (const record of affects) {
+      if (this.deps.records?.comparesAtSave(record.entity) !== true) {
+        throw new ChangeDetectionPathMismatch(record.entity, 'affects')
+      }
+      const key = entityOverlayKey(record.entity, record.entityId)
+      if (!named.has(key)) named.set(key, record)
+    }
+    return [...named.values()]
+  }
+
+  /** Refuses a declared spec of a kind whose changes are found by comparing. */
+  private refuseMovedKinds(specs: readonly StagedChangeSpec[]): void {
+    const records = this.deps.records
+    if (records === undefined) return
+    for (const spec of specs) {
+      if (records.comparesAtSave(spec.entity)) {
+        throw new ChangeDetectionPathMismatch(spec.entity, 'declared')
+      }
+    }
+  }
+
+  /**
+   * The named records as the database holds them now: one `build` per kind,
+   * whatever the number of records. A named id with no record is absent.
+   */
+  private async buildRecords(named: readonly AffectedRecord[]): Promise<Map<string, BuiltState>> {
+    const built = new Map<string, BuiltState>()
+    const records = this.deps.records
+    if (records === undefined || named.length === 0) return built
+    const idsByKind = new Map<MetadataEntityKind, string[]>()
+    for (const record of named) {
+      const ids = idsByKind.get(record.entity)
+      if (ids === undefined) idsByKind.set(record.entity, [record.entityId])
+      else ids.push(record.entityId)
+    }
+    for (const [kind, ids] of idsByKind) {
+      for (const record of await records.build(kind, ids)) {
+        built.set(entityOverlayKey(kind, record.id), {
+          value: record.value,
+          json: JSON.stringify(record.value),
+        })
+      }
+    }
+    return built
+  }
+
+  /**
+   * Build the named records again and stage one row per record the write
+   * changed, in the order named: an upsert of the record as it is now when it
+   * is new or differs, a remove when it is gone. The comparison is the dedup's
+   * own ({@link detectionKey}), between the two builds; the stored copy of the
+   * last published value is not read.
+   */
+  private async compareAtSave(
+    named: readonly AffectedRecord[],
+    before: ReadonlyMap<string, BuiltState>,
+    ambient: ChangeProvenanceFields | undefined,
+  ): Promise<StagedRow[]> {
+    if (named.length === 0) return []
+    const after = await this.buildRecords(named)
+    const rows: StagedRow[] = []
+    for (const record of named) {
+      const key = entityOverlayKey(record.entity, record.entityId)
+      const was = before.get(key)
+      const now = after.get(key)
+      if (now === undefined) {
+        if (was === undefined) continue
+        const [spec] = stampProvenance([{ ...record, op: 'remove' }], ambient)
+        rows.push({ spec: spec as StagedChangeSpec, payload: null })
+        continue
+      }
+      if (
+        was !== undefined &&
+        detectionKey(record.entity, was.value, was.json) ===
+          detectionKey(record.entity, now.value, now.json)
+      ) {
+        continue
+      }
+      const [spec] = stampProvenance([{ ...record, op: 'upsert', value: now.value }], ambient)
+      rows.push({ spec: spec as StagedChangeSpec, payload: now.json })
+    }
+    return rows
   }
 
   // -------------------------------------------------------------------------

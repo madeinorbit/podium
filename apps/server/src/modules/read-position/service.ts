@@ -9,8 +9,8 @@
  * carries no change is indistinguishable to them from one that does.
  */
 
-import { type ReadPositionWire, readPositionRowId, type UserId } from '@podium/model'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import { readPositionRowId, type UserId } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 
 export interface ReadPositionServiceDeps {
@@ -36,32 +36,14 @@ export class ReadPositionService {
     proposed: StoredReadPosition,
     now: string,
   ): Promise<void> {
-    // One commit: the cursor row and its change entry. A proposal at or behind
-    // the stored position moves nothing and appends nothing.
+    // One commit: the cursor row, and the change entry the Authority finds by
+    // building the record before and after (compare at save, POD-6769). A
+    // proposal at or behind the stored position moves nothing and appends
+    // nothing.
     await writer.commit({
+      affects: [{ entity: 'userReadPosition', id: readPositionRowId(userId, streamId) }],
       write: async (scope) =>
         await this.deps.cursors.advance(scope, userId, streamId, proposed, now),
-      changes: (moved) => (moved === null ? [] : [changeSpec(userId, streamId, moved)]),
     })
   }
-}
-
-function changeSpec(
-  userId: UserId,
-  streamId: string,
-  cursor: StoredReadPosition,
-): EntityChangeSpec {
-  const value: ReadPositionWire = {
-    userId,
-    streamId,
-    lastEventId: cursor.lastEventId,
-    seenAt: cursor.seenAt,
-  }
-  const spec: EntityChangeSpec = {
-    entity: 'userReadPosition',
-    id: readPositionRowId(userId, streamId),
-    op: 'upsert',
-    value,
-  }
-  return spec
 }
