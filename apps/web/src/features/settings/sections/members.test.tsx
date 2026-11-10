@@ -418,3 +418,25 @@ test('a failed replacement never revokes the old invite', async () => {
   expect((await screen.findByRole('alert')).textContent).toBe('Invitation refused')
   expect(request.mock.calls.some(([url]) => url.endsWith('/revoke'))).toBe(false)
 })
+
+test('a failed old-link revocation keeps the new result with an explicit warning', async () => {
+  const request = mockApi({
+    refusal: { path: '/revoke', error: 'Could not revoke the old invite' },
+  })
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'New link' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Create new link' }))
+  expect(await screen.findByRole('textbox', { name: 'Invite link' })).toHaveProperty(
+    'value',
+    'https://workspace.example/#invite=new-secret',
+  )
+  await screen.findByText(
+    'New link created, but the old link could not be revoked. Revoke it before sharing this one.',
+  )
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not revoke the old invite')
+  expect(request.mock.calls.some(([url]) => url.endsWith('/revoke'))).toBe(true)
+  expect(writeText).not.toHaveBeenCalled()
+  expect(screen.getByText('pending@example.com')).toBeTruthy()
+})
