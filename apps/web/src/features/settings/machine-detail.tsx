@@ -173,6 +173,12 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
             <MachineCustodianName view={view} capitalized />
           </span>
         </Row>
+        {machine.podiumManaged === false && (
+          <Row
+            label="Keeps its own logins"
+            description="Agent logins from your other machines are not copied here."
+          />
+        )}
         <Row
           label="Podium version"
           description={skew.note ?? 'The Podium build installed on this machine.'}

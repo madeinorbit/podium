@@ -82,6 +82,8 @@ function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): st
  *
  * - The target's custodian is the owner. Another member's machine, or one the
  *   owner only holds `use` on, never receives a copy.
+ * - A target that keeps its own logins (`podiumManaged === false`) never
+ *   receives a copy, even when its custodian ticked the donor login.
  * - Export and install each re-read custody and the owner's choice. Export asks
  *   the donor for that account by fingerprint, so a donor whose login changed
  *   since exports nothing; install asks the target to keep any login of a
@@ -130,6 +132,9 @@ export class LoginPropagationService {
       (await this.deps.store.machines.custodian(input.targetMachineId)) ?? undefined
     if (!target || target.revokedAt || !ownerUserId) {
       return { status: 'skipped', reason: 'target has no owner' }
+    }
+    if (target.podiumManaged === false) {
+      return { status: 'skipped', reason: 'target keeps its own logins' }
     }
     if (input.principalUserId && input.principalUserId !== ownerUserId) {
       return { status: 'skipped', reason: 'target owner does not match principal' }
@@ -352,6 +357,9 @@ export class LoginPropagationService {
       }
       if ((await this.deps.store.machines.custodian(targetId)) !== input.ownerUserId) {
         return { status: 'skipped', reason: 'stale transfer refused: the target owner changed' }
+      }
+      if ((await this.deps.store.machines.getMachine(targetId))?.podiumManaged === false) {
+        return { status: 'skipped', reason: 'stale transfer refused: target keeps its own logins' }
       }
       const serverBundle = await this.deps.store.secrets.getNativeLoginTransfer(
         input.ownerUserId,

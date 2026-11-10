@@ -203,7 +203,7 @@ describe('add machine choices', () => {
     expect(mint).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
     await waitFor(() =>
-      expect(mint).toHaveBeenCalledWith({ copyAgentCredentials: true, podiumManaged: false }),
+      expect(mint).toHaveBeenCalledWith({ copyAgentCredentials: false, podiumManaged: false }),
     )
     expect(await screen.findByText('podium join ABCD-EFGH')).toBeTruthy()
     expect(screen.getByRole('switch')).toHaveProperty('disabled', true)
