@@ -606,6 +606,56 @@ export function membershipCases(context: MembershipCasesContext): void {
 
       // A member id that names nobody is refused.
       expect(await refusedWith(() => invite({ memberId: 'mem_nobody_at_all' }))).toBe('not-allowed')
+
+      // A move can be tried again. After a revoked invitation that named a
+      // member row, a new invitation names the same row and acceptance restores it.
+      const retried: MemberWrite = { ...moved, memberId: 'mem_moved_and_retried' }
+      await opened.memberRows.write(retried)
+      const firstTry = await invite({ memberId: retried.memberId })
+      await workspace.memberships.revokeInvitation({
+        actor: asAlice(),
+        invitationId: firstTry.invitation.id,
+      })
+      expect((await viewOf(retried.memberId)).status).toBe('removed')
+      expect(((await rowOf(retried.memberId)) as MemberRowState).state === 'active').toBe(false)
+      const secondTry = await invite({ memberId: retried.memberId })
+      expect(secondTry.membership.memberId).toBe(retried.memberId)
+      const dave = await workspace.memberships.accept({
+        token: secondTry.invitation.token,
+        account: await accountFor('Dave', 'dave password 123'),
+      })
+      expect(dave.memberId).toBe(retried.memberId)
+      const restored = await rowMatches(retried.memberId)
+      expect(restored.state).toBe('active')
+      expect(restored.accountId).toBe(dave.accountId)
+
+      // The same after an invitation that expired: the row was left as it was,
+      // and a new invitation for it is accepted.
+      const late: MemberWrite = { ...moved, memberId: 'mem_moved_and_expired' }
+      await opened.memberRows.write(late)
+      const lateBefore = (await rowOf(late.memberId)) as MemberRowState
+      const lapsed = await invite({ memberId: late.memberId })
+      ahead = 8 * DAY
+      expect(
+        await refusedWith(async () =>
+          workspace.memberships.accept({
+            token: lapsed.invitation.token,
+            account: await accountFor('Erin', 'erin password 123'),
+          }),
+        ),
+      ).toBe('invitation-invalid')
+      expect(await rowOf(late.memberId)).toEqual(lateBefore)
+      const renewed = await invite({ memberId: late.memberId })
+      const frank = await workspace.memberships.accept({
+        token: renewed.invitation.token,
+        account: await accountFor('Frank', 'frank password 123'),
+      })
+      expect(frank.memberId).toBe(late.memberId)
+      const kept = await rowMatches(late.memberId)
+      expect(kept.state).toBe('active')
+      expect(kept.accountId).toBe(frank.accountId)
+      expect(kept.generation).toBe(lateBefore.generation)
+      expect((await workspace.memberships.list()).length).toBe(count + 3)
       await aliceUnchanged()
     })
 
