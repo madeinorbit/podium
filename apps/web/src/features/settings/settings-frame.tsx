@@ -1,5 +1,5 @@
 import type { SettingsPage } from '@podium/client-core/ui-state'
-import { ArrowLeft, ChevronRight, Search, Users } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Lock, Search, Users } from 'lucide-react'
 import {
   createContext,
   type ReactNode,
@@ -418,13 +418,21 @@ export function SettingsFrame({
                       <div>
                         <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
                           {definition.label}
-                          {definition.group === 'workspace' && (
+                          {(definition.adminOnly || definition.group === 'workspace') && (
                             <span
                               className="settings-scope-tag"
-                              title="Changes here apply to everyone in this workspace"
+                              title={
+                                definition.adminOnly
+                                  ? 'Only admins see this page'
+                                  : 'Changes here apply to everyone in this workspace'
+                              }
                             >
-                              <Users size={11} aria-hidden="true" />
-                              Everyone
+                              {definition.adminOnly ? (
+                                <Lock size={11} aria-hidden="true" />
+                              ) : (
+                                <Users size={11} aria-hidden="true" />
+                              )}
+                              {definition.adminOnly ? 'Admins' : 'Everyone'}
                             </span>
                           )}
                         </h3>

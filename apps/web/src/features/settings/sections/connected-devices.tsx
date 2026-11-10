@@ -657,7 +657,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
       <section
         ref={sessionsRegionRef}
         aria-label="Where you’re signed in"
-        className="outline-none rounded-lg border border-hairline-soft"
+        className="settings-list outline-none"
         tabIndex={-1}
       >
         {sessions === null && !request?.error && (
@@ -679,7 +679,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
           <p className="settings-prose p-4">No devices are signed in to your account.</p>
         )}
         {sessions?.map((session) => (
-          <div key={session.sessionId} className="border-b border-hairline-soft px-4 py-3.5">
+          <div key={session.sessionId} className="settings-list-row">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
                 <DeviceIcon kind={session.kind} />
@@ -733,7 +733,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
             )}
           </div>
         ))}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+        <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
           <p className="settings-prose flex items-center gap-2">
             <LogOut size={15} aria-hidden="true" />
             Lost a device? Sign out of all of them at once.

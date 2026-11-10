@@ -72,7 +72,12 @@ const setupInfo = {
   bindHost: '0.0.0.0',
 }
 const answers: Record<string, unknown> = {
-  'settings.viewer.query': { permitted: member ? {} : { 'settings.setSecret': true } },
+  'settings.viewer.query': {
+    permitted: {
+      'records.userPreferences.edit': true,
+      ...(!member && { 'records.instancePreferences.edit': true, 'settings.setSecret': true }),
+    },
+  },
   'settings.secretPresence.query': [],
   'accounts.list.query': [],
   'accounts.keys.query': [],

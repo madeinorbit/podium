@@ -8363,17 +8363,49 @@ a.ref-link--session::before {
   padding-top: 0;
 }
 
-/* Settings rows (POD-127): hairline seam between adjacent rows only — never
-   above the first or below the last, and prose/notes between rows break the
-   run naturally. */
+.settings-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+/* One quiet group for settings and entity rows. Auto mode inspects the rendered
+   DOM so fragments, forms and row helper components all share the same border;
+   prose-only sections keep their normal flow. Section list={false} opts out. */
+.settings-list {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+}
+.dark .settings-list {
+  background: color-mix(in oklab, var(--background) 22%, var(--card));
+}
+.settings-list[data-auto-list]:not(:has(.settings-row, .settings-list-row)) {
+  display: contents;
+}
+.settings-list:is(:not([data-auto-list]), :has(.settings-row, .settings-list-row)) > * + * {
+  border-top: 1px solid var(--hairline-soft);
+}
+.settings-list:is(:not([data-auto-list]), :has(.settings-row, .settings-list-row))
+  > :is(.settings-prose, .settings-micro, .settings-list-note) {
+  max-width: none;
+  margin: 0;
+  padding: 11px 16px;
+}
+.settings-list-row {
+  min-height: 56px;
+  padding: 13px 16px;
+}
+
+/* Row-family controls keep their shared columns inside the group. */
 .settings-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  /* Taller than the 12px POD-395 set, because the type inside it grew: a row
-     is a line of 13.5px label over 13px prose, and the air around a row must
-     stay larger than the air inside it or the run reads as one block. */
-  padding: 14px 0;
+  min-height: 56px;
+  padding: 13px 16px;
 }
 @media (min-width: 768px) {
   .settings-row {
@@ -8425,7 +8457,7 @@ a.ref-link--session::before {
   }
 }
 .settings-row + .settings-row {
-  border-top: 1px solid color-mix(in oklab, var(--hairline-soft) 60%, transparent);
+  border-top: 1px solid var(--hairline-soft);
 }
 
 /* Settings takeover (POD-127): one-shot entrance morphs per the agent-state

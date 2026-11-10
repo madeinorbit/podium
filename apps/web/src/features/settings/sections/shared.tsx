@@ -37,10 +37,15 @@ import { useSettingsFrame } from '../settings-frame'
 export function Section({
   title,
   hint,
+  actions,
+  list,
   children,
 }: {
-  title: string
+  title?: ReactNode
   hint?: string
+  actions?: ReactNode
+  /** Auto-groups rendered rows; true also groups custom entity lists. */
+  list?: boolean
   children: React.ReactNode
 }): JSX.Element {
   // The separating rule and its spacing live in `.settings-measure > section`
@@ -48,9 +53,22 @@ export function Section({
   // because the class banner — not this section — is the pane's first child.
   return (
     <section>
-      <h3 className="settings-h mb-1.5">{title}</h3>
-      {hint && <p className="settings-prose mb-4">{hint}</p>}
-      {children}
+      {(title || hint || actions) && (
+        <header className="settings-section-header">
+          <div className="min-w-0">
+            {title && <h3 className="settings-h">{title}</h3>}
+            {hint && <p className="settings-prose mt-1.5">{hint}</p>}
+          </div>
+          {actions && <div className="shrink-0">{actions}</div>}
+        </header>
+      )}
+      {list === false ? (
+        children
+      ) : (
+        <div className="settings-list" data-auto-list={list === undefined || undefined}>
+          {children}
+        </div>
+      )}
     </section>
   )
 }

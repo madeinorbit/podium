@@ -85,11 +85,15 @@ function ThemeCards(): JSX.Element {
   const { mode, setMode } = useTheme()
   const id = useSettingsRowId('Theme')
   return (
-    <section>
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="settings-h">Theme</h3>
-        <ThisDeviceTag />
-      </div>
+    <Section
+      title={
+        <span className="inline-flex items-center gap-2">
+          Theme
+          <ThisDeviceTag />
+        </span>
+      }
+      list={false}
+    >
       <fieldset
         id={id}
         tabIndex={id ? -1 : undefined}
@@ -116,7 +120,7 @@ function ThemeCards(): JSX.Element {
           </Button>
         ))}
       </fieldset>
-    </section>
+    </Section>
   )
 }
 
@@ -166,12 +170,10 @@ function TerminalAppearanceRows(): JSX.Element {
   const isDefault = Object.keys(settings).length === 0
   const background = settings.background ?? TERMINAL_DEFAULTS.background
   return (
-    <section>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="settings-h mb-1.5">Terminal</h3>
-          <p className="settings-prose">Applies to running sessions immediately.</p>
-        </div>
+    <Section
+      title="Terminal"
+      hint="Applies to running sessions immediately."
+      actions={
         <Button
           type="button"
           size="sm"
@@ -192,7 +194,8 @@ function TerminalAppearanceRows(): JSX.Element {
         >
           Restore defaults
         </Button>
-      </div>
+      }
+    >
       <NumberRow
         label="Font size"
         device
@@ -242,6 +245,6 @@ function TerminalAppearanceRows(): JSX.Element {
           <span className="settings-value">{background}</span>
         </label>
       </Row>
-    </section>
+    </Section>
   )
 }

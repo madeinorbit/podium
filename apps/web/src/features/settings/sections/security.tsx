@@ -149,7 +149,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
 
   return (
     <Section title="Profile">
-      <div className="rounded-lg border border-hairline-soft px-4">
+      <>
         <Row
           label="Name"
           description="Shown on tasks and sessions you start."
@@ -165,7 +165,6 @@ export const AccountProfileSection = observer(function AccountProfileSection({
           />
         </Row>
         <form
-          className="border-y border-hairline-soft/70"
           onSubmit={(event) => {
             event.preventDefault()
             submitEmail()
@@ -263,7 +262,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
           readOnly
           readOnlyValue={profile.role === 'admin' ? 'Admin' : 'Member'}
         />
-      </div>
+      </>
     </Section>
   )
 })

@@ -32,6 +32,7 @@ export interface SettingsPageDefinition {
   key: SettingsPage
   label: string
   group: SettingsGroup
+  adminOnly?: boolean
   icon: LucideIcon
   description: string
   keywords: string
@@ -497,6 +498,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   {
     key: 'access',
     label: 'Access',
+    adminOnly: true,
     group: 'workspace',
     icon: Globe,
     description:
@@ -568,6 +570,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   {
     key: 'audit',
     label: 'Audit log',
+    adminOnly: true,
     group: 'workspace',
     icon: History,
     description:
@@ -585,6 +588,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   {
     key: 'privacy',
     label: 'Privacy',
+    adminOnly: true,
     group: 'workspace',
     icon: Shield,
     description: 'What leaves this workspace. Prompts, code, paths and agent output never do.',
@@ -702,6 +706,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   {
     key: 'labs',
     label: 'Labs',
+    adminOnly: true,
     group: 'workspace',
     icon: FlaskConical,
     description: 'Features still being built. They can change or disappear between versions.',

@@ -9,7 +9,7 @@ import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { type FeatureStates, useFeaturesState } from '@/lib/use-feature'
-import { Row } from './shared'
+import { Row, Section } from './shared'
 
 type FeatureFlagWire = FeatureStates['flags'][number]
 
@@ -35,7 +35,7 @@ export const LabsSection = observer(function LabsSection({
   const channel = state?.channel ?? 'stable'
 
   return (
-    <div>
+    <Section>
       {!state && <p className="settings-prose">Loading Labs features…</p>}
       {state && listed.length === 0 && (
         <p className="settings-prose">No Labs features are available on this install.</p>
@@ -79,6 +79,6 @@ export const LabsSection = observer(function LabsSection({
           </Row>
         )
       })}
-    </div>
+    </Section>
   )
 })
