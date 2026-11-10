@@ -39,6 +39,7 @@ import { LEDGER_IMPORT_MARKER, RETIRED_MEMBER_MAPPING } from '../enrollment-ledg
 import { makeFeedVisibility } from '../feed-visibility'
 import { createPortableSnapshot } from '../modules/server-transfer/snapshot'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreRecords } from '../test-support/record-writer'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -641,6 +642,7 @@ describe('MU-15: customer personal data across the complete multi-user migration
         store,
         audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
         authorizationRevision: () => store.grants.visibilityRevision(),
+        currentRecords: testStoreRecords(store).build,
       })
       const alice = asUserId('mem_upgrade_alice')
       const bob = asUserId('mem_upgrade_bob')

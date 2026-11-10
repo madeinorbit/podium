@@ -744,15 +744,13 @@ export class SessionRegistry {
     // `instancePreferences` record every member's first bootstrap holds.
     await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
     await this.modules.machines.storeRecordChannel()
-    await this.writes
-      .system('boot.reconcile')
-      .reconcile(
-        'machine',
-        (await this.modules.machines.recordFacts()).map((fact) => ({
-          id: fact.machine.id,
-          value: fact.machine,
-        })),
-      )
+    await this.writes.system('boot.reconcile').reconcile(
+      'machine',
+      (await this.modules.machines.recordFacts()).map((fact) => ({
+        id: fact.machine.id,
+        value: fact.machine,
+      })),
+    )
     // Every member's access rows (POD-6644): a member who joined or changed
     // role while the server was down sees the machines they now may.
     await asSystemWrite(
@@ -1617,7 +1615,6 @@ export class SessionRegistry {
         // above precisely so every consumer can take it directly instead of
         // wrapping a not-yet-built service in a closure.
         daemonRequest: requestBroker,
-
       },
       {
         ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
@@ -1634,9 +1631,7 @@ export class SessionRegistry {
       online: (machineId) => machines.hasDaemon(machineId),
       writer: () => ({
         commit: async (op) =>
-          await asSystemWrite(
-            async () => await this.writes.system('checkouts.scan').commit(op),
-          ),
+          await asSystemWrite(async () => await this.writes.system('checkouts.scan').commit(op)),
       }),
       // Scan-reported origins are the server's own write (POD-6417).
       commitRepoWrite: async (write) => {
@@ -4315,9 +4310,7 @@ export class SessionRegistry {
     // effects table reaches the feed inside its own transaction; the runner is
     // the one after-commit trigger and the recovery sweep. Kinds register their
     // executors on `modules.effects.executors`.
-    this.store.effects.setFeedCapture(
-      makeEffectFeedCapture(writes.system('feed.effects')),
-    )
+    this.store.effects.setFeedCapture(makeEffectFeedCapture(writes.system('feed.effects')))
     this.effectsRunner = new EffectsRunner({
       repo: this.store.effects,
       writer: writes.system('effects.runner'),

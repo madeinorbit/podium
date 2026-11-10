@@ -82,6 +82,10 @@ function world(provenance?: () => ChangeProvenanceFields | undefined) {
       const rows = tables.get(kind)
       return ids.flatMap((id) => (rows?.has(id) ? [{ id, value: rows.get(id) }] : []))
     },
+    kinds: () => [...MOVED],
+    async *streamAll(kind) {
+      yield [...(tables.get(kind) ?? [])].map(([id, value]) => ({ id, value }))
+    },
   }
   const authority = new Authority({
     store,

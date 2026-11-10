@@ -25,6 +25,7 @@ import { disposeOracles, makeOracle, type Oracle } from './modules/sessions/orac
 import { appliedReply, envelope, submit } from './modules/sync-write/outbox-test-support'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 import {
   expectArmed,
   expectConstantStatements,
@@ -99,6 +100,7 @@ async function visibilityFixture(size: number): Promise<VisibilityFixture> {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   return { store, policy, size }
 }

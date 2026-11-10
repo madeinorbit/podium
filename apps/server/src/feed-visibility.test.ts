@@ -6,8 +6,8 @@ import {
   asUserId,
   checkoutRowId,
   interactionRowId,
-  machineAccessRowId,
   issueUserStateRowId,
+  machineAccessRowId,
   messageRecordRowId,
   subscriptionRowId,
 } from '@podium/model'
@@ -25,6 +25,7 @@ import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports
 import type { SessionStore } from './store'
 import type { GrantRow } from './store/grants'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 /** One row's edge through the batched anchor port. */
 const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
@@ -55,6 +56,7 @@ async function fixture() {
       getIssue: async () => issue,
       getIssues: async () => new Map([[issue.id, issue]]),
       liveWorktreeIssuesOnMachines: async () => new Map(),
+      depsFromIssues: async () => [],
     },
     sessions: {
       getSessions: async () => new Map([[session.id, session]]),
@@ -74,7 +76,10 @@ async function fixture() {
       visibilityFacts: async () => ({
         workflows: new Map([['shared', { ownerUserId: owner, scope: 'repository' as const }]]),
         revisions: new Map([
-          ['wfr_shared', { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const }],
+          [
+            'wfr_shared',
+            { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const },
+          ],
         ]),
         bindings: new Map([['issue:shared', owner]]),
         runs: new Map([['shared', owner]]),
@@ -105,13 +110,13 @@ async function fixture() {
     },
     events: store.events,
     grants: store.grants,
-    sync: store.sync,
     checkouts: store.checkouts,
   }
   const policy = makeFeedVisibility({
     store: rows,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   const grant = async (kind: string, grantee: string, verb: GrantRow['verb']) =>
     store.grants.upsert({
@@ -396,7 +401,12 @@ describe('feed visibility grant semantics', () => {
     ]
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare(rows)
-      for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {
+      for (const kind of [
+        'workflow',
+        'workflowRevision',
+        'workflowBinding',
+        'workflowRun',
+      ] as const) {
         expect(state.classOf(kind)).toBe('personal')
       }
       const readable = (user: typeof owner) =>
@@ -603,7 +613,12 @@ describe('the issue anchor edge reads the normalized record', () => {
 // A machine's records (POD-6644): each member's access row is theirs alone, and
 // a checkout reaches only the members holding `use` on its machine.
 describe('machine access and checkout rows', () => {
-  const machineGrant = (store: SessionStore, grantee: string, verb: GrantRow['verb'], custody = false) =>
+  const machineGrant = (
+    store: SessionStore,
+    grantee: string,
+    verb: GrantRow['verb'],
+    custody = false,
+  ) =>
     store.grants.upsert({
       resourceKind: 'machine',
       resourceId: 'm1',
@@ -625,7 +640,10 @@ describe('machine access and checkout rows', () => {
     await machineGrant(store, reader, 'use')
     await machineGrant(store, stranger, 'see')
 
-    const access = { entity: 'machineAccess' as const, entityId: machineAccessRowId(reader, asMachineId('m1')) }
+    const access = {
+      entity: 'machineAccess' as const,
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    }
     expect(policy.state.classOf('machineAccess')).toBe('per-user-state')
     expect(policy.state.keyedUserOf(access)).toBe(reader)
     expect(policy.state.keyedUserOf({ entity: 'machineAccess', entityId: 'malformed' })).toBeNull()
@@ -663,12 +681,18 @@ describe('machine access and checkout rows', () => {
       prunable: false,
     })
     await store.checkouts.apply(
-      [row('/home/u/podium', '/home/u/podium'), row('/home/u/.worktrees/feature', '/home/u/podium')],
+      [
+        row('/home/u/podium', '/home/u/podium'),
+        row('/home/u/.worktrees/feature', '/home/u/podium'),
+      ],
       [],
       '2026-11-09T00:00:00Z',
     )
     const root = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/podium') }
-    const worktree = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/.worktrees/feature') }
+    const worktree = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(m1, '/home/u/.worktrees/feature'),
+    }
     // A removed checkout (no row) is read as a worktree: no path leaks to a manager.
     const gone = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/gone') }
     const state = await policy.state.forBatch!([root, worktree, gone])
@@ -747,13 +771,28 @@ it('shapes each artifact record for its reader and keeps its stable identity', a
   // The parent is an existing shared task in the visibility snapshot. The
   // normalized row reader is stubbed only to avoid unrelated issue setup.
   const id = asIssuePanelItemId('00000000-0000-4000-8000-000000000001')
-  const artifact = { id, issueId: issue.id, position: 0, path: '/repo/task/result.html', addedAt: 't', sourcePaths: ['/repo/task/source.png'], untrackedPaths: ['/private/other.png'], files: [{ path: 'result.html', size: 5 }] }
+  const artifact = {
+    id,
+    issueId: issue.id,
+    position: 0,
+    path: '/repo/task/result.html',
+    addedAt: 't',
+    sourcePaths: ['/repo/task/source.png'],
+    untrackedPaths: ['/private/other.png'],
+    files: [{ path: 'result.html', size: 5 }],
+  }
   const original = store.issues.panel.getMany.bind(store.issues.panel)
-  store.issues.panel.getMany = async (kind, ids) => kind === 'issuePanelArtifact' && ids.includes(id) ? [artifact] : await original(kind, ids)
+  store.issues.panel.getMany = async (kind, ids) =>
+    kind === 'issuePanelArtifact' && ids.includes(id) ? [artifact] : await original(kind, ids)
   const ref: EntityRef = { entity: 'issuePanelArtifact', entityId: id }
   const state = await policy.state.forBootstrap!([ref])
   expect(state.classOf(ref.entity)).toBe('personal')
   expect(state.mayRead(reader, ref)).toBe(true)
   expect(state.shapeFor!(owner, ref, artifact)).toEqual(artifact)
-  expect(state.shapeFor!(reader, ref, artifact)).toEqual({ ...artifact, path: 'result.html', sourcePaths: ['source.png'], untrackedPaths: ['other.png'] })
+  expect(state.shapeFor!(reader, ref, artifact)).toEqual({
+    ...artifact,
+    path: 'result.html',
+    sourcePaths: ['source.png'],
+    untrackedPaths: ['other.png'],
+  })
 })

@@ -79,7 +79,8 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
   if (effects === undefined) throw new Error('file write effect: no effects module')
   const rpc = () => deps.modules().rpc
   const rootAllowed = async (input: FileWriteInput) =>
-    !('root' in input) || isAllowedRoot(await deps.repoPaths(input.machineId ?? deps.hostMachineId), input.root)
+    !('root' in input) ||
+    isAllowedRoot(await deps.repoPaths(input.machineId ?? deps.hostMachineId), input.root)
   const resolvedInput = (input: FileWriteInput): FileWriteInput =>
     'root' in input ? { ...input, machineId: input.machineId ?? deps.hostMachineId } : input
 
@@ -120,15 +121,19 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
     // route adapter. Use on a machine never grants another human's session.
     target: async (target, principal) => {
       const modules = deps.modules()
-      const access = privateResourceAccess({
-        sessionOwnerUserId: async (sessionId) => (await modules.sessions.sessionOwner(sessionId))?.owner,
-        machines: modules.machines,
-      }, principal)
+      const access = privateResourceAccess(
+        {
+          sessionOwnerUserId: async (sessionId) =>
+            (await modules.sessions.sessionOwner(sessionId))?.owner,
+          machines: modules.machines,
+        },
+        principal,
+      )
       if (target.kind === 'session') {
-        return await access.ownsSession(asSessionId(target.id)) ? NO_TARGET : undefined
+        return (await access.ownsSession(asSessionId(target.id))) ? NO_TARGET : undefined
       }
       if (target.kind === 'machine') {
-        return await access.mayReadMachineFiles(asMachineId(target.id)) ? NO_TARGET : undefined
+        return (await access.mayReadMachineFiles(asMachineId(target.id))) ? NO_TARGET : undefined
       }
       return undefined
     },

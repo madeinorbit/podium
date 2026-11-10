@@ -2,12 +2,13 @@ import { createLogger } from '@podium/logger'
 import {
   asIssueId,
   type Instant,
+  ISSUE_PANEL_KINDS,
   type IssueDepProjection,
   type IssueGitState,
-  IssueGitStateProjection,
   type IssueId,
   type IssueJoinVia,
   type IssuePanel,
+  type IssuePanelKind,
   type IssueProjection,
   type IssueUserOverlay,
   isCollaboratorRecord,
@@ -28,11 +29,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import type { AffectedRecordSpec, EntityChangeSpec, WriteScope } from '@podium/sync'
+import type { AffectedRecordSpec, WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
-import { ISSUE_PANEL_KINDS } from '@podium/model'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
@@ -384,9 +384,11 @@ export class IssueStore {
       write: async (scope) => {
         const row = await this.row(id)
         if (
-          !row || row.deletedAt ||
+          !row ||
+          row.deletedAt ||
           (expectedLandedAt !== undefined && (row.landedAt ?? null) !== expectedLandedAt)
-        ) return undefined
+        )
+          return undefined
         return await this.deps.store.issues.gitStates.set(scope, id, state)
       },
     })
@@ -958,7 +960,7 @@ export class IssueStore {
     for (const entity of ISSUE_PANEL_KINDS) {
       const rows: { id: string; value: unknown }[] = []
       for await (const page of this.deps.store.issues.panel.pages(entity))
-        rows.push(...page.map(value => ({ id: value.id, value })))
+        rows.push(...page.map((value) => ({ id: value.id, value })))
       await this.deps.ledger.reconcile(entity, rows)
     }
 

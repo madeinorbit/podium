@@ -34,6 +34,7 @@ import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { issueRowFixture } from './test-support/issue-row'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -279,6 +280,7 @@ async function build(world: World) {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   return { store, visibility, oracle: oracleAnchors(store, world) }
 }

@@ -23,6 +23,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { makeFeedVisibility } from '../../feed-visibility'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
 import { reconcileUserRecords } from './reconcile'
@@ -201,7 +202,9 @@ describe('an issue pin (POD-6692)', () => {
     const repoId = (await o.store.issues.getIssue(a.id))?.repoId
     if (!repoId) throw new Error('fixture issue has no repo id')
     const unpinned = async (user: typeof ME) =>
-      (await o.store.issues.sortScope({ repoId: repoId as never, unpinnedFor: user })).map((r) => r.id).sort()
+      (await o.store.issues.sortScope({ repoId: repoId as never, unpinnedFor: user }))
+        .map((r) => r.id)
+        .sort()
     expect(await unpinned(ME)).toEqual([a.id, b.id].sort())
     await expectAppliedOnPath(
       o,
@@ -390,6 +393,7 @@ async function feedFixture() {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   const authority = new Authority({
     store: store.sync,

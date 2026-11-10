@@ -12,9 +12,9 @@ import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker
 import {
   type BootstrapJob,
   type DeltaJob,
-  type SyncJob,
   type FromWorker,
   SYNC_JOB_DEADLINE_MS,
+  type SyncJob,
   type SyncMetaSummary,
   SyncWorkerError,
   type ToWorker,
@@ -89,8 +89,15 @@ export class SyncWorkerClient {
         ? syncWorkerEmbeddedTarget()
         : new URL('./sync-worker.ts', import.meta.url)
       // Bun 1.4 follows Node's Worker contract: file URLs are URL objects.
-      const worker = new Worker(typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
-        { workerData: { dbPath: this.options.dbPath, effectKinds: [...(this.options.effectKinds?.() ?? [])] } })
+      const worker = new Worker(
+        typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
+        {
+          workerData: {
+            dbPath: this.options.dbPath,
+            effectKinds: [...(this.options.effectKinds?.() ?? [])],
+          },
+        },
+      )
       this.worker = worker
       worker.on('message', (message: FromWorker) => {
         if (worker !== this.worker) return

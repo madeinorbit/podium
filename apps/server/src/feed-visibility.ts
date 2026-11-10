@@ -28,20 +28,19 @@ import { readIssue, readIssues } from './modules/issues/issue-reader'
 
 import {
   asIssueId,
-  isIssuePanelKind,
-  ISSUE_PANEL_KINDS,
-  asUserId,
   canonicalShippingDestination,
+  checkoutRowId,
+  ISSUE_PANEL_KINDS,
   type IssueExecutionFacts,
   type IssueId,
-  issueEventRowId,
-  type MachineId,
+  isIssuePanelKind,
   issueDepId,
+  issueEventRowId,
   issueExecutionAccess,
   issueExecutionSessionIds,
-  parseInteractionRowId,
-  checkoutRowId,
+  type MachineId,
   parseCheckoutRowId,
+  parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
@@ -51,12 +50,11 @@ import {
   parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
-  parseSuperagentThreadRowId,
   parseSubscriptionRowId,
+  parseSuperagentThreadRowId,
   parseTabOrderRowId,
   parseUserPreferencesRowId,
   parseWorkflowBindingRowId,
-  type RepoId,
   shipLaneId,
   type UserId,
   withoutHiddenEventFields,
@@ -69,10 +67,10 @@ import type {
   VisibilityEdge,
   VisibilityStatePort,
 } from '@podium/sync'
-import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
-import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
+import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
+import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
@@ -425,7 +423,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
         if (isIssuePanelKind(ref.entity)) {
-          const parent = ref.entity === 'issuePanelState' ? ref.entityId : prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
+          const parent =
+            ref.entity === 'issuePanelState'
+              ? ref.entityId
+              : prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
           // A missing row has no content to expose. Its remove still reaches
           // every task reader, including after a physical item deletion.
           return parent === undefined || mayReadIssueFromSnapshot(userId, parent, prefetch)
@@ -693,8 +694,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const issueIds = new Set<string>()
     const panelParents = new Map<string, string>()
     for (const kind of ISSUE_PANEL_KINDS) {
-      const ids = refs.filter(ref => ref.entity === kind).map(ref => ref.entityId)
-      if (kind === 'issuePanelState') { for (const id of ids) issueIds.add(id); continue }
+      const ids = refs.filter((ref) => ref.entity === kind).map((ref) => ref.entityId)
+      if (kind === 'issuePanelState') {
+        for (const id of ids) issueIds.add(id)
+        continue
+      }
       for (const record of await store.issues.panel.getMany(kind, ids)) {
         if (!('issueId' in record)) continue
         panelParents.set(`${kind}:${record.id}`, record.issueId)
@@ -954,12 +958,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const machineManagers = new Map<string, Set<string>>()
     // Roots are read only for a batch that carries checkouts: one grouped read,
     // plus the admins (who MANAGE every machine) when one of them is a root.
-    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> =
-      checkoutMachineIds.size === 0
-        ? new Map()
-        : await measure('visibility.checkout.rootPaths', async () =>
+    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> = checkoutMachineIds.size === 0
+      ? new Map()
+      : await measure(
+          'visibility.checkout.rootPaths',
+          async () =>
             await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[]),
-          )
+        )
     const rootAsked = refs.some((ref) => {
       if (ref.entity !== 'checkout') return false
       try {
@@ -972,7 +977,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const checkoutAdmins: ReadonlySet<string> = rootAsked
       ? adminIds.size > 0
         ? adminIds
-        : await measure('visibility.checkout.adminIds', async () => await store.users.activeAdminIds())
+        : await measure(
+            'visibility.checkout.adminIds',
+            async () => await store.users.activeAdminIds(),
+          )
       : new Set()
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
@@ -1241,7 +1249,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       store.issues.liveWorktreeIssuesOnMachines(machineIds),
       deps.audiencesFor('machine', machineIds),
     ])
-    const homedIds = [...tasks.values()].flatMap(rows => rows.map(row => row.id))
+    const homedIds = [...tasks.values()].flatMap((rows) => rows.map((row) => row.id))
     const artifacts = await store.issues.panel.forIssues('issuePanelArtifact', homedIds)
     for (const machineId of machineIds) {
       const homed = tasks.get(machineId) ?? []
@@ -1253,8 +1261,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         audience,
         subjects: [
           ...homed.map((task) => ({ entity: 'issueProjection' as const, entityId: task.id })),
-          ...artifacts.filter(record => 'issueId' in record && homed.some(task => task.id === record.issueId))
-            .map(record => ({ entity: 'issuePanelArtifact' as const, entityId: record.id })),
+          ...artifacts
+            .filter(
+              (record) => 'issueId' in record && homed.some((task) => task.id === record.issueId),
+            )
+            .map((record) => ({ entity: 'issuePanelArtifact' as const, entityId: record.id })),
         ],
       })
     }
@@ -1295,21 +1306,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ]
       const [audiences, departures, custody, checkoutPaths, checkoutReach, checkoutLost] =
         await Promise.all([
-        issueIds.length === 0
-          ? new Map<string, readonly string[]>()
-          : deps.audiencesFor('issue', issueIds),
-        laneDepartureEdges(orderIds),
-        custodyEdges(machineIds),
-        accessMachines.length === 0
-          ? new Map<string, { path: string; root: boolean }[]>()
-          : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
-        accessMachines.length === 0
-          ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
-          : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
-        accessMachines.length === 0
-          ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
-          : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
-      ])
+          issueIds.length === 0
+            ? new Map<string, readonly string[]>()
+            : deps.audiencesFor('issue', issueIds),
+          laneDepartureEdges(orderIds),
+          custodyEdges(machineIds),
+          accessMachines.length === 0
+            ? new Map<string, { path: string; root: boolean }[]>()
+            : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
+            : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
+            : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
+        ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
       const rows = await issueEdgeRows(anchored)

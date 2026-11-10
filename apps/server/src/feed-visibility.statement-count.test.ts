@@ -24,6 +24,7 @@ import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 
 /** One row's edge through the batched anchor port. */
@@ -156,6 +157,7 @@ async function fixture(size: number): Promise<Fixture> {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   return { store, policy, size }
 }
@@ -357,7 +359,8 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       {
         ...pin(
           'laneDepartureEdge',
-          async (f) => await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
+          async (f) =>
+            await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
           // The lane still holds tasks, which every member reads (design §2.2;
           // POD-6288): the departure takes it from nobody.
           (edge) => expect(edge).toBeNull(),

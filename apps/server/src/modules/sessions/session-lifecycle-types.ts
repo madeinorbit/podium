@@ -4,21 +4,16 @@
  */
 
 import type {
-  AccountId,
   AgentKind,
   Attribution,
-  Geometry,
   HarnessRef,
   IssueId,
   MachineId,
   MessageHeld,
-  ResumeRef,
   SessionId,
   SessionMeta,
-  TranscriptItem,
   TranscriptItemRef,
   UserId,
-  WorkState,
 } from '@podium/model'
 import type { MetadataChange, SubscriptionRegistry, SyncChangesSinceResult } from '@podium/protocol'
 import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'

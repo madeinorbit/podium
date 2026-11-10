@@ -1291,10 +1291,7 @@ export class SessionRepository {
     // The running rows, and every headless one: a headless session is resident
     // for as long as its row exists (its thread is driven turn by turn, and a
     // failed establish, which marks it exited, is retried on machine attach).
-    const running = await this.store.sessions.sessionsWithStatuses([
-      'starting',
-      'live',
-    ])
+    const running = await this.store.sessions.sessionsWithStatuses(['starting', 'live'])
     const runningIds = new Set(running.map((r) => r.id))
     const storedRows = [
       ...running,

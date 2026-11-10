@@ -1,4 +1,3 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,9 +10,11 @@ import {
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
 } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreRecords } from '../test-support/record-writer'
 import { produceBootstrap } from './producer'
 import { type BootstrapJob, SyncWorkerError } from './types'
 
@@ -101,37 +102,29 @@ describe('snapshot bootstrap producer', () => {
         actorId: 'owner',
         onBehalfOf: 'owner',
       })
+      // The world is the model tables (POD-6770): the two issue rows above.
+      // One appended change gives the feed a head for the load to be stamped
+      // with; its payload is never read.
       await store.sync.appendChanges(
-        [
-          {
-            entity: 'issueProjection',
-            entityId: 'shared',
-            op: 'upsert',
-            payload: JSON.stringify({ id: 'shared' }),
-          },
-          { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: '{}' },
-          {
-            entity: 'issueProjection',
-            entityId: 'private',
-            op: 'upsert',
-            payload: JSON.stringify({ id: 'private' }),
-          },
-          { entity: 'repo', entityId: '/r', op: 'upsert', payload: '{}' },
-        ],
+        [{ entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: '{}' }],
         1,
       )
       const forbidden = (): never => {
         throw new Error('bootstrap invoked anchor input')
       }
+      const built = testStoreRecords(store)
       const feed = makeFeedVisibility({
         store,
         audiencesFor: forbidden,
         authorizationRevision: forbidden,
+        currentRecords: built.build,
       })
       const authority = new Authority({
         store: store.sync,
         now: () => 1,
         transact: (fn) => store.transact(fn),
+        // The same builders the worker streams, on the main thread.
+        records: built,
         visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
         anchors: feed.anchors,
       })
@@ -145,12 +138,21 @@ describe('snapshot bootstrap producer', () => {
         )
         const rows = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
         expect(rows).toEqual(expected.changes)
+        // Built from the issue rows, each stamped with the head number.
+        if (user === 'owner') {
+          expect(rows.filter((r) => r.entity === 'issueProjection').map((r) => r.entityId)).toEqual(
+            ['shared', 'private'],
+          )
+        }
+        expect(rows.every((r) => r.seq === output[0].seq)).toBe(true)
         expect(SyncMeta.safeParse(output[0]).success).toBe(true)
         expect(SyncComplete.safeParse(output.at(-1)).success).toBe(true)
         expect(output.at(-1).records).toBe(output.filter((r) => r.type === 'feedBootstrap').length)
         expect(output.at(-1).rows).toBe(rows.length)
         expect(output[0]).toEqual(meta)
-        expect(output[0].totalRows).toBe(rows.length)
+        // One pass: the count is known only at the end, on the last chunk.
+        expect(output[0].totalRows).toBeUndefined()
+        expect(output.filter((r) => r.type === 'feedBootstrap').at(-1).totalRows).toBe(rows.length)
         expect(output.at(-1).seq).toBe(output[0].seq)
       }
     } finally {
@@ -164,15 +166,15 @@ describe('snapshot bootstrap producer', () => {
     const store = await openTestStore(path)
     const writer = openDatabase(path)
     try {
+      // A real record too large for one line: an issue's state paragraph.
+      await store.issues.upsertIssue(fixtureWriteScope(), issue('huge'))
+      await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
+        id: asIssueId('huge'),
+        text: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1),
+        updatedAt: 't0',
+      })
       await store.sync.appendChanges(
-        [
-          {
-            entity: 'repo',
-            entityId: '/r',
-            op: 'upsert',
-            payload: JSON.stringify({ text: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1) }),
-          },
-        ],
+        [{ entity: 'issueProjection', entityId: 'huge', op: 'upsert', payload: '{}' }],
         1,
       )
       const abort = new AbortController()

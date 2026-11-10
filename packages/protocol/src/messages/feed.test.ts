@@ -29,7 +29,6 @@ import {
   EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
-  SlimIssueProjection,
   IssueUserStateWire,
   MachineProjection,
   RepoProjection,
@@ -37,6 +36,7 @@ import {
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
+  SlimIssueProjection,
   SubscriptionWire,
   WorkflowBindingWire,
   WorkflowRevisionWire,
@@ -379,6 +379,10 @@ describe('validateFeedFrame refuses the claims a shape cannot check', () => {
 
   it('catches unordered rows', () => {
     expect(validateFeedFrame(delta({ changes: [row(6), row(5)] }))).toContain('rows-unordered')
+  })
+
+  it('lets rows share a number: a start-up load stamps every row with the head', () => {
+    expect(validateFeedFrame(delta({ changes: [row(6), row(6), row(6)] }))).toEqual([])
   })
 
   it('catches an inverted range and an incoherent retention floor', () => {

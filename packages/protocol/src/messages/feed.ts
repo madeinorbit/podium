@@ -60,12 +60,12 @@ import {
   EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
-  SlimIssueProjection,
   IssueUserStateWire,
   MachineProjection,
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
+  SlimIssueProjection,
   SubscriptionWire,
   WorkflowBindingWire,
   WorkflowRevisionWire,
@@ -231,10 +231,9 @@ export const FeedBootstrapMessage = z.object({
   changes: z.array(FeedChange),
   /** False on every chunk but the last. A replica installs on `last`. */
   last: z.boolean(),
-  /** The whole world's row count, stamped on every chunk so a first-sync UI can
-   *  show real progress from whichever chunk it reads first [POD-1249]. Rows are
-   *  entity-interleaved (`ORDER BY seq`), so a prefix carries no denominator of
-   *  its own. Optional: absent from older servers means UNKNOWN, never zero. */
+  /** The whole world's row count. Optional, and absent means UNKNOWN, never
+   *  zero: a load streamed from the model tables in one pass (POD-6770) knows
+   *  its count only at the end, and stamps it on the last chunk alone. */
   totalRows: z.number().int().nonnegative().optional(),
   /** Per-entity row counts for the same world — the `issue`/`session`/…
    *  denominators. Same optionality rule as `totalRows`. */
@@ -371,7 +370,8 @@ export type FeedFrameViolation =
  *
  *  - a row outside `(fromSeq, seq]` is a row the frame did not certify, so
  *    applying it advances a cursor over ground nobody evaluated;
- *  - unordered rows break the replica's single-pass apply;
+ *  - rows whose numbers DECREASE break the replica's single-pass apply (rows
+ *    may share a number: every row of a start-up load carries the head's);
  *  - an `upsert` with no value installs `undefined` as an entity;
  *  - a `remove`/`evict` WITH a value is a producer that thinks a deletion
  *    carries state — the ADR 2 D5 confusion this wire exists to prevent;
@@ -404,7 +404,12 @@ export function validateFeedFrame(frame: {
     if (change.seq <= frame.fromSeq || change.seq > frame.seq) {
       if (!violations.includes('row-outside-range')) violations.push('row-outside-range')
     }
-    if (change.seq <= previous && !violations.includes('rows-unordered')) {
+    // NON-DECREASING, not strictly increasing (wire version 10, POD-6770): rows
+    // may share a number. A start-up load is built from the model tables, whose
+    // records have no change number of their own, so every row carries the head
+    // number the load is stamped with; the replica's own rule (`validateFrame`)
+    // has always allowed a shared number.
+    if (change.seq < previous && !violations.includes('rows-unordered')) {
       violations.push('rows-unordered')
     }
     previous = Math.max(previous, change.seq)

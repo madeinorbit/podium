@@ -14,6 +14,7 @@ const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegati
 const { fixtureWriteScope } = await import('@podium/sync/testing')
 const { makeFeedVisibility } = await import('../feed-visibility')
 const { openTestStore } = await import('../test-support/open-test-store')
+const { testStoreRecords } = await import('../test-support/record-writer')
 const { SyncWorkerClient } = await import('../sync-worker/worker-client')
 const { registerSyncRoutes } = await import('./routes')
 
@@ -93,18 +94,42 @@ async function fixture() {
   const forbidden = (): never => {
     throw new Error('bootstrap read an anchor')
   }
+  // The builders the worker streams, on the main thread (POD-6770).
+  const built = testStoreRecords(store)
   const feed = makeFeedVisibility({
     store,
     audiencesFor: forbidden,
     authorizationRevision: forbidden,
+    currentRecords: built.build,
   })
   const authority = new Authority({
     store: store.sync,
     now: () => 1,
     transact: (fn) => store.transact(fn),
+    records: built,
     visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
     anchors: feed.anchors,
   })
+  /** An issue row with a state paragraph of `bytes` characters: a real record
+   *  of any size, read by every member (POD-6288). */
+  let seeded = 0
+  const seedIssue = async (id: string, bytes = 0) => {
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...issue(id), seq: ++seeded })
+    if (bytes > 0) {
+      await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
+        id: asIssueId(id),
+        text: 'x'.repeat(bytes),
+        updatedAt: 't0',
+      })
+    }
+  }
+  /** The feed's head: one appended change. Its payload is never read. */
+  const moveHead = async () => {
+    await store.sync.appendChanges(
+      [{ entity: 'issueProjection', entityId: 'head', op: 'upsert', payload: '{}' }],
+      1,
+    )
+  }
   const app = new Hono()
   app.get('/health', (c) => c.json({ ok: true }))
   registerSyncRoutes(app, {
@@ -121,6 +146,8 @@ async function fixture() {
     store,
     worker,
     authority,
+    seedIssue,
+    moveHead,
     async close() {
       await worker.close()
       await store.close()
@@ -136,24 +163,10 @@ it.each([
 ])('real HTTP worker %s rows equal Authority.bootstrap and certify the fixture head', async (coding) => {
   const f = await fixture()
   try {
-    await f.store.issues.upsertIssue(fixtureWriteScope(), issue('invisible'))
-    await f.store.sync.appendChanges(
-      [
-        {
-          entity: 'repo',
-          entityId: '/visible',
-          op: 'upsert',
-          payload: JSON.stringify({ id: '/visible', title: 'visible' }),
-        },
-        {
-          entity: 'issueProjection',
-          entityId: 'invisible',
-          op: 'upsert',
-          payload: JSON.stringify({ id: 'invisible' }),
-        },
-      ],
-      1,
-    )
+    // The world is the model tables: two issues, one with a state paragraph.
+    await f.seedIssue('first')
+    await f.seedIssue('second', 64)
+    await f.moveHead()
     const expected = await f.authority.bootstrap(principal)
     const head = await f.store.sync.maxChangeSeq()
     const response = await f.app.request('/sync/bootstrap', {
@@ -178,7 +191,15 @@ it.each([
     expect(records.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)).toEqual(
       expected.changes,
     )
-    expect(expected.changes.map((row) => row.entityId)).toEqual(['/visible'])
+    // Every member reads every task (POD-6288): the reader gets both issues
+    // and the state paragraph, each row stamped with the head number.
+    expect(
+      expected.changes.filter((row) => row.entity === 'issueProjection').map((row) => row.entityId),
+    ).toEqual(['first', 'second'])
+    expect(
+      expected.changes.filter((row) => row.entity === 'issuePanelState').map((row) => row.entityId),
+    ).toEqual(['second'])
+    expect(expected.changes.every((row) => row.seq === head)).toBe(true)
     expect(f.worker.activeJobCount()).toBe(0)
   } finally {
     await f.close()
@@ -201,17 +222,8 @@ it('worker shutdown terminates an admitted HTTP body without reader demand', asy
 it('retains worker completion metrics after client cancellation releases the body', async () => {
   const f = await fixture()
   try {
-    await f.store.sync.appendChanges(
-      [
-        {
-          entity: 'repo',
-          entityId: '/r',
-          op: 'upsert',
-          payload: JSON.stringify({ text: 'x'.repeat(1024 * 1024) }),
-        },
-      ],
-      1,
-    )
+    await f.seedIssue('large', 1024 * 1024)
+    await f.moveHead()
     const abort = new AbortController()
     const transfer = f.worker.bootstrap(
       { transferId: 'cancel-metrics', principal, feedId: 'f', epoch: 'e', encoding: 'identity' },
@@ -254,18 +266,13 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
     ping: number[] = []
   let probes: Promise<void[]> | undefined
   try {
-    const payload = JSON.stringify({ text: 'x'.repeat(10 * 1024) })
-    for (let start = 0; start < 5120; start += 128) {
-      await f.store.sync.appendChanges(
-        Array.from({ length: 128 }, (_, offset) => ({
-          entity: 'repo' as const,
-          entityId: `repo-${start + offset}`,
-          op: 'upsert' as const,
-          payload,
-        })),
-        1,
-      )
-    }
+    // 5,120 issues, each with a 10 KiB state paragraph: 50 MiB of real records.
+    const stateBytes = 10 * 1024
+    const issues = 5120
+    await f.store.transact(async () => {
+      for (let n = 0; n < issues; n++) await f.seedIssue(`issue-${n}`, stateBytes)
+    })
+    await f.moveHead()
     server = runtime.Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -328,7 +335,7 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
     const wallMs = performance.now() - start
     const mainBusyMs = ((mainTicks() - before) / ticksPerSecond) * 1000
     const result = {
-      fixturePayloadBytes: payload.length * 5120,
+      fixturePayloadBytes: stateBytes * issues,
       bytes,
       wallMs,
       mainBusyMs,
@@ -365,6 +372,9 @@ describe('snapshot delta producer', () => {
     encoding: 'identity' as const,
     deadlineMs: Date.now() + 60_000,
   })
+  // A revoked grant no longer evicts (POD-6288: every member reads every
+  // task), so this checks what still holds: the worker scopes a range exactly
+  // as the main thread does, for each principal, across grant writes.
   it('equals main-thread scoping for a clean event window after grants, revokes and re-grants', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sync-delta-'))
     const path = join(dir, 'test.db')
@@ -464,15 +474,18 @@ describe('snapshot delta producer', () => {
         3,
       )
       const through = await store.sync.maxChangeSeq()
+      const built = testStoreRecords(store)
       const feed = makeFeedVisibility({
         store,
         audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
         authorizationRevision: () => store.grants.visibilityRevision(),
+        currentRecords: built.build,
       })
       const authority = new Authority({
         store: store.sync,
         now: () => 1,
         transact: (fn) => store.transact(fn),
+        records: built,
         visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
         anchors: feed.anchors,
       })
@@ -511,10 +524,6 @@ describe('snapshot delta producer', () => {
             seq: through,
             records: pages.length,
           })
-          if (user === 'revoked')
-            expect(pages.flatMap((page) => page.changes)).toContainEqual(
-              expect.objectContaining({ entity: 'issueEvent', entityId: eventId, op: 'evict' }),
-            )
           if (user === 'reader' && !revokeReader)
             expect(
               pages.flatMap((page) => page.changes).some((change) => change.op === 'upsert'),

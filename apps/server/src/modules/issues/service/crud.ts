@@ -1,4 +1,3 @@
-import { type IssuePanelKind, IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { ISSUE_FIELD_DEFAULTS, ISSUE_FRESH_CELLS } from '@podium/commands'
 import {
@@ -12,8 +11,12 @@ import {
   asUserId,
   canonicalIssueCloseReason,
   firstAdminMemberId,
-  type GrantVerb,
   type IssueId,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  type IssuePanelKind,
+  IssuePanelStateWire,
+  IssuePanelTodoWire,
   type IssueProjection,
   isAbsoluteMachinePath,
   isIssueStage,
@@ -33,7 +36,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import type { AffectedRecordSpec, EntityChangeSpec, WriteScope } from '@podium/sync'
+import type { AffectedRecordSpec, WriteScope } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
@@ -426,11 +429,15 @@ export class IssueCrudModule {
   async setState(writer: IssueWriter, id: string, text: string): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const value = IssuePanelStateWire.parse({ id: row.id, text, updatedAt: this.store.now() })
-    const wire = await this.store.commitPanel(writer, async scope => {
-      await this.store.rowOrThrow(row.id)
-      await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', value)
-      return await this.store.projection(row)
-    }, [{ entity: 'issuePanelState', id: row.id }])
+    const wire = await this.store.commitPanel(
+      writer,
+      async (scope) => {
+        await this.store.rowOrThrow(row.id)
+        await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', value)
+        return await this.store.projection(row)
+      },
+      [{ entity: 'issuePanelState', id: row.id }],
+    )
     await this.store.emitEvent('issue.state', row.id, { seq: row.seq })
     return { ...wire, activityNotes: value.text, notesUpdatedAt: value.updatedAt }
   }
@@ -445,44 +452,91 @@ export class IssueCrudModule {
     // The kind of item this op writes, and the items it added: the op's
     // existing items are named before the write, a new one after it
     // (compare at save, POD-6770).
-    const entity = (op.op.startsWith('todo-') ? 'issuePanelTodo' : op.op.startsWith('artifact-') ? 'issuePanelArtifact' : 'issuePanelDeferred') as Exclude<IssuePanelKind, 'issuePanelState'>
+    const entity = (
+      op.op.startsWith('todo-')
+        ? 'issuePanelTodo'
+        : op.op.startsWith('artifact-')
+          ? 'issuePanelArtifact'
+          : 'issuePanelDeferred'
+    ) as Exclude<IssuePanelKind, 'issuePanelState'>
     const added: AffectedRecordSpec[] = []
-    const wire = await this.store.commitPanel(writer, async scope => {
-      await this.store.rowOrThrow(row.id)
-      if (op.op === 'todo-clear') {
-        await repo.clearTodos(scope, row.id)
+    const wire = await this.store.commitPanel(
+      writer,
+      async (scope) => {
+        await this.store.rowOrThrow(row.id)
+        if (op.op === 'todo-clear') {
+          await repo.clearTodos(scope, row.id)
+          return await this.store.projection(row)
+        }
+        // Positions are resolved inside the command transaction. A UI names its
+        // record directly, so deleting an earlier item cannot retarget a click.
+        const records = await repo.forIssues(entity, [row.id])
+        const at = () => {
+          const itemId = 'itemId' in op ? op.itemId : undefined
+          const index = 'index' in op ? op.index : undefined
+          const found = itemId
+            ? records.find((r) => r.id === itemId)
+            : index === undefined
+              ? undefined
+              : records[index - 1]
+          if (!found)
+            throw new IssueRefusal(
+              itemId ? `no item ${itemId}` : `no item ${index} (list has ${records.length})`,
+            )
+          return found
+        }
+        if (op.op === 'todo-done' || op.op === 'todo-undone') {
+          await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
+        } else if (
+          op.op === 'todo-remove' ||
+          op.op === 'deferred-remove' ||
+          op.op === 'artifact-remove'
+        ) {
+          const record =
+            op.op === 'artifact-remove' && 'path' in op
+              ? records.find(
+                  (r) =>
+                    'path' in r &&
+                    r.path === op.path &&
+                    (op.artifactId === undefined ||
+                      ('artifactId' in r && r.artifactId === op.artifactId)),
+                )
+              : at()
+          if (record) await repo.remove(scope, entity, row.id, record.id)
+        } else {
+          const existing =
+            op.op === 'artifact-add'
+              ? records.find((r) => 'path' in r && r.path === op.path)
+              : undefined
+          const itemId = existing?.id ?? op.itemId ?? randomUUID()
+          if (!existing && (await repo.hasId(entity, itemId)))
+            throw new IssueRefusal(`item ${itemId} already exists`)
+          const identity = {
+            id: itemId,
+            issueId: row.id,
+            position:
+              existing && 'position' in existing
+                ? existing.position
+                : await repo.next(entity, row.id),
+          }
+          const value =
+            op.op === 'todo-add'
+              ? IssuePanelTodoWire.parse({ ...identity, text: op.text, done: false })
+              : op.op === 'deferred-add'
+                ? IssuePanelDeferredWire.parse({
+                    ...identity,
+                    text: op.text,
+                    addedAt: this.store.now(),
+                  })
+                : IssuePanelArtifactWire.parse({ ...op, ...identity, addedAt: this.store.now() })
+          await repo.save(scope, entity, value)
+          added.push({ entity, id: value.id })
+        }
         return await this.store.projection(row)
-      }
-      // Positions are resolved inside the command transaction. A UI names its
-      // record directly, so deleting an earlier item cannot retarget a click.
-      const records = await repo.forIssues(entity, [row.id])
-      const at = () => {
-        const itemId = 'itemId' in op ? op.itemId : undefined
-        const index = 'index' in op ? op.index : undefined
-        const found = itemId ? records.find(r => r.id === itemId) : index === undefined ? undefined : records[index - 1]
-        if (!found) throw new IssueRefusal(itemId ? `no item ${itemId}` : `no item ${index} (list has ${records.length})`)
-        return found
-      }
-      if (op.op === 'todo-done' || op.op === 'todo-undone') {
-        await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
-      } else if (op.op === 'todo-remove' || op.op === 'deferred-remove' || op.op === 'artifact-remove') {
-        const record = op.op === 'artifact-remove' && 'path' in op
-          ? records.find(r => 'path' in r && r.path === op.path && (op.artifactId === undefined || ('artifactId' in r && r.artifactId === op.artifactId)))
-          : at()
-        if (record) await repo.remove(scope, entity, row.id, record.id)
-      } else {
-        const existing = op.op === 'artifact-add' ? records.find(r => 'path' in r && r.path === op.path) : undefined
-        const itemId = existing?.id ?? op.itemId ?? randomUUID()
-        if (!existing && await repo.hasId(entity, itemId)) throw new IssueRefusal(`item ${itemId} already exists`)
-        const identity = { id: itemId, issueId: row.id, position: existing && 'position' in existing ? existing.position : await repo.next(entity, row.id) }
-        const value = op.op === 'todo-add' ? IssuePanelTodoWire.parse({ ...identity, text: op.text, done: false })
-          : op.op === 'deferred-add' ? IssuePanelDeferredWire.parse({ ...identity, text: op.text, addedAt: this.store.now() })
-          : IssuePanelArtifactWire.parse({ ...op, ...identity, addedAt: this.store.now() })
-        await repo.save(scope, entity, value)
-        added.push({ entity, id: value.id })
-      }
-      return await this.store.projection(row)
-    }, async () => await this.store.panelRecords([row.id], [entity]), () => added)
+      },
+      async () => await this.store.panelRecords([row.id], [entity]),
+      () => added,
+    )
     await this.store.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
     return { ...wire, panel: await this.store.parsePanel(row) }
   }
@@ -688,8 +742,9 @@ export class IssueCrudModule {
       throw new IssueRefusal('direct artifact uploads are unavailable on this server')
     const published = await artifacts.publishUpload(row.id, uploadId, artifactId)
     if (!published) return undefined
-    const existing = (await this.store.parsePanel(row))
-      .artifacts.find((artifact) => artifact.path === published.path)
+    const existing = (await this.store.parsePanel(row)).artifacts.find(
+      (artifact) => artifact.path === published.path,
+    )
     const title = published.title ?? existing?.title
     return {
       entry: {
@@ -759,8 +814,9 @@ export class IssueCrudModule {
     try {
       // The issue may have changed or been deleted while bytes were arriving.
       const current = await this.store.rowOrThrow(row.id)
-      const existing = (await this.store.parsePanel(current))
-        .artifacts.find((artifact) => artifact.path === path)
+      const existing = (await this.store.parsePanel(current)).artifacts.find(
+        (artifact) => artifact.path === path,
+      )
       const title = result.title ?? existing?.title
       const wire = await this.panelApply(writer, row.id, {
         op: 'artifact-add',
@@ -796,7 +852,9 @@ export class IssueCrudModule {
       dataBase64: input.dataBase64,
     })
     const path = `attachments/${input.id}/${snap.entry}`
-    const existing = (await this.store.parsePanel(row)).artifacts.find((artifact) => artifact.path === path)
+    const existing = (await this.store.parsePanel(row)).artifacts.find(
+      (artifact) => artifact.path === path,
+    )
     try {
       const wire = await this.panelApply(writer, row.id, {
         op: 'artifact-add',
@@ -874,8 +932,9 @@ export class IssueCrudModule {
     input: { uploadId: string; ownerUserId: UserId },
   ): Promise<void> {
     const row = await this.store.rowOrThrow(issueId)
-    const entry = (await this.store.parsePanel(row))
-      .artifacts.find((a) => a.chatUploadId === input.uploadId)
+    const entry = (await this.store.parsePanel(row)).artifacts.find(
+      (a) => a.chatUploadId === input.uploadId,
+    )
     const owner = entry
       ? entry.chatUploadOwner
       : (await this.store.deps.pendingUploads?.meta(input.uploadId))?.ownerUserId
@@ -900,8 +959,9 @@ export class IssueCrudModule {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     const uploadIds = new Set([
       ...(row
-        ? (await this.store.parsePanel(row))
-            .artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
+        ? (await this.store.parsePanel(row)).artifacts.flatMap((a) =>
+            a.chatUploadId ? [a.chatUploadId] : [],
+          )
         : []),
       ...(await pending.claimedBy(issueId)).map((meta) => meta.id),
     ])
@@ -935,8 +995,9 @@ export class IssueCrudModule {
     const store = this.store.deps.artifacts
     const meta = await pending?.meta(input.uploadId)
     // Claimed already — unless a failed launch handed the file back since.
-    const entry = (await this.store.parsePanel(row))
-      .artifacts.some((a) => a.chatUploadId === input.uploadId)
+    const entry = (await this.store.parsePanel(row)).artifacts.some(
+      (a) => a.chatUploadId === input.uploadId,
+    )
     if (entry && (!meta || meta.claimed?.issueId === issueId)) return
     if (!pending || !store?.adopt)
       throw new IssueRefusal('chat uploads are not stored on this server')
@@ -993,7 +1054,9 @@ export class IssueCrudModule {
   async chatUploadOwner(issueId: IssueId, uploadId: string): Promise<UserId | null | undefined> {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     if (!row) return undefined
-    const entry = (await this.store.parsePanel(row)).artifacts.find((a) => a.chatUploadId === uploadId)
+    const entry = (await this.store.parsePanel(row)).artifacts.find(
+      (a) => a.chatUploadId === uploadId,
+    )
     if (!entry) return undefined
     return entry.chatUploadOwner ? (entry.chatUploadOwner as UserId) : null
   }
@@ -1006,8 +1069,9 @@ export class IssueCrudModule {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     const store = this.store.deps.artifacts
     if (!row || !store) return undefined
-    const entry = (await this.store.parsePanel(row))
-      .artifacts.find((a) => a.chatUploadId === uploadId && a.artifactId)
+    const entry = (await this.store.parsePanel(row)).artifacts.find(
+      (a) => a.chatUploadId === uploadId && a.artifactId,
+    )
     if (!entry?.artifactId) return undefined
     const found = await store.read(
       issueId,
@@ -1026,9 +1090,16 @@ export class IssueCrudModule {
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const entries = await this.store.deps.store.issues.panel.read(row.id)
-    const removed = typeof selector === 'number' ? entries.artifacts[selector - 1] : entries.artifacts.find(entry => entry.id === selector.itemId)
+    const removed =
+      typeof selector === 'number'
+        ? entries.artifacts[selector - 1]
+        : entries.artifacts.find((entry) => entry.id === selector.itemId)
     if (!removed) throw new IssueRefusal('artifact not found')
-    const wire = await this.panelApply(writer, row.id, { op: 'artifact-remove', path: removed.path, artifactId: removed.artifactId })
+    const wire = await this.panelApply(writer, row.id, {
+      op: 'artifact-remove',
+      path: removed.path,
+      artifactId: removed.artifactId,
+    })
     if (removed?.artifactId && this.store.deps.artifacts) {
       void this.store.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
     }

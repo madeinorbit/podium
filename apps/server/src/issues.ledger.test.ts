@@ -8,8 +8,8 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
-import { sessionReadPorts } from './test-support/session-facts'
 import { testStoreRecords } from './test-support/record-writer'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /**
  * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
@@ -156,7 +156,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         dirtyFiles: 0,
         merged: false,
       })
-      await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
       const cursor = await ledger.cursor()
       await svc.boot()
       expect(
@@ -169,7 +168,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(personal).toContainEqual(
         expect.objectContaining({
           id: issueUserStateRowId(other, issue.id),
-          value: expect.objectContaining({ userId: other, entityId: issue.id, tuckedAt: '2026-07-02' }),
+          value: expect.objectContaining({
+            userId: other,
+            entityId: issue.id,
+            tuckedAt: '2026-07-02',
+          }),
         }),
       )
     } finally {
@@ -185,7 +188,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         title: 'Git observation',
         startNow: false,
       })
-      const other = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Untouched', startNow: false })
+      const other = await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Untouched',
+        startNow: false,
+      })
       const cursor = await ledger.cursor()
       appended.length = 0
       await svc.reports.store.setGitState(issue.id, {
@@ -196,7 +203,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         dirtyFiles: 0,
         merged: false,
       })
-      await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
       const changes = (await ledger.changesSince(cursor)) ?? []
       expect(changes.find((c) => c.entity === 'issueGitState')).toMatchObject({
         id: issue.id,
@@ -207,7 +213,15 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(appended[0]?.map((c) => c.entity)).toEqual(['issueGitState'])
       expect(((await ledger.changesSince(cursor)) ?? []).some((c) => c.id === other.id)).toBe(false)
       const unchanged = await ledger.cursor()
-      await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
+      // The same observation again writes nothing and appends nothing.
+      await svc.reports.store.setGitState(issue.id, {
+        updatedAt: '2026-07-03',
+        branch: 'feature',
+        shared: false,
+        ahead: 2,
+        dirtyFiles: 0,
+        merged: false,
+      })
       expect(await ledger.cursor()).toBe(unchanged)
     } finally {
       await store.close()
@@ -231,14 +245,15 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         dirtyFiles: 0,
         merged: true,
       })
-      await svc.reports.store.broadcastIssue(svc.reports.store.serverWriter, await svc.reports.store.rowOrThrow(issue.id))
-      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, { readAt: '2026-07-02' })
+      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
+        readAt: '2026-07-02',
+      })
       const deleting = await svc.crud.prepareSoftDelete(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
         affects: deleting.affects,
         write: deleting.write,
-        changes: deleting.changes,
+        creates: deleting.creates,
       })
       expect(appended).toHaveLength(1)
       // The issue's own record and its git observation changed. The member's
@@ -252,13 +267,15 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         },
       })
       expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
-      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, { tuckedAt: '2026-07-03' })
+      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
+        tuckedAt: '2026-07-03',
+      })
       const restoring = await svc.crud.prepareRestore(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
         affects: restoring.affects,
         write: restoring.write,
-        changes: restoring.changes,
+        creates: restoring.creates,
       })
       expect(appended).toHaveLength(1)
       expect(appended[0]?.map((c) => c.entity).sort()).toEqual(['issueGitState', 'issueProjection'])
@@ -366,7 +383,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   })
   it('commits the upsert change row atomically with the issue row write', async () => {
     const { ledger, svc, appended } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const recorded = (await ledger.changesSince(0)) ?? []
     expect(recorded.some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
     // The committed change entered the delta pipe (durable before fan-out), and
@@ -379,13 +400,18 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('a throw between the row write and the change append rolls BOTH back', async () => {
     const { store, ledger, svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'original', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'original',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
     await expect(
       testLedgerWriter(ledger).commit({
-        write: async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
+        write: async () =>
+          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
         changes: () => {
           throw new Error('declaration failed')
         },
@@ -407,8 +433,16 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('closing an issue makes the requested dependent report ready without republishing it', async () => {
     const { svc, appended } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
     await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by') // B waits on A
     expect((await svc.reports.get(b.id))?.blocked).toBe(true)
     appended.length = 0
@@ -424,7 +458,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('internal draft purge emits the remove and the log replays to live state', async () => {
     const { ledger, svc, appended, store } = await harness()
-    const parent = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'epic', startNow: false })
+    const parent = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'epic',
+      startNow: false,
+    })
     const child = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'kid',
@@ -458,13 +496,21 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('a failed change append on create leaves NO phantom row in memory (map installs post-commit, #247)', async () => {
     const { store, ledger, svc } = await harness()
-    await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'pre-existing', startNow: false })
+    await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'pre-existing',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
     await expect(
-      svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'phantom', startNow: false }),
+      svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'phantom',
+        startNow: false,
+      }),
     ).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory truth unchanged: the rows map never installed the rolled-back row…
@@ -484,7 +530,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('a failed change append on UPDATE rolls the in-place row mutation back (#247)', async () => {
     const { store, ledger, svc, setNow } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'old title', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'old title',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     setNow('2026-07-01T00:01:00.000Z') // a later stamp must roll back too
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
@@ -492,7 +542,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     })
     // update() mutates the MAP-OWNED row object in place BEFORE the commit;
     // persistWith's backup seam must roll those fields back on the throw.
-    await expect(svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'phantom' })).rejects.toThrow('append failed')
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'phantom' }),
+    ).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory shows the OLD title (in-place rollback — same object reference)…
     expect((await svc.reports.get(wire.id))?.title).toBe('old title')
@@ -508,7 +560,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A successful retry then works end to end.
-    const retried = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'new title' })
+    const retried = await svc.crud.update(svc.reports.store.serverWriter, wire.id, {
+      title: 'new title',
+    })
     expect(retried.title).toBe('new title')
     expect((await svc.reports.get(wire.id))?.title).toBe('new title')
     expect((await store.issues.getIssue(wire.id))?.title).toBe('new title')
@@ -525,14 +579,20 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('a failed extra-write commit (setLabels) restores updatedAt and leaves no phantom label (#247)', async () => {
     const { store, ledger, svc, setNow } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'labelled', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'labelled',
+      startNow: false,
+    })
     const updatedAtBefore = (await svc.reports.get(wire.id))?.updatedAt
     const cursorBefore = await ledger.cursor()
     setNow('2026-07-01T00:01:00.000Z')
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    await expect(svc.crud.setLabels(svc.reports.store.serverWriter, wire.id, ['urgent'])).rejects.toThrow('append failed')
+    await expect(
+      svc.crud.setLabels(svc.reports.store.serverWriter, wire.id, ['urgent']),
+    ).rejects.toThrow('append failed')
     spy.mockRestore()
     // The label write rolled back with the row, and the in-place updatedAt
     // stamp was restored — a reconcile sees byte-identical wire truth.
@@ -548,7 +608,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('a failed change append on purge keeps the row in memory and the store (#247)', async () => {
     const { store, ledger, svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'survivor', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'survivor',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
@@ -570,7 +634,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
 
   it('boot reconcile records rows changed while the server was down, without fan-out', async () => {
     const { store, svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'before', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'before',
+      startNow: false,
+    })
     // Simulate an offline mutation + restart: new ledger/service over the same store.
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
@@ -626,11 +694,21 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   it('starts at 1 on create and increments on EVERY accepted write', async () => {
     const { svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     expect(wire.revision).toBe(1)
-    expect((await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'B' })).revision).toBe(2)
-    expect((await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'C' })).revision).toBe(3)
-    expect((await svc.crud.update(svc.reports.store.serverWriter, wire.id, { priority: 1 })).revision).toBe(4)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'B' })).revision,
+    ).toBe(2)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'C' })).revision,
+    ).toBe(3)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, wire.id, { priority: 1 })).revision,
+    ).toBe(4)
     expect(await revisionOf(svc, wire.id)).toBe(4)
   })
 
@@ -639,8 +717,16 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // so two clients editing different issues have wildly different seqs with no
     // bearing on either issue's staleness. Revision is the per-entity answer.
     const { svc, ledger } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
     await svc.crud.update(svc.reports.store.serverWriter, a.id, { title: 'A2' })
     await svc.crud.update(svc.reports.store.serverWriter, a.id, { title: 'A3' })
     expect(await revisionOf(svc, a.id)).toBe(3)
@@ -650,7 +736,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   it('rides the change payload, so a replica folding the feed sees the same token as the wire', async () => {
     const { svc, appended } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     appended.length = 0
     const updated = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'B' })
     const change = appended.flat().find((c) => c.id === wire.id && c.op === 'upsert') as {
@@ -662,7 +752,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   it('survives a reboot: it lives in the row, not in memory', async () => {
     const { store, svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'B' })
     expect((await store.issues.getIssue(wire.id))?.revision).toBe(2)
     // A fresh write against the persisted row continues the sequence rather than
@@ -673,12 +767,17 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   it('rolls back with the transaction: a failed write burns no revision', async () => {
     const { store, ledger, svc } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'original', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'original',
+      startNow: false,
+    })
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
     await expect(
       testLedgerWriter(ledger).commit({
-        write: async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
+        write: async () =>
+          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
         changes: () => {
           throw new Error('declaration failed')
         },
@@ -689,7 +788,9 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // the authority claiming a write that never landed, and the next real write
     // would skip a number the client can never account for.
     expect((await store.issues.getIssue(wire.id))?.revision).toBe(1)
-    expect((await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'next' })).revision).toBe(2)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'next' })).revision,
+    ).toBe(2)
   })
 
   // ---- The dedup interaction (the one that could quietly break either half) ----
@@ -701,7 +802,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // session churn / staleness flips); it never reaches upsertIssue, so
     // nothing moves and nothing is appended.
     const { svc, ledger, appended } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const before = await revisionOf(svc, wire.id)
     appended.length = 0
     const cursorBefore = await ledger.cursor()
@@ -723,8 +828,16 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   it('a derived report changes without republishing or revising a dependent', async () => {
     const { svc, appended } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
     await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
     const revision = await revisionOf(svc, b.id)
     expect((await svc.reports.get(b.id))?.blocked).toBe(true)
@@ -744,7 +857,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // the client's revision behind the authority's with no change row to catch
     // it up, which is the divergence D3 exists to prevent.
     const { svc, ledger } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     const again = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'A' })
     expect(again.revision).toBe(2)

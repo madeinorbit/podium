@@ -30,6 +30,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 /** One row's edge through the batched anchor port. */
 const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
@@ -169,6 +170,7 @@ async function fixture() {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   const authority = new Authority({
     store: store.sync,

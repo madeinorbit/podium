@@ -9,7 +9,6 @@ import type {
 import { asSessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type {
-  EntityChangeSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   LedgerWriter,

@@ -8,7 +8,7 @@ import {
   type SyncComplete,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import {
   ChangeRangeBootstrapRequired,
   DEFAULT_RESCOPE_THRESHOLD,

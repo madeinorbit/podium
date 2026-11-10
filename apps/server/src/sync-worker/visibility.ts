@@ -18,7 +18,10 @@ export interface BootstrapVisibilityOptions {
  * publication. The caller has already opened the read transaction, so every
  * read below belongs to that snapshot.
  */
-export function bootstrapVisibility(database: SqlDatabase, options: BootstrapVisibilityOptions = {}) {
+export function bootstrapVisibility(
+  database: SqlDatabase,
+  options: BootstrapVisibilityOptions = {},
+) {
   const executor = createBunStoreExecutor({ database })
   const context = (async () => {
     const reads = recordReadsOf(executor.queries, {

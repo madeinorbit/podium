@@ -25,6 +25,7 @@ import { makeFeedVisibility } from '../../feed-visibility'
 import { withPlainCommand } from '../../plain-command-scope'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
 import { reconcileInstancePreferences } from './instance-record'
@@ -348,6 +349,7 @@ async function feedFixture() {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   const authority = new Authority({
     store: store.sync,
