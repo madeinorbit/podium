@@ -1,9 +1,9 @@
+import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
+import { toast } from 'sonner'
 import { type ShellDensity, useDensity } from '@/app/density'
 import { type ThemeMode, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -13,213 +13,229 @@ import {
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import { Row, Section, Subsection } from './shared'
+import { useSettingsRowId } from '../settings-anchors'
+import {
+  NumberRow,
+  Row,
+  Section,
+  SegmentedRow,
+  SwitchRow,
+  TextRow,
+  ThisDeviceTag,
+} from './shared'
 import { AccountTipsRow } from './tips'
 
-/** Light/dark switcher. Theme state is UI-local (not part of the settings blob),
- *  so it applies instantly via useTheme and persists on its own. */
-export function AppearanceSection(): JSX.Element {
-  const { mode, setMode } = useTheme()
+const THEMES: readonly { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+const DENSITIES: readonly { value: ShellDensity; label: string }[] = [
+  { value: 'balanced', label: 'Comfortable' },
+  { value: 'compact', label: 'Compact' },
+]
+const PROJECT_SORTS = [
+  { value: 'lastUsed', label: 'Recent' },
+  { value: 'alphabetical', label: 'A–Z' },
+  { value: 'custom', label: 'Custom' },
+] as const
+
+/** Custom visual controls use the same immediate-save/Undo contract as rows. */
+function saveDeviceChoice(save: () => void, undo: () => void): void {
+  save()
+  toast('Saved', { action: { label: 'Undo', onClick: undo } })
+}
+
+export function AppearanceSection({
+  settings,
+  patch,
+}: {
+  settings: PodiumSettings
+  patch: (patch: Partial<PodiumSettings>) => unknown
+}): JSX.Element {
   const { density, setDensity } = useDensity()
   const stickyPrompts = useStickyPromptsPreference()
-  const modes: { value: ThemeMode; label: string }[] = [
-    { value: 'light', label: 'Light' },
-    { value: 'dark', label: 'Dark' },
-    { value: 'system', label: 'System' },
-  ]
-  const densities: { value: ShellDensity; label: string }[] = [
-    { value: 'balanced', label: 'Balanced' },
-    { value: 'compact', label: 'Compact' },
-  ]
   return (
-    <Section
-      title="Appearance"
-      hint="Choose light, dark, or follow your system. Remembered on this device."
-    >
-      <Row label="Mode">
-        <div className="flex gap-1">
-          {modes.map((m) => (
-            <Button
-              key={m.value}
-              type="button"
-              size="sm"
-              variant={mode === m.value ? 'default' : 'outline'}
-              aria-pressed={mode === m.value}
-              onClick={() => setMode(m.value)}
-            >
-              {m.label}
-            </Button>
-          ))}
-        </div>
-      </Row>
-      <Row
-        label="Density"
-        description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
-      >
-        <div className="flex gap-1">
-          {densities.map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              size="sm"
-              variant={density === option.value ? 'default' : 'outline'}
-              aria-pressed={density === option.value}
-              onClick={() => setDensity(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
-      </Row>
-      <Row
-        label="Sticky prompts"
-        description="Keep the current operator prompt visible while its response scrolls. This device only."
-      >
-        <Switch
-          aria-label="Sticky prompts"
-          checked={stickyPrompts.enabled}
-          onCheckedChange={stickyPrompts.setEnabled}
+    <>
+      <ThemeCards />
+      <Section title="Interface">
+        <SegmentedRow
+          label="Density"
+          description="Compact fits more rows on screen."
+          device
+          value={density}
+          onChange={setDensity}
+          options={DENSITIES}
         />
-      </Row>
-      <AccountTipsRow />
+        <SwitchRow
+          label="Keep my last message in view"
+          description="Pins your latest message to the top of a conversation while the reply scrolls."
+          device
+          value={stickyPrompts.enabled}
+          onChange={stickyPrompts.setEnabled}
+        />
+        <SegmentedRow
+          label="Sort projects in the sidebar"
+          description="Custom is set by dragging projects in the sidebar."
+          setting="sidebar.repoSort"
+          value={settings.sidebar.repoSort}
+          options={PROJECT_SORTS}
+          onChange={(repoSort) => patch({ sidebar: { ...settings.sidebar, repoSort } })}
+        />
+        <AccountTipsRow />
+      </Section>
       <TerminalAppearanceRows />
-    </Section>
+    </>
   )
 }
 
-/**
- * A numeric setting that commits on blur/Enter, NOT per keystroke — committing
- * mid-typing would clamp intermediate values (typing "1" en route to "16"
- * snaps to the minimum) and visibly fight the user. Uncontrolled while
- * focused; `key` re-seeds it when the stored value changes elsewhere
- * (another tab, the reset button). Empty commits back to the default.
- */
-function NumberField({
-  min,
-  max,
-  step,
-  placeholder,
-  stored,
-  onCommit,
-}: {
-  min: number
-  max: number
-  step: number
-  placeholder: string
-  stored: number | undefined
-  onCommit: (n: number | undefined) => void
-}): JSX.Element {
-  const commit = (raw: string): void => {
-    if (raw.trim() === '') {
-      onCommit(undefined)
-      return
-    }
-    const n = Number.parseFloat(raw)
-    if (Number.isFinite(n)) onCommit(Math.min(max, Math.max(min, n)))
-  }
+function ThemeCards(): JSX.Element {
+  const { mode, setMode } = useTheme()
+  const id = useSettingsRowId('Theme')
   return (
-    <Input
-      key={stored ?? 'default'}
-      type="number"
-      className="w-24"
-      min={min}
-      max={max}
-      step={step}
-      placeholder={placeholder}
-      defaultValue={stored ?? ''}
-      onBlur={(e) => commit(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') commit(e.currentTarget.value)
-      }}
-    />
+    <section>
+      <div className="mb-4 flex items-center gap-2">
+        <h3 className="settings-h">Theme</h3>
+        <ThisDeviceTag />
+      </div>
+      <fieldset
+        id={id}
+        tabIndex={id ? -1 : undefined}
+        aria-label="Theme"
+        className="m-0 grid min-w-0 grid-cols-3 gap-3 border-0 p-0"
+      >
+        {THEMES.map((theme) => (
+          <Button
+            key={theme.value}
+            type="button"
+            variant="ghost"
+            aria-pressed={mode === theme.value}
+            className="group h-auto min-w-0 flex-col items-stretch gap-2 rounded-lg p-0 text-left hover:bg-transparent"
+            onClick={() => {
+              if (mode !== theme.value)
+                saveDeviceChoice(() => setMode(theme.value), () => setMode(mode))
+            }}
+          >
+            <ThemePreview mode={theme.value} selected={mode === theme.value} />
+            <span className="settings-label">{theme.label}</span>
+          </Button>
+        ))}
+      </fieldset>
+    </section>
   )
 }
 
-/**
- * Terminal appearance (native agent/shell panels): font size/family, line
- * height, background. Device-local like the theme; applies to LIVE terminals
- * instantly (no remount, the PTY keeps running). Empty inputs = the default.
- */
+/** Fixed swatches preview both palettes even when the surrounding theme changes. */
+function ThemePreview({ mode, selected }: { mode: ThemeMode; selected: boolean }): JSX.Element {
+  const outline = selected
+    ? 'ring-2 ring-primary'
+    : 'ring-1 ring-border group-hover:ring-border-strong'
+  if (mode === 'system')
+    return (
+      <span
+        aria-hidden="true"
+        className={`relative block h-[74px] overflow-hidden rounded-lg ${outline}`}
+        style={{ background: 'linear-gradient(115deg, #f2f1ed 50%, #16171a 50%)' }}
+      >
+        <span
+          className="absolute inset-[9px] rounded-[5px]"
+          style={{ background: 'linear-gradient(115deg, #fff 50%, #23262d 50%)' }}
+        />
+      </span>
+    )
+  const dark = mode === 'dark'
+  const line = dark ? 'bg-[#2c3038]' : 'bg-[#e8e6e0]'
+  return (
+    <span
+      aria-hidden="true"
+      className={`grid h-[74px] grid-cols-[30%_1fr] overflow-hidden rounded-lg ${outline}`}
+    >
+      <span className={`flex flex-col gap-[5px] px-[7px] py-[9px] ${dark ? 'bg-[#191a1e]' : 'bg-[#f4f3f0]'}`}>
+        <span className={`h-[5px] rounded ${line}`} />
+        <span className={`h-[5px] rounded ${line}`} />
+        <span className={`h-[5px] rounded ${line}`} />
+      </span>
+      <span className={`flex flex-col gap-[5px] p-[9px] ${dark ? 'bg-[#23262d]' : 'bg-white'}`}>
+        <span className="h-[5px] w-2/5 rounded bg-[#d9b477]" />
+        <span className={`h-[5px] rounded ${line}`} />
+        <span className={`h-[5px] w-[70%] rounded ${line}`} />
+      </span>
+    </span>
+  )
+}
+
 function TerminalAppearanceRows(): JSX.Element {
   const { settings, update } = useTerminalAppearance()
-  const isDefault =
-    settings.fontSize === undefined &&
-    settings.fontFamily === undefined &&
-    settings.lineHeight === undefined &&
-    settings.background === undefined
+  const isDefault = Object.keys(settings).length === 0
+  const background = settings.background ?? TERMINAL_DEFAULTS.background
   return (
-    <Subsection
-      title="Terminal"
-      hint="Font and colors of the native terminal panels. Applies to running sessions instantly."
-    >
-      <Row label="Font size">
-        <NumberField
-          min={FONT_SIZE_MIN}
-          max={FONT_SIZE_MAX}
-          step={1}
-          placeholder={String(TERMINAL_DEFAULTS.fontSize)}
-          stored={settings.fontSize}
-          onCommit={(n) => update({ fontSize: n })}
-        />
-      </Row>
-      <Row label="Line height">
-        <NumberField
-          min={LINE_HEIGHT_MIN}
-          max={LINE_HEIGHT_MAX}
-          step={0.05}
-          placeholder={String(TERMINAL_DEFAULTS.lineHeight)}
-          stored={settings.lineHeight}
-          onCommit={(n) => update({ lineHeight: n })}
-        />
-      </Row>
-      <Row label="Font family">
-        <Input
-          type="text"
-          className="max-w-[320px]"
-          placeholder="System monospace (default)"
-          value={settings.fontFamily ?? ''}
-          onChange={(e) => update({ fontFamily: e.target.value || undefined })}
-        />
-      </Row>
-      <Row label="Background">
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            aria-label="Terminal background color"
-            className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent"
-            value={settings.background ?? TERMINAL_DEFAULTS.background}
-            onChange={(e) => update({ background: e.target.value })}
-          />
-          {settings.background !== undefined && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => update({ background: undefined })}
-            >
-              Reset
-            </Button>
-          )}
+    <section>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="settings-h mb-1.5">Terminal</h3>
+          <p className="settings-prose">Applies to running sessions immediately.</p>
         </div>
-      </Row>
-      {!isDefault && (
         <Button
           type="button"
           size="sm"
           variant="ghost"
-          className="mt-3 text-muted-foreground"
+          disabled={isDefault}
           onClick={() =>
-            update({
-              fontSize: undefined,
-              fontFamily: undefined,
-              lineHeight: undefined,
-              background: undefined,
-            })
+            saveDeviceChoice(
+              () => update({ fontSize: undefined, fontFamily: undefined, lineHeight: undefined, background: undefined }),
+              () => update(settings),
+            )
           }
         >
-          Reset terminal appearance to defaults
+          Restore defaults
         </Button>
-      )}
-    </Subsection>
+      </div>
+      <NumberRow
+        label="Font size"
+        device
+        min={FONT_SIZE_MIN}
+        max={FONT_SIZE_MAX}
+        step={1}
+        unit="px"
+        placeholder={String(TERMINAL_DEFAULTS.fontSize)}
+        value={settings.fontSize}
+        emptyValue={undefined}
+        onChange={(fontSize) => update({ fontSize: fontSize ?? undefined })}
+      />
+      <NumberRow
+        label="Line height"
+        device
+        min={LINE_HEIGHT_MIN}
+        max={LINE_HEIGHT_MAX}
+        step={0.05}
+        placeholder={String(TERMINAL_DEFAULTS.lineHeight)}
+        value={settings.lineHeight}
+        emptyValue={undefined}
+        onChange={(lineHeight) => update({ lineHeight: lineHeight ?? undefined })}
+      />
+      <TextRow
+        label="Font"
+        device
+        placeholder="System monospace"
+        value={settings.fontFamily ?? ''}
+        onChange={(fontFamily) => update({ fontFamily: fontFamily.trim() || undefined })}
+      />
+      <Row label="Background" device>
+        <label className="relative inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 focus-within:ring-2 focus-within:ring-ring">
+          <input
+            type="color"
+            aria-label="Terminal background color"
+            className="size-6 cursor-pointer rounded border border-border bg-transparent p-0"
+            value={background}
+            onChange={(event) => {
+              const next = event.target.value
+              if (next !== background)
+                saveDeviceChoice(() => update({ background: next }), () => update({ background: settings.background }))
+            }}
+          />
+          <span className="settings-value">{background}</span>
+        </label>
+      </Row>
+    </section>
   )
 }
