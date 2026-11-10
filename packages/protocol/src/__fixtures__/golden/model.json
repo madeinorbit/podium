@@ -7078,6 +7078,14 @@
         "adoptable": true,
         "supersedable": true,
         "checkoutReach": "all",
+        "grants": [
+          {
+            "grantee": "grants[0].grantee",
+            "verb": "see",
+            "grantedAt": "grants[0].grantedAt",
+            "grantedBy": "grants[0].grantedBy"
+          }
+        ],
         "hostname": "hostname",
         "revokedAt": "revokedAt",
         "supersededBy": "supersededBy",
@@ -7171,7 +7179,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"targetUnavailableReason\":\"targetUnavailableReason\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"targetUnavailableReason\":\"targetUnavailableReason\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MachineComponent",
@@ -7190,6 +7198,34 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"daemon\""
+    },
+    {
+      "schema": "MachineGrantEntry",
+      "variant": "minimal",
+      "wire": {
+        "grantee": "grantee",
+        "verb": "see",
+        "grantedAt": "grantedAt",
+        "grantedBy": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"grantee\":\"grantee\",\"verb\":\"see\",\"grantedAt\":\"grantedAt\",\"grantedBy\":null}"
+    },
+    {
+      "schema": "MachineGrantEntry",
+      "variant": "full",
+      "wire": {
+        "grantee": "grantee",
+        "verb": "see",
+        "grantedAt": "grantedAt",
+        "grantedBy": "grantedBy"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"grantee\":\"grantee\",\"verb\":\"see\",\"grantedAt\":\"grantedAt\",\"grantedBy\":\"grantedBy\"}"
     },
     {
       "schema": "MachineHarnessVersion",

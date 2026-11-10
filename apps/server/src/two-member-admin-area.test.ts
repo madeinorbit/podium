@@ -166,6 +166,39 @@ describe('Machines and Audit', () => {
     )
   })
 
+  it('Alice sees Bob taking a key back from a machine, including in Credentials', async () => {
+    const alice = (await f.as('alice')).trpc
+    const bob = (await f.as('bob')).trpc
+    const credential = 'sk-ant-admin-audit-bob-11111111111111'
+    const send = { id: 'managed:anthropic', machineId: f.machines.alice }
+    await alice.machines.share.mutate({
+      id: f.machines.alice,
+      grantee: MEMBERS.bob.id,
+      verb: 'use',
+      acknowledgeSharedMachine: true,
+    })
+    await bob.accounts.connect.mutate({ provider: 'anthropic', kind: 'api-key', credential })
+    await bob.accounts.send.mutate({ ...send, acknowledgeSharedMachine: true })
+    expect(await bob.accounts.unsend.mutate(send)).toMatchObject({ ok: true, removed: true })
+
+    for (const query of ['', '?kind=credentials', `?kind=credentials&actor=${MEMBERS.bob.id}`]) {
+      const { status, body } = await get('alice', `/auth/admin/audit${query}`)
+      expect(status).toBe(200)
+      expect(body.events).toContainEqual(
+        expect.objectContaining({
+          command: 'accounts.unsend',
+          result: 'applied',
+          actor: { kind: 'member', id: MEMBERS.bob.id, name: 'Bob' },
+          onBehalfOf: { kind: 'member', id: MEMBERS.bob.id, name: 'Bob' },
+          target: { kind: 'machine', id: f.machines.alice, name: f.machines.alice },
+          facts: {},
+          at: expect.any(String),
+        }),
+      )
+      expect(JSON.stringify(body)).not.toContain(credential)
+    }
+  })
+
   it('shows member, role and admission events and never secrets, tokens, emails or preference values', async () => {
     const alice = await f.as('alice')
     const invited = await post('alice', '/auth/members/invite', {

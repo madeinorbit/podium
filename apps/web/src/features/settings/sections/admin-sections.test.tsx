@@ -191,6 +191,32 @@ test('Audit filters on the server, pages with the same filters, and restarts whe
   ).toContain('/auth/admin/audit?limit=100&actor=bob&refusedOnly=true')
 })
 
+test('Audit labels taking a key back from a machine in the Credentials filter', async () => {
+  serve({
+    '/auth/admin/audit?limit=100': { events: [], nextBefore: null },
+    '/auth/admin/audit?limit=100&kind=credentials': {
+      events: [
+        event(1, {
+          command: 'accounts.unsend',
+          actor: { kind: 'member', id: 'bob', name: 'Bob' },
+          onBehalfOf: { kind: 'member', id: 'bob', name: 'Bob' },
+          target: { kind: 'machine', id: 'm-1', name: 'Spare build box' },
+        }),
+      ],
+      nextBefore: null,
+    },
+  })
+  render(<AuditSection />)
+  await screen.findByText('No events yet.')
+  fireEvent.change(screen.getByRole('combobox', { name: 'Event kind' }), {
+    target: { value: 'credentials' },
+  })
+  const table = await screen.findByRole('table', { name: 'Security events' })
+  expect(
+    [...table.querySelectorAll('tbody tr td')].slice(1).map((cell) => cell.textContent),
+  ).toEqual(['Bob', 'Took a key back', 'Spare build box', 'Done'])
+})
+
 test('Audit discards an older page that arrives after a filter change', async () => {
   serve({
     '/auth/admin/audit?limit=100': {

@@ -26,6 +26,7 @@ const fixtures = [
   { command: 'takeover', person: 'alice', kind: 'machines', refused: false },
   { command: 'issues.editComment', person: 'alice', kind: 'comments', refused: false },
   { command: 'settings.clearSecret', person: 'bob', kind: 'credentials', refused: false },
+  { command: 'accounts.unsend', person: 'bob', kind: 'credentials', refused: false },
   { command: 'members.disable', person: 'alice', kind: 'people', refused: true, agent: true },
   { command: 'machines.enrollSetup', person: 'system', kind: 'machines', refused: false },
   { command: 'members.remove', person: 'alice', kind: 'people', refused: true },

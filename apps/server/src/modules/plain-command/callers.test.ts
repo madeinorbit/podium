@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 28 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 29 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -20,10 +20,12 @@
  *  - first-run setup, as the bootstrap principal (the earliest admin);
  *  - the operator CLI (`podium logs level|daemon`, `podium join`, `podium setup`),
  *    on the operator's own credential;
- *  - agents and the daemon: none of the 28 today. The agent rows below pin what
+ *  - agents and the daemon: none of the 29 today. The agent rows below pin what
  *    one would get;
  *  - `accounts.share` (POD-6360): Settings → Accounts, the owner on their own key
  *    and an admin on any key (POD-6390);
+ *  - `accounts.unsend` (POD-6699): the owner taking back a sent key, or an admin
+ *    taking it back for them;
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -174,6 +176,27 @@ const CALLERS: readonly {
     expect: 'ok',
     input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: false, users: [] },
   },
+  {
+    command: 'accounts.unsend',
+    who: 'member',
+    caller: 'take back own sent key',
+    expect: 'ok',
+    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
+  },
+  {
+    command: 'accounts.unsend',
+    who: 'member',
+    caller: "take back another user's sent key",
+    expect: 'floor',
+    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
+  },
+  {
+    command: 'accounts.unsend',
+    who: 'admin',
+    caller: "take back another user's sent key",
+    expect: 'ok',
+    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
+  },
   // Every user signs in their OWN harness accounts (user decision 2026-11-04):
   // the terminal is spawned as the member, on a machine the member may use. The
   // refusals for another user's machine or running attempt are pinned below.
@@ -246,7 +269,7 @@ const CALLERS: readonly {
   { command: 'perf.report', who: 'agent', caller: 'none today', expect: 'ok' },
   { command: 'telemetry.set', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
-  // An agent may not sign its human in, store, remove or share a key as them:
+  // An agent may not sign its human in, store, remove, share or take back a key as them:
   // refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
@@ -258,11 +281,18 @@ const CALLERS: readonly {
     expect: 'floor',
     input: { id: 'managed:anthropic', everyone: true, users: [] },
   },
+  {
+    command: 'accounts.unsend',
+    who: 'agent',
+    caller: 'none today',
+    expect: 'floor',
+    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
+  },
 ]
 
-describe('every current caller of the 28 non-sync commands', () => {
-  it('covers the 28 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(28) // accounts.keys is a query; the two settings writes are record edits
+describe('every current caller of the 29 non-sync commands', () => {
+  it('covers the 29 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(29) // includes accounts.unsend; accounts.keys is a query
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -270,8 +300,16 @@ describe('every current caller of the 28 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(28)
+    expect(plain).toHaveLength(29)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
+  })
+
+  it('classifies accounts.unsend as an online-sensitive credential write', () => {
+    expect(CONTRACTS.get('accounts.unsend')).toMatchObject({
+      visibility: 'secret',
+      policy: { action: 'write', roleFloor: 'member', resource: 'secret' },
+      delivery: { class: 'online-sensitive' },
+    })
   })
 
   it.each(

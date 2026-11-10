@@ -157,6 +157,7 @@ export const SECURITY_EVENT_COMMANDS = [
   'takeover',
   'settings.setSecret',
   'settings.clearSecret',
+  'accounts.unsend',
   'issues.editComment',
   'issues.deleteComment',
 ] as const
@@ -185,7 +186,11 @@ const securityEventsNewestFirst = preparedFamily((db: StoreDrizzle, shape: Secur
       : kind === 'machines'
         ? or(prefix('machines.'), eq(settingsAuditEvents.command, 'takeover'))
         : kind === 'credentials'
-          ? inArray(settingsAuditEvents.command, ['settings.setSecret', 'settings.clearSecret'])
+          ? inArray(settingsAuditEvents.command, [
+              'settings.setSecret',
+              'settings.clearSecret',
+              'accounts.unsend',
+            ])
           : kind === 'comments'
             ? inArray(settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
             : or(

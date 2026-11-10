@@ -57,6 +57,7 @@ const EVENT_LABEL: Record<string, string> = {
   'machines.adoptLegacyHost': 'Adopted the host machine',
   'settings.setSecret': 'Set secret',
   'settings.clearSecret': 'Cleared secret',
+  'accounts.unsend': 'Took a key back',
   'issues.editComment': 'Edited another member’s comment',
   'issues.deleteComment': 'Deleted another member’s comment',
 }
