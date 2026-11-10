@@ -1,21 +1,15 @@
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
 import { type ReactNode, useState } from 'react'
-import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
 import { color, font, mono, sans, space } from '../theme/theme'
 import type { AppIcon } from './icons'
 import { PressableScale } from './PressableScale'
 import type { ScreenAction } from './screen-actions'
 
 export type { ScreenAction, ScreenMenuItem } from './screen-actions'
-
-/**
- * iOS 26 gives the navigation item a native subtitle: under the large title at
- * rest and under the inline title once it collapses. Earlier systems and
- * Android keep the context strip below the bar.
- */
-const nativeSubtitle = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 26
 
 const noop = () => {}
 
@@ -58,7 +52,7 @@ export function Screen({
 }) {
   const insets = useSafeAreaInsets()
   const subtitleText = typeof subtitle === 'string' && subtitle ? subtitle : undefined
-  const subtitleInBar = nativeSubtitle && subtitleText != null && !monoSubtitle
+  const subtitleInBar = nativeSubtitleAvailable && subtitleText != null && !monoSubtitle
   const stripSubtitle = subtitleInBar ? null : subtitle
   const hasContext = !noHeader && (leading != null || stripSubtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
@@ -81,13 +75,7 @@ export function Screen({
           headerBackButtonDisplayMode: 'minimal',
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
-          // `subtitle`/`largeSubtitle` come from patches/react-native-screens@4.26.2.patch,
-          // which the public header-config type does not list.
-          unstable_nativeProps: {
-            headerConfig: (subtitleInBar
-              ? { subtitle: subtitleText, largeSubtitle: large ? subtitleText : undefined }
-              : { subtitle: undefined, largeSubtitle: undefined }) as object,
-          },
+          ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
           ...(right ? { headerRight: () => <View style={styles.actions}>{right}</View> } : {}),
           ...(onBack && backAs === 'text'
             ? {

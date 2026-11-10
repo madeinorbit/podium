@@ -1,4 +1,5 @@
 import type { NativeStackNavigationOptions } from 'expo-router'
+import { Platform } from 'react-native'
 import { color } from '../theme/theme'
 
 /**
@@ -32,3 +33,25 @@ export const detailStackOptions: NativeStackNavigationOptions = {
   headerBackButtonDisplayMode: 'minimal',
   headerTitleStyle: titleColor,
 }
+
+/**
+ * iOS 26 navigation subtitle (patches/react-native-screens@4.26.2.patch): under
+ * the large title at rest and under the inline title once it collapses. Spread
+ * into `Stack.Screen` options; `Screen` does this for its string `subtitle`.
+ * Systems before iOS 26 ignore it, so check {@link nativeSubtitleAvailable}
+ * before relying on it as the only place a subtitle shows.
+ */
+export function headerSubtitleOptions(
+  subtitle: string | undefined,
+  { large = false }: { large?: boolean } = {},
+): Pick<NativeStackNavigationOptions, 'unstable_nativeProps'> {
+  const headerConfig = {
+    subtitle: subtitle || undefined,
+    largeSubtitle: large ? subtitle || undefined : undefined,
+  }
+  // The patched props are not in the public header-config type.
+  return { unstable_nativeProps: { headerConfig: headerConfig as object } }
+}
+
+export const nativeSubtitleAvailable =
+  Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 26
