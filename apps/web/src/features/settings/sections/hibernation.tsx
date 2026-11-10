@@ -1,18 +1,11 @@
 import type { PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { backstopHours, backstopMinutes } from './hibernation-values'
-import { CommitInput, clampInt, NumberRow, Row, Section, Subsection } from './shared'
+import { NumberRow, Row, Section } from './shared'
 
-/** Idle-session limits apply across the workspace. Worktree cleanup moves with Projects. */
+/** Idle-session limits apply across the workspace. */
 export const HibernationSection = observer(function HibernationSection({
   settings,
   patch,
@@ -143,60 +136,6 @@ export const HibernationSection = observer(function HibernationSection({
           }
         />
       </fieldset>
-
-      <Subsection
-        title="Worktree GC"
-        hint="Closed issues keep their checkouts until age and policy say otherwise. Propose records what it would free; auto applies. Uncommitted changes always refuse."
-      >
-        <Row
-          setting="worktreeGc.mode"
-          label="Mode"
-          description="Propose is the default so a first run of a large backlog is inspectable before anything is deleted from disk."
-        >
-          <Select
-            value={settings.worktreeGc.mode}
-            onValueChange={(value) =>
-              patch({
-                worktreeGc: {
-                  ...settings.worktreeGc,
-                  mode: value as 'off' | 'propose' | 'auto',
-                },
-              })
-            }
-          >
-            <SelectTrigger aria-label="Worktree GC mode" className="w-[140px] flex-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="off">Off</SelectItem>
-              <SelectItem value="propose">Propose</SelectItem>
-              <SelectItem value="auto">Auto</SelectItem>
-            </SelectContent>
-          </Select>
-        </Row>
-        <Row
-          setting="worktreeGc.afterDays"
-          label="After (days)"
-          description="Measured from the issue's closedAt. Archive already frees on its way past; this sweeps the closed-but-never-archived tail."
-        >
-          <CommitInput
-            aria-label="Worktree GC after days"
-            className="w-[90px] flex-none"
-            type="number"
-            min={1}
-            max={730}
-            value={settings.worktreeGc.afterDays}
-            onChange={(e) =>
-              patch({
-                worktreeGc: {
-                  ...settings.worktreeGc,
-                  afterDays: clampInt(e.target.value, 1, 730, 14),
-                },
-              })
-            }
-          />
-        </Row>
-      </Subsection>
     </Section>
   )
 })

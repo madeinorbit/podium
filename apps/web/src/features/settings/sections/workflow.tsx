@@ -1,94 +1,138 @@
 import type { PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
+import type { SecretSurfaceState } from './secrets'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { CommitInput, Row, Section } from './shared'
+  clampInt,
+  CommitInput,
+  Row,
+  SecretRow,
+  Section,
+  SegmentedRow,
+  SwitchRow,
+  TextRow,
+} from './shared'
 
-/** Git workflow defaults (parent branch, merge style, rebase) + issue assistant. */
+interface LinearSecret {
+  state: SecretSurfaceState
+  busy: boolean
+  error: string | null
+  onSet: (value: string) => Promise<unknown>
+  onClear: () => Promise<unknown>
+}
+
+/** Workspace defaults for how tasks branch, land and get cleaned up. */
 export const WorkflowSection = observer(function WorkflowSection({
   settings,
   patch,
+  linear,
 }: {
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
+  linear?: LinearSecret
 }): JSX.Element {
   return (
-    <Section title="Git workflow" hint="Defaults for task worktrees and the quick-action buttons.">
-      <Row
-        setting="gitWorkflow.defaultParentBranch"
-        label="Default parent branch"
-        description="New tasks branch from this in repositories without their own base branch. Leave empty to use each repository's main branch."
-      >
-        <CommitInput
-          type="text"
-          placeholder="(auto-detect)"
+    <>
+      <Section title="Branches and landing">
+        <TextRow
+          setting="gitWorkflow.defaultParentBranch"
+          label="Default base branch"
+          description="Where new tasks branch from and land, unless the project sets its own."
+          placeholder="Each repo’s main branch"
           value={settings.gitWorkflow.defaultParentBranch}
-          onChange={(e) =>
-            patch({
-              gitWorkflow: {
-                ...settings.gitWorkflow,
-                defaultParentBranch: e.target.value,
-              },
-            })
+          onChange={(value) =>
+            patch({ gitWorkflow: { ...settings.gitWorkflow, defaultParentBranch: value.trim() } })
           }
         />
-      </Row>
-      <Row setting="gitWorkflow.mergeStyle" label="Merge style">
-        <Select
-          value={settings.gitWorkflow.mergeStyle}
-          onValueChange={(value) =>
-            patch({
-              gitWorkflow: {
-                ...settings.gitWorkflow,
-                mergeStyle: value as 'ff-only' | 'pr' | 'ask',
-              },
-            })
+        <SwitchRow
+          setting="gitWorkflow.autoRebaseBeforeMerge"
+          label="Rebase before landing"
+          description="Brings a task’s branch up to date with its base before it merges, so landing is a fast-forward."
+          value={settings.gitWorkflow.autoRebaseBeforeMerge}
+          onChange={(value) =>
+            patch({ gitWorkflow: { ...settings.gitWorkflow, autoRebaseBeforeMerge: value } })
           }
+        />
+      </Section>
+      <Section
+        title="Worktree cleanup"
+        hint="Closed tasks keep their checkout for a while. Worktrees with uncommitted changes are never touched."
+      >
+        <SegmentedRow
+          setting="worktreeGc.mode"
+          label="When a closed task’s worktree is old"
+          value={settings.worktreeGc.mode}
+          options={[
+            { value: 'off', label: 'Keep' },
+            { value: 'propose', label: 'Suggest' },
+            { value: 'auto', label: 'Delete' },
+          ]}
+          onChange={(mode) => patch({ worktreeGc: { ...settings.worktreeGc, mode } })}
+        />
+        <Row
+          setting="worktreeGc.afterDays"
+          label="Old means"
+          readOnlyValue={`${settings.worktreeGc.afterDays} days after closing`}
         >
-          <SelectTrigger className="w-full flex-1">
-            <SelectValue>
-              {
-                { 'ff-only': 'FF-only merge', pr: 'Open PR', ask: 'Ask each time' }[
-                  settings.gitWorkflow.mergeStyle
-                ]
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ff-only">FF-only merge</SelectItem>
-            <SelectItem value="pr">Open PR</SelectItem>
-            <SelectItem value="ask">Ask each time</SelectItem>
-          </SelectContent>
-        </Select>
-      </Row>
-      <Row setting="gitWorkflow.autoRebaseBeforeMerge" label="Rebase before merge">
-        <Switch
-          checked={settings.gitWorkflow.autoRebaseBeforeMerge}
-          onCheckedChange={(checked) =>
-            patch({
-              gitWorkflow: {
-                ...settings.gitWorkflow,
-                autoRebaseBeforeMerge: checked,
-              },
-            })
-          }
+          <CommitInput
+            aria-label="Old means"
+            className="w-20 flex-none"
+            type="number"
+            min={1}
+            max={730}
+            disabled={settings.worktreeGc.mode === 'off'}
+            value={settings.worktreeGc.afterDays}
+            onChange={(event) =>
+              patch({
+                worktreeGc: {
+                  ...settings.worktreeGc,
+                  afterDays: clampInt(event.target.value, 1, 730, 14),
+                },
+              })
+            }
+          />
+          <span className="settings-micro">days after closing</span>
+        </Row>
+      </Section>
+      <Section title="Task assistant">
+        <SwitchRow
+          setting="issues.assistantEnabled"
+          label="Keep a summary on each task"
+          description="Runs on each person’s background model when a task changes."
+          value={settings.issues.assistantEnabled}
+          onChange={(value) => patch({ issues: { ...settings.issues, assistantEnabled: value } })}
         />
-      </Row>
-      <Row setting="issues.assistantEnabled" label="Task AI assistant enabled">
-        <Switch
-          checked={settings.issues.assistantEnabled}
-          onCheckedChange={(checked) =>
-            patch({ issues: { ...settings.issues, assistantEnabled: checked } })
-          }
-        />
-      </Row>
-    </Section>
+        <LinearRow linear={linear} />
+      </Section>
+    </>
   )
 })
+
+function LinearRow({ linear }: { linear: LinearSecret | undefined }) {
+  const description = 'Lets you and the superagent find Linear issues to link to tasks.'
+  if (!linear || linear.state.status !== 'available')
+    return (
+      <Row
+        label="Linear"
+        description={description}
+        readOnly
+        readOnlyValue={linear?.state.status === 'loading' ? 'Loading…' : 'Ask an admin'}
+      />
+    )
+  const presence = linear.state.rows.find((row) => row.key === 'integrations.linearApiKey')
+  return (
+    <SecretRow
+      setting="integrations.linearApiKey"
+      label="Linear"
+      description={description}
+      present={presence?.present === true}
+      fingerprint={presence?.fingerprint}
+      pending={linear.busy}
+      error={linear.error}
+      onSave={linear.onSet}
+      onRemove={async () => {
+        await linear.onClear()
+      }}
+    />
+  )
+}

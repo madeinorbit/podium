@@ -119,9 +119,9 @@ const PillButton = forwardRef<
 PillButton.displayName = 'PillButton'
 
 const BASE_BRANCH_TITLE = {
-  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings → Projects.",
+  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings › Projects.",
   podium:
-    'The Podium default parent branch (Settings → Projects). This repository has no base branch of its own.',
+    'The Podium default parent branch (Settings › Projects). This repository has no base branch of its own.',
   auto: 'Podium picks main, master or the checked-out branch when the task is created.',
 } as const
 
