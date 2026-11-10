@@ -3029,7 +3029,7 @@ describe('agent state', () => {
         expiresAt: new Date(301_000).toISOString(),
       })
 
-      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId)
+      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId, firstAdminMemberId())
 
       expect(result.status).toBe('connected')
       if (result.status !== 'connected') throw new Error('expected setup to connect')

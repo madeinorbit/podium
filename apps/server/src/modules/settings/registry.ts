@@ -100,7 +100,7 @@ export const SETTINGS_COMMANDS_TRPC = {
     contract: SETTINGS_CONTRACTS['settings.telegramBotPresence'],
     handler: (async (svc) => await svc.telegramBotPresence()) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramBotPresence']['input']>,
-      boolean
+      Promise<boolean>
     >,
   },
   'settings.telegramDisconnect': {
